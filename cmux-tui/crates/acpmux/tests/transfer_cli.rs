@@ -64,6 +64,12 @@ impl Daemon {
         Self::with_env(tag, target, json!({}), &[], "approve-all").await
     }
 
+    /// The same, with the test agent under the harness name `harness`.
+    async fn with_harness(tag: &str, target: Option<&Daemon>, harness: &str) -> Self {
+        let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
+        Self::spawn_as(tag, peer, json!({}), harness).await
+    }
+
     /// `with_peer`, with `harness_env` in the fake harness's env, `vars` in the daemon's, and
     /// `policy` its permission policy.
     async fn with_env(
@@ -74,7 +80,7 @@ impl Daemon {
         policy: &str,
     ) -> Self {
         let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
-        Self::spawn_full(tag, peer, harness_env, false, vars, policy).await
+        Self::spawn_full(tag, peer, harness_env, "fake", false, vars, policy).await
     }
 
     /// Where the daemon tagged `tag` lives, known before it starts (two daemons that are each
@@ -89,7 +95,17 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
-        Self::spawn_full(tag, peer, agent_env, false, &[], "approve-all").await
+        Self::spawn_inner(tag, peer, agent_env, "fake", false).await
+    }
+
+    /// [`Self::spawn`], with the test agent under the harness name `harness`.
+    async fn spawn_as(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        harness: &str,
+    ) -> Self {
+        Self::spawn_inner(tag, peer, agent_env, harness, false).await
     }
 
     /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
@@ -100,14 +116,26 @@ impl Daemon {
         agent_env: Value,
         linked: bool,
     ) -> Self {
-        Self::spawn_full(tag, peer, agent_env, linked, &[], "approve-all").await
+        Self::spawn_inner(tag, peer, agent_env, "fake", linked).await
     }
 
-    /// [`Self::spawn_with`], with `vars` in the daemon's env and `policy` its permission policy.
+    async fn spawn_inner(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        harness: &str,
+        linked: bool,
+    ) -> Self {
+        Self::spawn_full(tag, peer, agent_env, harness, linked, &[], "approve-all").await
+    }
+
+    /// [`Self::spawn_inner`], with `vars` in the daemon's env and `policy` its permission policy.
+    #[allow(clippy::too_many_arguments)]
     async fn spawn_full(
         tag: &str,
         peer: Option<(PathBuf, PathBuf)>,
         agent_env: Value,
+        harness: &str,
         linked: bool,
         vars: &[(&str, &str)],
         policy: &str,
@@ -124,7 +152,7 @@ impl Daemon {
         if let Some(family) = family {
             profile["family"] = family;
         }
-        let mut config = json!({"harnesses": {"fake": profile}, "defaultHarness": "fake", "permissionPolicy": policy});
+        let mut config = json!({"harnesses": {harness: profile}, "defaultHarness": harness, "permissionPolicy": policy});
         if linked {
             let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
             let listen = free.local_addr().expect("its address").to_string();
@@ -201,6 +229,8 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     assert_eq!(info["moving"], false, "{info}");
 }
 
+#[path = "transfer_cli/composer_attachments.rs"]
+mod composer_attachments;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]
@@ -212,3 +242,7 @@ mod session_move_follow;
 mod session_move_live;
 #[path = "transfer_cli/session_move_reachable.rs"]
 mod session_move_reachable;
+#[path = "transfer_cli/session_move_target_ask.rs"]
+mod session_move_target_ask;
+#[path = "transfer_cli/view_latency.rs"]
+mod view_latency;

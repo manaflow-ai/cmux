@@ -12,7 +12,7 @@ const PNG_B64: &str =
 
 impl Rpc {
     /// `call`, answering the error instead of failing the test.
-    async fn try_call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+    pub(super) async fn try_call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
         self.next += 1;
         let id = self.next;
         let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
@@ -493,6 +493,7 @@ async fn codex_store_moves(way: Way) {
 
     // Under the target's `~/work`, where Move to Cloud's guarded receive takes a folder.
     let destination = home_of(&format!("{tag}-t")).join("work/arrived");
+    std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
     let mut dst = Rpc::connect(&target.socket).await;
     match way {
         Way::Cli => {
@@ -512,6 +513,14 @@ async fn codex_store_moves(way: Way) {
         on_target.len() == 1 && std::fs::read(&on_target[0]).ok().as_deref() == Some(&rollout[..]),
         format!("{on_target:?}"),
     );
+    // Moved as the app moves it (a `peer`-controlled receive), the target respawns the agent as
+    // a remote launch, which takes a Codex chat only through the `codex app-server` bridge
+    // (`web_modes::remote_start`). The fake agent speaks ACP, so it is refused there
+    // (`remote.mode_not_asking`); the CLI row checks the resume from the moved store.
+    if matches!(way, Way::Gui) {
+        assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
+        return;
+    }
     let answer = dst.try_call("session/prompt", prompt(id, "p-probe", "history-probe")).await;
     let probe = dst.texts(id, "agent_message_chunk").await.pop().unwrap_or_default();
     let probe: Value = serde_json::from_str(&probe).unwrap_or(Value::Null);
@@ -610,6 +619,7 @@ async fn claude_subagent_folds_move(way: Way) {
 
     // Under the target's `~/work`, where Move to Cloud's guarded receive takes a folder.
     let destination = home_of(&format!("{tag}-t")).join("work/arrived");
+    std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
     let mut dst = Rpc::connect(&target.socket).await;
     match way {
         Way::Cli => {
