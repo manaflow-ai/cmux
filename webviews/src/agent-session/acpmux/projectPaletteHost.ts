@@ -35,7 +35,11 @@ export function useProjectPaletteHost(open: boolean, options: Options) {
   const latest = useRef(options);
   const lastSent = useRef<{ page: SourcePage; serialized: string } | null>(null);
   const active = useRef(false);
-  latest.current = options;
+  // The latest options for the host's events, written after each render (never during it) and before the effects
+  // below read them.
+  useLayoutEffect(() => {
+    latest.current = options;
+  });
   const serialized = open && mode !== "web" ? JSON.stringify(options.model) : "";
 
   const close = useCallback(() => {

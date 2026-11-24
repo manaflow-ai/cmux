@@ -104,9 +104,9 @@ export function SourcePicker({
     if (!trigger) return false;
     const { activeElement, body } = trigger.ownerDocument;
     // A pick can already have focused its destination.
-    return !activeElement || activeElement === body || activeElement.closest(".acpmux-add-project-palette")
-      ? trigger
-      : false;
+    if (!activeElement || activeElement === body || activeElement.closest(".acpmux-add-project-palette"))
+      return trigger;
+    return false;
   };
   const edit = (next: string) => {
     setQuery(next);
@@ -203,6 +203,14 @@ export function SourcePicker({
 
   const step = steps[page]();
   const rows = step.action ? [...step.rows, step.action] : step.rows;
+  // A native row's status: its own words or path, then a check on the current one ("main · ✓").
+  const nativeStatus = (status: string | undefined, current: boolean | undefined) => {
+    const parts = [status];
+    if (current) parts.push("✓");
+    const text = parts.filter(Boolean).join(" · ");
+    return text === "" ? undefined : text;
+  };
+  const messageEnabled = page === "url" && Boolean(typed) && !clone.cloning;
   const native = useProjectPaletteHost(open, {
     model: {
       page,
@@ -215,12 +223,10 @@ export function SourcePicker({
           id,
           label,
           icon,
-          status: [status ?? path, current ? "✓" : undefined].filter(Boolean).join(" · ") || undefined,
+          status: nativeStatus(status ?? path, current),
           enabled: true,
         })),
-        ...(step.message
-          ? [{ id: "\0message", label: step.message, enabled: page === "url" && Boolean(typed) && !clone.cloning }]
-          : []),
+        ...(step.message ? [{ id: "\0message", label: step.message, enabled: messageEnabled }] : []),
       ],
     },
     onEvent(event) {
@@ -548,7 +554,10 @@ function useGitURLClone(
   const turn = useRef(0);
   const [cloning, setCloning] = useState(false);
   const onPickRef = useRef(onPick);
-  onPickRef.current = onPick;
+  // The latest pick, for a clone that finishes after a render (written after the render, never during it).
+  useLayoutEffect(() => {
+    onPickRef.current = onPick;
+  });
   useLayoutEffect(
     () => () => {
       turn.current += 1;
