@@ -914,11 +914,14 @@ fn ask(
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
     });
-    match offer {
-        Offer::Full => {}
-        Offer::Revision(revision) => line["revision"] = revision.clone(),
-        Offer::Head => line["head"] = Value::Bool(true),
-        Offer::Extend => line["extend"] = Value::Bool(true),
+    let extra = match offer {
+        Offer::Full => None,
+        Offer::Revision(revision) => Some(("revision", revision.clone())),
+        Offer::Head => Some(("head", Value::Bool(true))),
+        Offer::Extend => Some(("extend", Value::Bool(true))),
+    };
+    if let (Some((key, value)), Some(fields)) = (extra, line.as_object_mut()) {
+        fields.insert(key.into(), value);
     }
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');

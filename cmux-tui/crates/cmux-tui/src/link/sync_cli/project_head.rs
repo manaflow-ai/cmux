@@ -53,7 +53,7 @@ pub(super) fn serve_head(
     }
     let close_head = reader.get_ref().try_clone()?;
     let _lock = hold_lock(at);
-    if let Some(data) = answer["data"].as_object_mut() {
+    if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
         data.insert("head_entries".into(), json!(head.manifest.len()));
         data.insert("head_ms".into(), json!(elapsed_ms(started)));
     }
@@ -113,7 +113,7 @@ fn extend(
         let (dialed, quiet) = redial(socket, name, at, encoded, offer);
         match dialed {
             Ok((reader, answer)) if ok(&answer) => {
-                if let Some(ms) = answer["data"]["extend_ms"].as_u64() {
+                if let Some(ms) = answer.pointer("/data/extend_ms").and_then(Value::as_u64) {
                     eprintln!("cmux link project: {at} extended: extend_ms={ms}");
                 }
                 return Ok(reader);
