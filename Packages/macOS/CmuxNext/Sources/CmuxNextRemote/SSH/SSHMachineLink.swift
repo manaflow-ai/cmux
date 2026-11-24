@@ -276,6 +276,10 @@ public actor SSHMachineLink {
     /// not connected yet; the link keeps dialing after it (``awaitReady(within:)``).
     public static let personDeadline: Duration = .seconds(10)
 
+    /// The running link's admin socket, for the port requests (`machine.portForward`, `portList`, `portClose`);
+    /// nil when no link process runs (the machine is not connected).
+    public func linkAdmin() -> SSHLinkAdmin? { child?.isRunning == true ? admin : nil }
+
     /// A person opened or reconnected the machine: a link still on its first dial dials now, and
     /// what it answers within `deadline` (the person's) shows. Nothing when no link process runs:
     /// the daemon connection's attempt starts one.

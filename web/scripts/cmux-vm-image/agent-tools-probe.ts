@@ -219,7 +219,8 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
  * MCP client over stdio (python3 on the image): starts one server from a spec file, initializes,
  * lists tools, runs `before_calls` (a shell command), makes `calls`, and writes a JSON report.
  * A call `{shell}` runs that shell command at its place instead. A call with `until` is repeated
- * every 2 s, for up to `until_s` seconds, until its text contains `until`. A call's PNG (an image
+ * every 2 s, for up to `until_s` seconds, until its text contains `until`; the report keeps each
+ * attempt's duration (`ms`). A call's PNG (an image
  * content item, else a PNG path in its text) is written to `copy_png_to`.
  */
 const MCP_CLIENT_PY = String.raw`import base64, json, os, re, select, shutil, subprocess, sys, time
@@ -254,13 +255,16 @@ for n, call in enumerate(spec.get("calls", [])):
     if "shell" in call:
         subprocess.run(call["shell"], shell=True); continue
     deadline = time.time() + call.get("until_s", 0)
+    ms = []
     while True:
+        t0 = time.time()
         res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
         body = res.get("result", {})
         text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+        ms.append(int((time.time() - t0) * 1000))
         if not call.get("until") or call["until"] in text or time.time() >= deadline: break
         time.sleep(2)
-    entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
+    entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "attempts": len(ms), "ms": ms, "text": (text or str(res.get("error", "")))[:1500]}
     images = [c["data"] for c in body.get("content", []) if c.get("type") == "image" and c.get("data")]
     m = re.search(r"(/[^\s\"']+\.png)", text)
     if call.get("copy_png_to") and images:
@@ -493,7 +497,11 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "install_ffmpeg", arguments: { confirm: true }, expect_error: true },
       ],
     },
-    cmux: { calls: [{ name: "browser_repl_eval", arguments: { session: "probe", code: `await page.goto(${JSON.stringify(`http://127.0.0.1:${PAGE_PORT}/`)}); console.log(await page.title()); screenshot()` }, copy_png_to: `${WORK_DIR}/browser.png` }] },
+    // The browser host's first call after launch sets the browser up (Browser.setPermission, a 10 s bound in the
+    // host); on a clone of a just-baked snapshot it timed out in about half the rolls (cmux run 45119294989) and
+    // answered in 631 ms on the next (45124861415). A timed-out attempt is repeated for up to 60 s, and the
+    // check names the attempts, so a slow first start shows its numbers and a host that never answers still fails.
+    cmux: { calls: [{ name: "browser_repl_eval", arguments: { session: "probe", code: `await page.goto(${JSON.stringify(`http://127.0.0.1:${PAGE_PORT}/`)}); console.log(await page.title()); screenshot()` }, copy_png_to: `${WORK_DIR}/browser.png`, until: PAGE_TITLE, until_s: 60 }] },
   };
   const lines: string[] = [];
   for (const server of servers.filter((s) => s.name in calls)) {
@@ -506,7 +514,7 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   // Only the Computer Use server acpmux attached is judged; with none, CU_SERVER's checks fail.
   const cu = attachedComputerUse(servers) ?? { name: CU_SERVER, ok: false, legacy: false };
   for (const name of Object.keys(calls).filter((n) => n === "cmux" || n === cu.name)) {
-    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> };
+    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean; attempts: number; ms: number[] }> };
     const stderr = await readGuest(vm, `${PROBE_DIR}/mcp-${name}.stderr`).catch(() => "");
     if (stderr) writeFileSync(path.join(outDir, `mcp-${name}.stderr`), stderr);
     try {
@@ -520,7 +528,7 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
     const missing = required.filter((t) => !report.tools.includes(t));
     check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")} (listed: ${report.tools.slice(0, 12).join(", ")})` : `${report.tools.length} tools, including ${required.join(", ")}`);
     const failed = report.calls.filter((c) => c.isError !== (c.expect_error === true));
-    check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
+    check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}${c.attempts > 1 ? ` (${c.attempts} attempts, ms ${c.ms.join("/")})` : ""}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
   }
   const ffmpeg = await run(vm, "command -v ffmpeg; dpkg-query -W -f='${Status}' ffmpeg libx264-164 2>/dev/null | grep -c 'ok installed' || true");
   if (cu.legacy) {
