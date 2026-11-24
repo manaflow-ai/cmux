@@ -1229,6 +1229,12 @@ impl Link {
         Ok(rtt)
     }
 
+    /// Queue a best-effort hello as soon as the transport is usable.
+    /// Its reserved nonce never becomes an RTT sample or readiness dependency.
+    pub(crate) fn send_early_hello(&self) {
+        let _ = self.inner.send_control(Frame::new(0, FrameType::Ping, u64::MAX.to_be_bytes().to_vec()));
+    }
+
     /// How long a probe of this link may wait for its pong: `floor`, or
     /// [`PROBE_RTT_FACTOR`] smoothed round trips when that is longer, at
     /// most [`PROBE_TIMEOUT_CAP`]. A fixed 1 s timeout never fits a 1 s round
