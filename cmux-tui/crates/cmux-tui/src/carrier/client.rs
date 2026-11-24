@@ -51,7 +51,8 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line, routes_line,
+    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    routes_line, routes_line_on,
 };
 use super::source::{
     CARRIER_AUTH, CARRIER_LANES, CachedGroup, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
@@ -653,13 +654,30 @@ impl RouteAttempt<'_> {
                 ..ReconnectPolicy::default()
             },
         };
-        let carrier_routes = Arc::new(CarrierRoutes::new(
-            RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
-            index,
-            cached,
-            self.session,
-            self.current.clone(),
-        ));
+        let carrier_routes = Arc::new(
+            CarrierRoutes::new(
+                RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
+                index,
+                cached,
+                self.session,
+                self.current.clone(),
+            )
+            .reporting_discovery({
+                let (machine, phases) = (self.plan.machine.clone(), self.plan.phases.clone());
+                Arc::new(move |error: &ProviderError| {
+                    let detail = error.to_string();
+                    let line = routes_line(
+                        &machine,
+                        Phase::Discover,
+                        None,
+                        None,
+                        Some(Step::Relay),
+                        Some(&detail),
+                    );
+                    phases(line);
+                })
+            }),
+        );
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connecting =
             ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
@@ -877,9 +895,20 @@ impl ResumeHooks for Resume {
         let outcome = result.err().map(resume_outcome);
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
-        let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
-        let detail = detail.as_deref();
-        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, detail));
+        // The route the session last moved to is the one this resume ran on.
+        let on = self.current.get();
+        let carrier = Some(on).filter(|_| outcome.is_none());
+        let tried = Some(on).filter(|_| outcome.is_some());
+        let line = routes_line_on(
+            &self.machine,
+            Phase::Resume,
+            None,
+            carrier,
+            tried,
+            outcome,
+            detail.as_deref(),
+        );
+        (self.phases)(line);
     }
 }
 

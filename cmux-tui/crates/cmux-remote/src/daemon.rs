@@ -42,7 +42,7 @@ use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
-use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
+use cmux_terminal_host_protocol::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -1416,7 +1416,7 @@ struct WebSocketState {
     keepalive: WebSocketKeepalive,
 }
 
-pub use cmux_tui_core::net_keepalive::WebSocketKeepalive;
+pub use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 
 /// How a direct WebSocket listener admits links.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1452,7 +1452,7 @@ struct LimitedTcpListener {
     inner: tokio::net::TcpListener,
     permits: Arc<Semaphore>,
     /// Spacing for accept errors that persist (descriptor exhaustion).
-    accept_backoff: cmux_tui_core::backoff::Backoff,
+    accept_backoff: cmux_tui_util::backoff::Backoff,
 }
 
 struct AdmissionIo {
@@ -1497,7 +1497,7 @@ impl Listener for LimitedTcpListener {
                 }
                 Err(error) => {
                     drop(permit);
-                    if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                    if cmux_tui_util::backoff::accept_error_needs_backoff(&error) {
                         tokio::time::sleep(self.accept_backoff.next_delay()).await;
                     }
                 }
@@ -1646,7 +1646,7 @@ pub async fn serve_direct_websocket_with_options(
     let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier, keepalive };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
-        accept_backoff: cmux_tui_core::backoff::Backoff::new(
+        accept_backoff: cmux_tui_util::backoff::Backoff::new(
             Duration::from_millis(10),
             Duration::from_secs(1),
         ),
@@ -1777,7 +1777,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

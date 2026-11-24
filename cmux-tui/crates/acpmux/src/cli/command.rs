@@ -90,6 +90,11 @@ pub struct MoveSessionsArgs {
     /// left as it is.
     #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
     pub from_snapshot: bool,
+    /// Land the chats on the machine's harness HARNESS instead of the one named like theirs
+    /// here: one that runs the same agent (a `claude-sr2` chat onto a machine that has only
+    /// `claude`). The machine refuses a harness for another agent, or one it does not have.
+    #[arg(long = "as", value_name = "HARNESS", conflicts_with = "from_snapshot")]
+    pub as_harness: Option<String>,
 }
 
 #[derive(Parser)]
