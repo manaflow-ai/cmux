@@ -48,6 +48,8 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
+import { OverloadNotice } from "../OverloadNotice";
+import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -129,6 +131,8 @@ type WorktreeError = {
 export type PaneComposerDeps = {
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
+  /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
+  hostOverload: HostOverload | undefined;
   readOnlySubagent: boolean;
   /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
   subagentRelay: ComposerRelay | undefined;
@@ -156,7 +160,8 @@ export type PaneComposerDeps = {
   /// Auto picked: the daemon decides where the Send goes first (App.tsx `autoSendGate`).
   autoSendGate: {
     picked: boolean;
-    holds: (text: string) => boolean;
+    holds: () => boolean;
+    cloudStart: () => { autoLanding?: AutoLanding };
     once: <A extends unknown[], R>(send: (...args: A) => R) => (...args: A) => R;
   };
   cloudHint: CloudChatHintState;
@@ -403,6 +408,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  hostOverload,
   markDockEdge,
   readOnlySubagent,
   subagentRelay,
@@ -822,6 +828,7 @@ export function drawPaneComposer({
                 {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
               </output>
             </Notice>
+            <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
             {!showNewTab && (
               <ShareNudge
@@ -1099,7 +1106,7 @@ export function drawPaneComposer({
               if (waitsInPane && !window.cmuxAcpmuxActions?.["chat.send"]) return sendInTurn();
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
-              if (autoSendGate.holds(text)) return false;
+              if (autoSendGate.holds()) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
@@ -1124,6 +1131,7 @@ export function drawPaneComposer({
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
+                    ...autoSendGate.cloudStart(),
                     // The agent and model the composer shows, as the New Tab page's Cloud send names them
                     // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
                     // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
