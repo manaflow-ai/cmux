@@ -891,6 +891,9 @@ struct HybridUnderlay {
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
     delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+    /// The second interface: the phone's socket on cell, or the Mac's view
+    /// of the phone's metered addresses (`wireguard_multipath.rs`).
+    assist: multipath::Assist,
 }
 
 /// Peer-reflexive addresses kept as paths at once (newest win).
@@ -972,6 +975,7 @@ impl HybridUnderlay {
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
+            assist: multipath::Assist::default(),
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay.sync_paths();
@@ -1000,6 +1004,16 @@ impl HybridUnderlay {
     /// Apply the roaming side's changes, then bring the selector's paths in
     /// line with the routes they leave.
     fn apply(&mut self, control: Control) {
+        let control = match control {
+            Control::Rebind { socket, stun, reflexive, timeline } if self.rebind_after_promotion() => {
+                // The promoted socket is on the new network already.
+                drop(socket);
+                self.reassert(stun, reflexive, timeline);
+                self.sync_paths();
+                return;
+            }
+            control => control,
+        };
         match &control {
             Control::Rebind { .. } => {
                 // New mappings: what the old socket learned is stale.
@@ -1008,6 +1022,7 @@ impl HybridUnderlay {
                 self.paths.on_network_change();
             }
             Control::Turn(_) | Control::Blackhole => self.paths.forget_carrier(Carrier::Turn),
+            Control::Promote => self.paths.forget_carrier(Carrier::Turn),
             _ => {}
         }
         self.apply_one(control);
@@ -1049,6 +1064,7 @@ impl HybridUnderlay {
             || self.refused.contains(&addr)
             || self.candidates.contains(&addr)
             || self.learned.contains(&addr)
+            || self.is_metered(addr)
         {
             return;
         }
@@ -1188,6 +1204,14 @@ impl HybridUnderlay {
                 self.turn_targets.clear();
             }
             Control::Dark(dark) => self.dark = dark,
+            Control::Secondary(socket) => self.attach_secondary(socket),
+            Control::Promote => {
+                self.promote();
+                // The allocation rode the old network; the roam takes a new one.
+                self.retire_turn();
+                self.turn_targets.clear();
+            }
+            Control::PeerMetered(addresses) => self.set_peer_metered(&addresses),
             Control::KillTurn => {
                 if let Some(turn) = &self.turn {
                     turn.kill();
@@ -1584,6 +1608,32 @@ impl HybridUnderlay {
         self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
 
+    /// A roam onto the network the session already moved to
+    /// ([`Self::promote`]): only the reflexive address and the TURN
+    /// allocation are new.
+    fn reassert(
+        &mut self,
+        stun: Vec<SocketAddr>,
+        reflexive: mpsc::UnboundedSender<SocketAddr>,
+        timeline: Timeline,
+    ) {
+        timeline.mark("roam_reasserted");
+        self.retire_turn();
+        self.turn_targets.clear();
+        self.stun.clear();
+        for server in stun {
+            let mut transaction = [0u8; 12];
+            getrandom::fill(&mut transaction).expect("operating system randomness");
+            let request = cmux_transport::stun::binding_request(transaction);
+            if self.socket.try_send_to(&request, server).is_ok() {
+                self.stun.push((transaction, server));
+            }
+        }
+        self.reflexive = Some(reflexive);
+        self.roam = Some(timeline);
+        self.publish_path();
+    }
+
     fn demote(&mut self, why: &str) {
         if self.confirmed {
             tracing::debug!(why, "WireGuard route no longer confirmed; sending on every route again");
@@ -1637,6 +1687,7 @@ impl HybridUnderlay {
         buffer[..len].copy_from_slice(&datagram[..len]);
         match origin.path {
             TURN_PATH => self.last_turn_source = origin.addr,
+            multipath::SECONDARY_PATH => {}
             _ => self.last_udp_source = origin.addr,
         }
         Some(Received { len, origin })
@@ -1765,6 +1816,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class(datagram);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.assist_send(datagram, class);
         self.note_initiation(datagram, class);
     }
 
@@ -1773,6 +1825,7 @@ impl Underlay for HybridUnderlay {
         let class = send_class_of(datagram, priority);
         self.record(datagram, class);
         self.transmit(datagram, class);
+        self.assist_send(datagram, class);
         self.note_initiation(datagram, class);
     }
 
@@ -1783,6 +1836,7 @@ impl Underlay for HybridUnderlay {
         self.drain_control();
         self.answering = answer;
         self.transmit(datagram, SendClass::Input);
+        self.assist_send(datagram, SendClass::Input);
         self.answering = false;
     }
 
@@ -1794,6 +1848,9 @@ impl Underlay for HybridUnderlay {
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {
         self.drain_control();
         let class = send_class(datagram);
+        if path == multipath::SECONDARY_PATH && self.send_secondary(datagram) {
+            return;
+        }
         if let Some(route) = self.paths.route_of(path) {
             let _ = self.send_route(route, datagram, class);
             return;
@@ -1844,6 +1901,7 @@ impl Underlay for HybridUnderlay {
                     {
                         continue;
                     }
+                    self.note_arrival(source);
                     let origin = Origin { path: UDP_PATH, addr: Some(source) };
                     if self.impaired(&buffer[..len], origin) {
                         continue;
@@ -1863,6 +1921,11 @@ impl Underlay for HybridUnderlay {
                 }
                 Poll::Pending => break,
             }
+        }
+        // A dark network is the primary one: the second socket's interface
+        // stays up (Wi-Fi died, cell lives).
+        if let Some(received) = self.poll_secondary(cx, buffer) {
+            return Poll::Ready(Ok(received));
         }
         while let Some(turn) = &mut self.turn
             && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
@@ -1895,6 +1958,10 @@ impl Underlay for HybridUnderlay {
 
     fn authenticated(&mut self, origin: Origin) {
         let now = Instant::now();
+        if self.assist_heard(origin, now) {
+            self.handshake_repeat = None;
+            return;
+        }
         let carrier = match origin.path {
             UDP_PATH => Carrier::Udp,
             TURN_PATH => Carrier::Turn,
@@ -2162,6 +2229,7 @@ fn start_tunnel(
         keeps_turn: spec.keeps_turn,
         turn_dead,
         route_to,
+        peer_version: spec.peer_version,
     });
     Ok(Tunnel { session, path: path_rx, peer })
 }
