@@ -1542,5 +1542,40 @@ class Workflow(unittest.TestCase):
                                             "--time", "1", "--inputs", "", "/nonexistent"]).returncode, 0)
 
 
+class MeasuredFilesReplay(unittest.TestCase):
+    """A head red file that printed metrics replays on the base: the history holds verdicts, not the values
+    guards_new_reds.py compares (cmux#45415)."""
+
+    def test_known_replays_a_measured_file_whatever_the_history_says(self):
+        name = "test/m.test.ts > t"
+        runs = [{"sha": "a", "time": 1, "inputs": "k", "files": ["test/m.test.ts"], "red": [name]}]
+        base, replay = history.known(runs, "k", {name: False}, {"test/m.test.ts"})
+        self.assertEqual((base, replay), ({}, ["test/m.test.ts"]))
+
+    def test_early_known_leaves_a_measured_file_to_replay(self):
+        sha = "a" * 40
+        early = [{"sha": sha, "files": ["test/m.test.ts"], "results": {"test/m.test.ts > t": False}}]
+        out, left = history.early_known(early, sha, ["test/m.test.ts"], {}, {"test/m.test.ts"})
+        self.assertEqual((out, left), ({}, ["test/m.test.ts"]))
+        out, left = history.early_known(early, sha, ["test/m.test.ts"], {})
+        self.assertEqual(left, [])
+
+    def test_results_and_joined_heads_keep_metrics_apart_from_verdicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            for shard, file in ((1, "test/a.test.ts"), (2, "test/b.test.ts")):
+                where = tmp / "in" / history.HEAD_ARTIFACT.format(shard)
+                where.mkdir(parents=True)
+                (where / history.HEAD_RESULTS).write_text(json.dumps(
+                    {f"{file} > t": False, "_cmux_metrics": {file: {"k": [shard, 0]}}}))
+            self.assertIsNone(history.join_heads(tmp / "in", 2, tmp / "out"))
+            joined = tmp / "out" / history.HEAD_RESULTS
+            self.assertEqual(json.loads(joined.read_text())["_cmux_metrics"],
+                             {"test/a.test.ts": {"k": [1, 0]}, "test/b.test.ts": {"k": [2, 0]}})
+            self.assertEqual(history.metric_files(joined), {"test/a.test.ts", "test/b.test.ts"})
+            self.assertEqual(history.results([str(joined)]), {"test/a.test.ts > t": False, "test/b.test.ts > t": False})
+            self.assertNotIn("_cmux_metrics", json.loads((tmp / "out" / "shards.json").read_text()))
+
+
 if __name__ == "__main__":
     unittest.main()

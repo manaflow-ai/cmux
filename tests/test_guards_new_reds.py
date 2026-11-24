@@ -652,5 +652,78 @@ class AWarningLineIsNotAFailureName(unittest.TestCase):
         self.assertFalse({name for name in names if name.startswith("sys")}, names)
 
 
+class WorseOnBothSides(unittest.TestCase):
+    """A test red on the base too fails the change when its measured values got worse (cmux#45415: turn-transition-jumps'
+    burst-thought went from 12.7 to 56.8 px in one frame while already red on the base, and only warned)."""
+
+    STEP = "test/turn-transition-jumps.test.ts > burst-thought: no frame moves what the reader sees by more than 2/3 of a line"
+    FILE = "test/turn-transition-jumps.test.ts"
+    KEY = "turn-transition/burst-thought/thought.worstPx"
+
+    def compare(self, head_value, base_value, *, slack=3):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, value in (("head", head_value), ("base", base_value)):
+                found = {self.STEP: False}
+                if value is not None:
+                    found["_cmux_metrics"] = {self.FILE: {self.KEY: [value, slack]}}
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(found))
+                paths.append(str(path))
+            return subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", *paths],
+                                  capture_output=True, text=True)
+
+    def test_a_base_red_made_worse_is_the_changes(self):
+        done = self.compare(56.8, 12.7)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Webview test worse on this change::{self.STEP}", done.stdout)
+        self.assertIn(f"{self.KEY} 12.7 -> 56.8", done.stdout)
+        self.assertIn(f"webview test red step (new): {self.STEP}", done.stdout)
+
+    def test_a_base_red_within_its_slack_stays_a_warning(self):
+        for head in (12.7, 15.0, 10.0):
+            done = self.compare(head, 12.7)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn(f"::warning title=Webview test red on the base too::{self.STEP}", done.stdout)
+            self.assertNotIn("::error", done.stdout)
+
+    def test_the_share_of_the_base_value_is_the_slack_when_larger(self):
+        # 10% of 100 is 10: a growth of 8 is within it although over the 3 the test names.
+        self.assertEqual(self.compare(108, 100).returncode, 0)
+        self.assertEqual(self.compare(111, 100).returncode, 1)
+
+    def test_a_value_only_one_side_measured_compares_nothing(self):
+        for head, base in ((56.8, None), (None, 12.7)):
+            done = self.compare(head, base)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertNotIn("::error", done.stdout)
+
+
+class MetricsInResults(unittest.TestCase):
+    """webviews_test_results.py records a red file's `cmux-metric` lines from its final attempt."""
+
+    def collect(self, log_text):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log"
+            log.write_text(log_text)
+            summary = Path(tmp) / "summary"
+            summary.write_text(f"FAIL test/a.test.ts {log}\nPASS test/b.test.ts {log}\n")
+            out = Path(tmp) / "out.json"
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), str(summary), str(out)],
+                           check=True)
+            return json.loads(out.read_text())
+
+    def test_the_final_attempts_metrics_are_kept(self):
+        found = self.collect("cmux-metric k 99 1\n(fail) first\n--- retry, alone ---\n"
+                             "turn-transition x {}\ncmux-metric k 56.8 3\ncmux-metric j 4\n(fail) first\n"
+                             "Ran 1 test across 1 file.\n")
+        self.assertEqual(found["_cmux_metrics"], {"test/a.test.ts": {"k": [56.8, 3.0], "j": [4.0, 0.0]}})
+        self.assertIs(found["test/a.test.ts > first"], False)
+        self.assertIs(found["test/b.test.ts"], True)
+
+    def test_no_metric_lines_add_no_key(self):
+        self.assertNotIn("_cmux_metrics", self.collect("(fail) first\nRan 1 test across 1 file.\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

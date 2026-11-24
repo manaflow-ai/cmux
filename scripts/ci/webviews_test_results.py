@@ -12,6 +12,12 @@ that crashed or hung says nothing about the tests it never reached: their reds s
 A file red again on its retry alone keeps a log of both runs; only the retry's outcomes count,
 since the base reruns the file once, alone, too.
 
+A red file's log may also print `cmux-metric KEY VALUE [SLACK]` lines (lower is better; KEY is the test's own name
+for what it measured, SLACK the absolute growth it tolerates). Its final attempt's values land under
+`_cmux_metrics` ({file: {key: [value, slack]}}), which guards_new_reds.py compares for a test red on the base too:
+a red that got measurably worse is the change's (cmux#45415 took turn-transition-jumps' burst-thought from
+12.7 px to 56.8 px while it was already red on the base, and only warned).
+
 With CMUX_WEB_TEST_STATES set, it also writes {file: {"result": PASS, FAIL or TIMEOUT, "completed": bool}} there:
 "completed" when the file's (last) run reached bun's closing `Ran N tests across M files.` line, so a FAIL that
 names only some tests says the rest passed. The bisect's probes read it (web_coalesce.py) for tests with no explicit result.
@@ -30,6 +36,8 @@ import sys
 
 FAIL_BYTES = re.compile(rb"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
 PASS_BYTES = re.compile(rb"^\(pass\) (.+?)(?: \[[0-9.]+m?s\])?$")
+METRIC_BYTES = re.compile(rb"^cmux-metric (\S+) (-?[0-9]+(?:\.[0-9]+)?)(?: ([0-9]+(?:\.[0-9]+)?))?\s*$")
+METRICS = "_cmux_metrics"
 RETRY = "--- retry, alone ---"  # run-webviews-tests.sh's line between a twice-red file's two logs
 RETRY_BYTES = RETRY.encode()
 RETRY_STOPPED = "--- retry stopped at shared budget ---"
@@ -40,11 +48,11 @@ ANSI = re.compile(rb"\x1b\[[0-9;]*m")
 MAX_LINE_BYTES = 1 * 1024 * 1024
 
 
-def _named_outcomes(log: Path) -> tuple[set[str], set[str], bool]:
+def _named_outcomes(log: Path, metrics: dict[str, list[float]] | None = None) -> tuple[set[str], set[str], bool]:
     """Read named pass/fail outcomes in bounded chunks, including huge diagnostic logs.
 
     The runner may retry a file after the first attempt; only the final attempt is evidence,
-    so both sets are reset at the retry marker.
+    so both sets (and METRICS, when given: {key: [value, slack]}) are reset at the retry marker.
     """
     passed: set[str] = set()
     failed: set[str] = set()
@@ -70,6 +78,8 @@ def _named_outcomes(log: Path) -> tuple[set[str], set[str], bool]:
             if raw == RETRY_BYTES:
                 passed.clear()
                 failed.clear()
+                if metrics is not None:
+                    metrics.clear()
                 in_stopped_retry = False
             elif raw == RETRY_STOPPED_BYTES:
                 # The first run is the only complete evidence when the retry budget
@@ -80,12 +90,18 @@ def _named_outcomes(log: Path) -> tuple[set[str], set[str], bool]:
             elif raw == b"--- first failure retained ---":
                 passed.clear()
                 failed.clear()
+                if metrics is not None:
+                    metrics.clear()
                 in_stopped_retry = False
             else:
                 if in_stopped_retry:
                     line.clear()
                     oversized = False
                     return
+                metric = METRIC_BYTES.fullmatch(ANSI.sub(b"", raw)) if metrics is not None else None
+                if metric:
+                    metrics[metric.group(1).decode("utf-8", errors="replace")] = [
+                        float(metric.group(2)), float(metric.group(3) or 0)]
                 fail = FAIL_BYTES.fullmatch(raw)
                 if fail:
                     failed.add(fail.group(1).decode("utf-8", errors="replace"))
@@ -107,8 +123,9 @@ def _named_outcomes(log: Path) -> tuple[set[str], set[str], bool]:
     return passed, failed, retry_stopped
 
 
-def collect(summary: Path) -> dict[str, bool]:
-    results: dict[str, bool] = {}
+def collect(summary: Path) -> dict[str, object]:
+    results: dict[str, object] = {}
+    measured: dict[str, dict[str, list[float]]] = {}
     for line in summary.read_text(encoding="utf-8").splitlines():
         parts = line.split(" ", 2)
         if len(parts) != 3:
@@ -118,8 +135,9 @@ def collect(summary: Path) -> dict[str, bool]:
             results[file] = True
             continue
         log_path = Path(log)
+        metrics: dict[str, list[float]] = {}
         try:
-            passed, failed, retry_stopped = _named_outcomes(log_path)
+            passed, failed, retry_stopped = _named_outcomes(log_path, metrics)
             complete = result == "FAIL" and bool(_completed(log_path)) and not retry_stopped
         except OSError:
             passed, failed, retry_stopped = set(), set(), False
@@ -133,6 +151,10 @@ def collect(summary: Path) -> dict[str, bool]:
                 results[f"{file} > {name}"] = True
         for name in failed:
             results[f"{file} > {name}"] = False
+        if metrics:
+            measured[file] = metrics
+    if measured:
+        results[METRICS] = measured
     return results
 
 

@@ -1670,7 +1670,7 @@ jobs:
           # The files react-apps-base-early already ran on this merge parent take its verdicts (early-known leaves both
           # files as they were on any failure, so they replay).
           python3 "$runner/webviews_test_history.py" early-known "$RUNNER_TEMP/base-early" --sha "$(git rev-parse HEAD)" \
-            --replay "$RUNNER_TEMP/base-replay-files" --known "$RUNNER_TEMP/base-known.json" ||
+            --replay "$RUNNER_TEMP/base-replay-files" --known "$RUNNER_TEMP/base-known.json" --names "$HEAD_RESULTS" ||
             echo "the early base results are unread: their files replay"
           # A file whose head reds are all flaky on the base only warns, whatever its replay says (guards_new_reds.py
           # --flaky), so it is not replayed; the compare step below adds to this list, never drops from it.
