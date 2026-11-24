@@ -36,6 +36,9 @@ check fails. The app is stopped by the caller ($NX_APP_STOP), never here.
 """
 import argparse, json, os, socket, subprocess, sys, threading, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--socket", default=os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{os.environ.get('NX_APP_TAG', '')}.sock")
@@ -128,7 +131,7 @@ def scenario(name, presses, gap=0.033, settle=None, record=True, sample=True):
             samples.append((asked, rows, selected_key(rows)))
 
     sampler = threading.Thread(target=sample, daemon=True)
-    time.sleep(0.15)  # test harness: still frames before the change
+    time.sleep(0.15)  # sleep-ok: the recording keeps 0.15 s of still frames before the change
     pressed = []
     if sample:
         sampler.start()
@@ -138,13 +141,16 @@ def scenario(name, presses, gap=0.033, settle=None, record=True, sample=True):
         action(press)
         pressed.append((sent, time.time(), shown))
         time.sleep(gap)  # test harness: key-repeat spacing
-    time.sleep(settle or opts.seconds)  # test harness: the motion and the creates settle
+    # sleep-ok: the sampling and motion window itself (samples and frames are taken during it)
+    time.sleep(settle or opts.seconds)
     stop.set()
     if sample:
         sampler.join()
     motion = rpc("debug.sidebar_rows", {"motion": "stop"}) or {}
     if record:
-        time.sleep(0.6)  # test harness: the recording stops by itself
+        # frames.json lands when the recorder finishes by itself.
+        wait_until(lambda: os.path.exists(os.path.join(directory, "frames.json")), f"{name}'s recording to finish (frames.json)",
+                   timeout=opts.seconds + 15)
     with open(os.path.join(directory, "samples.json"), "w") as handle:
         json.dump({"pressed": pressed, "samples": samples, "motion": motion}, handle)
     pressed = [returned for _, returned, _ in pressed] if not name.startswith(("close", "refused")) else pressed
@@ -271,8 +277,20 @@ def start_trace():
         return None
     trace = os.path.join(opts.out, "close.trace")
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", pid, "--time-limit", "14s",
-                             "--output", trace, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-    time.sleep(3)  # test harness: xctrace attaches before the scenarios
+                             "--output", trace, "--no-prompt"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # xctrace prints "Ctrl-C to stop the recording" once it is attached and recording; read its output (and keep
+    # draining it so the pipe never fills) and go on once that line is out.
+    recording = threading.Event()
+
+    def drain():
+        for line in proc.stdout:
+            if "ctrl-c to stop" in line.lower() or "starting recording" in line.lower():
+                recording.set()
+
+    threading.Thread(target=drain, daemon=True).start()
+    if not wait_until(lambda: recording.is_set() or proc.poll() is not None, "xctrace to attach", timeout=30,
+                      raise_on_timeout=False) or not recording.is_set():
+        print(f"trace: xctrace did not report recording (exit {proc.poll()})", flush=True)
     return proc
 
 
@@ -285,13 +303,18 @@ def stop_trace(proc):
                     '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", os.path.join(opts.out, "close-time-profile.xml")])
 
 
+def rows_state():
+    """The settled look of the sidebar's rows (keys, titles, states, selection), for wait_stable."""
+    return [(r.get("key"), r.get("title"), r.get("row_state"), bool(r.get("selected"))) for r in window_rows()]
+
+
 def refill(count):
     """`count` more workspaces, settled, for the next closes."""
     target = len(workspace_rows()) + count
     for _ in range(count):
         action("newTab")
     wait(lambda: len(workspace_rows()) >= target, 10)
-    time.sleep(1.0)  # test harness: the creates settle
+    wait_stable(rows_state, "the sidebar rows after the creates", timeout=15, interval=0.1, reads=5)
 
 
 def main():
@@ -301,7 +324,7 @@ def main():
     rpc("debug.motion", {"action": "speed", "value": "normal"})
     rpc("settings.unset", {"path": "sidebar.showWorkspaceTabs"})
     wait(lambda: len(workspace_rows()) >= 1, 30)
-    time.sleep(1.0)  # test harness: the launch settles
+    wait_stable(rows_state, "the sidebar rows after launch", timeout=15, interval=0.1, reads=5)
 
     samples, motion, before, pressed = scenario("cmd-n-x1", ["newTab"])
     check_instant("cmd-n-x1", samples, before, pressed, 1)
@@ -334,7 +357,7 @@ def main():
 
     rpc("settings.set", {"path": "sidebar.showWorkspaceTabs", "value": True})
     wait(lambda: any(str(r.get("key", "")).startswith("tab(") for r in window_rows()), 5)
-    time.sleep(0.5)  # test harness: the list settles
+    wait_stable(rows_state, "the sidebar rows after the setting change", timeout=10, interval=0.1, reads=5)
     try:
         _, motion, _, _ = scenario("sidebar-tab-open", ["newSurface"])
         fades = check_smooth("sidebar-tab-open", motion)
@@ -344,7 +367,7 @@ def main():
         check_smooth("sidebar-tab-close", motion)
     finally:
         rpc("settings.unset", {"path": "sidebar.showWorkspaceTabs"})
-    time.sleep(0.5)  # test harness: the list settles
+    wait_stable(rows_state, "the sidebar rows after the setting change", timeout=10, interval=0.1, reads=5)
     scenario("tab-strip-open", ["newSurface"])
     scenario("tab-strip-close", ["closeTab"])
     # Last: the rows of a workspace whose refused close brought it back mid-animation jumped one row in one frame in a

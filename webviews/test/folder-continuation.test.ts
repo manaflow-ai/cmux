@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { FolderContinuation, folderContinuationRequest } from "../src/agent-session/acpmux/folderContinuation";
+import {
+  FolderContinuation,
+  folderContinuationRequest,
+  readOnlyContinuationRequest,
+  readOnlyHarness,
+} from "../src/agent-session/acpmux/folderContinuation";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -104,6 +109,12 @@ test("a stale successful selection cannot clear the newer folder", async () => {
 
 test("recovery requests a folder-free chat without sending the held prompt", () => {
   expect(folderContinuationRequest).toEqual({ noProject: true, continueWithoutFolder: true });
+});
+
+test("read-only recovery stays in the folder and is offered for Claude Code only", () => {
+  expect(readOnlyContinuationRequest).toEqual({ continueReadOnly: true });
+  expect(readOnlyHarness("claude")).toBe(true);
+  for (const family of ["codex", "opencode", undefined, ""]) expect(readOnlyHarness(family)).toBe(false);
 });
 
 for (const navigates of [false, true]) {

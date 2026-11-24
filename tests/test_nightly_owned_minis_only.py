@@ -10,7 +10,8 @@ legacy-identity copies) on Linux.
 1. Each job's runs-on, evaluated for manaflow-ai over sampled attempts, refs, events and picker
    outputs, names a glaeda label (or a variable that holds one). Lawrence, 2026-11-04: "Never move a
    nightly job to Blacksmith, a GitHub-hosted runner or another mini". HOSTED_TAIL_JOBS are the only
-   exceptions, each with its reason, and this list may only shrink. Each one holds a release secret
+   exceptions, each with its reason, and this list may only shrink. CMUX_LINUX_JOBS, the secret-free Linux
+   controls, take our own persistent Linux pool (cmux-linux) instead. Each HOSTED_TAIL_JOBS job holds a release secret
    (so never the nightly mini's shared light runners) and runs only in the tail (run_tail: on nightly-next
    the dispatched run outside the push group), so a JIT VM's start never holds the push group or the
    feed. On every attempt each takes the owned one-job JIT label cmux-gcp-nightly-jit-x64 (an ephemeral
@@ -97,6 +98,11 @@ HOSTED_LOOP_JOBS = {
 # decide's own route: the nightly-only pool, or in one-mini mode vars.CI_NIGHTLY_MINI with the rest of the run
 # (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
+# Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
+# A fork takes GitHub-hosted Ubuntu.
+CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker")
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -176,6 +182,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
         failures = {}
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
+                continue
+            if name in CMUX_LINUX_JOBS:
+                if workflow_jobs.runs_on_cells(job) != [CMUX_LINUX_RUNS_ON] or workflow_jobs.secret_names(job):
+                    failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
             cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
