@@ -78,7 +78,8 @@ pub async fn install() -> Result<serde_json::Value> {
     // The workspace builds reqwest with `rustls-no-provider`; a standalone CLI run has no
     // process-level provider until one is installed (as `catalog/fetch.rs`).
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+    let bytes =
+        cmux_egress::get(url, "acpmux::managed_codex").await?.error_for_status()?.bytes().await?;
     let got = format!("{:x}", Sha256::digest(&bytes));
     if got != expected {
         bail!("Codex archive SHA-256 mismatch: expected {expected}, got {got}")
