@@ -1220,6 +1220,8 @@ export type DoctorFixed = { id: string; kind: DoctorFixKind; kept: string | null
  * error envelope (`code`, `message`). */
 export type LibraryAnswer = {
   library?: LibraryListing;
+  /** `standup`: every entry as one line (`cmux customize library standup`). */
+  standup?: Standup;
   doctor?: DoctorReport;
   fixed?: DoctorFixed;
   recovered?: DoctorRecovered;
