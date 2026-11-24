@@ -346,6 +346,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // Every running subagent of a chat and its latest ended ones, whatever a page of the chat
+    // holds (`hub/subagent_list.rs`): the Background tasks panel's list.
+    Capability { id: "subagent-list-v1", wire: &[method::MUX_SUBAGENT_LIST] },
     // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
     // past the newest page its log was seeded with (`hub/native_history.rs`).
     Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
