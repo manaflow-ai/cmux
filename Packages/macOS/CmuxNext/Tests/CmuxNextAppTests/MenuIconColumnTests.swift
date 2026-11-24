@@ -56,7 +56,6 @@ struct MenuIconColumnTests {
         #expect(MenuIconColumn.rowsWithoutIcon(in: more).isEmpty, "rows with an empty icon slot")
     }
 
-
     /// Every catalog right-click menu: a row of one is drawn with its action's symbol, so an action placed in a
     /// menu beside rows with icons needs a symbol of its own.
     @Test(arguments: ActionMenuContext.allCases)
