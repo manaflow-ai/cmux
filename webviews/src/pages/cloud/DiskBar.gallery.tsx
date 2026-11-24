@@ -73,12 +73,14 @@ function DiskBarGallery({ variant }: Props) {
       {STATES.map(({ caption, name, bar }) => (
         <div key={name} className="cloud-disk-bar-gallery-state">
           <div className="cloud-machine-subtitle">{caption}</div>
+          <div className="cloud-muted">Machine row</div>
           <div>
             <span className="cloud-machine-title">{name}</span>{" "}
             <span className="cloud-machine-disk">
               <DiskBar bar={bar} strings={strings} variant={variant} compact />
             </span>
           </div>
+          <div className="cloud-muted">Machine detail</div>
           <div className="cloud-disk-health">
             <DiskBar bar={bar} strings={strings} variant={variant} />
           </div>
