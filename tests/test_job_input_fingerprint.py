@@ -154,7 +154,7 @@ class JobInputFingerprint(unittest.TestCase):
         return key
 
     def artifact_key(self, **flags: str) -> str:
-        key, stderr = self.repo.key("cmux-tui-artifacts", **{**ARTIFACT_TOOLCHAIN, **flags})
+        key, stderr = run("cmux-tui-artifacts", self.repo.root, {**ARTIFACT_TOOLCHAIN, **flags})
         self.assertTrue(key.startswith("job-pass-cmux-tui-artifacts-"), stderr[-2000:])
         return key
 
