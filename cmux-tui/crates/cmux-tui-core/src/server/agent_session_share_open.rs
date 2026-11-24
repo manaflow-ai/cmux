@@ -284,7 +284,7 @@ pub(super) fn invite_in(
         // Team shares keep removals: forgetting one would readmit the account through the team.
         share.invitees.retain(|i| i.state == InviteState::Invited);
     }
-    if share.invitees.iter().filter(|i| i.state == InviteState::Invited).count() >= MAX_INVITEES {
+    if share.invitees.len() >= MAX_INVITEES {
         return Err("share.limit");
     }
     share.invitees.push(Invitee { account, role, invited_at: now, state: InviteState::Invited });
@@ -295,8 +295,8 @@ pub(super) fn invite_in(
 }
 
 /// Inviting an account ends its previous link or team grants. It must join again with the
-/// role the owner chose (a viewer invite never leaves an earlier guest able to send). Their connections close at the next `settle` and
-/// the room hears their end; their attempts answer nothing, so a retry joins by the invite.
+/// role the owner chose. The earlier connections close at the next `settle`, and a retry joins
+/// by the invitation.
 fn retire_general_access_guests(share: &mut LinkShare, account: &str) {
     let general_access = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
     for guest in share.guests.iter_mut().filter(|g| general_access(g)) {

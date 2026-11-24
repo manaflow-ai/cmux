@@ -971,7 +971,7 @@ fn team_access_requires_the_room_attestation_and_rechecks_retries() {
     assert_eq!(share["team_id"], team);
     assert!(share.get("secret").is_none(), "team links are secretless");
 
-    let deny = |account: Option<&str>, attested: Option<&str>, attempt: &str| {
+    let redeem = |account: Option<&str>, attested: Option<&str>, attempt: &str| {
         shares.redeem(
             dir,
             Redeem {
@@ -985,30 +985,32 @@ fn team_access_requires_the_room_attestation_and_rechecks_retries() {
             },
         )
     };
-    assert_eq!(deny(None, Some(team), "anonymous"), Err("share.not_invited"));
+    assert_eq!(redeem(None, Some(team), "anonymous"), Err("share.not_invited"));
     assert_eq!(
-        deny(Some("member@example.com"), Some("team_other"), "wrong"),
+        redeem(Some("member@example.com"), Some("team_other"), "wrong"),
         Err("share.not_invited")
     );
-    let joined = deny(Some("member@example.com"), Some(team), "retry").unwrap();
+    let joined = redeem(Some("member@example.com"), Some(team), "retry").unwrap();
     assert_eq!(joined["role"], "view", "team access defaults to view");
-    let shown = shares.with(dir, |all, _| Ok((all[0].shown(shares.now()), false))).unwrap();
+    let reloaded = LinkShares::default();
+    let shown = reloaded.with(dir, |all, now| Ok((all[0].shown(now), false))).unwrap();
+    assert_eq!(shown["team_id"], team);
     assert_eq!(shown["guests"][0]["via"], "team");
     assert_eq!(shares.with(dir, |all, _| Ok((all[0].uses_left, false))).unwrap(), 1);
     // The same attempt cannot reuse an existing team guest after its attestation changes.
     assert_eq!(
-        deny(Some("member@example.com"), Some("team_other"), "retry"),
+        redeem(Some("member@example.com"), Some("team_other"), "retry"),
         Err("share.not_invited")
     );
     assert_eq!(
-        deny(Some("member@example.com"), Some(team), "retry").unwrap()["guest_id"],
+        redeem(Some("member@example.com"), Some(team), "retry").unwrap()["guest_id"],
         joined["guest_id"]
     );
 
     for index in 2..=4 {
-        assert!(deny(Some("member@example.com"), Some(team), &format!("device-{index}")).is_ok());
+        assert!(redeem(Some("member@example.com"), Some(team), &format!("device-{index}")).is_ok());
     }
-    assert_eq!(deny(Some("member@example.com"), Some(team), "device-5"), Err("share.used"));
+    assert_eq!(redeem(Some("member@example.com"), Some(team), "device-5"), Err("share.used"));
     let _ = std::fs::remove_dir_all(directory);
 }
 
@@ -1917,9 +1919,8 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
                 name: "Sam".into(),
                 attempt_id: attempt,
                 account,
-                avatar_url,
-
                 team_id: None,
+                avatar_url,
             },
         )
     };
@@ -1932,7 +1933,7 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
         attempt_id_sha256: "0".repeat(64),
         account: Some("sam@example.com".into()),
         role: Some(Role::Talk),
-        via: Some(Via::Link),
+        via: Some(Via::GeneralAccess),
         avatar_url,
     };
     // Small anonymous joins (far smaller than the picture) until the signed-in guest fits only

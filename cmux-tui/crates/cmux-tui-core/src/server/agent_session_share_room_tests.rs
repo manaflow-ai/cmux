@@ -52,6 +52,8 @@ struct Shared {
     on_put: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Overrides the next successful `PUT`'s URL base (used to exercise bad room responses).
     url_base_once: Mutex<Option<String>>,
+    /// The room predates team shares and ignores the requested team.
+    omit_team_ack: AtomicBool,
     /// Holds every `DELETE` response until the test releases it.
     delete_gate: Mutex<Option<DeleteGate>>,
     /// Signals a test watcher as each `DELETE` enters the fake room.
@@ -221,7 +223,7 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
             let _ = sender.send(());
         }
     }
-    let (status, reply) = match method.as_str() {
+    let (status, mut reply) = match method.as_str() {
         "PUT" => match shared.puts.lock().unwrap().pop_front() {
             None if shared.on_put.lock().unwrap().is_some() => {
                 shared.on_put.lock().unwrap().take().unwrap()();
@@ -250,6 +252,15 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
         },
         _ => (shared.deletes.lock().unwrap().pop_front().unwrap_or(200), json!({})),
     };
+    // The real room echoes a requested team id. This lets daemon tests exercise the
+    // compatibility check that rejects an older room silently dropping team access.
+    if method == "PUT"
+        && !shared.omit_team_ack.load(Ordering::SeqCst)
+        && let Some(team) = body.get("team_id").cloned()
+        && let Some(object) = reply.as_object_mut()
+    {
+        object.insert("team_id".into(), team);
+    }
     let _ = seen.send(Seen::Request { method, path, bearer, body });
     if is_delete {
         if let Some(gate) = shared.delete_gate.lock().unwrap().clone() {
@@ -433,6 +444,75 @@ fn every_invite_url_of_an_answer_names_the_build() {
     let mut after = before.clone();
     name_app_in_invites(&mut after, "");
     assert_eq!(after, before);
+}
+
+#[test]
+fn a_team_share_is_provisioned_with_a_secretless_invite_url_and_acknowledged_team() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-share", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let id = share["share_id"].as_str().unwrap();
+    assert_eq!(share["team_id"], team);
+    assert!(share.get("secret").is_none(), "team access must not expose a link secret");
+    assert_eq!(share["url"], format!("{}/i/{id}", room.url));
+    let (path, bearer, body) = room.request("PUT");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, OWNER_TOKEN);
+    assert_eq!(body["team_id"], team);
+}
+
+#[test]
+fn a_room_that_ignores_team_access_is_deleted() {
+    let room = FakeRoom::start(&[]);
+    room.shared.omit_team_ack.store(true, Ordering::SeqCst);
+    let (_fake, _mux, surface, mut owner) = bridged("room-no-team-ack", &room);
+    let reply = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "owner_token":OWNER_TOKEN, "team_id":"team_0123456789abcdef0123"}));
+    assert_code(&reply, "share.room_refused");
+    let (put_path, _, _) = room.request("PUT");
+    let (delete_path, bearer, _) = room.request("DELETE");
+    assert_eq!(delete_path, put_path);
+    assert_eq!(bearer, "host-token-1");
+}
+
+#[test]
+fn a_team_redeem_carries_the_room_attestation_to_the_daemon() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-redeem", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    // Only the authenticated room may attest membership, even on the owner's control socket.
+    let forged = owner.request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+        "attempt_id":"local", "account":"member@example.com", "name":"Member", "team_id":team, "secret":""}));
+    assert_code(&forged, "share.bad_request");
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "a1",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    let redeemed = room.frame(conn);
+    assert_eq!(redeemed["t"], "redeemed");
+    assert_eq!(redeemed["role"], "talk");
+    assert!(redeemed.get("error").is_none(), "{redeemed}");
+    let row = state(&mut owner);
+    assert_eq!(row["uses_left"], 1);
+    assert_eq!(row["guests"][0]["via"], "team");
 }
 
 #[test]
