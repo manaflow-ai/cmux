@@ -46,7 +46,7 @@ final class AgentPaneComposerStaging {
             }
             let target = Target(owner: owner, revision: model.replyLinks.composerCopyRevision)
             let place = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            let file = place.appendingPathComponent(name)
+            let file = place.appendingPathComponent(name, isDirectory: false)
             guard (try? await work.run(.userBlocking, mayBlock: .files, { () throws -> Void in
                 try FileManager.checked.createDirectory(at: place, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 guard FileManager.checked.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
@@ -73,7 +73,7 @@ final class AgentPaneComposerStaging {
             finishing.insert(token)
             defer { finishing.remove(token); cancelled.remove(token) }
             let target = Target(owner: owner, revision: model.replyLinks.composerCopyRevision)
-            let destination = folder.appendingPathComponent(UUID().uuidString, isDirectory: true).appendingPathComponent("payload")
+            let destination = folder.appendingPathComponent(UUID().uuidString, isDirectory: true).appendingPathComponent("payload", isDirectory: false)
             let finished = await stages.finish(token, owns: owns, work: work, transfer: { staged -> URL? in
                 guard (try? await work.run(.userBlocking, mayBlock: .files, { () throws -> Void in
                     try FileManager.checked.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true,
@@ -133,7 +133,7 @@ final class AgentPaneComposerStaging {
         arm(work)
         let place = ref.file.deletingLastPathComponent()
         // task-owner: one unlink retained through cancellation and shutdown, awaited to settlement.
-        await Task { @MainActor in
+        await Task {
             _ = try? await work.run(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) { try? FileManager.checked.removeItem(at: place) }
         }.value
     }
@@ -142,7 +142,7 @@ final class AgentPaneComposerStaging {
         guard let deadline = references.values.filter { !$0.taken }.map(\.expires).min() else { expiry.cancel(); return }
         expiry.schedule(after: .seconds(max(1, max(deadline, activeUntil).timeIntervalSinceNow))) { @MainActor [weak self] in
             // task-owner: one deadline cleanup; it ends after removing the expired references.
-            Task { @MainActor [weak self] in
+            Task { [weak self] in
                 guard let self else { return }
                 for token in references.filter({ !$0.value.taken && max($0.value.expires, activeUntil) <= Date() }).map(\.key) { await remove(token, work: work) }
                 arm(work)

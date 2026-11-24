@@ -138,7 +138,7 @@ package final class AgentPaneStagedUploads<Target> {
               data.count <= Self.chunkBytes, data.count <= stage.size - offset else { return nil }
         let file = stage.staged.file
         // task-owner: this stage's bounded write; cancel waits for it before removing its file.
-        let task = Task { @MainActor [self] () -> Int? in
+        let task = Task { [self] () -> Int? in
             do {
                 try await work.run(.userBlocking, mayBlock: .files) {
                     let handle = try FileHandle(forWritingTo: file)
