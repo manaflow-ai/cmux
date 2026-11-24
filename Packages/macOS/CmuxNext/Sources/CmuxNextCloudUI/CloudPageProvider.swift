@@ -126,8 +126,7 @@ package final class CloudPageProvider: PageProvider {
             guard let scope, scope == surgeScope?() else {
                 throw PageError(code: "cmux.cloud.surge_stale_preview", message: "Review the Cloud Surge estimate again.")
             }
-            if answer["available"]?.boolValue == true, case .number(let cost)? = answer["estimated_cost_usd"],
-               cost.isFinite, cost >= 0 {
+            if answer["available"]?.boolValue == true {
                 surgePreview = (scope, args)
             }
         }
