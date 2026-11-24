@@ -89,10 +89,10 @@ if [[ -z "$dir" ]]; then
   mkdir -p "$dir"
   echo "==> downloading $repo $tag assets" >&2
   gh release download "$tag" --repo "$repo" --pattern '*.tar.xz' --dir "$dir" >&2
-  if gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$dir" >/dev/null 2>&1; then
-    (cd "$dir" && grep '\.tar\.xz$' SHA256SUMS | shasum -a 256 -c - >&2) ||
-      { echo "error: assets do not match the release SHA256SUMS" >&2; exit 1; }
-  fi
+  gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$dir" >&2 ||
+    { echo "error: release $tag has no SHA256SUMS; refusing to publish unverified assets" >&2; exit 1; }
+  (cd "$dir" && grep '\.tar\.xz$' SHA256SUMS | shasum -a 256 -c - >&2) ||
+    { echo "error: assets do not match the release SHA256SUMS" >&2; exit 1; }
 fi
 
 shopt -s nullglob
