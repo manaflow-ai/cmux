@@ -301,8 +301,8 @@ class SidebarItemRowView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
-        // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON), nor does the Chief row.
-        let bare = (info.textOnly || info.hidesGlyphBesideTitle) && !style.isIconOnly
+        // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
+        let bare = info.textOnly && !style.isIconOnly
         // One icon column for every row (Lawrence 2026-10-28, "home and pinned are not aligned"; #38061): a band row's
         // glyph and a pinned row's pin start their ink on the icon column's leading edge, the row inset (its inset plus
         // the pill inset) where text-only titles start (Lawrence 2026-11-09), and a title after that glyph starts at the
