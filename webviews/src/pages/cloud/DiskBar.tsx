@@ -53,7 +53,12 @@ export function DiskBar({ bar, strings, variant = "segmented", compact = false }
   }
   const used = bar.segments.filter((s) => s.kind !== "free").reduce((sum, s) => sum + s.width, 0);
   const track = (
-    <span className="cloud-disk-bar-track" role="img" aria-label={`${sentence}. ${split}`} title={split}>
+    <span
+      className="cloud-meter-track cloud-disk-bar-track"
+      role="img"
+      aria-label={`${sentence}. ${split}`}
+      title={split}
+    >
       {variant === "single" ? (
         <span className="cloud-disk-bar-segment cloud-disk-bar-used" style={{ width: `${used / 10}%` }} />
       ) : (
@@ -80,7 +85,7 @@ export function DiskBar({ bar, strings, variant = "segmented", compact = false }
         <span className="cloud-disk-bar-legend">
           {bar.segments.map((s, i) => (
             <span key={s.kind} className="cloud-disk-bar-key">
-              <span className={`cloud-disk-bar-swatch cloud-disk-bar-${s.kind}`} />
+              <span className={`cloud-status-dot cloud-disk-bar-${s.kind}`} />
               {named[i]}
             </span>
           ))}

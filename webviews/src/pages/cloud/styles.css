@@ -386,8 +386,6 @@ select {
   display: flex;
   flex: 1 1 160px;
   max-width: 320px;
-  height: 6px;
-  overflow: hidden;
   border-radius: 4px;
   background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
 }
@@ -440,12 +438,6 @@ select {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1);
-}
-
-.cloud-disk-bar-swatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 4px;
 }
 
 .cloud-disk-bar-details {
@@ -604,7 +596,7 @@ select {
 
 .cloud-inline-form {
   display: inline-flex;
-  gap: var(--ds-space-1);
+  gap: 4px;
 }
 
 .cloud-stats {
@@ -629,7 +621,7 @@ select {
 
 .cloud-meter-track {
   height: 4px;
-  border-radius: 4px;
+  border-radius: 2px;
   background: var(--cloud-separator);
   overflow: hidden;
 }
@@ -689,7 +681,7 @@ select {
 .cloud-field {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-1);
+  gap: 4px;
   margin: 10px 0 0;
   min-width: 0;
   border: 0;
