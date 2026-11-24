@@ -277,7 +277,11 @@ class Run:
             else:
                 os.makedirs(copy_dir, exist_ok=True)
                 app.bundle = os.path.join(copy_dir, os.path.basename(app.source))
-                subprocess.run(["ditto", app.source, app.bundle], check=True, timeout=900)
+                # cp -R, not ditto: the cache is read-only (chmod a-w), and ditto copies a directory's mode before
+                # its contents, so it cannot write into Chrome's read-only framework folders ("Permission denied",
+                # cmux-ci step ae86578f9527fb43dc8ffcb2). BSD cp makes each folder writable until its contents are in,
+                # and keeps the extended attributes, so the signature still verifies.
+                subprocess.run(["cp", "-R", app.source, app.bundle], check=True, timeout=900)
             if round_no == 1:
                 self.record(app.name, round_no, "bundle-size", bundle_mb(app.bundle))
             if not self.launch(app, round_no, "fresh", profile):
@@ -337,7 +341,11 @@ class Run:
                 order = order[1:] + order[:1] if round_no > 1 else order  # rotate each round
                 for app in order:
                     log(f"{app.name} round {round_no}")
-                    self.session(app, round_no, purge)
+                    try:
+                        self.session(app, round_no, purge)
+                    except Exception as error:  # one app's failure costs its row, never the other apps' numbers
+                        log(f"{app.name} round {round_no} failed: {error!r}")
+                        self.record(app.name, round_no, "fresh-window", None, note=f"session failed: {error}"[:200])
         finally:
             caffeinate.terminate()
 

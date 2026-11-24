@@ -996,6 +996,11 @@ public abstract class GeneratedCmuxClient {
         return PingResult.fromWire(result);
     }
 
+    public final Object processCensus() throws CmuxException {
+        Object result = execute(Commands.PROCESS_CENSUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);
@@ -1216,9 +1221,9 @@ public abstract class GeneratedCmuxClient {
         return SetCellPixelsResult.fromWire(result);
     }
 
-    public final EmptyResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
+    public final SetClientInfoResult setClientInfo(SetClientInfoRequest request) throws CmuxException {
         Object result = execute(Commands.SET_CLIENT_INFO, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SetClientInfoResult.fromWire(result);
     }
 
     public final EmptyResult setClientSizing(SetClientSizingRequest request) throws CmuxException {
@@ -1416,6 +1421,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final Object terminalFind(TerminalFindRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_FIND, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {

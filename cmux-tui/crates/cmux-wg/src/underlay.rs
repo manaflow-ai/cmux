@@ -116,6 +116,16 @@ pub trait Underlay: Send + 'static {
         self.send(datagram);
     }
 
+    /// Send one liveness datagram (`WgDatagramSocket::send_liveness`): a
+    /// single datagram, in the interactive class, never repaired or
+    /// replayed (its sender resends it). `answer`: it answers the peer's
+    /// liveness ping, so no reply follows it and a carrier that watches
+    /// its paths for silence after a send does not start watching. The
+    /// default sends it as interactive data.
+    fn send_liveness(&mut self, datagram: &[u8], _answer: bool) {
+        self.send_classified(datagram, Priority::Interactive);
+    }
+
     /// Send one datagram on `path` only (a probe or its answer). A
     /// single-path carrier has one path.
     fn send_on(&mut self, _path: PathId, datagram: &[u8]) {

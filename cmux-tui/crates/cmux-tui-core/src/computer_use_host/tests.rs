@@ -23,6 +23,8 @@ fn fake() -> Result<Platform, String> {
 struct InProcess {
     launches: AtomicUsize,
     refuse: Option<String>,
+    /// The executable its workers watch (None: the test binary, never replaced).
+    executable: Option<PathBuf>,
 }
 
 impl Launcher for InProcess {
@@ -33,8 +35,10 @@ impl Launcher for InProcess {
         self.launches.fetch_add(1, Ordering::SeqCst);
         let (in_r, in_w) = std::io::pipe().map_err(|e| e.to_string())?;
         let (out_r, out_w) = std::io::pipe().map_err(|e| e.to_string())?;
+        let executable = self.executable.clone();
         let worker = std::thread::spawn(move || {
-            worker::run(BufReader::new(in_r), out_w, fake, Duration::from_secs(10))
+            let wait = Duration::from_secs(10);
+            worker::run_watching(BufReader::new(in_r), out_w, fake, wait, executable)
         });
         Ok(WorkerProcess {
             input: Box::new(in_w),
@@ -219,4 +223,46 @@ fn a_new_policy_reaches_the_running_worker() {
     writeln!(w, "{}", json!({"id": 1, "method": "status"})).unwrap();
     assert_eq!(recv(&mut r)["result"]["body"]["mode"], "lookOnly");
     assert_eq!(f.host.status()["config_source"], "app");
+}
+
+#[test]
+fn an_updated_helper_takes_the_next_call_with_no_relaunch() {
+    let exe = PathBuf::from(format!("/tmp/cuhexe{}", std::process::id()));
+    std::fs::write(&exe, "the old helper").unwrap();
+    let launcher = InProcess { executable: Some(exe.clone()), ..InProcess::default() };
+    let f = fixture("swap", Mode::FullAccess, launcher);
+    let first = f.host.endpoint(ENDPOINT_WAIT);
+    assert_eq!(first["state"], "ready", "{first}");
+    // A newer build swaps the helper in at its fixed path.
+    let next = exe.with_extension("next");
+    std::fs::write(&next, "the new helper, longer").unwrap();
+    std::fs::rename(&next, &exe).unwrap();
+    // The next call reaches the old worker, which closes it unanswered (the bridge retries)...
+    let (mut w, mut r) = agent(&first);
+    writeln!(
+        w,
+        "{}",
+        json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
+        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c"})
+    )
+    .unwrap();
+    let mut line = String::new();
+    assert_eq!(r.read_line(&mut line).unwrap(), 0, "the old worker answered: {line}");
+    // ...and the daemon starts the new executable at once, no backoff, no app relaunch.
+    let old = first["secret"].as_str().unwrap().to_string();
+    wait_phase(&f.host, |p| matches!(p, Phase::Ready { secret, .. } if *secret != old));
+    assert_eq!(f.launcher.launches.load(Ordering::SeqCst), 2);
+    assert!(lock(&f.host.inner.backoff).as_ref().is_none_or(|b| b.attempts() == 0));
+    // The retry lands on the new worker and runs.
+    let second = f.host.endpoint(ENDPOINT_WAIT);
+    let (mut w, mut r) = agent(&second);
+    writeln!(
+        w,
+        "{}",
+        json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
+        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c"})
+    )
+    .unwrap();
+    assert_eq!(recv(&mut r)["result"]["is_error"], false);
+    let _ = std::fs::remove_file(&exe);
 }

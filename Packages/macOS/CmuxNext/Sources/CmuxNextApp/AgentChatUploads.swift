@@ -2,9 +2,10 @@ import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
 
-/// Files a new local chat with no session yet gets pasted (any file, Lawrence 2026-10-20), written
-/// owner-only under `~/Library/Application Support/cmux/Chat Uploads/<random>/<index>/<name>`; a chat
-/// with a session sends them to acpmux, which stores each once (``AgentPeerUploads/localTarget(tab:services:)``).
+/// Files a local chat gets pasted that have no path on this Mac (any file, Lawrence 2026-10-20), written
+/// owner-only under `~/Library/Application Support/cmux/Chat Uploads/[sessions/<session>/]<random>/<index>/<name>`:
+/// staged as the page streams them and renamed into place, never copied again through the acpmux
+/// socket (``AgentPeerUploads`` is for a peer's chat only).
 /// Older `sessions/<session>/...` folders, no longer written, go after ``maximumAge`` (``sweep(_:now:)``, at
 /// launch). Only folders named as the app names them are deleted.
 @MainActor

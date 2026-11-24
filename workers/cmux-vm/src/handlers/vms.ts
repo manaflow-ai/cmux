@@ -35,7 +35,7 @@ import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { MeshStore } from "../db/mesh.ts";
-import { agentBudgetAllows, agentSlotOwner, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
+import { agentBudgetAllows, agentSlotOwner, agentStartAllows, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -191,7 +191,7 @@ const createRecorded = <C, S, M = never>(
     // Where this create's time goes, logged once as vm_create when it reached the provider (success or failure).
     const phases: TimedPhases = {};
     return yield* createRecordedTimed(caller, spec, proofs, attempt, phases).pipe(
-      Effect.onExit((exit) => "recoverMs" in phases
+      Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "createMs" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
             totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
@@ -202,7 +202,11 @@ const createRecorded = <C, S, M = never>(
 
 /**
  * The vm_create line: one per create that reached the provider. A phase that made no provider call is null
- * (verifyImageMs without an approved image, createMs when the VM was recovered, resizeMs without a grow).
+ * (recoverMs and verifyImageMs for a caller whose creates send no read first, verifyImageMs without an approved image,
+ * createMs when the VM was recovered, resizeMs without a grow: the VM booted at the size asked). `imageVariant` says
+ * which snapshot of an approved image booted: "large" (the one baked at the size asked), "base", or "unlisted" (a retry
+ * that recovered a VM from a snapshot its entry no longer lists); null without one. `oversized`: a large boot answered
+ * bigger than was asked and was refused.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -212,6 +216,8 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   preMs: request.preMs,
   recoverMs: phases["recoverMs"] ?? null,
   verifyImageMs: phases["verifyImageMs"] ?? null,
+  imageVariant: phases["imageVariant"] ?? null,
+  oversized: phases["oversized"] ?? false,
   createMs: phases["createMs"] ?? null,
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
@@ -280,6 +286,10 @@ const createRecordedTimed = <C, S, M>(
       }),
       rejected: (token: string) => limits.rejectCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createSendReceipt", status: null }))),
       context: attempt.prior?.phase === "creating" ? attempt.prior.context : null,
+      // Minted above, not resumed: no attempt before this request can have sent a create for this id's slug.
+      minted: attempt.prior?.phase !== "creating" && attempt.prior?.phase !== "capturing",
+      source: attempt.prior?.phase === "creating" ? attempt.prior.intent?.probe.source ?? null : null,
+      request: attempt.prior?.phase === "creating" ? attempt.prior.intent?.probe.request ?? null : null,
       beforeSend: (context: string, probe: VmCreationProbe) => {
         intent ??= { receipt: attempt.prior?.phase === "capturing" ? attempt.prior.receipt : { id: cmuxId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds,
           ...(proofs.image === undefined ? {} : { bootImage: vmImageEvidenceOf(proofs.image).receipt }),
@@ -301,6 +311,7 @@ const createRecordedTimed = <C, S, M>(
           ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
           ...(spec.size === undefined ? {} : { size: spec.size }),
           environment: policy.environment,
+          ...(caller.value.actor.kind === "service" && policy.createsWithoutReads(caller.value.actor.serviceId) ? { withoutReads: true } : {}),
           journal,
           phases,
         },
@@ -496,7 +507,9 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
       // Likewise an omitted mesh: only a create that names one carries it, so a key is never replayed onto another mesh.
       if (payload.meshId !== undefined) request.push(`mesh:${payload.meshId}`);
       const clientFingerprint = payload.image === undefined ? undefined : yield* requestFingerprint(["createVm:client:v1", request, payload.image.id, payload.image.revision]);
-      const imageDecision = payload.image === undefined ? undefined : yield* Effect.either(vmImageAllowed(caller, payload.image));
+      // A listed service's image create may boot the image's large snapshot, by the size it asks for.
+      const sizedFor = principal.actor.kind === "service" && (yield* TenantPolicy).bootsSizedImage(principal.actor.serviceId) ? payload.resources : undefined;
+      const imageDecision = payload.image === undefined ? undefined : yield* Effect.either(vmImageAllowed(caller, payload.image, sizedFor));
       if (imageDecision?._tag === "Left" && payload.image !== undefined) {
         return yield* recoverWithdrawnImage(caller, scope, idempotencyKey, clientFingerprint, payload.image, imageDecision.left);
       }
@@ -887,10 +900,12 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       timedStart("start", (phases) => audited(
         "vm.start",
         auditableVmId(path.vmId),
-        withOwnedVm(path.vmId, "vm:write", "write", (_caller, vm, proofs) =>
+        withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
             phases["vmId"] = vm.value;
+            // A team key's running and spend caps (RFD 0016): read the VM only when the key sets one.
+            yield* agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead)));
             const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
               .pipe(Effect.mapError(onVm("The VM cannot start now: it no longer exists or no capacity is available")));
             phases["stateAfter"] = started.state;
@@ -903,7 +918,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       timedStart("resume", (phases) => audited(
         "vm.resume",
         auditableVmId(path.vmId),
-        withOwnedVm(path.vmId, "vm:write", "write", (_caller, vm, proofs) =>
+        withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
             const current = yield* timedPhase(phases, "readMs", upstream.getVmForWrite(vm, proofs)).pipe(Effect.mapError(onRead));
@@ -912,6 +927,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             }
             phases["vmId"] = vm.value;
             phases["stateBefore"] = current.state;
+            yield* agentStartAllows(caller, proofs.scope, Effect.succeed(current));
             const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
               .pipe(Effect.mapError(onVm("The VM cannot resume now: no capacity is available")));
             phases["stateAfter"] = resumed.state;

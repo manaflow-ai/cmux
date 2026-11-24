@@ -20,7 +20,7 @@
 //!
 //! What the agent writes lands in the mount's upper layer on the machine and stays there until
 //! Bring Back applies it here. `cmux link sync pull` takes it home like a copy's edits: the server
-//! keeps a base for it here as it projects ([`keep_base`]), each file named by its size and mtime
+//! keeps a base for it here as it projects ([`keep_base`], kept across a redial), each file named by its size and mtime
 //! ([`stand_in`]), so a pull reads and hashes only what the machine changed, and a file this Mac
 //! changed since is a conflict. `project back` plans the same from the upper layer and its
 //! whiteouts ([`super::project_back`]).
@@ -92,8 +92,17 @@ struct Served {
     mtime_ns: i64,
 }
 
+const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
+                     REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
+                     archived|deleted] | enable | disable | status | moves on|off";
+
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // Asked-for help is a success on stdout; before, it was a `project_failed` error, exit 1.
+    if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
+        println!("{USAGE}");
+        return 0;
+    }
     let outcome = match args.first().map(String::as_str) {
         Some("serve") => serve_command(args.get(1..).unwrap_or_default()),
         Some("enable") => set_enabled(true).map(|()| json!({"ok": true, "enabled": true})),
@@ -107,11 +116,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
-        _ => Err(anyhow::anyhow!(
-            "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-             archived|deleted] | enable | disable | status | moves on|off"
-        )),
+        _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
         Ok(Value::Null) => 0,
@@ -528,10 +533,12 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
-    // Bring Back's base, kept here while the machine mounts the folder.
-    let (dialed, kept) = std::thread::scope(|scope| {
-        let kept = scope.spawn(|| keep_base(&folder, &at, &listed));
-        (dial(&socket, &name, &at, &encoded, None), kept.join())
+    let encoded_ms = elapsed_ms(started);
+    // Bring Back's base, made here while the machine mounts the folder, unless one is kept.
+    let kept_already = super::base::kept(&folder, &at);
+    let (dialed, made) = std::thread::scope(|scope| {
+        let made = (!kept_already).then(|| scope.spawn(|| base_of_listing(&folder, &listed)));
+        (dial(&socket, &name, &at, &encoded, None), made.map(|made| made.join()))
     });
     let (stream, mut answer) = dialed?;
     if !ok(&answer) {
@@ -539,15 +546,31 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     }
     // The folder is mounted and the chat can start; without a base, Bring Back says so
     // (`sync_no_base`) rather than guess.
-    match kept {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("cmux link project: no base for Bring Back: {error:#}"),
-        Err(_) => eprintln!("cmux link project: no base for Bring Back: its thread panicked"),
+    let kept = match made {
+        None => Ok(()),
+        Some(Ok(made)) => made.and_then(|base| keep_base(&folder, &at, &base)),
+        Some(Err(_)) => Err(anyhow::anyhow!("its thread panicked")),
+    };
+    if let Err(error) = kept {
+        eprintln!("cmux link project: no base for Bring Back: {error:#}");
     }
-    if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
-        data.insert("listed_ms".into(), json!(listed_ms));
-        data.insert("manifest_bytes".into(), json!(encoded.len()));
-        data.insert("ready_ms".into(), json!(elapsed_ms(started)));
+    let timing = ready_timing(
+        listed.manifest.len(),
+        listed_ms,
+        encoded_ms,
+        encoded.len(),
+        elapsed_ms(started),
+        answer.pointer("/data/mount_ms").and_then(Value::as_u64),
+    );
+    // The start's gate, split, in the server's log (`start` makes it `projections/<server>.log`): the
+    // start-chat answer does not reach `cloud start-chat --from-folder`'s caller, and the log does
+    // (cmuxterm-hq goals/cloud-no-network-wait.md, "Ceiling": is the O(files) cost the listing or the send).
+    eprintln!("cmux link project: ready {timing}");
+    if let (Some(data), Value::Object(timing)) =
+        (answer.get_mut("data").and_then(Value::as_object_mut), timing)
+    {
+        data.extend(timing);
+        data.insert("kept_on_mac".into(), json!(listed.manifest.kept_count()));
     }
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
@@ -616,6 +639,27 @@ fn pair_of(name: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' })
         .collect();
     format!("listing.{clean}").chars().take(128).collect()
+}
+
+/// What the start waited for, by step: the listing, the manifest's encoding and the machine's
+/// answer (`ready_ms`, the whole gate), each from the server's start, and the machine's own
+/// decode and mount (`mount_ms`, its answer's); `ready_ms - encoded_ms - mount_ms` is the send.
+fn ready_timing(
+    entries: usize,
+    listed_ms: u64,
+    encoded_ms: u64,
+    manifest_bytes: usize,
+    ready_ms: u64,
+    mount_ms: Option<u64>,
+) -> Value {
+    json!({
+        "entries": entries,
+        "listed_ms": listed_ms,
+        "encoded_ms": encoded_ms,
+        "manifest_bytes": manifest_bytes,
+        "ready_ms": ready_ms,
+        "mount_ms": mount_ms,
+    })
 }
 
 fn elapsed_ms(since: Instant) -> u64 {
@@ -842,9 +886,11 @@ fn ask(
 }
 
 /// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
-/// modification time, as a manifest.
+/// modification time, as a manifest; and every tracked file the copy's rules keep here, listed by
+/// its stat alone ([`super::project_kept`]), whose bytes are never served.
 fn list(folder: &Path) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
+    let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
     let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
     let stats = stat_all(&files);
@@ -876,7 +922,28 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             link: Some(linked.target.clone()),
         });
     }
-    let manifest = Manifest::build(root_mtime, items)?;
+    let manifest = if home.is_empty() {
+        Manifest::build(root_mtime, items)?
+    } else {
+        let without = items.clone();
+        items.extend(home.iter().map(|kept| kept.item.clone()));
+        match Manifest::build(root_mtime, items) {
+            Ok(mut manifest) => {
+                for kept in &home {
+                    if let Some(index) = manifest.resolve(&kept.item.path) {
+                        manifest.keep_home(index, kept.why.text())?;
+                    }
+                }
+                manifest
+            }
+            // A kept file that no longer fits the listing (its folder became a file since): the
+            // folder goes without them, as before.
+            Err(error) => {
+                eprintln!("cmux link project: tracked files kept here are not listed: {error:#}");
+                Manifest::build(root_mtime, without)?
+            }
+        }
+    };
     let mut served: Vec<Option<Served>> = Vec::new();
     served.resize_with(manifest.len(), || None);
     for (relative, file) in kept {
@@ -909,11 +976,24 @@ pub(super) fn stand_in_matches(sha256: &str, meta: &std::fs::Metadata) -> bool {
     meta.is_file() && sha256 == stand_in(meta.len(), mtime_ns(meta))
 }
 
-/// Keeps Bring Back's base for `folder` projected at `at`: the files as [`list`] found them (by
-/// [`stand_in`], their revision the one the machine's `fs-v1` gives a file of that size and mtime,
-/// which the projection reports for every file it did not change), the symlinks, and in git the
-/// branch and staged changes. `cmux link sync pull` merges against it as against a push's record.
-fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
+/// Keeps `base` as Bring Back's base for `folder` projected at `at`, unless one is kept already.
+/// That one stays whether the machine attaches to its old mount or mounts this newer listing: the
+/// mount's upper layer survives either way, with the record a Bring Back since left there, and
+/// that record matches the kept base, not this listing. Replacing it made every Bring Back after
+/// the server restarted a `sync_base_mismatch`. With no Bring Back yet, the older base still
+/// merges: what changed here since reads the same on both sides.
+fn keep_base(folder: &Path, at: &str, base: &super::Manifest) -> anyhow::Result<()> {
+    if super::base::kept(folder, at) {
+        return Ok(());
+    }
+    super::base::save(folder, at, base)
+}
+
+/// Bring Back's base for `folder` as [`list`] found it: the files by [`stand_in`] (their
+/// revision the one the machine's `fs-v1` gives a file of that size and mtime, which the
+/// projection reports for every file it did not change), the symlinks, and in git the branch and
+/// staged changes. `cmux link sync pull` merges against it as against a push's record.
+fn base_of_listing(folder: &Path, listed: &Listed) -> anyhow::Result<super::Manifest> {
     let manifest = &listed.manifest;
     let mut files = BTreeMap::new();
     for index in 0..u32::try_from(manifest.len()).unwrap_or(u32::MAX) {
@@ -932,15 +1012,14 @@ fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
     }
     let git = local::GitDirs::of(folder)?.map(|_| super::git_back::base_of(folder)).transpose()?;
     let repos = super::git_back::nested_bases(folder, files.keys());
-    let base = super::Manifest {
+    Ok(super::Manifest {
         version: 1,
         files,
         git,
         links: listed.links.clone(),
         projected: true,
         repos,
-    };
-    super::base::save(folder, at, &base)
+    })
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {

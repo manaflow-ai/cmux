@@ -213,12 +213,14 @@ public struct TabStripMetrics: Equatable, Sendable {
         // The first and last pills keep one gap to the strip's ends at every density (`Metrics.tabStripEndGap`).
         stripHorizontalPadding = Metrics.tabStripEndGap
         stripTopOutset = Metrics.stripTopOutset
-        // The tab bar controls' one square (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
+        // The tab bar controls' one square, a tab tall (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
         newTabButtonWidth = Metrics.tabBarControlSide
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.tabCornerRadius
+        // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
+        cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
+                                                                       tabHeight: Metrics.tabHeight)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)

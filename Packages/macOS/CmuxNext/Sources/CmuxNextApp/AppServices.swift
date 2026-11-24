@@ -406,7 +406,13 @@ final class AppServices {
     /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
     private(set) lazy var groupEditor = GroupEditorService(overlayProcess: overlayProcess)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
-    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
+    private(set) lazy var configActions = ConfigActionsController(registry: registry, run: runCommandAction)  // first read in init (no IUO)
+    /// The focused project's own actions file, registered as `cmuxProject.<name>`.
+    private(set) lazy var projectActions = ProjectActionsController(registry: registry, folder: { [weak self] in self.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) }?.path } },
+                                                                    connection: { [weak self] in self?.machines.local.connection }, run: runCommandAction)
+    private var runCommandAction: @MainActor (ConfigCommandAction, ActionInvocation) -> Void {
+        { [weak self] in if let self { ConfigCommandRunner.run($0, invocation: $1, context: AppActionContext(services: self)) } }
+    }
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
@@ -523,6 +529,8 @@ final class AppServices {
     var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
+    /// Reads the plan again a few times after a return from the payment page (`paidPlanReturned`).
+    let paidPlanReread = DemandTimer(owner: "AppServices.paidPlanReread")
     /// One marked-tab list for the palette and every agent page.
     let attentionTabs = AgentPaneAttentionTabs()
     /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
@@ -639,9 +647,9 @@ final class AppServices {
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
         _ = ssh  // built here, as before
-        BrowserLifecycleTrace.shared.configure { tab, event in
-            InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
-        }
+        BrowserLifecycleTrace.shared.configure { tab, event in  // the first page painted: the relaunch bench's (b)
+            if event.hasPrefix("cef-first-paint committed=true") { DebugTimings.markLaunch("browser.first_paint") }
+            InputJournal.shared.append(window: nil, .content(tab: tab, event: event)) }
         _ = cache  // built here, as before
         DebugTimings.markLaunch("services.cache")
         _ = themes  // built here, as before
@@ -669,6 +677,8 @@ final class AppServices {
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
+        cache.pageFrames = BrowserPageFrames(beside: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        cache.pageFrames?.prefetch(on: work) // read off the main thread while windows restore
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
@@ -792,8 +802,7 @@ final class AppServices {
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = (configActions, uiInspector)  // built here; uiInspector alone hears the chat's Inspect Element row (no monitor until it picks)
-        let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
+        updater.attach(sheet: self.updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })  // the sheet is built here, as before
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             self?.keyRouter.creationInputCoordinator.pageArrived(key); for controller in self?.windows.controllers ?? [] {
@@ -959,7 +968,23 @@ extension AppServices {
     }
 
     /// Back in the app while an upgrade waits for its payment: read the plan again (AppDelegate's activation loop).
+    ///
+    /// The payment can land after the person is back, and nothing else reads the plan until the next activation: so
+    /// the plan is read again on ``PaidPlanOnboarding/rereadAfter``, until it turns paid (which ends the wait) or
+    /// the list runs out.
     func paidPlanReturned() async {
-        if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
+        guard PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+        await cloud.refresh()
+        paidPlanRereadNext(PaidPlanOnboarding.rereadAfter[...])
+    }
+
+    /// One plan read per wait left, each on the timer (a newer return to the app replaces the run).
+    private func paidPlanRereadNext(_ waits: ArraySlice<Duration>) {
+        guard let wait = waits.first else { return paidPlanReread.cancel() }
+        paidPlanReread.schedule(after: wait) { @MainActor [weak self] in
+            guard let self, PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+            await self.cloud.refresh()
+            self.paidPlanRereadNext(waits.dropFirst())
+        }
     }
 }
