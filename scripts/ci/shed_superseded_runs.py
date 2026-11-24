@@ -21,7 +21,8 @@ A run is cancelled only when every rule holds (verdict()):
   - a lane branch (not master/release*/nightly*/gh-pages), event push, pull_request or workflow_run:
       superseded:  the branch tip is another commit,
       branch-gone: the branch no longer exists;
-  - main or feat-cmux-next, event push only, not a workflow that publishes per commit (BASE_KEEP_PATHS):
+  - main or feat-cmux-next, event push only, not a workflow that publishes per commit (BASE_KEEP_PATHS) or
+    answers every push since its last success (BASE_RANGE_PATHS):
       superseded-base: the branch tip is another commit. The tip's own run is never touched, so the newest head is
       always tested. What a skipped commit loses: its own run of that workflow. Workflows that diff a push against
       github.event.before (rust-workspaces, gallery-health) then never scope that commit's change on base; it was
@@ -72,6 +73,13 @@ BASE_BRANCHES = frozenset({"main", "feat-cmux-next"})
 # cmux-tui artifacts uploads each feat-cmux-next commit's daemon and acpmux as immutable objects (hot-apply and the
 # nightly train read them by commit).
 BASE_KEEP_PATHS = frozenset({".github/workflows/cmux-tui-artifacts.yml"})
+# Base push workflows whose run answers every push since their last success, not one commit, so a newer push does
+# not replace it: cmux-next base autofix repairs all of that range and regenerates the settings and action exports at
+# the newest tip, and every other run of it defers its Mac exports to one carrier run. On 2026-11-24 the carrier's
+# "action exports (Mac)" job sat queued without a runner on a commit that was no longer the tip, each sweep
+# cancelled it as superseded-base (run 45371841534 by sweep 45378739122), and no run completed after 20:04Z on
+# 2026-11-23, so base's generated exports stayed stale for every push that added settings keys.
+BASE_RANGE_PATHS = frozenset({".github/workflows/cmux-next-base-autofix.yml"})
 # Lane events a newer push to the same branch replaces. workflow_run runs carry the triggering run's branch and
 # head, so a follow-up of a replaced head (attribution, PR media) reads a commit nobody looks at any more.
 LANE_EVENTS = ("push", "pull_request", "workflow_run")
@@ -122,6 +130,8 @@ def verdict(run: dict[str, Any], repo: str, tips: dict[str, str],
         return "keep:protected-workflow"
     if base and run.get("path") in BASE_KEEP_PATHS:
         return "keep:publishes-per-commit"
+    if base and run.get("path") in BASE_RANGE_PATHS:
+        return "keep:answers-every-push-since"
     tip = tips.get(branch)
     if tip is None:
         return "keep:base-unread" if base else "branch-gone"
