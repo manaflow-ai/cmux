@@ -132,8 +132,8 @@ public final class MakeItYoursStepModel {
             return
         }
         // The step shown again in the same window keeps its first baseline: Skip still puts back what was set before.
+        choices = source.currentChoices()
         if opened == nil {
-            choices = source.currentChoices()
             opened = choices
             source.markOpened()
             source.observeWriteFailures { [weak self] reason in
