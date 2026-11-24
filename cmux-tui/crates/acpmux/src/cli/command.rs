@@ -809,6 +809,15 @@ pub enum Command {
     #[command(hide = true)]
     WakeAgent { session: String },
     #[command(hide = true)]
+    SessionHold {
+        session: Option<String>,
+        held: bool,
+        fleet: bool,
+        allow: Vec<String>,
+        reason: Option<String>,
+        status: bool,
+    },
+    #[command(hide = true)]
     ResumeQueue {
         session: String,
         #[arg(long)]
@@ -1303,6 +1312,34 @@ pub enum SessionCmd {
     /// Resume a paused session now: its agent starts on the same conversation, and the time it
     /// took is printed. A prompt resumes it too, without this.
     Wake { session: String },
+    /// Hold a session: it takes no turn until the person asks for it. Every other agent's
+    /// message, tool notice or background task's end waits in its inbox; its idle agent is
+    /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
+    /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
+    /// `*` matches a prefix), and refuse new sessions outside them.
+    Hold {
+        /// The session (not with `--fleet`).
+        session: Option<String>,
+        /// Hold this machine's whole fleet of sessions.
+        #[arg(long)]
+        fleet: bool,
+        /// With `--fleet`: names that keep running, comma-separated.
+        #[arg(long, value_delimiter = ',')]
+        allow: Vec<String>,
+        /// With `--fleet`: why, shown in each refusal.
+        #[arg(long)]
+        reason: Option<String>,
+        /// With `--fleet`: print the fleet hold, change nothing.
+        #[arg(long)]
+        status: bool,
+    },
+    /// Release a held session (`session hold`): it runs its next prompt as usual. With
+    /// `--fleet`: lift the fleet hold.
+    Release {
+        session: Option<String>,
+        #[arg(long)]
+        fleet: bool,
+    },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
     /// It then runs the installed version and gets a new caller token (after
@@ -1850,6 +1887,17 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
+            SessionCmd::Hold { session, fleet, allow, reason, status } => {
+                Command::SessionHold { session, held: true, fleet, allow, reason, status }
+            }
+            SessionCmd::Release { session, fleet } => Command::SessionHold {
+                session,
+                held: false,
+                fleet,
+                allow: Vec::new(),
+                reason: None,
+                status: false,
+            },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
                 Command::Rename { session, new_name, handle, icon }
