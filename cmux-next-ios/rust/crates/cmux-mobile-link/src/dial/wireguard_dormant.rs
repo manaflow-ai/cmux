@@ -139,6 +139,9 @@ pub(super) struct KeeperSpec {
     pub input_lane: bool,
     pub path: watch::Receiver<LinkPath>,
     pub peer: PeerAddr,
+    /// The tunnel's static keys: a resumed link reports the ones its tunnel
+    /// authenticated, as the first link did.
+    pub tunnel_keys: super::super::TunnelKeys,
 }
 
 #[derive(Default)]
@@ -163,6 +166,7 @@ pub(super) struct Keeper {
     input_lane: bool,
     path: watch::Receiver<LinkPath>,
     peer: PeerAddr,
+    tunnel_keys: super::super::TunnelKeys,
     state: Mutex<State>,
     /// The Mac's accept loop for resumed connections.
     resumes: Mutex<Option<JoinHandle<()>>>,
@@ -182,6 +186,7 @@ impl Keeper {
             input_lane: spec.input_lane,
             path: spec.path,
             peer: spec.peer,
+            tunnel_keys: spec.tunnel_keys,
             state: Mutex::new(State::default()),
             resumes: Mutex::new(None),
             generation: watch::channel(0).0,
@@ -352,6 +357,7 @@ impl Keeper {
             hold: Some(hold_hook(&self.session)),
             liveness: None,
             on_link: Some(on_link),
+            tunnel_keys: Some(self.tunnel_keys.clone()),
         };
         lock(waiting()).insert(ticket, dialed);
         let signaling = self.session.signaling_client();
@@ -573,6 +579,7 @@ pub async fn try_resume(
         peer: keeper.peer.clone(),
         session_id: keeper.session.id().to_owned(),
         webrtc_media: false,
+        tunnel_keys: Some(keeper.tunnel_keys.clone()),
     })
 }
 

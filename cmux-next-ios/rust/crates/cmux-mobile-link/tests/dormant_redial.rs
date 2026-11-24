@@ -245,24 +245,34 @@ async fn an_old_side_on_either_end_still_links() {
 
     // New phone, old Mac.
     dormant::act_old_for_tests(false, true);
-    let pair = pair().await;
-    let connected =
-        dial::connect(&pair.phone, &pair.mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
-            .await
-            .expect("dial an old Mac");
+    let old_mac = pair().await;
+    let connected = dial::connect(
+        &old_mac.phone,
+        &old_mac.mac_id,
+        TransportKind::WireGuard,
+        &options(),
+        LinkConfig::default(),
+    )
+    .await
+    .expect("dial an old Mac");
     echo(&connected.link).await;
     connected.link.close("keepalive timed out");
     drop(connected);
     // The old Mac's bye ends the phone's dormant tunnel.
     wait_until("the old Mac's bye ends the phone's dormant tunnel", Duration::from_secs(2), || {
-        dormant::ticket(&pair.mac_id).is_none()
+        dormant::ticket(&old_mac.mac_id).is_none()
     })
     .await;
-    assert!(!dormant::keeps(&pair.phone_id));
-    let ticket = dormant::ticket(&pair.mac_id);
+    assert!(!dormant::keeps(&old_mac.phone_id));
+    let ticket = dormant::ticket(&old_mac.mac_id);
     let full_options = options();
-    let full =
-        dial::connect(&pair.phone, &pair.mac_id, TransportKind::WireGuard, &full_options, LinkConfig::default());
+    let full = dial::connect(
+        &old_mac.phone,
+        &old_mac.mac_id,
+        TransportKind::WireGuard,
+        &full_options,
+        LinkConfig::default(),
+    );
     let won = dormant::hedged(ticket, LinkConfig::default(), &Timeline::new(), full).await.expect("redial");
     let Hedged::Full(connected) = won else { panic!("resumed on an old Mac") };
     echo(&connected.link).await;

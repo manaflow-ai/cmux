@@ -14,6 +14,8 @@ use crate::api::IceServer;
 use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
+pub mod diagnosis;
+pub mod relay;
 pub(crate) mod turn;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
@@ -71,19 +73,24 @@ pub enum LinkPath {
     /// Through a TURN server whose client leg is TCP or TLS (a network that
     /// blocks UDP); WireGuard only.
     TurnTls,
+    /// Through cmux's own WebSocket relay over HTTPS (PROTOCOL.md "WebSocket
+    /// relay"), the last resort when neither UDP nor TURN gets through;
+    /// WireGuard only.
+    HttpsRelay,
     /// No working route at the moment (WireGuard: nothing from the peer
-    /// authenticated yet, or every route was refused). There is no backend
-    /// relay to fall back to any more.
+    /// authenticated yet, or every route was refused).
     NoPath,
 }
 
 impl LinkPath {
-    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`, `none`.
+    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`,
+    /// `https-relay`, `none`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Direct => "direct",
             Self::Turn => "turn",
             Self::TurnTls => "turn-tls",
+            Self::HttpsRelay => "https-relay",
             Self::NoPath => "none",
         }
     }
@@ -129,6 +136,22 @@ pub struct DialOptions {
     /// server the dial fails at once. WebRTC ignores it (webrtc-rs has no
     /// TURN over TCP or TLS).
     pub block_udp: bool,
+    /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"): where this
+    /// side joins it when neither plain UDP nor TURN reaches the peer.
+    /// `None`: no relay (tests, tools, and the dial fails as before).
+    pub relay: Option<relay::RelayEndpoint>,
+    /// Debug "Relay via cmux (HTTPS) only" (and the rig's
+    /// `CMUX_MOBILE_DEV_FORCE_RELAY`): WireGuard sends no plain UDP, takes no
+    /// TURN allocation, and joins the relay at once, so the link rides it
+    /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
+    pub force_relay: bool,
+    /// Where a WireGuard dial records each path's failure, for the error it
+    /// returns when none works ([`DialError::Blocked`]). Shared by clones.
+    pub diagnosis: diagnosis::Diagnosis,
+    /// Test support: how long another confirmed route carries the session
+    /// before the relay socket is let go (default 60 s).
+    #[doc(hidden)]
+    pub relay_leave_after: Option<Duration>,
     /// Test support: trust these roots, not the public web PKI, for TURN
     /// over TLS (a test TURN server's self-signed certificate).
     #[doc(hidden)]
@@ -250,6 +273,10 @@ impl Default for DialOptions {
     fn default() -> Self {
         Self {
             ice_servers: Vec::new(),
+            relay: None,
+            force_relay: false,
+            diagnosis: diagnosis::Diagnosis::default(),
+            relay_leave_after: None,
             include_loopback: false,
             exclude_cgnat: false,
             relay_only: false,
@@ -315,7 +342,7 @@ pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static st
         (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
         (LinkPath::Direct, Some(_)) => "direct-wan",
         (LinkPath::Direct, None) => "direct",
-        (LinkPath::Turn | LinkPath::TurnTls, _) => "relay",
+        (LinkPath::Turn | LinkPath::TurnTls | LinkPath::HttpsRelay, _) => "relay",
         (LinkPath::NoPath, _) => "none",
     }
 }
@@ -355,6 +382,17 @@ pub fn peer_scope(peer: Option<std::net::IpAddr>) -> &'static str {
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
 
+/// The two WireGuard static public keys a tunnel handshook with (base64, as
+/// in `wg-init` and `wg-resp`): the dialer's (the phone's) and the
+/// answerer's (the Mac's). `auth`'s identity proofs cover them (PROTOCOL.md
+/// "Mac identity"), so the keys each side signs are the ones its own tunnel
+/// authenticated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunnelKeys {
+    pub dialer: String,
+    pub answerer: String,
+}
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -378,6 +416,8 @@ pub struct Dialed {
     /// Runs once the link exists (a WireGuard tunnel's lease learns how its
     /// link closes, [`wireguard::dormant`]).
     pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -467,6 +507,10 @@ pub enum DialError {
     Transport(String),
     #[error("unexpected signal: {0}")]
     Unexpected(String),
+    /// No way to the peer worked, and each one's failure is known
+    /// (PROTOCOL.md "When no path works"): the network blocks the link.
+    #[error("no path to the peer: {0}")]
+    Blocked(Box<diagnosis::PathFailures>),
 }
 
 pub type DialFuture<'a> = Pin<Box<dyn Future<Output = Result<Dialed, DialError>> + Send + 'a>>;
@@ -550,6 +594,8 @@ pub struct Connected {
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -595,7 +641,16 @@ fn refuse_unreachable(kind: TransportKind, options: &DialOptions) -> Result<(), 
             "relay only needs a TURN server, and the service offered none".into(),
         ));
     }
+    if kind == TransportKind::WireGuard && options.force_relay && options.relay.is_none() {
+        return Err(DialError::Transport(
+            "relay via cmux needs the service's relay, and there is none".into(),
+        ));
+    }
+    // Without a TURN server the debug UDP-blocked mode still has the relay;
+    // relay only is about TURN, so it still needs one.
+    let relay_covers = options.force_relay || (options.relay.is_some() && !options.relay_only);
     if kind == TransportKind::WireGuard
+        && !relay_covers
         && let Some(reason) = wireguard::missing_turn(options)
     {
         return Err(DialError::Transport(reason.into()));
@@ -621,7 +676,12 @@ async fn connect_on(
         Some(early) => wireguard::dial_wireguard(signaling, mac, &session_id, events, options, Some(early)),
         None => dialer.dial(signaling, mac, &session_id, events, options),
     };
-    let result = tokio::time::timeout(options.timeout, dial).await;
+    // A WireGuard dial whose last way (the relay) failed too ends then, with
+    // why, instead of waiting out its timeout.
+    let result = tokio::select! {
+        result = tokio::time::timeout(options.timeout, dial) => result,
+        () = options.diagnosis.given_up() => Ok(Err(options.diagnosis.blocked())),
+    };
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
@@ -632,7 +692,7 @@ async fn connect_on(
         Err(_) => {
             signaling.unsubscribe(&session_id);
             let _ = signaling.send_signal(mac, &session_id, SignalPayload::Bye { reason: "timeout".into() });
-            return Err(DialError::Timeout);
+            return Err(options.diagnosis.timed_out(kind));
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
@@ -657,6 +717,7 @@ async fn connect_on(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
     })
 }
 
@@ -673,6 +734,8 @@ pub async fn answer(
     let session_id = first.session_id.clone();
     let peer = first.from.clone();
     let dialer = kind.dialer();
+    // The Mac never ends its answer early on the diagnosis: the phone says why,
+    // and a `bye` from here would only race the phone's own verdict.
     let result =
         tokio::time::timeout(options.timeout, dialer.answer(signaling, first, events, options)).await;
     let dialed = match result {
@@ -685,7 +748,7 @@ pub async fn answer(
         Err(_) => {
             let _ =
                 signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: "timeout".into() });
-            return Err(DialError::Timeout);
+            return Err(options.diagnosis.timed_out(kind));
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
@@ -710,6 +773,7 @@ pub async fn answer(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
     })
 }
 
@@ -949,6 +1013,7 @@ mod tests {
             session_id: "new".into(),
             payload: SignalPayload::Bye { reason: "test".into() },
             from_user_id: None,
+            relay_ticket: None,
         };
         session_tx.send(SessionEvent::Signal(bye)).unwrap();
         assert!(matches!(events.next().await, Ok(SessionEvent::Signal(_))));

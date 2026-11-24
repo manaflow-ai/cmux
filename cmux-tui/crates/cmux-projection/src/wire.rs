@@ -9,6 +9,12 @@
 //!   and its blob id in hex; asked only of a Mac whose store is configured).
 //! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`.
 //!
+//! A packed answer (RFD 0065, "Projection answers compressed and binary") carries a file's bytes
+//! as one zstd frame at [`ZSTD_LEVEL`], status [`OK_ZSTD`], wherever that is smaller than the
+//! bytes (about 42% of a repo's bytes are already compressed and go as they are). The Mac packs
+//! only for a machine that said it reads packed answers (`cmux-tui-core`'s `"wire": 2`); every
+//! reader takes both.
+//!
 //! Asks carry their own number, so several are in flight at once and answers may come in any
 //! order.
 
@@ -27,6 +33,13 @@ pub const FAILED: u8 = 1;
 pub const CHANGED: u8 = 2;
 /// The Mac never shares this entry (not a file of the manifest).
 pub const REFUSED: u8 = 3;
+/// The bytes asked for, as one zstd frame ([`write_packed_answer`]); read back as [`OK`].
+pub const OK_ZSTD: u8 = 4;
+
+/// The zstd level a packed answer uses: 1.84x on cmux's files at 175 MB/s (RFD 0065).
+pub const ZSTD_LEVEL: i32 = 3;
+/// Bytes shorter than this go as they are: a zstd frame's own head eats what it would save.
+const ZSTD_MIN: usize = 64;
 
 /// The most bytes one read asks for.
 pub const MAX_READ: u32 = 8 * 1024 * 1024;
@@ -157,18 +170,56 @@ impl Part {
 
 /// Writes the answer to ask `ask`.
 pub fn write_answer(out: &mut impl Write, ask: u32, parts: &[Part]) -> io::Result<()> {
+    write_answer_as(out, ask, parts, false)
+}
+
+/// [`write_answer`], with each file's bytes as a zstd frame ([`OK_ZSTD`]) where that is smaller.
+/// Only for a reader that said it takes packed answers.
+pub fn write_packed_answer(out: &mut impl Write, ask: u32, parts: &[Part]) -> io::Result<()> {
+    write_answer_as(out, ask, parts, true)
+}
+
+fn write_answer_as(out: &mut impl Write, ask: u32, parts: &[Part], packed: bool) -> io::Result<()> {
     let count = u32::try_from(parts.len()).map_err(io::Error::other)?;
     let mut head = Vec::with_capacity(8);
     head.extend_from_slice(&ask.to_le_bytes());
     head.extend_from_slice(&count.to_le_bytes());
     out.write_all(&head)?;
     for part in parts {
-        let len = u32::try_from(part.bytes.len()).map_err(io::Error::other)?;
-        out.write_all(&[part.status])?;
+        let zstd = if packed { pack(part) } else { None };
+        let (status, bytes) = match &zstd {
+            Some(frame) => (OK_ZSTD, frame.as_slice()),
+            None => (part.status, part.bytes.as_slice()),
+        };
+        let len = u32::try_from(bytes.len()).map_err(io::Error::other)?;
+        out.write_all(&[status])?;
         out.write_all(&len.to_le_bytes())?;
-        out.write_all(&part.bytes)?;
+        out.write_all(bytes)?;
     }
     Ok(())
+}
+
+/// `part`'s bytes as one zstd frame, when it is a file's bytes and the frame is smaller.
+fn pack(part: &Part) -> Option<Vec<u8>> {
+    if part.status != OK || part.bytes.len() < ZSTD_MIN {
+        return None;
+    }
+    let frame = zstd::bulk::compress(&part.bytes, ZSTD_LEVEL).ok()?;
+    (frame.len() < part.bytes.len()).then_some(frame)
+}
+
+/// The bytes of zstd frame `frame`, refused past `limit` (a small frame must not inflate to
+/// gigabytes).
+fn unpack(frame: &[u8], limit: u64) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    zstd::stream::read::Decoder::new(frame)?
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| bad("a packed part is not zstd"))?;
+    if bytes.len() as u64 > limit {
+        return Err(bad("a packed part is too large"));
+    }
+    Ok(bytes)
 }
 
 /// The next answer, `None` at a clean end of the stream.
@@ -184,7 +235,9 @@ pub fn read_answer(input: &mut impl Read) -> io::Result<Option<(u32, Vec<Part>)>
     if count > MAX_BATCH {
         return Err(bad("an answer has too many parts"));
     }
+    // Counted as sent and as unpacked: neither may pass MAX_ANSWER.
     let mut total = 0u64;
+    let mut unpacked = 0u64;
     let mut parts = Vec::with_capacity(count as usize);
     for _ in 0..count {
         let mut status = [0u8; 1];
@@ -196,7 +249,17 @@ pub fn read_answer(input: &mut impl Read) -> io::Result<Option<(u32, Vec<Part>)>
         }
         let mut bytes = vec![0u8; len as usize];
         input.read_exact(&mut bytes)?;
-        parts.push(Part { status: status[0], bytes });
+        let part = if status[0] == OK_ZSTD {
+            let limit = u64::from(MAX_READ).min(MAX_ANSWER - unpacked);
+            Part::ok(unpack(&bytes, limit)?)
+        } else {
+            Part { status: status[0], bytes }
+        };
+        unpacked += part.bytes.len() as u64;
+        if unpacked > MAX_ANSWER {
+            return Err(bad("an answer is too large"));
+        }
+        parts.push(part);
     }
     Ok(Some((ask, parts)))
 }
@@ -245,6 +308,51 @@ mod tests {
         let mut input = bytes.as_slice();
         assert_eq!(read_answer(&mut input).unwrap(), Some((7, parts)));
         assert_eq!(read_answer(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn a_packed_answer_is_smaller_and_reads_back_as_the_same_parts() {
+        let text = b"fn main() { println!(\"hello\"); }\n".repeat(200);
+        // Bytes that do not compress (xorshift), as an image or an archive.
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let noise: Vec<u8> = (0..4096)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 32) as u8
+            })
+            .collect();
+        let parts = vec![
+            Part::ok(text.clone()),
+            Part::ok(noise.clone()),
+            Part::ok(b"short".to_vec()),
+            Part::status(CHANGED),
+            Part::ok(Vec::new()),
+        ];
+        let mut plain = Vec::new();
+        write_answer(&mut plain, 9, &parts).unwrap();
+        let mut packed = Vec::new();
+        write_packed_answer(&mut packed, 9, &parts).unwrap();
+        assert!(packed.len() < plain.len() - text.len() / 2, "{} vs {}", packed.len(), plain.len());
+        // Text went as zstd; noise and the short file went as they are.
+        assert_eq!(packed[8], OK_ZSTD);
+        assert!(packed.windows(noise.len()).any(|window| window == noise.as_slice()));
+        assert_eq!(read_answer(&mut packed.as_slice()).unwrap(), Some((9, parts.clone())));
+        assert_eq!(read_answer(&mut plain.as_slice()).unwrap(), Some((9, parts)));
+    }
+
+    #[test]
+    fn a_packed_part_past_the_read_limit_is_refused() {
+        let huge = vec![0u8; MAX_READ as usize + 1];
+        let mut packed = Vec::new();
+        write_packed_answer(&mut packed, 1, &[Part::ok(huge)]).unwrap();
+        assert!(packed.len() < 4096);
+        assert!(read_answer(&mut packed.as_slice()).is_err());
+        let mut junk = Vec::new();
+        write_answer(&mut junk, 1, &[Part { status: OK_ZSTD, bytes: b"not zstd".to_vec() }])
+            .unwrap();
+        assert!(read_answer(&mut junk.as_slice()).is_err());
     }
 
     #[test]

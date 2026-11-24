@@ -221,11 +221,17 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     assert_eq!(info["moving"], false, "{info}");
 }
 
+#[path = "transfer_cli/composer_attachments.rs"]
+mod composer_attachments;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_as.rs"]
+mod session_move_as;
 
+#[path = "transfer_cli/session_move_ask.rs"]
+mod session_move_ask;
 #[path = "transfer_cli/session_move_follow.rs"]
 mod session_move_follow;
 #[path = "transfer_cli/session_move_live.rs"]
@@ -234,3 +240,5 @@ mod session_move_live;
 mod session_move_reachable;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
+#[path = "transfer_cli/view_latency.rs"]
+mod view_latency;
