@@ -135,11 +135,36 @@ struct Source {
     restarted: bool,
     /// The next read is lost as the daemon restarts (and `restarted` is set).
     restart_at_read: bool,
+    /// The daemon is killed as it takes this command (the request is lost, `restarted` is set):
+    /// for the next [`OUTAGE`] requests after it, it is not back yet.
+    restart_at: Option<&'static str>,
+    /// The daemon is killed right after a begin whose answer is lost.
+    restart_after_lost_begin: bool,
+    /// Requests left that find the daemon still restarting: lost, or (for a tab named by its
+    /// public id) "not an agent tab" while its restore has not run.
+    outage: u32,
 }
+
+/// How many requests find a killed source still restarting.
+const OUTAGE: u32 = 3;
 
 impl Source {
     fn handle(&mut self, request: &Value) -> Reply {
         let cmd = request["cmd"].as_str().unwrap_or_default();
+        if self.restart_at == Some(cmd) {
+            self.restart_at = None;
+            self.restarted = true;
+            self.outage = OUTAGE;
+            return Reply::Drop;
+        }
+        if self.outage > 0 {
+            self.outage -= 1;
+            return if request.get("tab").is_some() && self.outage % 2 == 1 {
+                Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into())
+            } else {
+                Reply::Drop
+            };
+        }
         if request.get("surface").is_some() && request["surface"] != json!(SURFACE) {
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
@@ -231,6 +256,10 @@ impl Source {
                     None
                 };
                 if std::mem::take(&mut self.lose_begin_answer) {
+                    if self.restart_after_lost_begin {
+                        self.restarted = true;
+                        self.outage = OUTAGE;
+                    }
                     return Reply::Drop;
                 }
                 let files: Vec<Value> = self
@@ -829,6 +858,82 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert_eq!(source.begun, 1);
+    }
+
+    #[test]
+    fn a_source_still_restarting_when_the_chat_is_given_back_is_waited_for() {
+        // kill-mid-move drill kill-src (run 45435064422): the source was killed mid-copy, the
+        // give back found its daemon still down (connection refused), and the chat stayed frozen.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-read");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_source_killed_as_the_chat_lands_is_waited_for_to_close_it() {
+        // Drill kill-src before-finish/after-finish: the chat landed on the target, the commit
+        // found the source killed, and the chat stayed open in two places.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at = Some("agent-transfer-commit");
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"), "closed here: {answer}");
+    }
+
+    #[test]
+    fn a_rerun_waits_for_the_source_that_restarts_and_closes_the_landed_chat() {
+        // The immediate rerun of the drill found the source still restarting and said "cannot
+        // confirm the tab still shows the chat this move took; nothing was ended".
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        {
+            let mut source = world.source.lock().unwrap();
+            source.restarted = true;
+            source.outage = OUTAGE;
+        }
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.source.lock().unwrap().committed.as_deref(), Some("xfer_1"));
+    }
+
+    #[test]
+    fn a_rerun_after_a_source_killed_at_its_begin_names_the_tab_and_moves_the_chat() {
+        // Drill kill-src before-begin: the begin's answer was lost with the source daemon. The
+        // rerun asked by the old surface slot ("not an agent tab") and never learned the move.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+            source.restart_after_lost_begin = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the unanswered begin's freeze is ended");
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
     }
 
     #[test]
