@@ -292,3 +292,13 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
     fs::create_dir_all(r.join("proc/300/stat")).unwrap();
     assert!(read_snapshot(r, 5).is_none(), "an unreadable process: unknown");
 }
+
+/// The Cloud agent's acpmux-absent fact (session.rs `acpmux_running`) reads the probe's process
+/// list: any `acpmux` process counts, a kernel thread of that name does not.
+#[test]
+fn acpmux_running_reads_the_process_list() {
+    assert!(!snap(0, vec![proc(1, "systemd", 0), proc(2, "bash", 0)]).acpmux_running());
+    assert!(snap(0, vec![proc(1, "systemd", 0), proc(7, "acpmux", 0)]).acpmux_running());
+    let kthread = ProcStat { kthread: true, ..proc(9, "acpmux", 0) };
+    assert!(!snap(0, vec![kthread]).acpmux_running());
+}
