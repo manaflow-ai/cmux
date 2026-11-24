@@ -331,7 +331,7 @@ def ratchet_inputs_changed(repo: Path, base: str, merge: str) -> bool:
 # crash-class rules 70.7 s, against 23.6 s for the prepush gate and 16.7 s for the crash ratchet.
 PR_TIER_DEFERRED = ("web lint", "crash-class rules", "webviews checks")
 
-SKIPPED = {"web lint": "no web path changed, or the pull request tier leaves it to the push tier",
+SKIPPED = {"web lint": "no web path changed",
            "crash-class rules": "the pull request tier leaves it to the push tier (cmux-next-crash-class.yml); "
                                 "the full-ci label or vars.CI_FAST_GATES_PR_TIER=full runs it here",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
