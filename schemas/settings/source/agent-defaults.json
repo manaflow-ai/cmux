@@ -258,6 +258,31 @@
           ]
         },
         {
+          "key": "agents.claudeCodeInboxRelay",
+          "name": "claudeCodeInboxRelay",
+          "note": "Off by default: acpmux never edits Claude Code's config unasked (desktop_link's rule). On, the first time acpmux delivers a message into a Claude Code chat that runs no inbox relay, it adds the tool-less cmux-inbox MCP server to Claude Code's user config (claude mcp add-json --scope user), so later chats write acpmux's deliveries themselves and Claude Code does not hold them (cmux-tui/crates/acpmux/src/desktop_link.rs ensure_inbox_relay_once, read at each delivery). acpmux desktop link adds the same relay by hand (Leo 2026-11-20, ask-4f683bf7d8).",
+          "title": {
+            "key": "settings.agents.claudeCodeInboxRelay",
+            "text": "Add Message Relay to Claude Code"
+          },
+          "help": {
+            "key": "settings.agents.claudeCodeInboxRelay.help",
+            "text": "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "inbox",
+            "relay",
+            "held message",
+            "claude",
+            "claude code",
+            "messages",
+            "verified",
+            "mcp"
+          ]
+        },
+        {
           "key": "agents.modelRouter.model",
           "name": "modelRouterModel",
           "note": "The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.",
