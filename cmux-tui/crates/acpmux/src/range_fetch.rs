@@ -3,11 +3,13 @@
 //! On a Freestyle VM one IPv4 stream from GitHub held 0.6-32 Mbit/s while 16 range requests together
 //! gave 11x (measured, RFD 0067), because each flow loses packets on its own. [`fetch_to_file`]
 //! probes the URL with a one-byte range request, follows redirects once (the signed
-//! `objects.githubusercontent.com` URL of a release asset is then used for every range), and, when the
+//! `objects.githubusercontent.com` URL of a release asset is then used for every range, and a slice
+//! that the signed URL refuses with 401, 403 or 410 goes back to `url` for a fresh one), and, when the
 //! server honours ranges and the file is at least [`Options::threshold`] bytes, reads `ranges`
 //! slices at once into one file at their own offsets. A server that ignores `Range`, or a small
-//! file, is read as one stream from the probe's own response. Every slice's length is checked
-//! against what was asked for, the whole file's length against the probe's, and the sha256 against
+//! file, is read as one stream from the probe's own response; an empty file (416 to the probe) is
+//! read the same way. Every slice's `Content-Range` and length are checked against what was asked
+//! for, the whole file's length against the probe's, and the sha256 against
 //! `Options::sha256` when one is given; the file appears at `dest` only after all of that, renamed
 //! from `dest.part`.
 
@@ -92,6 +94,18 @@ fn split(total: u64, n: usize) -> Vec<(u64, u64)> {
 /// The total of a `Content-Range: bytes 0-0/TOTAL` header.
 fn content_range_total(value: &str) -> Option<u64> {
     value.rsplit('/').next()?.trim().parse().ok()
+}
+
+/// The `(first, last)` bytes of a `Content-Range: bytes FIRST-LAST/TOTAL` header.
+fn content_range_span(value: &str) -> Option<(u64, u64)> {
+    let span = value.trim().strip_prefix("bytes")?.trim().split('/').next()?;
+    let (first, last) = span.split_once('-')?;
+    Some((first.trim().parse().ok()?, last.trim().parse().ok()?))
+}
+
+/// A signed redirect target that has expired (or was revoked) answers one of these.
+fn signed_url_refused(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 401 | 403 | 410)
 }
 
 /// Read `url` into `dest`; see the module doc.
@@ -190,7 +204,7 @@ async fn fetch_part(
                     .map(|(s, e)| (s + from, e + from))
                     .collect();
             }
-            let jobs = slices.iter().map(|&(s, e)| read_slice(client, &final_url, part, s, e));
+            let jobs = slices.iter().map(|&(s, e)| read_slice(client, url, &final_url, part, s, e));
             futures::future::try_join_all(jobs).await?;
             let len = std::fs::metadata(part)?.len();
             if len != total {
@@ -199,8 +213,11 @@ async fn fetch_part(
             Ok((total, slices.len().max(1)))
         }
         _ => {
-            // Single stream. A 206 probe is one byte, so ask again; a 200 probe is the body.
-            let resp = if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            // Single stream. A 206 probe is one byte, so ask again; a 416 probe is an empty file
+            // (byte 0 does not exist), asked again without Range; a 200 probe is the body.
+            let resp = if status == reqwest::StatusCode::PARTIAL_CONTENT
+                || status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE
+            {
                 drop(probe);
                 client.get(&final_url).send().await.with_context(|| format!("GET {url}"))?
             } else {
@@ -232,8 +249,9 @@ async fn head_stream(
     total: u64,
     adaptive: Adaptive,
 ) -> Result<u64> {
-    let Ok(mut resp) = client.get(url).header(reqwest::header::RANGE, "bytes=0-").send().await
-    else {
+    // A server that does not even answer by the judging point is slow: ranges read it all.
+    let request = client.get(url).header(reqwest::header::RANGE, "bytes=0-").send();
+    let Ok(Ok(mut resp)) = tokio::time::timeout(adaptive.after, request).await else {
         return Ok(0);
     };
     if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
@@ -244,8 +262,23 @@ async fn head_stream(
     let mut written = 0u64;
     let mut judged = false;
     while written < total {
-        let chunk = match tokio::time::timeout(STALL, resp.chunk()).await {
+        // Until the stream is judged, wait no longer than the judging point: a stream that sends
+        // nothing at all is the slowest kind and goes to ranges at `after`, not after STALL.
+        let wait = if judged {
+            STALL
+        } else {
+            adaptive.after.saturating_sub(started.elapsed()).max(Duration::from_millis(1))
+        };
+        let chunk = match tokio::time::timeout(wait, resp.chunk()).await {
             Ok(Ok(Some(chunk))) => chunk,
+            Err(_) if !judged => {
+                judged = true;
+                let elapsed = started.elapsed().as_secs_f64();
+                if (written as f64) < adaptive.min_bytes_per_sec as f64 * elapsed {
+                    break;
+                }
+                continue;
+            }
             _ => break,
         };
         let take = (chunk.len() as u64).min(total - written) as usize;
@@ -284,16 +317,20 @@ async fn stream_to(mut resp: reqwest::Response, part: &Path, offset: u64) -> Res
     Ok(written)
 }
 
-/// Bytes `start..=end` of `url` into `part` at `start`, retried from where it stopped.
+/// Bytes `start..=end` of `signed` into `part` at `start`, retried from where it stopped. When the
+/// signed URL is refused (it expired during a slow download), later tries go to `origin`, whose
+/// redirect hands out a fresh one.
 async fn read_slice(
     client: &reqwest::Client,
-    url: &str,
+    origin: &str,
+    signed: &str,
     part: &Path,
     start: u64,
     end: u64,
 ) -> Result<()> {
     let mut at = start;
     let mut last = anyhow!("no attempt");
+    let mut url = signed;
     for attempt in 0..ATTEMPTS {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(250 << attempt)).await;
@@ -308,12 +345,27 @@ async fn read_slice(
             }
             Err((n, e)) => {
                 at += n;
+                if e.downcast_ref::<Refused>().is_some() {
+                    url = origin;
+                }
                 last = e;
             }
         }
     }
-    Err(last.context(format!("range {start}-{end} of {url}")))
+    Err(last.context(format!("range {start}-{end} of {origin}")))
 }
+
+/// A range request the URL refused (an expired signed URL).
+#[derive(Debug)]
+struct Refused(reqwest::StatusCode);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "range request refused with {}", self.0)
+    }
+}
+
+impl std::error::Error for Refused {}
 
 /// One try of `at..=end`; the bytes it wrote (also on failure).
 async fn read_once(
@@ -330,8 +382,19 @@ async fn read_once(
         .send()
         .await
         .map_err(|e| fail(e.into()))?;
+    if signed_url_refused(resp.status()) {
+        return Err(fail(anyhow::Error::new(Refused(resp.status()))));
+    }
     if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
         return Err(fail(anyhow!("range request answered {}", resp.status())));
+    }
+    let span = resp
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(content_range_span);
+    if span != Some((at, end)) {
+        return Err(fail(anyhow!("range {at}-{end} answered with bytes {span:?}")));
     }
     let want = end - at + 1;
     if resp.content_length().is_some_and(|n| n != want) {

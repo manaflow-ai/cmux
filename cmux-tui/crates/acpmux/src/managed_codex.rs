@@ -74,9 +74,9 @@ pub async fn install() -> Result<serde_json::Value> {
     if url.is_empty() {
         bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
     }
-    // One stream first, as before. A 40 MB release asset took 12 minutes on a Freestyle VM's IPv4
-    // path (RFD 0067): a stream still under 2 MB/s after 3 s has the rest read in 16 ranges
-    // (what it read is kept), about a minute. The same sha256 is checked before anything is kept.
+    // One stream first, as before. On a Freestyle VM's IPv4 path one stream from GitHub held about
+    // 0.14 MB/s, so a 100 MB release asset took about 12 minutes (RFD 0067): a stream still under
+    // 2 MB/s after 3 s has the rest read in 16 ranges (what it read is kept), about a minute. The same sha256 is checked before anything is kept.
     // `ACPMUX_FETCH_RANGES=N` overrides: N ranges at once, 1 for one stream only.
     let fetched = tempfile::tempdir()?;
     let archive_path = fetched.path().join("codex.tar.gz");

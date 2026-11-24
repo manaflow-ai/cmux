@@ -19,6 +19,13 @@ struct Server {
     short: bool,
     /// An open-ended range from byte 0 (the head stream) trickles at about 100 KB/s.
     slow_head: bool,
+    /// The head stream sends its headers and then nothing.
+    silent_head: bool,
+    /// Every slice's `Content-Range` names the wrong first byte (the length is right).
+    wrong_offset: bool,
+    /// With `redirect`: each redirect hands out a new `/blob?sig=N`, and a slice on the first one
+    /// is refused with 403, as an expired signed URL is.
+    expire_first_sig: bool,
 }
 
 struct Running {
@@ -39,12 +46,14 @@ async fn serve(data: Vec<u8>, cfg: Server) -> Running {
     let slices = Arc::new(AtomicUsize::new(0));
     let hits = Arc::new(AtomicUsize::new(0));
     let cut = Arc::new(AtomicUsize::new(0));
+    let sigs = Arc::new(AtomicUsize::new(0));
     let data = Arc::new(data);
     let (s2, h2) = (slices.clone(), hits.clone());
     tokio::spawn(async move {
         loop {
             let (sock, _) = listener.accept().await.unwrap();
-            tokio::spawn(handle(sock, data.clone(), cfg, s2.clone(), h2.clone(), cut.clone()));
+            let counters = (s2.clone(), h2.clone(), cut.clone(), sigs.clone());
+            tokio::spawn(handle(sock, data.clone(), cfg, counters));
         }
     });
     Running { base, slices, hits }
@@ -54,9 +63,12 @@ async fn handle(
     mut sock: TcpStream,
     data: Arc<Vec<u8>>,
     cfg: Server,
-    slices: Arc<AtomicUsize>,
-    hits: Arc<AtomicUsize>,
-    cut: Arc<AtomicUsize>,
+    (slices, hits, cut, sigs): (
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+    ),
 ) {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 1024];
@@ -71,9 +83,11 @@ async fn handle(
     let head = String::from_utf8_lossy(&buf).to_string();
     let path = head.split_whitespace().nth(1).unwrap_or("/").to_owned();
     if cfg.redirect && path == "/asset" {
-        let _ = sock
-            .write_all(b"HTTP/1.1 302 Found\r\nLocation: /blob\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .await;
+        let sig = sigs.fetch_add(1, Ordering::SeqCst) + 1;
+        let out = format!(
+            "HTTP/1.1 302 Found\r\nLocation: /blob?sig={sig}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let _ = sock.write_all(out.as_bytes()).await;
         return;
     }
     let range = head.lines().find_map(|l| {
@@ -81,6 +95,15 @@ async fn handle(
         k.eq_ignore_ascii_case("range").then(|| v.trim().to_owned())
     });
     let total = data.len();
+    if total == 0 {
+        let out = if range.is_some() && cfg.ranges {
+            "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        } else {
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        };
+        let _ = sock.write_all(out.as_bytes()).await;
+        return;
+    }
     let (status, from, to) = match range.as_deref().and_then(|r| r.strip_prefix("bytes=")) {
         Some(r) if cfg.ranges => {
             let (a, b) = r.split_once('-').unwrap();
@@ -91,6 +114,12 @@ async fn handle(
     };
     let mut to = to.min(total - 1);
     let is_slice = status.starts_with("206") && to > from;
+    if is_slice && cfg.expire_first_sig && path.ends_with("sig=1") {
+        let _ = sock
+            .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+        return;
+    }
     if is_slice {
         slices.fetch_add(1, Ordering::SeqCst);
         if cfg.short {
@@ -101,10 +130,16 @@ async fn handle(
     let mut out =
         format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n", payload.len());
     if status.starts_with("206") {
-        out.push_str(&format!("Content-Range: bytes {from}-{to}/{total}\r\n"));
+        let shift = usize::from(is_slice && cfg.wrong_offset);
+        out.push_str(&format!("Content-Range: bytes {}-{}/{total}\r\n", from + shift, to + shift));
     }
     out.push_str("\r\n");
     let _ = sock.write_all(out.as_bytes()).await;
+    let head_stream = is_slice && from == 0 && range.as_deref().is_some_and(|r| r.ends_with('-'));
+    if cfg.silent_head && head_stream {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        return;
+    }
     if is_slice && cfg.cut_once && cut.fetch_add(1, Ordering::SeqCst) == 0 {
         let _ = sock.write_all(&payload[..payload.len() / 2]).await;
         return;
@@ -127,7 +162,16 @@ fn hex(data: &[u8]) -> String {
 }
 
 fn plain() -> Server {
-    Server { ranges: true, redirect: false, cut_once: false, short: false, slow_head: false }
+    Server {
+        ranges: true,
+        redirect: false,
+        cut_once: false,
+        short: false,
+        slow_head: false,
+        silent_head: false,
+        wrong_offset: false,
+        expire_first_sig: false,
+    }
 }
 
 fn small(ranges: usize) -> Options {
@@ -152,6 +196,50 @@ fn a_file_is_split_into_slices_that_cover_it_exactly_once() {
 fn a_content_range_total_is_read() {
     assert_eq!(content_range_total("bytes 0-0/12345"), Some(12345));
     assert_eq!(content_range_total("bytes 0-0/*"), None);
+}
+
+#[test]
+fn a_content_range_span_is_read() {
+    assert_eq!(content_range_span("bytes 10-19/100"), Some((10, 19)));
+    assert_eq!(content_range_span("bytes */100"), None);
+    assert_eq!(content_range_span("items 0-1/2"), None);
+}
+
+#[tokio::test]
+async fn an_empty_file_is_an_empty_file_not_an_error() {
+    let srv = serve(Vec::new(), plain()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a");
+    let report = fetch_to_file(&client().unwrap(), &format!("{}/x", srv.base), &dest, &small(16))
+        .await
+        .unwrap();
+    assert_eq!((report.bytes, report.ranges), (0, 1));
+    assert_eq!(std::fs::read(&dest).unwrap(), Vec::<u8>::new());
+}
+
+#[tokio::test]
+async fn a_slice_at_the_wrong_offset_is_refused() {
+    let data = body(100_000);
+    let srv = serve(data, Server { wrong_offset: true, ..plain() }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a");
+    let err = fetch_to_file(&client().unwrap(), &format!("{}/x", srv.base), &dest, &small(4))
+        .await
+        .unwrap_err();
+    assert!(format!("{err:#}").contains("answered with bytes"), "{err:#}");
+    assert!(!dest.exists() && !part_path(&dest).exists());
+}
+
+#[tokio::test]
+async fn an_expired_signed_url_is_fetched_again_from_the_original_url() {
+    let data = body(400_000);
+    let cfg = Server { redirect: true, expire_first_sig: true, ..plain() };
+    let srv = serve(data.clone(), cfg).await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a");
+    let opts = Options { sha256: Some(hex(&data)), ..small(4) };
+    fetch_to_file(&client().unwrap(), &format!("{}/asset", srv.base), &dest, &opts).await.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), data);
 }
 
 #[tokio::test]
@@ -280,6 +368,22 @@ async fn a_fast_stream_is_never_split() {
     assert_eq!(report.ranges, 1);
     // The probe, then the one stream: no slice but the stream's own.
     assert_eq!(srv.slices.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_head_stream_that_sends_nothing_goes_to_ranges_at_the_judging_point() {
+    let data = body(600_000);
+    let srv = serve(data.clone(), Server { silent_head: true, ..plain() }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a");
+    let opts = Options { sha256: Some(hex(&data)), ..adaptive() };
+    let started = Instant::now();
+    let report =
+        fetch_to_file(&client().unwrap(), &format!("{}/x", srv.base), &dest, &opts).await.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), data);
+    assert_eq!(report.ranges, 4);
+    // Judged at 300 ms, not after the 30 s stall (or the server's 20 s of silence).
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
 }
 
 #[tokio::test]
