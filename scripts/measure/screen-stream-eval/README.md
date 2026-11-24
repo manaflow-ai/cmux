@@ -450,6 +450,32 @@ Trust: the run token, rd's stream token and the WebRTC pairing link cross the LA
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure
 Mac's LAN is the boundary, as its console is (below).
 
+### Stage table on two Macs
+
+`stage-table=LEGS` (for example `stage-table=wired,wifi-away`) runs the stage ledger
+(`cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py run --legs LEGS --apple-viewer`) in place of
+the targets, as the same two pinned halves, so any machine that submits fleet steps (a lane VM) runs it:
+
+```
+cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
+  --ref SHA --pair KEY --target-worker HOST_MAC --pin-strict --arg=lan=HOST_IP --arg=peer-token=$token \
+  --arg=stage-table=wired,wifi-away --artifact artifacts/screen-stream-eval/evidence.tar.gz --timeout 7200
+cmux-ci run ... --pair KEY --target-worker VIEWER_MAC --pin-strict --vnc-login HOST_MAC --arg=viewer-of=HOST_IP \
+  --arg=peer-token=$token --arg=stage-table=wired,wifi-away --artifact artifacts/screen-stream-eval/evidence.tar.gz
+```
+
+Both halves take the grant check and launcher first (the rig on the host, `cmux-rd observe` and Screen
+Sharing.app on the viewer). The host half (`stage-table.sh host`) serves `screen-share-vs.py peer-serve`
+on HOST_IP:4181; the viewer half builds the tools at its commit and runs the ledger with itself as
+`--local-mac` and the host `--via peer`: each host command is one HTTP POST with the run token. The
+server takes the first private-address client that holds the token and that one only, runs what it
+posts as the step's user, and ends at the viewer's `/done` or after 2 hours. Apple's presented Total
+logs in with the login the worker writes for a `--vnc-login` step (`CMUX_CI_VNC_LOGIN_FILE`). The
+ledger, its log and the printed table are `stage-table/` in evidence.tar.gz. A shaped leg
+(`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
+holds the rest. Trust as above, except that this server runs any command it is handed, so the token
+is the boundary inside the LAN.
+
 ### Held-and-burst link profiles
 
 `mac-holds.sh` shapes the host Mac's egress to the viewer's addresses with dummynet, as root (on the
