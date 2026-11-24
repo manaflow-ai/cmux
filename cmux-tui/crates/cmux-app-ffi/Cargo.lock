@@ -190,6 +190,7 @@ dependencies = [
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
+ "cmux-pane-pictures",
  "cmux-process",
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
@@ -482,6 +483,10 @@ dependencies = [
  "unicode-general-category",
  "unicode-normalization",
 ]
+
+[[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"
