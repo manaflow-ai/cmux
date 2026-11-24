@@ -178,6 +178,8 @@ impl App {
 
     pub(super) fn on_msg(&mut self, msg: AppMsg) {
         match msg {
+            AppMsg::DraftRead { id, draft } => self.on_draft_read(id, draft),
+            AppMsg::DraftWritten { id, text, result } => self.on_draft_written(id, text, result),
             AppMsg::Sessions(list) => {
                 let had = !self.sessions.is_empty();
                 let selected_id = self.selected_id();
