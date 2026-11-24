@@ -2233,7 +2233,8 @@ function ComposerFrame({
           throw error;
         },
       );
-    if (!handed && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept)) return false;
+    if (!handed && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
+      return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
