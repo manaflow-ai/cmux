@@ -52,9 +52,9 @@ pub fn v6_first(addresses: &[SocketAddr]) -> Vec<SocketAddr> {
 
 /// Keep a caller's preferred prefix ahead of RFC 8305 family ordering.
 pub fn v6_first_after_prefix(addresses: &[SocketAddr], preferred_len: usize) -> Vec<SocketAddr> {
-    let preferred_len = preferred_len.min(addresses.len());
-    let mut out = addresses[..preferred_len].to_vec();
-    out.extend(v6_first(&addresses[preferred_len..]));
+    let (preferred, rest) = addresses.split_at_checked(preferred_len).unwrap_or((addresses, &[]));
+    let mut out = preferred.to_vec();
+    out.extend(v6_first(rest));
     out
 }
 

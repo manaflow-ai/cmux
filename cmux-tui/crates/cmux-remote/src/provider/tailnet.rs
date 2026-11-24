@@ -83,8 +83,8 @@ fn tailnet_ip(ip: IpAddr) -> bool {
             a == 100 && (b & 0xc0) == 64
         }
         IpAddr::V6(ip) => {
-            let s = ip.segments();
-            s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0
+            let [a, b, c, ..] = ip.segments();
+            a == 0xfd7a && b == 0x115c && c == 0xa1e0
         }
     }
 }
