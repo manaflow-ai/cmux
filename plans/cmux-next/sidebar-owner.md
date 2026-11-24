@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-24 (lane/no-shift-native-audit): Sidebar-Look: Leo, 2026-11-24: "we need to have more things decoupled from posisble shifts. this is a pattern we need to take care of." An expanded row's title stacks over one detail line's room even while the row has no detail line (`WorkspaceRowView.stackedDetailLines`): the row is always two lines tall, and the title (with the icon and trailing marks that center on its line) used to sit half a line lower until a summary, preview or notification arrived, then jumped up. Now it does not move when the detail arrives or leaves; a third (meta) line grows the row and leaves the title in place. Compact and Comfortable are unchanged. Regression: `SidebarRowLineSpacingTests.anExpandedRowsTitleDoesNotMoveWhenDetailLinesArrive`.
+
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
   the settings watcher. The existing title, detail and metadata slots move together using
