@@ -375,12 +375,12 @@ async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A peer whose link is ready again while an attempt runs (before its failure is saved) ends
-/// the wait for the next one: the retry does not sleep out its delay with the peer up.
+/// Another peer's link coming back (`peer_ready` is one signal for every peer) does not end the
+/// wait of a message whose own peer is still down: the retry sleeps out its delay instead of
+/// trying again, and writing its journal, once per other peer's reconnect.
 #[tokio::test(start_paused = true)]
-async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
+async fn another_peers_ready_leaves_a_down_targets_retry_waiting() {
     let (hub, _fake) = setup(FakeHub { unknown: true.into(), ..FakeHub::default() });
-    // Fires `peer_ready` the moment attempt 1 starts, as a reconnect would.
     let fired = {
         let hub = hub.clone();
         tokio::spawn(async move {
@@ -388,6 +388,51 @@ async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
                 let changed = hub.outbox.changed.notified();
                 let running = hub.outbox.list(None, 10).0;
                 if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
+                    for _ in 0..50 {
+                        hub.outbox.peer_ready.notify_waiters();
+                        tokio::task::yield_now().await;
+                    }
+                    return tokio::time::Instant::now();
+                }
+                changed.await;
+            }
+        })
+    };
+    let id = queue(&hub, request("huge-blue/lane", "prompt-other-peer-ready")).await;
+    let fired = fired.await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let changed = hub.outbox.changed.notified();
+        if hub.outbox.get(&id).unwrap().attempts >= 2 {
+            break;
+        }
+        assert!(tokio::time::timeout_at(deadline, changed).await.is_ok(), "no attempt 2");
+    }
+    let waited = fired.elapsed();
+    assert!(
+        waited >= Duration::from_secs(RETRY_DELAYS_SECS[0]) - Duration::from_millis(100),
+        "attempt 2 came {waited:?} after 50 other peers' ready signals, its own peer still down"
+    );
+}
+
+/// A peer whose link is ready again while an attempt runs (before its failure is saved) ends
+/// the wait for the next one: the retry does not sleep out its delay with the peer up.
+#[tokio::test(start_paused = true)]
+async fn a_peer_ready_during_an_attempt_ends_the_retry_wait() {
+    let (hub, _fake, peer) = setup_peer(FakeHub { unknown: true.into(), ..FakeHub::default() });
+    // The moment attempt 1 starts, another peer's link comes back first (`peer_ready` fires with
+    // this target still down: the wait goes on), then this target's, as a reconnect would
+    // (`peer_runtime_io` marks the link connected before it sends `PeerNotice::Connected`).
+    let fired = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            loop {
+                let changed = hub.outbox.changed.notified();
+                let running = hub.outbox.list(None, 10).0;
+                if running.iter().any(|d| d.attempts == 1 && d.state == State::Delivering) {
+                    hub.outbox.peer_ready.notify_waiters();
+                    tokio::task::yield_now().await;
+                    peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
                     hub.outbox.peer_ready.notify_waiters();
                     return tokio::time::Instant::now();
                 }
