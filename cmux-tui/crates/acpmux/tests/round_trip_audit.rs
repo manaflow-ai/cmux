@@ -165,14 +165,15 @@ impl Link {
         Ok((ms(at - start), up, down, v))
     }
 
+    /// The next frame: a held notification first, else the next one off the socket (an answer
+    /// too; the caller holds those it does not want in `held`).
     async fn notification(&mut self, deadline: Instant) -> Option<(Instant, Value)> {
         if let Some(x) = self.pending.pop_front() {
             return Some(x);
         }
         loop {
             match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                Ok(Some((at, v))) if v.get("method").is_some() => return Some((at, v)),
-                Ok(Some(answer)) => self.held.push(answer),
+                Ok(Some(frame)) => return Some(frame),
                 _ => return None,
             }
         }
@@ -1191,7 +1192,7 @@ async fn host_local(fx: &Fixture, out: &mut HashMap<Op, Measured>) {
         if v.get("sessionId").and_then(Value::as_str).is_none() {
             return Err(format!("_acpmux/info named no sessionId: {v}"));
         }
-        Ok((ms(start.elapsed()), up, down))
+        Ok::<_, String>((ms(start.elapsed()), up, down))
     };
     out.insert(
         Op::HostCanonicalize,
@@ -1201,7 +1202,7 @@ async fn host_local(fx: &Fixture, out: &mut HashMap<Op, Measured>) {
         let mut side = Link::dial(fx.hub_addr).await?;
         side.rt("_acpmux/info", json!({"sessionId": fx.small})).await?;
         let (t, up, down, _) = side.rt("_acpmux/info", json!({"sessionId": fx.small})).await?;
-        Ok((t, up, down))
+        Ok::<_, String>((t, up, down))
     };
     out.insert(
         Op::HostMode,
@@ -1246,7 +1247,7 @@ async fn finish_send(
     let (res, ended) = match sent {
         Err(e) => (Err(e.clone()), Err(e)),
         Ok((id, up)) => {
-            let shown = shown(&mut link, &prompt_id, start, up, deadline).await;
+            let shown = shown(&mut link, id, &prompt_id, start, up, deadline).await;
             let ended =
                 link.answer(id, deadline).await.map(|(at, _, down)| (ms(at - start), up, down));
             (shown, ended)
@@ -1259,14 +1260,25 @@ async fn finish_send(
 }
 
 /// The prompt's `user_message` record (same promptId) back as `_acpmux/event`.
+/// An error answer to the prompt `id` ends the wait with the refusal.
 async fn shown(
     link: &mut Link,
+    id: i64,
     prompt_id: &str,
     start: Instant,
     up: u64,
     deadline: Instant,
 ) -> Measured {
     while let Some((at, v)) = link.notification(deadline).await {
+        if v.get("method").is_none() {
+            if v.get("id") == Some(&json!(id)) {
+                if let Some(e) = v.get("error") {
+                    return Err(format!("the prompt was refused: {e}"));
+                }
+            }
+            link.held.push((at, v));
+            continue;
+        }
         let p = v["params"].to_string();
         if v["method"] == method::MUX_EVENT && p.contains("user_message") && p.contains(prompt_id) {
             return Ok((ms(at - start), up, v.to_string().len() as u64));
@@ -1351,13 +1363,12 @@ async fn upload(link: &mut Link, fx: &Fixture, run: u64, out: &mut HashMap<Op, M
     let res = match sent {
         Err(e) => Err(e),
         Ok((id, up)) => {
-            let r = shown(link, &prompt_id, start, up, deadline).await;
-            // The turn's end, so the next run starts on an idle chat; an error answer is the
-            // refusal and becomes the row's reason.
-            match link.answer(id, deadline).await {
-                Err(e) if r.is_err() => Err(e),
-                _ => r,
+            let r = shown(link, id, &prompt_id, start, up, deadline).await;
+            // The turn's end, so the next run starts on an idle chat.
+            if r.is_ok() {
+                let _ = link.answer(id, deadline).await;
             }
+            r
         }
     };
     out.insert(Op::UploadPrompt, res);
