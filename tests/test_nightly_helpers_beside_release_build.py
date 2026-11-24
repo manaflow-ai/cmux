@@ -205,7 +205,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertEqual(self.index(RELEASE) + 1, self.index(BUNDLE))
         run = self.step(BUNDLE)["run"]
         for helper, script, require in (("optchat-chief", "bundle-optchat-chief.sh", "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1"),
-                                        ("mobile-host", "bundle-mobile-host.sh", "CMUX_NEXT_REQUIRE_MOBILE_HOST=1")):
+                                        ("mobile-host", "bundle-mobile-host.sh", "CMUX_NEXT_REQUIRE_MOBILE_HOST=1"),
+                                        ("screen-sharing-helper", "bundle-screen-sharing-helper.sh",
+                                         "CMUX_NEXT_REQUIRE_SCREEN_HELPER=1")):
             self.assertIn(f"background_build.py join --state \"$state\" {helper}", run)
             self.assertLess(run.index(f"join --state \"$state\" {helper}"), run.index(script))
             self.assertIn(require, run)

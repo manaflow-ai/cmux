@@ -338,7 +338,7 @@ export class StackTeamSync {
     if (mirrored) return mirrored
     // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
     // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
-    storePlan(deps.sql, team.plan, readAt)
+    storePlan(deps.sql, team.plan, readAt, team.next_plan ?? null, team.chief_addon ?? null, team.next_plan_started_at ?? null, team.next_plan_ends_at ?? null)
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
     if (listed !== undefined) return this.syncMembers(deps, listed, commit) ?? "team_mirrored"
     const user = userIdFor(deps.stackProjectId, ev.stack_user!)

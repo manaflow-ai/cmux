@@ -28,6 +28,13 @@ public struct MacInstallStore: Sendable {
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: true)
     }
 
+    /// Keys of type `Key` as blobs in `keychain` (``SlotInstallSigner``), records in `directory`: the enclave store's
+    /// rules over any Keychain, for a test whose Keychain refuses another build's delete.
+    static func slots<Key: SlotKey>(_ key: Key.Type, keychain: any InstallKeyKeychain, directory: URL) -> MacInstallStore {
+        MacInstallStore(makeSigner: { account in SlotInstallSigner<Key>(account: account, keychain: keychain) },
+                        records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: false)
+    }
+
     /// The store for this process. Only a debug build with no Team ID uses
     /// files; a release build, or a build whose Team ID could not be read,
     /// uses the Secure Enclave (fails closed), its Keychain reads behind the app's one `loginKeychain`.

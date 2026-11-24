@@ -175,6 +175,21 @@ pub(crate) const CARRIED_CONFIG_IDS: &[&str] = &[
     crate::claude_stdio::prompt_suggestions::OPTION,
 ];
 
+/// Config options the unix socket (the CLI, scripts, agents) may set to any value without the
+/// person: every one of [`FREE_CONFIG_IDS`] and [`CARRIED_CONFIG_IDS`], and Codex's
+/// `collaboration_mode` (`default` or `plan`, beside its approval modes, never what they copy:
+/// `hub/permission_modes.rs`). None decides what runs without asking; only a mode does
+/// (`session/set_mode`, the `mode` option), which still needs the person (`hub/person.rs`).
+/// A Web connection is still held to its own table (`config_value_asks`).
+pub(crate) const CLI_CONFIG_IDS: &[&str] = &["collaboration_mode"];
+
+/// Whether the unix socket may set config option `id` to any value (`CLI_CONFIG_IDS`).
+pub(crate) fn cli_config_id(id: &str) -> bool {
+    FREE_CONFIG_IDS.contains(&id)
+        || CARRIED_CONFIG_IDS.contains(&id)
+        || CLI_CONFIG_IDS.contains(&id)
+}
+
 fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
 }
@@ -196,7 +211,7 @@ const RUNS_EVERYTHING_MODES: &[(&str, &[&str])] =
 pub(crate) fn runs_everything_unasked(family: &str, mode: &str) -> bool {
     match RUNS_EVERYTHING_MODES.iter().find(|(f, _)| *f == family) {
         Some((_, modes)) => modes.contains(&mode),
-        None => crate::hub::start_mode::is_full_access(mode),
+        None => is_full_access(mode),
     }
 }
 
@@ -459,6 +474,41 @@ pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
         })
     };
     from_modes.or_else(from_option).map(str::to_owned)
+}
+
+/// The markers of a mode id or option value that skips every approval, shared with the cmux NEXT
+/// app (`spec/full-access-modes.json`).
+const FULL_ACCESS_RULE: &str = include_str!("../../../spec/full-access-modes.json");
+
+fn full_access_markers() -> Option<&'static [String]> {
+    static MARKERS: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
+    MARKERS
+        .get_or_init(|| {
+            let rule: Value = serde_json::from_str(FULL_ACCESS_RULE).ok()?;
+            Some(
+                rule.get("markers")?
+                    .as_array()?
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+            )
+        })
+        .as_deref()
+}
+
+/// Whether a mode id or option value skips every approval, by the shared rule
+/// (`spec/full-access-modes.json`): lowercased, without `-`, `_` or spaces, it contains a
+/// marker. Wider than `FULL_ACCESS_MODES` (the modes acpmux itself picks), so a harness's
+/// `danger-full-access` or `auto-approve` is refused too.
+pub(crate) fn is_full_access(mode: &str) -> bool {
+    let folded: String = mode
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    // A rule that does not parse names every mode full access: refused while the setting is off.
+    full_access_markers().is_none_or(|markers| markers.iter().any(|m| folded.contains(m.as_str())))
 }
 
 #[cfg(test)]

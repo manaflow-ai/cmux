@@ -76,12 +76,12 @@ class SilentAuthProvider extends MockCloudProvider {
 /** A provider whose account read answers only when the test lets it: the frame before the owner. */
 class HeldAuthProvider extends MockCloudProvider {
   private release?: () => void;
-  readonly held = new Promise<void>((resolve) => (this.release = resolve));
+  readonly authHeld = new Promise<void>((resolve) => (this.release = resolve));
   answer(): void {
     this.release?.();
   }
   override async call<R>(op: string, params: unknown): Promise<R> {
-    if (op === CloudOps.authStatus) await this.held;
+    if (op === CloudOps.authStatus) await this.authHeld;
     return super.call<R>(op, params);
   }
 }
@@ -252,12 +252,12 @@ test("the kept list names its user, and another user's list never stays", async 
 /** The account stream answers only when the test lets it: the list is kept before it names its user. */
 class LateAccountProvider extends MockCloudProvider {
   private release?: () => void;
-  private readonly held = new Promise<void>((resolve) => (this.release = resolve));
+  private readonly authHeld = new Promise<void>((resolve) => (this.release = resolve));
   answer(): void {
     this.release?.();
   }
   override async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
-    if (stream === CloudOps.authWatch) await this.held;
+    if (stream === CloudOps.authWatch) await this.authHeld;
     return super.subscribe<E>(stream, onEvent);
   }
 }

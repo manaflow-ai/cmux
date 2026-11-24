@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextDesign
 
 /// The file explorer's list. Return and Cmd-Down open the selection through
 /// the registry (`fileExplorerOpenSelection`, `…FinderAlias`): bare keys
@@ -26,6 +27,6 @@ package final class FileExplorerTableView: NSTableView {
         if row >= 0, !selectedRowIndexes.contains(row) { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
         // The empty area: no selection, so the menu offers New File and New Folder in the root.
         if row < 0 { deselectAll(nil) }
-        return contextMenu?()
+        return NSMenu.withoutSystemItems(contextMenu?())
     }
 }

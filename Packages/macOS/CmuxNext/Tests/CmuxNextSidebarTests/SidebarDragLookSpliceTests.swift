@@ -74,9 +74,10 @@ import Testing
     }
 
     /// The options the list draws a workspace drag with (`SidebarListView.options`): the look's, with the dragged rows shown.
-    static func lookOptions(active: WorkspaceID?) -> SidebarLayoutOptions {
+    static func lookOptions(active: WorkspaceID?, archive: Bool = false) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         (o.showsSoleMachineHeader, o.foldsDone, o.flattensMachines, o.showEmptyPinned) = (true, true, true, true)
+        o.archiveSection = archive
         o.activeWorkspaceID = active
         return o
     }
@@ -127,11 +128,11 @@ import Testing
     }
 
     /// One shape: every drag to every slot. Returns how many slots spliced and how many fell back.
-    static func check(_ name: String, _ sections: [SidebarSection], active: WorkspaceID?, minimal: Bool = false) -> (spliced: Int, fellBack: Int) {
+    static func check(_ name: String, _ sections: [SidebarSection], active: WorkspaceID?,
+                      archive: Bool = false) -> (spliced: Int, fellBack: Int) {
         var (spliced, fellBack) = (0, 0)
         for ids in drags(sections) {
-            var look = lookOptions(active: active)
-            look.minimal = minimal
+            var look = lookOptions(active: active, archive: archive)
             var baseOptions = look
             baseOptions.excludedWorkspaces.formUnion(ids)
             // A drag that carries a Done row draws unfolded (`SidebarListView.options`).
@@ -171,17 +172,21 @@ import Testing
         }
     }
 
-    @Test func minimalRowsSpliceAsMakeLaysThemOut() {
-        for (name, sections, active) in Self.shapes() {
-            _ = Self.check(name + " (minimal)", sections, active: active, minimal: true)
-        }
-    }
-
     /// The common case: a workspace dragged within and between groups of one machine section, and out to the top
     /// level, never falls back.
     @Test func groupsOfTenNeverFallBack() throws {
         let shape = try #require(Self.shapes().first)
         let (spliced, fellBack) = Self.check(shape.name, shape.sections, active: nil)
         #expect(fellBack == 0 && spliced > 0, "groups of 10: \(fellBack) slots fell back")
+    }
+
+    /// With the Archive section drawn, an archived top-level row leaves its list (`splittingArchive`), so the base's
+    /// row indices are not the nodes' the move counts: the splice matches `make` or falls back (#37835 review F1).
+    @Test func anArchivedRowBeforeTheSlotNeverShiftsTheSplice() {
+        var archived = Self.ws("a0")
+        archived.isArchived = true
+        let sections = [Self.machineSection([.workspace(Self.ws("l0")), .workspace(archived), .workspace(Self.ws("l1")),
+                                             .group(Self.group("ag", [Self.ws("ag0"), Self.ws("ag1")])), .workspace(Self.ws("l2"))])]
+        _ = Self.check("archived row before the slot", sections, active: nil, archive: true)
     }
 }

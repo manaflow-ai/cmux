@@ -49,23 +49,32 @@ pub(super) struct KnownTree {
 ///
 /// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
 /// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
-/// order and `total`. Without either, the reply is the same as before they existed, byte for byte.
+/// order and `total`, up to a byte budget, from `after` with `next` (`list-workspaces-page-v1`).
+/// Without either, the reply is the same as before they existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
     client: u64,
     lines_written: Option<u64>,
     known: Option<&KnownTree>,
     limit: Option<usize>,
+    after: Option<usize>,
 ) -> anyhow::Result<Value> {
+    // `after` pages only with `limit` (`list-workspaces-page-v1`).
+    let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
+    // A client that sends no `known` holds no tree and asks no second time: its reply reads each
+    // stale git HEAD itself (git_heads.rs). A `known` request leaves them to the refresh.
+    if known.is_none() {
+        mux.read_stale_git_heads();
+    }
     // A remote device that must not see some workspaces (#31210) is answered
     // from the ones it may see: its page, `total` and revision say nothing of
     // the others, all read with one view of them.
     let mut reply = match (known, limit) {
         (Some(known), limit) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            list_workspaces_reply_since(mux, known, limit, view)
+            list_workspaces_reply_since(mux, known, limit, after, view)
         })?,
         (None, Some(limit)) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            Ok(list_workspaces_reply_first(mux, limit, view)?.0)
+            Ok(list_workspaces_reply_first(mux, limit, after, view)?.0)
         })?,
         (None, None) => list_workspaces_reply(mux)?,
     };
@@ -82,7 +91,13 @@ pub(super) fn list_workspaces_text(
     writer: &super::MessageWriter,
 ) -> anyhow::Result<super::tree_reply_text::TreeReply> {
     let lines_written_before_read = writer.lines_written();
-    let text = super::list_workspaces_reply_text(mux, &writer.render_service)?;
+    // This is a request with no `known`: see `list_workspaces`.
+    mux.read_stale_git_heads();
+    let text = super::tree_reply_text::list_workspaces_reply_text(
+        mux,
+        &writer.render_service,
+        writer.tab_projection(),
+    )?;
     Ok(super::tree_reply_text::TreeReply { text, lines_written_before_read })
 }
 
@@ -93,6 +108,11 @@ pub(super) fn new_workspace(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> anyhow::Result<Value> {
+    // Its plain shell may wait for its first need (mux/terminal_respawn/lazy.rs).
+    let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        mux,
+        !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor),
+    );
     let surface = mux.new_workspace_as(&actor, name, optional_surface_size(cols, rows))?;
     Ok(json!({ "surface": surface.id }))
 }
@@ -517,6 +537,9 @@ pub(super) fn select_workspace(
     delta: Option<isize>,
 ) -> anyhow::Result<Value> {
     mux.select_workspace_as(&actor, index, delta);
+    // Showing a workspace starts its parked tabs, as the app does
+    // (`wakeParkedTabs`; mux/terminal_respawn/lazy.rs).
+    mux.wake_parked_tabs_of_active_workspace();
     Ok(json!({}))
 }
 

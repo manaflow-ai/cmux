@@ -113,7 +113,7 @@ impl HostedReader {
             // Both attach notifications are queued only
             // after the authoritative replay and complete
             // color state have replaced the old parser.
-            pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+            let frame = AttachFrame::ResizedWithColors {
                 cols,
                 rows,
                 replay: replay.into(),
@@ -123,7 +123,9 @@ impl HostedReader {
                 // Terminal hosts replay only at a
                 // parser boundary.
                 pending_sequence: Arc::from([]),
-            });
+                history_rows_omitted: None,
+            };
+            pty.broadcast_resized_locked(term, frame);
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         });
         drop(geometry);

@@ -1,9 +1,11 @@
 import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 
-/// Files a new local chat with no session yet gets pasted (any file, Lawrence 2026-10-20), written
-/// owner-only under `~/Library/Application Support/cmux/Chat Uploads/<random>/<index>/<name>`; a chat
-/// with a session sends them to acpmux, which stores each once (``AgentPeerUploads/localTarget(tab:services:)``).
+/// Files a local chat gets pasted that have no path on this Mac (any file, Lawrence 2026-10-20), written
+/// owner-only under `~/Library/Application Support/cmux/Chat Uploads/[sessions/<session>/]<random>/<index>/<name>`:
+/// staged as the page streams them and renamed into place, never copied again through the acpmux
+/// socket (``AgentPeerUploads`` is for a peer's chat only).
 /// Older `sessions/<session>/...` folders, no longer written, go after ``maximumAge`` (``sweep(_:now:)``, at
 /// launch). Only folders named as the app names them are deleted.
 @MainActor
@@ -40,16 +42,15 @@ struct AgentChatUploads {
         // An upload stays in its own tab, by its store id (a new tab's provisional id is rekeyed). One begun with no session ("new")
         // goes on once the chat starts (the prompt was sent while it streamed, #28647); another new chat's page never feeds it.
         let mine = { (made: String, by: String) in services.agentTabs.resolve(by) == tab && (made == session || made == "new") }
-        return stager(root: root, session: session, tab: tab, mine: mine)
+        return stager(root: root, session: session, tab: tab, work: services.work, mine: mine)
     }
 
-    /// Test and native callers that already have a local upload root use the
-    /// same staging state machine without an AppServices tab resolver.
-    static func stager(root: URL, session: String) -> AgentPaneUploadStager {
-        stager(root: root, session: session, tab: "", mine: { made, _ in made == session || made == "new" })
+    /// Test and native callers with a local upload root: the same staging state machine, no AppServices tab resolver.
+    static func stager(root: URL, session: String, work: BackgroundWork = BackgroundWork()) -> AgentPaneUploadStager {
+        stager(root: root, session: session, tab: "", work: work, mine: { made, _ in made == session || made == "new" })
     }
 
-    private static func stager(root: URL, session: String, tab: String,
+    private static func stager(root: URL, session: String, tab: String, work: BackgroundWork,
                                mine: @escaping (String, String) -> Bool) -> AgentPaneUploadStager {
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
@@ -80,8 +81,8 @@ struct AgentChatUploads {
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], mine(stage.session, stage.tab), stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
+                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage // taken before the write, so no other chunk takes this offset
+                guard await AgentPaneUploadWriter.appendOnce(data, to: stage.file, work: work), stages[token] != nil else { stages[token]?.received = -1; return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 expire(token)
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
@@ -192,6 +193,6 @@ extension AgentChatUploads {
 /// beside the Cloud chat upload's.
 enum AgentChatUploadStrings {
     static var failed: String {
-        String(localized: "chat.upload.localFailed", defaultValue: "Couldn't save the file on this Mac.", table: "Cloud", bundle: .module)
+        String(localized: "chat.upload.localFailed", defaultValue: "Couldn't save the file on this Mac.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

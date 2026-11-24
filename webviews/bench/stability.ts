@@ -29,7 +29,8 @@ export type IdleCount = {
   /** The page's own loop count (cmuxDebug.loops(), src/ui/pageLoops.ts: registered clocks running plus infinite
    *  animations) at the end of the window, where the page installs it; null where it does not. */
   pageLoops: number | null;
-  /** Where the callbacks came from (a stack frame or two), most first, and the running animations. */
+  /** Where the callbacks came from (a stack frame or two), most first, and the running animations. A callback's
+   *  source ends with when it ran, in ms from the window's start (` @ 412,2412 ms`). */
   sources: string[];
 };
 
@@ -74,6 +75,10 @@ export function installStabilityProbe(options: {
   let counting = false;
   const counts = { timeouts: 0, intervals: 0, frames: 0, idleCallbacks: 0 };
   const sites = new Map<string, number>();
+  // When each site ran, in ms from the window's start (at most 8 kept per site): a periodic timer runs at even
+  // steps, a one-shot after a change once near the start.
+  const ranAt = new Map<string, number[]>();
+  let windowStart = 0;
   // The registering stack, kept as an Error: V8 formats `stack` only when it is read (in the idle window).
   const where = (error: Error | undefined) =>
     error?.stack
@@ -83,12 +88,17 @@ export function installStabilityProbe(options: {
         (line) =>
           line && line !== "Error" && !line.includes("installStabilityProbe") && !/^at (w\.|window\.)/.test(line),
       )
-      .slice(1, 3)
+      // The caller that registered the callback first, then two of its callers (the wrapper's own frame is
+      // filtered above; slicing from 1 dropped the caller itself, naming only its caller's caller).
+      .slice(0, 3)
       .join(" < ") || "unknown";
   const note = (kind: keyof typeof counts, error: Error | undefined) => {
     counts[kind] += 1;
     const key = `${kind}: ${where(error)}`;
     sites.set(key, (sites.get(key) ?? 0) + 1);
+    const at = ranAt.get(key) ?? [];
+    if (at.length < 8) at.push(Math.round(performance.now() - windowStart));
+    ranAt.set(key, at);
   };
   type Handler = (...args: unknown[]) => unknown;
   w.setTimeout = ((handler: TimerHandler, ms?: number, ...args: unknown[]) => {
@@ -228,6 +238,8 @@ export function installStabilityProbe(options: {
     startIdle() {
       for (const key of Object.keys(counts) as (keyof typeof counts)[]) counts[key] = 0;
       sites.clear();
+      ranAt.clear();
+      windowStart = performance.now();
       counting = true;
     },
     stopIdle() {
@@ -240,10 +252,19 @@ export function installStabilityProbe(options: {
           (a as Animation & { transitionProperty?: string }).transitionProperty ??
           a.id ??
           "animation";
-        const owner =
-          target instanceof Element
-            ? `${target.tagName.toLowerCase()}${typeof target.className === "string" && target.className ? `.${target.className.split(" ")[0]}` : ""}`
-            : "?";
+        // An svg's className is an SVGAnimatedString, so the class attribute names it; the nearest ancestor with a
+        // class or data-slot says which spinner of the page's many it is.
+        const tag = (el: Element) => {
+          const cls = (el.getAttribute("class") ?? "").trim().split(/\s+/)[0];
+          const slot = el.getAttribute("data-slot");
+          return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""}${slot ? `[data-slot=${slot}]` : ""}`;
+        };
+        const host = (el: Element) => {
+          for (let up = el.parentElement, i = 0; up && i < 6; up = up.parentElement, i++)
+            if (up.getAttribute("class") || up.getAttribute("data-slot")) return ` in ${tag(up)}`;
+          return "";
+        };
+        const owner = target instanceof Element ? `${tag(target)}${host(target)}` : "?";
         return `animation: ${name} on ${owner}`;
       };
       for (const animation of running) {
@@ -258,7 +279,9 @@ export function installStabilityProbe(options: {
         ...counts,
         pageLoops: loops ? loops.loops : null,
         animations: running.length,
-        sources: [...sites.entries()].sort((a, b) => b[1] - a[1]).map(([key, n]) => `${n}x ${key}`),
+        sources: [...sites.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([key, n]) => `${n}x ${key}${ranAt.has(key) ? ` @ ${ranAt.get(key)!.join(",")} ms` : ""}`),
       };
     },
   };

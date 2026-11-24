@@ -4,9 +4,10 @@
 // (README.md: Debug setting `cloud.machines.layout`); the fragment `#/get` opens the storefront.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
@@ -34,16 +35,24 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
     if (parseView(location.hash) !== view)
       history.replaceState(null, "", `${location.pathname}${location.search}${view === "get" ? "#/get" : ""}`);
   });
+  // A failed payment may be fixed in the browser meanwhile: the billing state is read again each
+  // time the page is shown or the app becomes active, never on a timer.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void store.refreshBilling();
+  });
+  window.addEventListener("focus", () => void store.refreshBilling());
   // The page has no find or search field yet; it answers page commands as not handled so the
   // dispatcher can fall back. It never reads Cmd or Ctrl chords itself.
   client?.handle(PAGE_COMMAND, () => ({ handled: false }));
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("page.title");
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <CloudPage store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <CloudPage store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
   return store;
 }

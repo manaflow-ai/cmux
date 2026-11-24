@@ -2,7 +2,12 @@ import CmuxAgentBrands
 import AppKit
 import CmuxNextDesign
 
-/// Shortcut badges drawn directly (no subviews): one rounded gray cap per key.
+/// Shortcut badges drawn directly (no subviews): one rounded cap per key, printed as a Mac keyboard labels it
+/// (`String.keycapLegend`: ⌘ ⌥ ⌃ ⇧, then "return", "tab", "esc", "delete" or the key), on a faint fill
+/// with a hairline edge and a legend in the text's own ink (Leo 2026-11-22: "this command palette's icons
+/// are really bad and not even properly depicting the keys"; design/palette-keycaps-gallery.html, look C).
+/// `keycaps` keeps the keys as the shortcut has them (↩, ⇥: what search and the ranker read); a chord's
+/// second stroke (⌘J then S) draws after a plain "then", never as a third cap of one shortcut.
 final class PaletteKeycapsView: NSView {
     var keycaps: [String] = [] {
         didSet {
@@ -14,35 +19,97 @@ final class PaletteKeycapsView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// The legend's font: the caption's size, emphasized, so a word reads at the size of the text beside it.
+    static var font: NSFont { Typography.system(.default, size: Typography.caption.pointSize, weight: TypeScale.emphasis) }
+
     /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
     private var attributes: [NSAttributedString.Key: Any] {
-        [.font: Typography.shortcut, .foregroundColor: Palette.textSecondary]
+        [.font: Self.font, .foregroundColor: Palette.textPrimary.withAlphaComponent(0.82)]
     }
 
-    private func capWidth(_ cap: String) -> CGFloat {
-        let text = (cap as NSString).size(withAttributes: attributes).width
+    private var thenAttributes: [NSAttributedString.Key: Any] {
+        [.font: Typography.caption, .foregroundColor: Palette.textTertiary]
+    }
+
+    /// What draws, left to right: each stroke's caps, a "then" between strokes.
+    private enum Piece: Equatable {
+        case cap(String)
+        case then
+    }
+
+    private var pieces: [Piece] {
+        keycaps.keycapStrokes.enumerated().flatMap { index, stroke in
+            (index == 0 ? [] : [Piece.then]) + stroke.map { Piece.cap($0.keycapLegend) }
+        }
+    }
+
+    /// A cap's width for `cap`, as given or as its legend (`String.keycapLegend` returns a legend unchanged).
+    func capWidth(_ cap: String) -> CGFloat {
+        let text = (cap.keycapLegend as NSString).size(withAttributes: attributes).width
         return max(PaletteLayout.keycapSize, ceil(text) + Metrics.space2 * 2)
     }
 
+    private func width(_ piece: Piece) -> CGFloat {
+        switch piece {
+        case .cap(let legend): capWidth(legend)
+        case .then: ceil((PaletteStrings.keycapThen as NSString).size(withAttributes: thenAttributes).width) + Metrics.space1 * 2
+        }
+    }
+
     override var intrinsicContentSize: NSSize {
-        guard !keycaps.isEmpty else { return .zero }
-        let widths = keycaps.map(capWidth)
-        return NSSize(width: widths.reduce(0, +) + Metrics.space1 * CGFloat(keycaps.count - 1), height: PaletteLayout.keycapSize)
+        let pieces = pieces
+        guard !pieces.isEmpty else { return .zero }
+        return NSSize(width: pieces.map(width).reduce(0, +) + Metrics.space1 * CGFloat(pieces.count - 1), height: PaletteLayout.keycapSize)
+    }
+
+    /// Where `text` draws in `rect` (flipped), on the pixel grid. Its ink is centered left to right. Up and
+    /// down, a symbol key (⌘ ⌥ ⇧, arrows) or a named key's word ("return", "tab") centers its own ink:
+    /// centered by its line box, a glyph drew below the middle of the cap and of the text beside it (#48512).
+    /// Single letters, digits and punctuation center the font's capitals instead, so "," "'" "." and "_"
+    /// keep their height on the line.
+    private func baseline(of text: String, in rect: NSRect, attributes: [NSAttributedString.Key: Any]) -> NSPoint {
+        let font = (attributes[.font] as? NSFont) ?? Self.font
+        let unbounded = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        // Measured from the baseline, y up.
+        let ink = (text as NSString).boundingRect(with: unbounded, options: [.usesDeviceMetrics], attributes: attributes)
+        let isSymbol = !text.isEmpty && text.unicodeScalars.allSatisfy {
+            $0.properties.generalCategory == .otherSymbol || $0.properties.generalCategory == .mathSymbol
+        }
+        let isWord = text.count > 1 && text.allSatisfy(\.isLetter)
+        let y = (isSymbol || isWord) && !ink.isEmpty ? rect.midY + ink.midY : rect.midY + font.capHeight / 2
+        let x = ink.isEmpty ? rect.midX - (text as NSString).size(withAttributes: attributes).width / 2 : rect.midX - ink.midX
+        let scale = window?.backingScaleFactor ?? 2
+        return NSPoint(x: (x * scale).rounded() / scale, y: (y * scale).rounded() / scale)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
         let y = (bounds.height - size) / 2
+        let hairline = 1 / max(window?.backingScaleFactor ?? 2, 1)
         performWithTheme {
-            for cap in keycaps {
-                let width = capWidth(cap)
+            for piece in pieces {
+                let width = width(piece)
                 let rect = NSRect(x: x, y: y, width: width, height: size)
-                Palette.hoverFill.setFill()
-                NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
-                let text = cap as NSString
-                let textSize = text.size(withAttributes: attributes)
-                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+                switch piece {
+                case .cap(let legend):
+                    let radius = PaletteLayout.keycapCornerRadius
+                    Palette.textPrimary.withAlphaComponent(0.07).setFill()
+                    NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+                    let edge = NSBezierPath(roundedRect: rect.insetBy(dx: hairline / 2, dy: hairline / 2),
+                                            xRadius: max(0, radius - hairline / 2), yRadius: max(0, radius - hairline / 2))
+                    edge.lineWidth = hairline
+                    Palette.textPrimary.withAlphaComponent(0.16).setStroke()
+                    edge.stroke()
+                    let attributes = attributes
+                    (legend as NSString).draw(with: NSRect(origin: baseline(of: legend, in: rect, attributes: attributes), size: .zero),
+                                              options: [], attributes: attributes)
+                case .then:
+                    let attributes = thenAttributes
+                    let text = PaletteStrings.keycapThen
+                    (text as NSString).draw(with: NSRect(origin: baseline(of: text, in: rect, attributes: attributes), size: .zero),
+                                            options: [], attributes: attributes)
+                }
                 x += width + Metrics.space1
             }
         }
@@ -142,6 +209,8 @@ final class PaletteRowCell: NSTableCellView {
         super.init(frame: frame)
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
+        // Its text's right end is the row's right edge, where a key would end.
+        accessory.alignment = .right
         subtitle.lineBreakMode = .byTruncatingMiddle
         [icon, swatch, title, subtitle, accessory, toggleBadge, keycaps].forEach(addSubview)
     }
@@ -230,7 +299,8 @@ final class PaletteRowCell: NSTableCellView {
         let box = PaletteLayout.iconBox
         icon.frame = NSRect(x: padding, y: midY - box / 2, width: box, height: box)
         swatch.frame = icon.frame.insetBy(dx: 1, dy: 1)
-        var right = bounds.maxX - padding
+        // Keys and kind labels end on the panel's one right edge, the field's hint's too.
+        var right = bounds.maxX - PaletteLayout.trailingInset
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
@@ -245,9 +315,10 @@ final class PaletteRowCell: NSTableCellView {
         }
         if !accessory.isHidden {
             let width = min(PaletteText.fittingWidth(accessory), bounds.width / 4)
-            right -= width
-            accessory.frame = centered(x: right, width: width, field: accessory)
-            right -= Metrics.space4
+            // The cell draws its text inset from the frame; the frame goes past the edge by that inset.
+            let inset = PaletteText.textInset(accessory)
+            accessory.frame = centered(x: right + inset - width, width: width, field: accessory)
+            right -= width - inset + Metrics.space4
         }
         let left = icon.frame.maxX + Metrics.space4
         let available = max(0, right - left)

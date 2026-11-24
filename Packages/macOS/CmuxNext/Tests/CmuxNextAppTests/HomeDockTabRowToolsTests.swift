@@ -146,10 +146,9 @@ import Testing
         #expect(refusal == notices.shown.first)
     }
 
-    /// One ⋮, not two (Lawrence 2026-10-22: "like tf are these buttons for"): the Chief's tools draw
-    /// no button of their own, only the status mark; their rows sit at the top of the pane's more menu,
-    /// above a separator and the pane's own rows.
-    @Test func theChiefsToolsAreNoButtonsAndLeadThePanesOneMoreMenu() throws {
+    /// No ⋮ of their own (Lawrence 2026-10-22: "like tf are these buttons for"): the Chief's tools draw
+    /// no button, only the status mark; their rows lead the selected tab's right-click.
+    @Test func theChiefsToolsAreNoButtonsAndLeadTheTabsRightClick() throws {
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
         #expect(tools.subviews.count == 1)
@@ -165,12 +164,11 @@ import Testing
         let standard = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { standard }, contentMenu: { dock.paneMoreMenuItems() })
         toolbar.update(target: "tab0", kind: .other)
-        // The Chief's rows open the tab bar's right-click (the pane's "…" is gone), its first section.
-        let sections = toolbar.tabBarMenuRows()
-        let ids = try #require(sections.first).prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
+        // The selected tab's right-click leads with these rows (PaneController.prependOwnRows); the bar has no ⋮ (#53356).
+        let rows = toolbar.contentRows()
+        let ids = rows.prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
         #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
-        #expect(sections.first?.count == chiefRows, "the Chief's rows are a section of their own")
-        #expect(sections.count > 1)
+        #expect(rows.count == chiefRows)
     }
 
     /// The Home header's second row of toggles (Memory, Right Sidebar) is off by default: the

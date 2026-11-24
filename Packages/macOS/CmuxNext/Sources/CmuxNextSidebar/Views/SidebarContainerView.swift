@@ -285,6 +285,14 @@ public final class SidebarContainerView: NSView {
         snap()
     }
 
+    /// ``restore(width:presentation:)``, unless the sidebar already shows them (a launch window
+    /// opened at the record's or the layout cache's sidebar): nothing snaps or redraws.
+    public func restoreIfChanged(width: CGFloat?, presentation: SidebarPresentation) {
+        guard let width, abs(model.width - width) < 0.5, model.presentation == presentation else {
+            return restore(width: width, presentation: presentation)
+        }
+    }
+
     /// Starts inline rename of a workspace, showing the sidebar first when
     /// it is hidden (the rename field lives in the list).
     public func beginRename(workspace id: WorkspaceID) {
@@ -297,6 +305,16 @@ public final class SidebarContainerView: NSView {
     public func beginRename(group id: GroupID) {
         revealForEditing()
         sidebarView.beginRename(group: id)
+    }
+
+    /// Rename on the first group the sidebar lists (its editor), as that header's menu does; false with no group
+    /// (`debug.overlay_open_bench`).
+    public func beginRenameFirstGroup() -> Bool {
+        let first = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in if case let .group(group) = node { group.id } else { nil } }.first
+        guard let first else { return false }
+        sidebarView.list.groupEditor.forgetLastClose()
+        beginRename(group: first)
+        return true
     }
 
     /// Turns the sidebar's edit mode on or off (`SidebarView+EditItems`), showing a hidden sidebar first.

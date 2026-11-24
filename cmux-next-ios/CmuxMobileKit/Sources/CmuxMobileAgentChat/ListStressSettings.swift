@@ -8,7 +8,8 @@ import Foundation
 /// - `CMUX_MOBILE_LIST_SCREEN`: the list to measure: `workspaces`, `tabs`, `chat`, `diff`,
 ///   `artifacts` (the chat's Files and Artifacts grid; each replayed turn names an image, a page and a PDF), `home`, or `feed`
 ///   (seeded by `CMUX_MOBILE_FEED_STRESS`, as a reference for the rebuilt Feed), or `terminals`
-///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list).
+///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list; with
+///   `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` the first one stays on screen instead).
 /// - `CMUX_MOBILE_LIST_COUNT=N`: rows to seed (workspaces, tabs) or replayed turns (chat, diff).
 /// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity).
 /// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits (`terminals`:
@@ -34,6 +35,9 @@ import Foundation
 ///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
+/// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
+///   coordinator from coord-sim (`coord-sim surface --target ios`); `CMUX_MOBILE_LIST_EVENTS_HISTORY=N` says how many
+///   came before the chat opens (an attach page of them), the rest stream at their recorded pace (CoordSimReplaySource).
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
 
@@ -46,6 +50,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var holdsTurn: Bool
     /// `CMUX_MOBILE_LIST_LEAVE_NEWEST=0`: the chat stays at its newest turn after the send.
     public var leavesNewest: Bool
+    /// `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` (terminals): the first terminal stays on screen.
+    public var terminalVisible: Bool
     /// `CMUX_MOBILE_LIST_OPEN_DELAY=S`: seconds before a transcript opens (default 1), so `SAMPLE` catches the open.
     public var openDelay: Double
     public var passes: Int
@@ -71,6 +77,10 @@ public struct ListStressSettings: Equatable, Sendable {
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
+    public var events: String?
+    /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
+    public var eventsHistory: Int
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -80,6 +90,7 @@ public struct ListStressSettings: Equatable, Sendable {
         sends = environment["CMUX_MOBILE_LIST_SEND"] == "1"
         holdsTurn = environment["CMUX_MOBILE_LIST_HOLD_TURN"] == "1"
         leavesNewest = environment["CMUX_MOBILE_LIST_LEAVE_NEWEST"] != "0"
+        terminalVisible = environment["CMUX_MOBILE_LIST_TERMINAL_VISIBLE"] == "1"
         openDelay = environment["CMUX_MOBILE_LIST_OPEN_DELAY"].flatMap(Double.init) ?? 1
         passes = environment["CMUX_MOBILE_LIST_PASSES"].flatMap(Int.init) ?? 2
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400
@@ -96,6 +107,18 @@ public struct ListStressSettings: Equatable, Sendable {
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
+        eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
+    }
+
+    /// The id prefix of the workspaces the rig seeds (`ws-s0`, `ws-s1`, ...).
+    public static let seededWorkspacePrefix = "ws-s"
+
+    /// Whether row `id` may take the launch marks' `workspaces_list_frame`: with the workspaces
+    /// rig, only a row it seeded, not a mock row shown before the seeding replaced them.
+    public func countsListFrame(rowID id: String) -> Bool {
+        guard screen == "workspaces", count > 0 else { return true }
+        return id.hasPrefix(Self.seededWorkspacePrefix) && id.dropFirst(Self.seededWorkspacePrefix.count).first?.isNumber == true
     }
 
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).

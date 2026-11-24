@@ -23,13 +23,16 @@ extension UpdaterService {
             services?.quit.onQuitRefused = { behind.quitRefused() }
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // The windows leave the screen when Sparkle commits to the relaunch,
-        // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
-        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        hidesForRelaunch = { _ = handoff.hide() }
-        installAbandoned = { handoff.restore() }
+        onNextQuitRefused = { [weak services] action in services?.quit.onQuitRefused = action }
+        let activity = UpdateAgentActivity(environment: QuitAgents.environment(services))
+        relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
+        let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
+        useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
+        // A relaunch's windows stay pictured on screen until the new process drew them; a failed install brings them back (`UpdateWindowHandoff`).
+        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow(); handoff.relaunchDecided() } // layout first (LayoutCacheWriter)
+        handoff.attach(to: self)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
@@ -57,6 +60,7 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
+        attachInstallCheck(host: services.agentTabs.host) { [weak services] title, body in services?.daemon.send("install check notice") { try await $0.notify(title: title, body: body, level: .error, source: NotificationSource.cli.rawValue) } }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarnessProbe.install(updater: self)
         #endif
@@ -83,18 +87,7 @@ extension UpdaterService {
         settingsObservation?.cancel()
         // The update card's Automatic Updates box and the tip card's Never Show Tips write the
         // same settings as Settings (UPDATE-CARD); the change returns through the observation below.
-        writeSetting = { [weak self, weak settings] setting, on in
-            guard let settings else { return }
-            let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
-            // task-owner: one settings write that ends by itself; nothing to cancel.
-            Task { @MainActor in
-                do {
-                    try await settings.setSetting(at: path, to: .bool(on), by: .user)
-                } catch {
-                    log?.append("\(path.joined(separator: ".")) not written: \(error)")
-                }
-            }
-        }
+        writesSettings(to: settings)
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
@@ -110,18 +103,5 @@ extension UpdaterService {
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
             }
         }
-    }
-
-    func apply(_ updates: UpdatesSettings) {
-        WebUpdates.shared.follow(updates)
-        WebDevOverride.setAllowed(updates.liveWebReload)
-        let preferences = UpdatePreferences(
-            installOnQuit: updates.installOnQuit,
-            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall, whatsNewInstall: updates.whatsNewInstall)
-        if self.preferences != preferences { self.preferences = preferences }
-        configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
-                  downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds))
     }
 }

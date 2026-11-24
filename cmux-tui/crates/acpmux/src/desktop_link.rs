@@ -31,8 +31,10 @@
 //!
 //! The entry runs this acpmux binary as `acpmux acpmux-mcp` with [`GUEST_ENV`] set to the app's
 //! id: the server's guest mode (`acpmux_mcp_guest.rs`), which lists the tools that make sense
-//! outside an acpmux chat and none inside one (an acpmux session gets its own `cmux` server,
-//! which replaces this entry by name anyway). [`GUEST_ENV`] is also what makes an entry ours:
+//! outside an acpmux chat and none inside one. An agent cmux starts gets its own `cmux` server
+//! (`agent_tools::cmux_server`): Claude Code's `--mcp-config` replaces this entry by name, but
+//! Codex merges the two key by key, so that server always sends [`GUEST_ENV`] empty and cmux's
+//! `mcp serve` drops it before it starts a folded server. [`GUEST_ENV`] is also what makes an entry ours:
 //! unlink removes only an entry that carries it, and link never replaces one that does not.
 //! Nothing is linked unless a person runs `link` (or presses the Settings row); no default
 //! changes.
@@ -395,6 +397,24 @@ impl Row {
             v.set("note", json!(note));
         }
         v
+    }
+
+    /// Whether `verb` (`link`, `unlink`) failed for this app: it could not write, or (an
+    /// `unlink`) could not read the config, so it cannot say the entry is gone. A dry run's
+    /// "would ..." and a foreign entry left alone on purpose are not failures.
+    pub fn failed(&self, verb: &str) -> bool {
+        if self.note.as_deref().is_some_and(|n| n.starts_with("would ")) {
+            return false;
+        }
+        match verb {
+            "link" => matches!(self.state, State::NotLinked | State::Stale),
+            // `status` names a config it could not read as not linked, with the reason as the note.
+            "unlink" => {
+                matches!(self.state, State::Linked | State::Stale)
+                    || (self.state == State::NotLinked && self.note.is_some())
+            }
+            _ => false,
+        }
     }
 }
 
@@ -851,7 +871,7 @@ fn claude_cli(env: &Env, args: &[&str]) -> Result<()> {
         command.env("PATH", path);
     }
     let deadline = tokio::time::Instant::now().checked_add(CLAUDE_CLI_WAIT);
-    let done = crate::cli::bounded_child::wait(command.spawn()?, None, deadline, "claude mcp")?;
+    let done = crate::bounded_child::wait(command.spawn()?, None, deadline, "claude mcp")?;
     if !done.status.success() {
         let err = String::from_utf8_lossy(&done.stderr);
         let out = String::from_utf8_lossy(&done.stdout);

@@ -148,9 +148,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     });
 
     // Since #27570 the section list owns the spacing (sessionInfo.css). The lean panel (Lucas, 2026-11-05,
-    // Session Info lab) has no blocks and no hairlines: one grid gap between every two items of the list,
-    // the Show more line included.
-    test("the default order draws one grid gap between every two sections, and no hairline", async () => {
+    // Session Info lab) has no blocks: one grid gap between every two items of the list, the Show more
+    // line included. Leo, 2026-11-19: "there should be a faint divider between the sections there on
+    // session info idk why it doesnt show up there": a hairline centered in the gap between every two
+    // sections that draw (`--acpmux-session-info-divider`), none above the first or the Show more line,
+    // and none that moves a section.
+    test("the default order draws one grid gap between every two sections, and a faint divider in it", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
@@ -162,26 +165,68 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
               .slice(1)
               .map((slot, index) => slot.getBoundingClientRect().top - slots[index]!.getBoundingClientRect().bottom),
             rules: slots.filter((slot) => getComputedStyle(slot, "::before").content !== "none").length,
+            // A rule that matches but draws nothing (its color variable unset where the sections are, which
+            // makes its border-top invalid) is the line not showing up.
+            painted: slots.filter((slot) => {
+              const line = getComputedStyle(slot, "::before");
+              return line.content !== "none" && line.borderTopStyle === "solid" && parseFloat(line.borderTopWidth) > 0;
+            }).length,
+            // A section that draws, after one that draws: the slots the divider rule selects.
+            between: slots.filter((slot) => {
+              const before = slot.previousElementSibling as HTMLElement | null;
+              const draws = (el: Element | null): el is HTMLElement =>
+                el instanceof HTMLElement &&
+                el.dataset.slot !== undefined &&
+                el.dataset.slot !== "more" &&
+                el.childElementCount > 0;
+              return draws(slot) && draws(before);
+            }).length,
           };
         });
         expect(geometry.count).toBeGreaterThanOrEqual(5);
         for (const gap of geometry.gaps) expect(gap).toBeCloseTo(gridLength("gap"), 1);
-        expect(geometry.rules).toBe(0);
+        expect(geometry.between).toBeGreaterThanOrEqual(4);
+        expect(geometry.rules).toBe(geometry.between);
+        expect(geometry.painted, "dividers that draw a line").toBe(geometry.between);
+        // The panel with its dividers differs from it with them switched off. Both are written for a person
+        // to look at when a CI run collects files (`cmux-ci test --artifact`, $FAST_CHECKS_OUT).
+        await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+        const body = page.locator(".acpmux-session-info__body");
+        const withLines = await body.screenshot();
+        await page.addStyleTag({ content: ".acpmux-session-info-slot::before { content: none !important }" });
+        const withoutLines = await body.screenshot();
+        expect(withLines.equals(withoutLines), "the panel looks the same with its dividers off").toBe(false);
+        const out = process.env.FAST_CHECKS_OUT;
+        if (out) {
+          const { mkdirSync, writeFileSync } = await import("node:fs");
+          mkdirSync(out, { recursive: true });
+          writeFileSync(path.join(out, "session-info-dividers.png"), withLines);
+          writeFileSync(path.join(out, "session-info-no-dividers.png"), withoutLines);
+        }
       } finally {
         await page.close();
       }
     });
 
-    // Leo, 2026-11-06: "if you look at the spacing of claude code, they have theirs at the right". The grip
-    // went left on 2026-11-03 only because it sat by the scrollbar's thumb; the body draws none since.
-    // Leo, 2026-11-07: "the grip and the lef tside aren't flush". The grip shows at its head's right end in
-    // the count's place, its dots on the rows' right text edge, and the count fades out under it.
-    test("hovering a section shows its faint handle at its head's right end, in the count's place, and nothing moves", async () => {
+    // Lawrence, 2026-11-15: "move the grabber dots to left, we have space on the left of the text". The
+    // grip shows in the gutter left of its head's title, its dots one grid gap before the title, and the
+    // head's count stays where it is: the grip no longer takes the count's place (it did from #37162).
+    test("hovering a section shows its faint handle in the gutter left of its title, its count stays, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         // The handle's width and the body's insets are grid tokens since #27570.
         await show(page, { grid: true });
         const before = await boxes(page);
+        const texts = () =>
+          page.evaluate(() =>
+            [
+              ...document.querySelectorAll(".acpmux-session-info-section__title, .acpmux-session-info-section__meta"),
+            ].map((text) => {
+              const box = text.getBoundingClientRect();
+              return [box.left, box.right, box.top];
+            }),
+          );
+        const textsBefore = await texts();
         const opacity = () =>
           page.evaluate(
             () =>
@@ -201,39 +246,42 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
         );
         expect(await opacity()).toBe("0.7");
         expect(await boxes(page)).toEqual(before);
+        // No title and no count moves, and every count keeps its right edge.
+        expect(await texts()).toEqual(textsBefore);
         const inside = await page.evaluate(() => {
           const handle = document
             .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle')!
             .getBoundingClientRect();
-          const scroller = document.querySelector<HTMLElement>(".acpmux-session-info__body")!;
-          const body = scroller.getBoundingClientRect();
-          // The scrollport's right edge: where a classic scrollbar's track begins.
-          const scrollport = body.left + scroller.clientLeft + scroller.clientWidth;
+          const body = document.querySelector<HTMLElement>(".acpmux-session-info__body")!.getBoundingClientRect();
           const section = document.querySelector('section[data-section="outputs"]')!.getBoundingClientRect();
           const title = document
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
+          const dots = document
+            .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle svg')!
+            .getBoundingClientRect();
+          const meta = document.querySelector('section[data-section="outputs"] .acpmux-session-info-section__meta');
           return {
             inBody: handle.left >= body.left - 0.5 && handle.right <= body.right + 0.5,
-            // Clear of the panel's edge.
-            clearOfEdge: scrollport - handle.right >= 3.5,
-            // Its dots end on the rows' right text edge: the head's trailing padding, one grid gap, in.
-            dotsOnTextEdge: Math.round(
-              section.right -
-                document
-                  .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle svg')!
-                  .getBoundingClientRect().right,
-            ),
+            // Clear of the panel's left edge.
+            clearOfEdge: dots.left - body.left >= 3.5,
+            // In the gutter: the dots end on the section's left edge, outside any row's highlight.
+            inGutter: dots.right <= section.left + 0.5,
+            dotsBeforeTitle: Math.round(title.left - dots.right),
             titleAtIconColumn: Math.round(title.left - section.left),
+            countStays: !meta || getComputedStyle(meta).opacity === "1",
           };
         });
         expect(inside).toEqual({
           inBody: true,
           clearOfEdge: true,
-          dotsOnTextEdge: 8,
+          inGutter: true,
+          // One grid gap between the dots and the title, as between a row's icon and its text.
+          dotsBeforeTitle: 8,
           // The heads have no icon, and the title starts on the rows' icon column: the head's leading
           // padding, one grid gap (Lucas, 2026-11-05, Session Info lab).
           titleAtIconColumn: 8,
+          countStays: true,
         });
       } finally {
         await page.close();
@@ -241,10 +289,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     });
 
     // Leo, 2026-11-06: "I do not like the layout and proportion of the dragger." On every head the dots,
-    // two columns of three at the reference's size, end on the rows' right text edge in the count's place
-    // (the count fades out under them; 2026-11-07: "the grip and the lef tside aren't flush"), on the
-    // head's middle line, and the head draws no fill.
-    test("a head's grip takes its count's place on the rows' right text edge, on its middle line", async () => {
+    // two columns of three at the reference's size, sit one grid gap before the head's first mark (its icon,
+    // else its title), on the head's middle line; the count stays, and the head draws no fill.
+    test("a head's grip sits one grid gap before its icon or title, on its middle line, and its count stays", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
@@ -253,9 +300,8 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           await page.hover(head);
           await page.waitForFunction((head) => {
             const section = document.querySelector(head)!.closest("section")!;
-            const meta = section.querySelector(".acpmux-session-info-section__meta");
             const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
-            return getComputedStyle(handle).opacity === "0.7" && (!meta || getComputedStyle(meta).opacity === "0");
+            return getComputedStyle(handle).opacity === "0.7";
           }, head);
           const fit = await page.evaluate((head) => {
             const trigger = document.querySelector(head)!;
@@ -264,11 +310,13 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
               .closest("section")!
               .querySelector(":scope > .acpmux-session-info-section__handle svg")!
               .getBoundingClientRect();
+            const first = (trigger.querySelector(".acpmux-session-info-section__icon") ??
+              trigger.querySelector(".acpmux-session-info-section__title"))!.getBoundingClientRect();
             const meta = trigger.querySelector(".acpmux-session-info-section__meta");
-            const gap = Number.parseFloat(getComputedStyle(trigger).paddingRight);
+            const gap = Number.parseFloat(getComputedStyle(trigger).paddingLeft);
             return {
-              onTextEdge: Math.abs(dots.right - (pill.right - gap)) <= 1,
-              countGivesWay: !meta || getComputedStyle(meta).opacity === "0",
+              beforeFirstMark: Math.abs(first.left - gap - dots.right) <= 1,
+              countStays: !meta || getComputedStyle(meta).opacity === "1",
               noFill: getComputedStyle(trigger).backgroundColor === "rgba(0, 0, 0, 0)",
               onMiddleLine: Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) <= 0.5,
               tall: dots.height > dots.width,
@@ -277,8 +325,8 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           }, head);
           expect({ id, ...fit }).toEqual({
             id,
-            onTextEdge: true,
-            countGivesWay: true,
+            beforeFirstMark: true,
+            countStays: true,
             noFill: true,
             onMiddleLine: true,
             tall: true,

@@ -126,12 +126,6 @@ PATH_OWNERS = {
     "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
-    # test_ci_merge_receipt.py loads it by path and also reads its workflow
-    # and fixtures.
-    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
-    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
@@ -147,6 +141,7 @@ PATH_OWNERS = {
     "scripts/ci/merge_main.py": frozenset(("ci",)),
     "scripts/ci/last_green_base.py": frozenset(("ci",)),
     "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guard_step_inputs.py": frozenset(("ci",)),  # run_ci_guards.py --affected's selection
     "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
@@ -189,6 +184,8 @@ PATH_OWNERS = {
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
+    # run-swift-testing-suites.sh runs it before the build.
+    "scripts/ci/swift_suite_names_precheck.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),

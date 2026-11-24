@@ -59,6 +59,10 @@ pub(super) enum Control {
         reflexive: mpsc::UnboundedSender<SocketAddr>,
         timeline: Timeline,
     },
+    /// Ask `stun` for the current socket's reflexive address and send what
+    /// they answer to `reflexive` (an answer that went out with its host
+    /// endpoints only, [`Session::gather_after_answer`]).
+    Gather { stun: Vec<SocketAddr>, reflexive: mpsc::UnboundedSender<SocketAddr> },
     /// A TURN allocation on the new network (or replacing a dead one).
     Turn(TurnCarrier),
     /// The peer announced new endpoints.
@@ -74,6 +78,11 @@ pub(super) enum Control {
     Reached { from: Option<SocketAddr>, via_turn: bool },
     /// Debug and tests: the socket's network is gone.
     Blackhole,
+    /// Debug and tests: the network goes dark (`true`: nothing this side
+    /// sends leaves and nothing arrives, on its socket or its TURN
+    /// allocation) or comes back on the same socket and addresses
+    /// (`false`), with no roam: an elevator, a tunnel, a dead cell.
+    Dark(bool),
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
 }
@@ -146,6 +155,8 @@ pub(super) struct SessionParts {
     pub keeps_turn: bool,
     /// Fires when the current TURN allocation's stream dies.
     pub turn_dead: Option<watch::Receiver<bool>>,
+    /// The underlay's current plain-UDP destination.
+    pub route_to: Arc<watch::Sender<Option<SocketAddr>>>,
 }
 
 /// One live tunnel, as roaming sees it.
@@ -188,6 +199,7 @@ pub(super) struct Session {
     /// stale).
     roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -242,6 +254,7 @@ impl Session {
             path_epoch: Arc::new(watch::channel(0).0),
             roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
+            route_to: parts.route_to,
         });
         lock(registry()).push(Arc::downgrade(&session));
         if let Some(dead) = turn_dead {
@@ -317,6 +330,79 @@ impl Session {
         let _ = net.refresh().await;
         self.announce(endpoints, relayed, relayed_tls);
         true
+    }
+
+    /// The answer went out with this side's host endpoints only
+    /// ([`answer_trickles`]): learn the reflexive address of the tunnel's
+    /// socket now, take a TURN allocation if the network looks to drop UDP
+    /// (as the answer's own gather would have), and announce the endpoints
+    /// to the peer, inside the tunnel and through signaling. The same
+    /// clock as the answer's gather ([`StunClock`]) bounds it.
+    pub(super) fn gather_after_answer(self: &Arc<Self>, port: u16, timeline: Timeline) {
+        let session = Arc::clone(self);
+        tokio::spawn(async move { session.trickle(port, timeline).await });
+    }
+
+    async fn trickle(self: &Arc<Self>, port: u16, timeline: Timeline) {
+        let roams = self.roams.load(Ordering::Relaxed);
+        let stun = self.stun_servers().await;
+        let asked = stun.len();
+        let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
+        if asked > 0 && self.control.send(Control::Gather { stun, reflexive: reflexive_tx }).is_err() {
+            return;
+        }
+        let (stun_side, turn_side) = stun_turn_link();
+        let reflexive = async {
+            let mut clock = StunClock::new(asked > 0, Some(stun_side));
+            let mut found: Vec<SocketAddr> = Vec::new();
+            while found.len() < asked {
+                let Some(address) = clock.next(reflexive_rx.recv()).await else { break };
+                if !found.contains(&address) {
+                    found.push(address);
+                }
+                clock.answered();
+            }
+            found
+        };
+        let (reflexive, turn) = tokio::join!(reflexive, turn_beside(&self.options, false, turn_side));
+        let blocked = asked > 0 && reflexive.is_empty();
+        // A STUN answer came after all: the early allocation is dropped
+        // (released) unused.
+        let turn = if blocked { turn } else { None };
+        let turn_missed = missed_turn(blocked, turn.as_ref(), &self.options);
+        let _one_at_a_time = self.roaming.lock().await;
+        if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
+            // A roam gathered on its own socket meanwhile.
+            return;
+        }
+        let Ok(net) = self.net() else { return };
+        if blocked {
+            // As for an answer whose gather found UDP blocked: this Mac keeps
+            // a TURN allocation through roams and dead streams.
+            self.keeps_turn.store(true, Ordering::Relaxed);
+        }
+        let mut endpoints = lock(&self.endpoints).clone();
+        let known = endpoints.len();
+        for text in offered(reflexive.iter().copied(), &self.options) {
+            if !endpoints.contains(&text) {
+                endpoints.push(text);
+            }
+        }
+        let (mut relayed, mut relayed_tls) = (Vec::new(), Vec::new());
+        if let Some(turn) = turn {
+            timeline.mark(if turn.transport.is_stream() { "turn_tls_allocated" } else { "turn_allocated" });
+            endpoints.push(turn.relayed.to_string());
+            (relayed, relayed_tls) = relayed_of(Some(&turn));
+            self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
+            let _ = net.refresh().await;
+        } else if turn_missed {
+            self.retry_turn("no TURN allocation at answer; taking one", async { true });
+        }
+        if endpoints.len() != known {
+            self.announce(endpoints, relayed, relayed_tls);
+        }
+        timeline.mark("endpoints_trickled");
+        tracing::debug!(session = self.session_id, port, timings = %timeline.summary(), "WireGuard answer gathered");
     }
 
     /// Hand `turn` to the underlay and watch its stream.
@@ -753,10 +839,11 @@ async fn run_control(
                             path_epoch.send_modify(|epoch| *epoch += 1);
                         }
                         // Send at once, so the spray opens this side's NAT
-                        // toward the peer's new address.
+                        // toward the peer's new address (even while parked:
+                        // the peer that says it moved is awake).
                         let current = lock(&net).clone();
                         if let Some(net) = current {
-                            let _ = net.refresh().await;
+                            let _ = net.reach_moved_peer().await;
                         }
                     }
                     Ok(RoamMessage::Ack { generation: acked }) => {
@@ -784,6 +871,14 @@ pub async fn network_changed() -> Vec<(String, Timeline)> {
     futures_util::future::join_all(roams).await
 }
 
+/// Where each live session's plain UDP goes now (sessions on this side's
+/// own TURN allocation, or with no route yet, name none). The Mac's network
+/// watch reads it to tell a change on an interface a session uses from one
+/// on an interface none does (`cmux-mobile-host` netwatch).
+pub fn route_destinations() -> Vec<SocketAddr> {
+    live().iter().filter_map(|session| *session.route_to.borrow()).collect()
+}
+
 /// Move the sessions on `client`'s device that run on another (dead or
 /// replaced) signaling socket onto `client`. Returns how many moved.
 pub fn rehome(client: &SignalingClient) -> usize {
@@ -801,6 +896,20 @@ pub fn rehome(client: &SignalingClient) -> usize {
 /// The marks of session `session_id`'s latest roam.
 pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
     live().into_iter().find(|s| s.session_id == session_id).and_then(|s| lock(&s.last_roam).clone())
+}
+
+/// The phone is back from the background with a parked link: move its
+/// session onto a fresh socket, as a network change would. iOS may have
+/// reclaimed the old socket while the app was suspended, and the carrier's
+/// NAT has likely dropped its mapping. The reassertion (a keepalive on a
+/// session under 120 s old, else one handshake initiation) goes out at once;
+/// the rest of the roam (STUN, a TURN allocation) fills in after.
+pub fn resume_session(session_id: &str) {
+    if let Some(session) = find(session_id, true) {
+        tokio::spawn(async move {
+            session.roam().await;
+        });
+    }
 }
 
 /// Test support: roam one side of one session (both sides of a test run in
@@ -827,6 +936,21 @@ pub fn simulate_network_loss(session_id: Option<&str>, dialer: bool) -> usize {
     for session in live() {
         if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
             let _ = session.control.send(Control::Blackhole);
+            hit += 1;
+        }
+    }
+    hit
+}
+
+/// Debug and tests: one side's network (of `session_id`, or of every
+/// session) goes dark or comes back on the same socket and addresses, with
+/// no OS network event ([`Control::Dark`]). Returns how many sessions it hit.
+#[doc(hidden)]
+pub fn simulate_blackout(session_id: Option<&str>, dialer: bool, dark: bool) -> usize {
+    let mut hit = 0;
+    for session in live() {
+        if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
+            let _ = session.control.send(Control::Dark(dark));
             hit += 1;
         }
     }

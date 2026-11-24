@@ -159,7 +159,7 @@ extension NativePopupContent {
 
     private static func height(of row: NativePopupRow, view: NSView) -> CGFloat {
         (view as? NativePopupSliderView)?.preferredHeight
-            ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
+            ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.caption != nil ? 44 : PopupStyle.standard.rowHeight)
     }
 
     // MARK: Keys
@@ -214,7 +214,7 @@ extension NativePopupContent {
 
 /// One column: a vertical scroll view with a flipped document that holds its rows.
 @MainActor
-final class NativePopupColumnView: NSScrollView {
+final class NativePopupColumnView: OverlayScrollView {
     let column: NativePopupColumn
     let document = NativePopupRailStripDocument()
 

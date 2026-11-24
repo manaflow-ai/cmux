@@ -105,7 +105,8 @@ struct CmuxToastOverlayHostTests {
         #expect(surface.tone == SurfaceRole.toast.tone)
         // The veil-tinted Liquid Glass (gallery 3) keeps the neutral rim, as the blur does.
         #expect(surface.rimView != nil)
-        #expect(surface.cornerRadius == SurfaceRole.toast.cornerRadius)
+        // Concentric with its buttons: the button corner plus the padding (Lawrence 2026-11-15).
+        #expect(surface.cornerRadius == view.geometry.outerRadius)
         handle.dismiss()
     }
 
@@ -156,7 +157,7 @@ struct CmuxToastOverlayHostTests {
         let view = try #require(Self.toastViews(in: window).first)
         view.layoutSubtreeIfNeeded()
         let close = view.closeButton
-        #expect(close.frame.width >= CmuxToastButton.closeSide - 0.5 && close.frame.height >= CmuxToastButton.closeSide - 0.5)
+        #expect(close.frame.width >= CmuxToastButton.height - 0.5 && close.frame.height >= CmuxToastButton.height - 0.5)
         let holder = try #require(view.superview)
         let point = close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: holder)
         let hit = try #require(view.hitTest(point), "a click on the close button reaches nothing")
@@ -273,6 +274,44 @@ struct CmuxToastOverlayHostTests {
         }
         #expect(host.toastFrames(in: window).isEmpty)
         #expect(center.toasts(in: window).isEmpty)
+    }
+
+    /// Toasts shown at once stack, and each fades on its own timer, oldest first (Leo, 2026-11-07: "They have
+    /// stacked toasts."): three toasts two seconds apart rest together; each leaves when its own six seconds are up,
+    /// not all at once and not after the last one's, and the ones left keep their stack.
+    @Test(.timeLimit(.minutes(1))) func toastsShownAtOnceStackAndEachEndsOnItsOwnTimer() async throws {
+        let host = CmuxToastOverlayHost()
+        let clock = ManualClock()
+        let center = CmuxToastCenter(clock: clock, host: host)
+        let window = Self.window()
+        defer { Self.close(window) }
+        let ended = AsyncStream.makeStream(of: (String, CmuxToastDismissReason).self)
+        // Each timer reads the clock when its task starts: wait until all of them sleep before moving it.
+        func sleepers(_ count: Int) async {
+            while clock.sleeperCount < count { await Task.yield() }
+        }
+        var handles: [CmuxToastHandle] = []
+        for (index, id) in ["a", "b", "c"].enumerated() {
+            if index > 0 { clock.advance(by: .seconds(2)) }
+            let handle = center.show(CmuxToast(id: id, message: "Toast \(id)", duration: .seconds(6), keepsDuration: true),
+                                     in: window)
+            handle.onDismiss = { ended.continuation.yield((id, $0)) }
+            handles.append(handle)
+            await sleepers(index + 1)
+        }
+        #expect(host.toastFrames(in: window).count == 3)
+        #expect(center.toasts(in: window).map(\.id) == ["a", "b", "c"])
+
+        var iterator = ended.stream.makeAsyncIterator()
+        for (gone, left) in [("a", ["b", "c"]), ("b", ["c"]), ("c", [String]())] {
+            clock.advance(by: .seconds(2))
+            let next = await iterator.next()
+            #expect(next?.0 == gone)
+            #expect(next?.1 == .timeout)
+            #expect(center.toasts(in: window).map(\.id) == left)
+            #expect(host.toastFrames(in: window).count == left.count)
+            #expect(handles.filter { !$0.isDismissed }.map(\.toast.id) == left)
+        }
     }
 
     /// A window that closes ends its toasts.

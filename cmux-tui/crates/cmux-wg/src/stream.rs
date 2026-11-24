@@ -16,6 +16,8 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::PollSender;
 
+use crate::send_gate::SendGate;
+
 /// Largest single write a stream accepts before splitting it.
 const MAX_WRITE_CHUNK_BYTES: usize = 64 * 1024;
 
@@ -36,6 +38,9 @@ pub struct WgStream {
     /// Set by the driver before it drops a connection whose end the owner
     /// must see as an error (a mesh peer was removed), not as EOF.
     pub(crate) reset: Arc<AtomicBool>,
+    /// Holds writes while the bytes this stream queued and TCP has not sent
+    /// reach the low-water mark ([`crate::send_gate`]).
+    pub(crate) gate: Arc<SendGate>,
 }
 
 impl fmt::Debug for WgStream {
@@ -83,7 +88,7 @@ impl AsyncRead for WgStream {
                 Poll::Ready(None) if this.reset.load(Ordering::Acquire) => {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::ConnectionReset,
-                        "the tunnel peer of this connection was removed",
+                        "the tunnel connection was reset, timed out or lost its peer",
                     )));
                 }
                 Poll::Ready(None) => return Poll::Ready(Ok(())),
@@ -106,14 +111,26 @@ impl AsyncWrite for WgStream {
         if this.shutdown_sent {
             return Poll::Ready(Err(broken_pipe()));
         }
+        if this.gate.poll_room(cx).is_pending() {
+            return Poll::Pending;
+        }
         match this.outbound.poll_reserve(cx) {
             Poll::Ready(Ok(())) => {
                 let count = data.len().min(MAX_WRITE_CHUNK_BYTES);
-                this.outbound
+                // Count the bytes before the driver can see them: it may
+                // move them into the socket on another worker before
+                // `send_item` returns, and its `moved` must find them here.
+                this.gate.queued(count);
+                if this
+                    .outbound
                     .send_item(Outbound::Data(Bytes::copy_from_slice(
                         data.get(..count).unwrap_or(data),
                     )))
-                    .map_err(|_| broken_pipe())?;
+                    .is_err()
+                {
+                    this.gate.unqueued(count);
+                    return Poll::Ready(Err(broken_pipe()));
+                }
                 this.wake.notify_one();
                 Poll::Ready(Ok(count))
             }

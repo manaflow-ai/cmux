@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -62,9 +63,11 @@ extension AppOnboardingServices {
         guard classicMigrationRunsAtLaunch else { return }
         do {
             let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
-                                                   confirmation: confirmClassicImport)
+                                                   confirmation: { await self.confirmClassicImport($0, atLaunch: true) })
             guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
-            ClassicImportStrings.toast(notice, in: services.windows.active?.window)
+            let registry = services.registry
+            ClassicImportStrings.toast(notice, in: services.windows.active?.window,
+                                       importAgain: notice == ClassicImportPreviewStrings.notImported ? { _ = registry.perform("workspace.importClassic") } : nil)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")
         }
@@ -84,10 +87,11 @@ extension AppOnboardingServices {
         return try await run.value
     }
 
-    /// The one confirmation path for launch and manual migration.
-    func confirmClassicImport(_ preview: ClassicImportPreview) async -> ClassicImportAnswer {
+    /// The one confirmation path for launch and manual migration. The launch's prompt says where the
+    /// import waits, so its Not Now needs no toast after it.
+    func confirmClassicImport(_ preview: ClassicImportPreview, atLaunch: Bool = false) async -> ClassicImportAnswer {
         if let confirmation = owner.classicMigrationConfirmation { return await confirmation(preview) }
-        return await ClassicImportConfirmation(preview: preview, services: services).ask()
+        return await ClassicImportConfirmation(preview: preview, services: services, atLaunch: atLaunch).ask()
     }
 
     /// The daemon's classic import operations on this Mac's connection.
@@ -163,7 +167,7 @@ extension AppOnboardingServices {
             // A declined resume ends too (its half-made workspaces close on the next manual run).
             guard mode == .automatic else { return outcome }
             try await client.record(.decline(source: source))
-            outcome.notice = ClassicImportStrings.declined
+            outcome.notice = ClassicImportPreviewStrings.notImported
             owner.classicImportNotice = outcome.notice
             return outcome
         case .unanswered:
@@ -211,7 +215,7 @@ extension AppOnboardingServices {
             // The hosts still connecting, waited for together (each within its connect limit).
             let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
             let waits = waiting.compactMap { destination in
-                hosts[destination].map { daemon in Task { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
+                hosts[destination].map { daemon in Task<(String, Bool), Never> { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
             }
             for wait in waits {
                 let (destination, up) = await wait.value
@@ -261,7 +265,7 @@ extension AppOnboardingServices {
     fileprivate func makeClassicWorkspace(_ saved: ClassicSessionWorkspace, window index: Int, run: ClassicMigrationRunState) async throws {
         defer { run.handled() }
         let window = run.plan.windows[index]
-        let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
+        let frame = index == 0 ? nil : window.frame(onScreens: NSScreen.screens.map(\.visibleFrame))
         let client = run.client
         try await client.record(.workspace(key: saved.key, stage: .pending))
         var made: String?
@@ -390,11 +394,6 @@ extension AppOnboardingServices {
         } catch {
             services.daemon.logger.error("classic workspace look not kept: \(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// `frame` when some screen shows most of it, else nil (the window opens at the default place).
-    private static func onScreen(_ frame: CGRect) -> CGRect? {
-        NSScreen.screens.contains { $0.visibleFrame.intersection(frame).width >= min(200, frame.width) } ? frame : nil
     }
 }
 
