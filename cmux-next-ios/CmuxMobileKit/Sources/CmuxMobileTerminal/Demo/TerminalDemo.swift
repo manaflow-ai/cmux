@@ -174,6 +174,7 @@ final class TerminalDemoDriver {
         if selected.contains("historyfling") { await historyFling() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load", "primary-slow", "mouse-slow"]
         where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
+        for variant in ["find", "select"] where selected.contains("highlight-\(variant)") { await highlightScroll(variant) }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -377,6 +378,62 @@ final class TerminalDemoDriver {
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
             + Self.paintNote(session.paintSamples)
         model.demoNote = "tuipan-\(variant) done " + result
+        mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont move when i
+    /// scroll?" A mock Claude Code in its full-screen mode with a highlight up while its screen
+    /// scrolls: `find` searches "lorem" and the UI test's finger scrolls the app; `select`
+    /// selects "transcript row N" on a row and the app's streamed reply scrolls it.
+    /// `highlight-VARIANT ready ...`, then `highlight-VARIANT done appScrolls=N` with
+    /// `on=N off=N missed=N` (find) or `sel=on|off|none` (select): `off` is a highlight left
+    /// over other text (``TerminalViewController/findHighlightProbe(query:)``).
+    private func highlightScroll(_ variant: String) async {
+        let find = variant == "find"
+        model.composerText = find ? "claudefull 1500 mouse" : "claudefull 1500 mouse stream=400"
+        model.send()
+        await wait(3)
+        guard let controller = model.controller, let window = controller.view.window,
+              let session = model.session as? MockTerminalSession else {
+            model.demoNote = "highlight-\(variant) done error=nocontroller"
+            return
+        }
+        let scrolls = session.appScrolls
+        if find {
+            controller.finder.debugSearch("lorem")
+            await wait(1.5)
+            let before = controller.findHighlightProbe(query: "lorem")
+            model.demoNote = "highlight-find ready isTUI=\(model.isTUI) \(before)"
+            mark(model.demoNote)
+            // Until the finger's scrolls are over: 2.5 s with no finger after the first, within 45 s.
+            let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
+            let deadline = Date().addingTimeInterval(45)
+            while Date() < deadline {
+                await wait(0.25)
+                if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 2.5 { break }
+            }
+            meter.stop()
+            model.demoNote = "highlight-find done appScrolls=\(session.appScrolls - scrolls) "
+                + controller.findHighlightProbe(query: "lorem")
+        } else {
+            // A "transcript row N" row ten rows above the input box: it stays on the screen
+            // while the reply streams a row every 400 ms.
+            let rows = controller.surface.grid.rows
+            let row = (1..<max(1, rows - 12)).reversed().first {
+                controller.tuiSelection.rowText($0)?.hasPrefix("  transcript row ") == true
+            }
+            guard let row, let line = controller.tuiSelection.rowText(row),
+                  let number = line.dropFirst(17).split(separator: " ").first else {
+                model.demoNote = "highlight-select done error=norow"
+                return
+            }
+            let label = "transcript row \(number)"
+            let text = controller.selectTUIForProbe(row: row, columns: 2...(1 + label.count)) ?? ""
+            model.demoNote = "highlight-select ready isTUI=\(model.isTUI) row=\(row) text=\(text.replacingOccurrences(of: " ", with: "_"))"
+            mark(model.demoNote)
+            await wait(3)
+            model.demoNote = "highlight-select done appScrolls=\(session.appScrolls - scrolls) " + controller.selectionHighlightProbe(text: label)
+        }
         mark(model.demoNote)
     }
 
