@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "2a0000fa7213b10d5408bf9e6f9c061a6ad97e832dc33868bb30a9e0954ee39a",
+  "catalog_sha256": "f91c6c849f7e8cf8f6d625ac10a0e0538cab31251fe76061c2e106fd12404296",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -377,6 +377,9 @@
       "class": "mutation"
     },
     "diff.comments.send": {
+      "class": "mutation"
+    },
+    "diff.comments.thread": {
       "class": "mutation"
     },
     "frontend_projection.get": {
