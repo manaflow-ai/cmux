@@ -1,5 +1,5 @@
 //! `_acpmux/place_set`, `_acpmux/place_undo` and `_acpmux/place_get`: move an existing chat from
-//! the place menu (`acpmux session place`). The rules are `place_mode.rs`'s; this gathers what
+//! the place menu (`acpmux session place`). The rules are `place_move.rs`'s; this gathers what
 //! they read, keeps the chat's pin, writes the move line and runs the move.
 //!
 //! * `place_set {sessionId | sessionIds, place, confirm?, why?}`, `place` being
@@ -18,10 +18,11 @@
 //! The pin is stored per chat in `place-modes.json` in the daemon's home; a chat with none
 //! reads as pinned to the machine it is on, so nothing moves unasked.
 //!
-//! Not here yet: Cloud (refused, `place_mode::CLOUD_UNREACHABLE`) and Auto's later move.
+//! Not here yet: Cloud (refused, `place_move::CLOUD_UNREACHABLE`) and Auto's later move.
 
 use crate::hub::{EventFilter, Hub};
-use crate::place_mode::{self as pm, LeftBehind, PlaceMode, State};
+use crate::place_mode::PlaceMode;
+use crate::place_move::{self as pm, LeftBehind, State};
 use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use serde_json::{Value, json};
@@ -140,7 +141,7 @@ fn refused(id: &str, mode: &PlaceMode, reason: impl Into<String>) -> Value {
 pub(super) async fn set(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let (ids, single) = ids_of(params)?;
     let place = params.get("place").ok_or_else(|| RpcError::invalid_params("place is required"))?;
-    let want = PlaceMode::parse(place).map_err(RpcError::invalid_params)?;
+    let want = pm::parse(place).map_err(RpcError::invalid_params)?;
     let cwd = place.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let confirm = params.get("confirm").and_then(Value::as_bool) == Some(true);
     let why = params.get("why").and_then(Value::as_str).unwrap_or(DEFAULT_WHY).to_owned();
@@ -165,7 +166,7 @@ pub(super) async fn get(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErro
             }
         };
         let id = session.meta().id;
-        let mode = PlaceMode::effective(pins.get(&id).cloned(), here);
+        let mode = pm::effective(pins.get(&id).cloned(), here);
         chats.push(match stand_of(&id) {
             Some(Stand::AfterTurn) => chat(&id, State::AfterTurn, &mode, &[], None),
             Some(Stand::Moving) => chat(&id, State::Moving, &mode, &[], None),
@@ -188,7 +189,7 @@ pub(super) async fn undo(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     };
     let sid = session.meta().id;
     let Some(back) = last_move_from(hub, &sid) else {
-        let here = PlaceMode::effective(read_pins().get(&sid).cloned(), crate::hub::host_label());
+        let here = pm::effective(read_pins().get(&sid).cloned(), crate::hub::host_label());
         return Ok(reply(vec![refused(&sid, &here, "this chat has no move to undo")], true));
     };
     let want = PlaceMode::Machine { id: back };
@@ -233,7 +234,7 @@ async fn one(
     };
     let meta = session.meta();
     let id = meta.id.clone();
-    let current = PlaceMode::effective(read_pins().get(&id).cloned(), here);
+    let current = pm::effective(read_pins().get(&id).cloned(), here);
     if meta.status == SessionStatus::Closed {
         return refused(&id, &current, "this chat is closed");
     }

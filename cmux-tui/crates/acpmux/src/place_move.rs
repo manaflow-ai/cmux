@@ -3,57 +3,32 @@
 //! daemon's glue (`server/place_set.rs`) gathers the inputs and does the moving.
 //!
 //! The pick is the chat's pin, stored per chat (`server/place_set.rs`). A chat with no stored
-//! mode reads as pinned to the machine it is on (`PlaceMode::effective`), so nothing moves
+//! mode reads as pinned to the machine it is on (`effective`), so nothing moves
 //! unasked when this ships. `Auto` is only stored here: its later move to Cloud (lid closed,
 //! offline, overloaded) is not built yet and never goes back on its own.
 
-use serde::{Deserialize, Serialize};
+use crate::place_mode::PlaceMode;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// A chat's place: `{"mode":"auto"}`, `{"mode":"cloud"}` or
-/// `{"mode":"machine","machine":ID}`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "mode", rename_all = "lowercase")]
-pub enum PlaceMode {
-    /// Nothing moves now; later it may move to Cloud when this Mac cannot run it.
-    Auto,
-    /// A fresh Cloud machine; there is no size to choose.
-    Cloud,
-    /// This machine, and the chat stays pinned there.
-    Machine {
-        #[serde(rename = "machine")]
-        id: String,
-    },
+/// `place` as a request carries it (`PlaceMode`'s wire shape, `place_mode.rs`).
+pub fn parse(place: &Value) -> Result<PlaceMode, String> {
+    PlaceMode::from_params(place)
 }
 
-impl PlaceMode {
-    /// `place` as a request carries it.
-    pub fn parse(place: &Value) -> Result<Self, String> {
-        let mode = serde_json::from_value::<Self>(place.clone()).map_err(|e| {
-            format!(
-                "place must be {{\"mode\":\"auto\"}}, {{\"mode\":\"cloud\"}} or {{\"mode\":\"machine\",\"machine\":ID}}: {e}"
-            )
-        })?;
-        match &mode {
-            Self::Machine { id } if id.trim().is_empty() => Err("machine is empty".into()),
-            _ => Ok(mode),
-        }
-    }
+/// The pick of a chat with no stored mode: pinned to the machine it is on.
+pub fn effective(stored: Option<PlaceMode>, here: &str) -> PlaceMode {
+    stored.unwrap_or_else(|| PlaceMode::Machine { id: here.to_owned() })
+}
 
-    /// The pick of a chat with no stored mode: pinned to the machine it is on.
-    pub fn effective(stored: Option<Self>, here: &str) -> Self {
-        stored.unwrap_or_else(|| Self::Machine { id: here.to_owned() })
-    }
-
-    /// What the chat's move line names: `Cloud`, `Auto` or the machine.
-    pub fn label(&self) -> String {
-        match self {
-            Self::Auto => "Auto".into(),
-            Self::Cloud => "Cloud".into(),
-            Self::Machine { id } => id.clone(),
-        }
+/// What the chat's move line names: `Cloud`, `Auto` or the machine.
+pub fn label(mode: &PlaceMode) -> String {
+    match mode {
+        PlaceMode::Auto => "Auto".into(),
+        PlaceMode::Cloud => "Cloud".into(),
+        PlaceMode::Machine { id } => id.clone(),
     }
 }
 
@@ -252,5 +227,5 @@ pub fn move_line(to: &str, why: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "place_mode_tests.rs"]
+#[path = "place_move_tests.rs"]
 mod tests;
