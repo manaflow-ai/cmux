@@ -250,18 +250,27 @@ impl Swap for ExeSwap {
     }
 
     fn hand_over(&mut self, _new: &mut cmux_process::Child) -> Result<(), String> {
-        if let Some(restart) = service_restart()
-            && let Some((program, args)) = restart.split_first()
-        {
-            let command = restart.join(" ");
-            let status = cmux_process::Command::new(program)
-                .args(args)
-                .stdin(cmux_process::Stdio::null())
-                .status()
-                .map_err(|e| format!("{command}: {e}"))?;
-            restart_outcome(&command, status)?;
-            tracing::info!("update: handed over to the new build through {command}");
-            return Ok(());
+        match service_restart() {
+            ServiceRestart::Command(restart) => {
+                let Some((program, args)) = restart.split_first() else {
+                    return Err("empty service-manager restart command".into());
+                };
+                let command = restart.join(" ");
+                let status = cmux_process::Command::new(program)
+                    .args(args)
+                    .stdin(cmux_process::Stdio::null())
+                    .status()
+                    .map_err(|e| format!("{command}: {e}"))?;
+                restart_outcome(&command, status)?;
+                tracing::info!("update: handed over to the new build through {command}");
+                return Ok(());
+            }
+            ServiceRestart::SupervisedButUnresolved { label, pid } => {
+                return Err(format!(
+                    "launchd job {label} supervises pid {pid}, but its current job could not be resolved; refusing detached takeover"
+                ));
+            }
+            ServiceRestart::Unmanaged => {}
         }
         let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
@@ -360,10 +369,22 @@ fn restart_outcome(command: &str, status: std::process::ExitStatus) -> Result<()
     }
 }
 
-/// The service manager's own restart command for the job that runs this daemon, if one does.
-fn service_restart() -> Option<Vec<String>> {
+/// How this daemon's lifecycle owner should receive an executable swap.
+#[derive(Debug, PartialEq, Eq)]
+enum ServiceRestart {
+    /// No service manager owns this daemon, so a detached handover is safe.
+    Unmanaged,
+    /// Restart through the service manager that owns this daemon.
+    Command(Vec<String>),
+    /// A launchd marker is present, but its current job could not be resolved to this PID.
+    /// Treating this as unmanaged would create a second daemon outside launchd.
+    SupervisedButUnresolved { label: String, pid: u32 },
+}
+
+/// The service manager's own restart plan for the job that runs this daemon.
+fn service_restart() -> ServiceRestart {
     if super::managed_by_acpmux_unit() {
-        return Some(
+        return ServiceRestart::Command(
             [
                 "systemctl",
                 "--user",
@@ -377,18 +398,33 @@ fn service_restart() -> Option<Vec<String>> {
     }
     #[cfg(target_os = "macos")]
     {
-        let label = std::env::var("XPC_SERVICE_NAME").ok()?;
+        let Some(label) = std::env::var("XPC_SERVICE_NAME").ok() else {
+            return ServiceRestart::Unmanaged;
+        };
         // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() };
         let pid = std::process::id();
-        return launchd_restart_command(&label, uid, pid, |job| {
+        return launchd_restart_plan(&label, uid, pid, |job| {
             let output =
                 std::process::Command::new("launchctl").args(["print", job]).output().ok()?;
             output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
         });
     }
     #[cfg(not(target_os = "macos"))]
-    None
+    ServiceRestart::Unmanaged
+}
+
+/// Resolve a launchd-owned daemon before choosing its manager restart command.
+fn launchd_restart_plan(
+    label: &str,
+    uid: u32,
+    pid: u32,
+    print: impl FnMut(&str) -> Option<String>,
+) -> ServiceRestart {
+    match launchd_restart_command(label, uid, pid, print) {
+        Some(command) => ServiceRestart::Command(command),
+        None => ServiceRestart::SupervisedButUnresolved { label: label.into(), pid },
+    }
 }
 
 /// The launchd job that owns `pid`, in the GUI or system domain, and its restart command.
@@ -449,10 +485,14 @@ mod tests {
 
     #[test]
     fn a_launchd_job_with_no_matching_pid_is_not_restarted_as_a_takeover() {
-        let command = launchd_restart_command("com.acpmux.daemon", 501, 420, |_| {
+        let plan = launchd_restart_plan("com.acpmux.daemon", 501, 420, |_| {
             Some("state = running\npid = 419\n".into())
         });
-        assert_eq!(command, None);
+        assert_eq!(
+            plan,
+            ServiceRestart::SupervisedButUnresolved { label: "com.acpmux.daemon".into(), pid: 420 }
+        );
+        assert!(!matches!(plan, ServiceRestart::Unmanaged | ServiceRestart::Command(_)));
     }
 
     #[test]
