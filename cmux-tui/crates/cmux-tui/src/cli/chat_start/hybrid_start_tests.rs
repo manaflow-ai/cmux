@@ -7,8 +7,8 @@ use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
-    Drive, account, cached_plan, drive, drive_words, here_of, local_harness, move_words,
-    pause_words, plan_of, takes, tool_event,
+    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, local_harness,
+    move_words, pause_words, plan_of, takes, tool_event,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -80,21 +80,8 @@ fn off_the_cloud_start_has_todays_words_and_on_the_chat_here_has_the_starts_sett
 fn the_driver_is_spawned_with_its_session_and_machine_and_moves_without_interrupt() {
     let global = GlobalArgs { socket: Some("/s".into()), ..GlobalArgs::default() };
     assert_eq!(
-        drive_words(&global, "chat-1", "new", 12, 3),
-        words(&[
-            "--socket",
-            "/s",
-            "cloud",
-            "hybrid-drive",
-            "--session",
-            "chat-1",
-            "--machine",
-            "new",
-            "--gate-ms",
-            "12",
-            "--harness-ms",
-            "3"
-        ])
+        drive_words(&global, "chat-1", "new", 12),
+        words(&["--socket", "/s", "cloud", "hybrid-drive", "chat-1", "new", "--gate-ms", "12"])
     );
     let moved = move_words("chat-1", "m1");
     assert_eq!(moved, words(&["move", "chat-1", "--to", "vm:m1", "--json"]));
@@ -103,6 +90,35 @@ fn the_driver_is_spawned_with_its_session_and_machine_and_moves_without_interrup
         pause_words("m1"),
         words(&["cloud", "pause-machine", "--target", "machine:m1", "--json"])
     );
+}
+
+/// The staging first run: the global parser took `--session` and `--machine` as the daemon's, the
+/// driver saw neither and ended on its usage line, and no machine was ever started.
+#[test]
+fn the_spawned_driver_reads_back_its_own_words_past_the_global_parser() {
+    let global = GlobalArgs {
+        socket: Some("/s".into()),
+        app_socket: Some("/a".into()),
+        ..GlobalArgs::default()
+    };
+    for target in ["new", "vm_091afb1dad8bb63bc43a"] {
+        let spawned = drive_words(&global, "01a20aaf-df27-72bc-93c9-2263cfd30106", target, 12);
+        let Ok((read, command)) = super::super::super::parse_globals(&spawned) else {
+            panic!("the driver's words do not parse: {spawned:?}");
+        };
+        assert_eq!(
+            (read.socket, read.app_socket),
+            (global.socket.clone(), global.app_socket.clone())
+        );
+        assert_eq!((read.session, read.machine), (None, None), "a daemon was named");
+        assert_eq!(command[..2], ["cloud", "hybrid-drive"]);
+        assert_eq!(
+            drive_args(&command[2..]),
+            Some(("01a20aaf-df27-72bc-93c9-2263cfd30106".into(), target.into(), "12".into()))
+        );
+    }
+    assert_eq!(drive_args(&words(&["--session", "c", "--machine", "new"])), None);
+    assert_eq!(drive_args(&words(&["c"])), None);
 }
 
 #[test]
@@ -312,7 +328,7 @@ fn a_start_runs_here_only_when_the_local_acpmux_has_the_agent_it_names() {
     assert_eq!(local_harness(Some(&unavailable), Some("claude")), Err(Off::NoLocalHarness));
     // Names none: the default decides.
     assert_eq!(local_harness(Some(&found), None), Ok(()));
-    let mut codex_only = found.clone();
+    let mut codex_only = found;
     codex_only["defaultHarness"] = json!("codex");
     assert_eq!(local_harness(Some(&codex_only), None), Ok(()));
     // Names none and no harness at all: acpmux's "no harnesses configured".

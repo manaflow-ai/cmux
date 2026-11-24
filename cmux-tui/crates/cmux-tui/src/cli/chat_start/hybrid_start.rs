@@ -16,6 +16,7 @@
 //! an existing machine a resume and the same wait ([`vm_ready::wait_until_ready`]).
 
 use std::collections::VecDeque;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -28,7 +29,9 @@ use super::super::cloud_start_chat::{self, Machine, Runner, step_result};
 use super::super::{GlobalArgs, OutputMode, vm_ready};
 use super::Start;
 
-/// The hidden verb the start spawns: `cmux cloud hybrid-drive --session ID --machine new|ID`.
+/// The hidden verb the start spawns: `cmux cloud hybrid-drive ID new|MACHINE`. The chat and its
+/// target are plain words: `--session` and `--machine` are globals that name a daemon, and the
+/// global parser takes them before the verb sees them.
 pub(in crate::cli) const DRIVE_VERB: &str = "hybrid-drive";
 /// The hidden verb the nightly read-back runs: `cmux cloud hybrid-status`, `{enabled, off, ...}`.
 pub(in crate::cli) const STATUS_VERB: &str = "hybrid-status";
@@ -303,32 +306,16 @@ pub(super) fn here_of(start: &Start, folder: &str) -> Start {
 
 /// The words of the driver for `session` on `target` (`new` or a machine id), after the globals
 /// that reach the same app and daemon.
-/// `gate_ms`: what deciding the start cost, for the driver's log; `harness_ms`: what asking the
-/// local acpmux for its harnesses cost, inside it (the two run side by side).
+/// `gate_ms`: what deciding the start cost, for the driver's log.
 pub(super) fn drive_words(
     global: &GlobalArgs,
     session: &str,
     target: &str,
     gate_ms: u64,
-    harness_ms: u64,
 ) -> Vec<String> {
     let mut words = cloud_start_chat::forwarded_globals(global);
-    let (gate, harness) = (gate_ms.to_string(), harness_ms.to_string());
-    words.extend(
-        [
-            "cloud",
-            DRIVE_VERB,
-            "--session",
-            session,
-            "--machine",
-            target,
-            "--gate-ms",
-            &gate,
-            "--harness-ms",
-            &harness,
-        ]
-        .map(str::to_owned),
-    );
+    let gate = gate_ms.to_string();
+    words.extend(["cloud", DRIVE_VERB, session, target, "--gate-ms", &gate].map(str::to_owned));
     words
 }
 
@@ -364,15 +351,18 @@ fn spawn(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let log = std::fs::OpenOptions::new()
+    let mut log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
         .map_err(|error| error.to_string())?;
+    // What asking the local acpmux for its harnesses cost, inside the gate (side by side with the
+    // account read), first in the driver's log.
+    let _ = writeln!(log, "{}", json!({"harness_ms": harness_ms}));
     let err = log.try_clone().map_err(|error| error.to_string())?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut child = cmux_process::Command::new(exe)
-        .args(drive_words(global, session, target, gate_ms, harness_ms))
+        .args(drive_words(global, session, target, gate_ms))
         .stdin(cmux_process::Stdio::null())
         .stdout(log)
         .stderr(err)
@@ -761,18 +751,28 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
 }
 
+/// The driver's chat, target and gate cost, from the words after its verb.
+pub(super) fn drive_args(rest: &[String]) -> Option<(String, String, String)> {
+    let [session, target, flags @ ..] = rest else { return None };
+    if session.starts_with('-') || target.starts_with('-') {
+        return None;
+    }
+    let gate = flags
+        .iter()
+        .position(|word| word == "--gate-ms")
+        .and_then(|at| flags.get(at + 1))
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_owned());
+    Some((session.clone(), target.clone(), gate))
+}
+
 fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
-    let value = |flag: &str| {
-        rest.iter().position(|word| word == flag).and_then(|at| rest.get(at + 1)).cloned()
-    };
-    let (Some(session), Some(target)) = (value("--session"), value("--machine")) else {
-        eprintln!("usage: cmux cloud {DRIVE_VERB} --session ID --machine new|ID");
+    let Some((session, target, gate)) = drive_args(rest) else {
+        eprintln!("usage: cmux cloud {DRIVE_VERB} ID new|MACHINE");
         return 2;
     };
     // The start's own cost, then the plan read again for the next start (off the start's path).
-    let gate = value("--gate-ms").unwrap_or_else(|| "unknown".to_owned());
-    let harness = value("--harness-ms").unwrap_or_else(|| "unknown".to_owned());
-    println!("{}gate {gate} ms (local harness check {harness} ms)", hybrid::PREFIX);
+    println!("{}gate {gate} ms", hybrid::PREFIX);
     let plan = refresh_plan();
     println!("{}", json!({"plan": plan}));
     let mut live = Live::new(global, &session, &target);
