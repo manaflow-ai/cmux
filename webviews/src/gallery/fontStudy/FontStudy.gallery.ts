@@ -99,3 +99,6 @@ export default agentPaneEntry({
     },
   },
 });
+
+/** The screen's chat, for entries that draw it in one font each (SansPersonality.gallery.ts). */
+export { snapshot as fontStudySnapshot };

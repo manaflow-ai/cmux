@@ -1,5 +1,6 @@
 // A popover over Base UI Popover, anchored to an element or a point (the editor caret). Non-modal:
 // the page stays usable; Escape and a press outside close it, and focus returns where it was.
+import { PopupResizeGrips, type PopupResizeOptions } from "./PopupResize";
 import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
@@ -85,6 +86,9 @@ export interface PopoverProps {
     onEvent?(event: NativePopupEvent): void;
     onDismiss?(): void;
   };
+  /** Resizable from its edges away from the anchor, its size kept under `resize.id` (PopupResize.tsx).
+   *  Top and bottom popovers only. */
+  resize?: PopupResizeOptions;
   children: ReactNode;
 }
 
@@ -103,6 +107,7 @@ export function Popover({
   initialFocus,
   finalFocus,
   native,
+  resize,
   children,
 }: PopoverProps) {
   const popupClassName = cx("ui-popup ui-glass ui-popover", className);
@@ -157,6 +162,9 @@ export function Popover({
             initialFocus={initialFocus}
             finalFocus={finalFocus}
           >
+            {resize && (side === "top" || side === "bottom") && (
+              <PopupResizeGrips resize={resize} side={side} align={align} />
+            )}
             {fade ? (
               <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
                 {children}

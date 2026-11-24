@@ -263,7 +263,8 @@ extension AgentPaneRequest {
             }
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
-                            settled: params?["settled"] as? Bool ?? false)
+                            settled: params?["settled"] as? Bool ?? false,
+                            copy: params?["copy"] as? Bool ?? false)
         case "pane.launchSettle":
             if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
                let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
@@ -630,7 +631,7 @@ extension AgentPaneRequest {
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256, let place = AgentPaneAskPlace(params?["where"]) { self = .asksOpen(id, place) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256, let place = AgentPaneAskPlace(params?["where"]), let there = AgentPaneAskThere(params) { self = .asksOpen(id, place, there) } else { self = .unsupported(method) }
         case "chat.attention.open":
             if let id = params?["tabId"] as? String, !id.isEmpty, id.utf8.count <= AgentPaneAttentionTabs.maximumTabID { self = .attentionOpen(id) } else { self = .unsupported(method) }
         case "chat.asks.answer":
