@@ -45,6 +45,12 @@ export const CloudOps = {
   snapshotDelete: "cmux.cloud.snapshot.delete",
   planGet: "cmux.cloud.plan.get",
   billingCheckout: "cmux.cloud.billing.checkout",
+  /**
+   * The host's read of the account's billing (`billing.status`, cmux.com's `GET /api/billing/plan`):
+   * `{payment_past_due}`, true when the latest renewal failed. Served by the app, not the Cloud app
+   * server; a host that does not serve it, a signed-out account or a failed read shows no notice.
+   */
+  billingStatus: "cmux.cloud.billing.status",
   migrationStatus: "cmux.cloud.migration.status",
   migrationStart: "cmux.cloud.migration.start",
   fsList: "cmux.cloud.fs.list",
@@ -68,7 +74,14 @@ export const CloudOps = {
 export const CloudActions = {
   previewShare: "cloudPreviewShare",
   previewRevoke: "cloudPreviewRevoke",
+  /** Manage Billing: the app's `billing.openPortal`, the page `cmux billing portal` opens. */
+  manageBilling: "billing.openPortal",
 } as const;
+
+/** `cmux.cloud.billing.status`: only a JSON `true` means the latest payment failed. */
+export interface BillingStatus {
+  payment_past_due?: boolean;
+}
 
 export interface PreviewShareResult {
   confirmed?: boolean;

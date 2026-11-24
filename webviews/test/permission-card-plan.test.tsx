@@ -70,7 +70,7 @@ test("the card renders the plan as Markdown with Approve plan and Keep planning"
       _meta: { claude: { tool: "ExitPlanMode" } },
     }),
   );
-  const plan = html.match(/<div class="acpmux-permission-plan[^"]*"[^>]*>.*?<\/ol>/s)?.[0] ?? "";
+  const plan = html.match(/<div [^>]*class="acpmux-permission-plan[^"]*"[^>]*>.*?<\/ol>/s)?.[0] ?? "";
   expect(plan).toContain("Retry uploads</h2>");
   expect(plan).toContain("<code");
   expect(plan).toContain("withRetry");
