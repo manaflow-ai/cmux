@@ -45,7 +45,7 @@ const groupKind = (group: ToolGroup) => (group.type === "group" ? `group:${group
 
 /// The rows `row` draws as: itself, or its parts in order.
 export function runParts(row: AcpmuxRow): AcpmuxRow[] {
-  if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return [row];
+  if (row.kind !== "activity" || !row.items?.length) return [row];
   // Fewer items than a full part's stretches can hold no more stretches than that.
   if (row.items.length <= RUN_PART_STRETCHES) return [row];
   const kept = partsOf.get(row);
@@ -59,7 +59,17 @@ function cut(row: AcpmuxRow): AcpmuxRow[] {
   const all = row.items!;
   const visible = visibleToolItems(all)!;
   const groups = toolGroups(visible);
-  const stretches = runStretches(row, groups);
+  // An open run keeps every coordination card in sight. Treat each group as a stretch for the
+  // purpose of cutting it into bounded rows, while retaining the unfolded rendering in each part.
+  const stretches =
+    row.foldRun === true
+      ? runStretches(row, groups)
+      : groups.map((group, from) => ({
+          from,
+          groups: [group],
+          items: "items" in group ? group.items : [group.item],
+          fold: false,
+        }));
   if (stretches.length <= RUN_PART_STRETCHES) return [row];
   // Where each visible item sits in `all`, so a part keeps the hidden calls among its own.
   const index = new Map<AcpmuxActivity, number>();

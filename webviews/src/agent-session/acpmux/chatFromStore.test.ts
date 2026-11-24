@@ -105,6 +105,7 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   }
   let snapshots = 0;
   let rows: Row[] = [];
+  let batch = 0;
   const client = await AcpmuxDirectClient.connect(
     { ...mockHost, sessionId: a },
     (snapshot) => {
@@ -117,7 +118,10 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   const direct = client as any;
   // As the host calls it: the document's receiver, which the client installed before its first open.
   const feed = (changes: string[]) =>
-    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({ batch: 1, changes });
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: ++batch,
+      changes,
+    });
   try {
     await settle(() => asked.some((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a));
     // The switch is asked, then the v1 attach is the hold: no page, no log read.
@@ -130,7 +134,8 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
       hold: true,
       eventStream: true,
       kinds: [...HOLD_KINDS],
-      visible: expect.any(Boolean),
+      visible: true,
+      attending: true,
     });
 
     // The store's window is the snapshot's rows.

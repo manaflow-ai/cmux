@@ -66,6 +66,20 @@ const NAMED: readonly { field: string; row: string; why: string; view: "same" | 
   },
 ];
 
+/// Differences introduced by turn shaping. They never occur in the raw row comparison above.
+const VIEW_ONLY: readonly { field: string; row: string; why: string }[] = [
+  {
+    field: "worked.workedRuns",
+    row: "seed-turn:worked",
+    why: "the store's worked fold has the same run content but keeps its tool timing fields out",
+  },
+  {
+    field: "worked.foldedPrompt",
+    row: "parity:worked",
+    why: "the worked fold carries the store's prompt row identity",
+  },
+];
+
 /// Fields neither comparison reads, beside NAMED: what each side names a row by, never drawn.
 const UNCOMPARED: readonly { field: string; why: string }[] = [
   {
@@ -305,6 +319,7 @@ test("the view draws both the same: turnView over v1's rows and over the adapter
   const allowed = new Set([
     ...NOT_YET.map((entry) => entry.field),
     ...NAMED.filter((entry) => entry.view === "differs").map((entry) => entry.field),
+    ...VIEW_ONLY.map((entry) => entry.field),
     ...DRAWN_FROM.map((entry) => entry.field),
   ]);
   for (const [key, examples] of found)
