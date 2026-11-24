@@ -36,7 +36,7 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "goal_update",
-            "description": "Report on this chat's goal. complete: done-when holds; say the evidence in note (\"bun test: 412 pass, 0 fail\"); acpmux stops prompting. blocked: you need the person (a decision, access, something only they can do); say what in note; acpmux stops prompting and the person sees it. running: going on again after blocked. Call complete only after checking done-when yourself, never on a guess.",
+            "description": "Report on this chat's goal. complete: done-when holds; say the evidence in note (\"bun test: 412 pass, 0 fail\"); acpmux stops prompting. blocked: you need the person (a decision, access, something only they can do); say what in note; acpmux stops prompting and the person sees it. running: going on again after blocked. blocked and complete also work with no goal set (one is recorded); running needs goal_set. Call complete only after checking done-when yourself, never on a guess.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
