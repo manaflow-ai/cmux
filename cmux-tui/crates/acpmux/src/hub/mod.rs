@@ -187,6 +187,7 @@ mod live_ages;
 mod live_ages_tests;
 mod live_models;
 mod locate;
+pub(crate) mod lock_bridge;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_book;
@@ -3595,6 +3596,7 @@ impl Hub {
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);
+            self.lock_bridge_wake();
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
             // One that starts or stops waiting on the person changes its parent's asks below.
