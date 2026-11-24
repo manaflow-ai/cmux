@@ -6,7 +6,7 @@ import Testing
 /// The Home conversation list selects as Messages does (macOS 26; the user, 2026-11-23: "make sure
 /// that the selected colour is blue for chats"): the system blue with white text in a key window,
 /// whatever the theme's or the system's accent, the system's grey when the window is not key, and
-/// in the compact list the selection is a disc behind the avatar.
+/// in the compact list the selection is the row's, behind the avatar.
 @MainActor
 struct HomeSidebarNeutralSelectionTests {
     @Test(arguments: [NSAppearance.Name.darkAqua, .aqua])
@@ -31,8 +31,8 @@ struct HomeSidebarNeutralSelectionTests {
         #expect(Self.same(controller.palette.selectionInactive, grey), "the inactive selection is not the system grey")
     }
 
-    /// The compact list (avatars only) selects with a disc behind the avatar, not a row-wide slab.
-    @Test func theCompactSelectionIsADiscBehindTheAvatar() throws {
+    /// The compact list (avatars only) selects as a row does: the rounded selection across the row.
+    @Test func theCompactSelectionIsTheRows() throws {
         let list = CmuxSidebarView(frame: NSRect(x: 0, y: 0, width: 100, height: 600))
         list.neutralSelection = true
         let now = Date()
@@ -46,11 +46,11 @@ struct HomeSidebarNeutralSelectionTests {
         list.select("a")
         let tile = try #require(list.controller.tileLayers.first { $0.conversationID == "a" })
         #expect(!tile.selection.isHidden)
-        let disc = tile.selection.frame
-        #expect(abs(disc.width - disc.height) < 0.5, "the compact tile's selection is not round")
-        #expect(abs(tile.selection.cornerRadius - disc.width / 2) < 0.5)
-        #expect(disc.contains(CGPoint(x: tile.avatar.frame.midX, y: tile.avatar.frame.midY)), "the disc is not behind the avatar")
-        #expect(disc.width < tile.bounds.width, "the disc is the row-wide slab")
+        // Messages' narrow list: the row's rounded selection across the row, behind the avatar.
+        let slab = tile.selection.frame
+        #expect(slab == tile.bounds)
+        #expect(tile.selection.cornerRadius == SidebarMetrics.selectionRadius)
+        #expect(slab.contains(CGPoint(x: tile.avatar.frame.midX, y: tile.avatar.frame.midY)), "the selection is not behind the avatar")
     }
 
     /// Equal after conversion to sRGB (system colours resolve in different colour spaces).
