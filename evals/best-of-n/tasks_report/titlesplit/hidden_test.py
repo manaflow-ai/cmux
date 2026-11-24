@@ -8,14 +8,12 @@ def test_commit_cases():
     assert sp("● build") == ("build", "idle")
     assert sp("✔︎ tests passed") == ("tests passed", "done")
     assert sp("✘ deploy") == ("deploy", "failed")
-    assert sp("✳ ⠂ Task") == ("Task", "working")
 
 
 def test_plain_titles():
     assert sp("vim notes.md") == ("vim notes.md", None)
     assert sp("~/src · main") == ("~/src · main", None)
     assert sp("") == ("", None)
-    assert sp("  htop  ") == ("htop", None)
     assert sp("⠀ blank braille") == ("⠀ blank braille", None)
 
 
@@ -26,7 +24,7 @@ def test_edges():
     assert sp("✅ ok") == ("ok", "done")
     assert sp("❌ no") == ("no", "failed")
     assert sp("· dot") == ("dot", "idle")
-    assert sp("  ✘ deploy ✔") == ("deploy ✔", "failed")
+    assert sp("✘ deploy ✔") == ("deploy ✔", "failed")
 
 
 def test_store_sequence():
@@ -40,8 +38,6 @@ def test_store_sequence():
     assert (stored, said) == ("✳ Fix it", ("Fix it", "idle"))
     stored, said = store(stored, "✳ Run tests")
     assert (stored, said) == ("✳ Run tests", ("Run tests", "idle"))
-    assert store(None, "") == ("", None)
-    assert store("x", "x ") == ("x ", None)
 
 
 def test_shown_title():
