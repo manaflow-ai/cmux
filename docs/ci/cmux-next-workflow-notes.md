@@ -4647,6 +4647,17 @@ Above `fast_tier_cargo: ${{ steps.route.outputs.fast_tier_cargo }}` in `.github/
 
 Whether a pull request reaches fast-tier-cargo (scripts/ci/fast_tier_cargo_route.py); empty otherwise.
 
+## note-502b
+
+Above `CMUX_FAST_TIER_ONLY` in the fast-tier-cargo job of `.github/workflows/cmux-next.yml`.
+
+A pull request runs only the fast-tier entries its change reaches: scripts/ci/fast_tier_cargo_route.py writes
+`fast_tier_cargo_only` (a JSON list of entry names, empty for every entry) and `fast_tier_cargo_build` (false when
+no cargo entry is left). A change to scripts/cmux-next/tests/ alone runs the perf-completeness script and skips the
+zig, ghostty, Rust and cargo-cache steps; a change to the core alone runs the core's entry; a change to the reducer
+runs it and the core's (its dependent). The fingerprint includes the selection, so a subset pass is never reused
+for a run of every entry. Every feat-cmux-next push runs every entry.
+
 ## note-503
 
 Above `command -v node >/dev/null || scripts/ci/ensure-setup-node.sh 24.22.1 \` in `.github/workflows/cmux-next.yml`.

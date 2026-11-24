@@ -4597,6 +4597,56 @@ class FastTierCargoRoute(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
 
+    def select(self, *changed):
+        return self.route.select(list(changed), set(), ROOT)
+
+    def test_a_pull_request_runs_only_the_entries_its_change_reaches(self):
+        # A Python test change builds no Rust; the core runs alone; the reducer brings its dependent core along.
+        self.assertEqual(self.select("scripts/cmux-next/tests/test_x.py")[1], ["perf completeness"])
+        self.assertEqual(self.select("cmux-tui/crates/cmux-tui-core/src/mux.rs")[1], ["matrix core"])
+        self.assertEqual(sorted(self.select("cmux-tui/crates/cmux-layout-reducer/src/lib.rs")[1]),
+                         ["matrix core", "sidebar layout reducer"])
+        # The workspace root reaches every cargo entry; a job input every entry (the empty list).
+        self.assertEqual(sorted(self.select("cmux-tui/Cargo.toml")[1]), ["matrix core", "sidebar layout reducer"])
+        self.assertEqual(self.select("scripts/cmux-next/fast-tier.py")[:2], (True, []))
+
+    def test_the_cli_writes_the_selection_and_skips_the_rust_build_for_scripts_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            changed, out = Path(tmp, "changed"), Path(tmp, "out")
+            changed.write_text("scripts/cmux-next/tests/test_x.py\n", encoding="utf-8")
+            self.route.main(["--changed-files", str(changed), "--root", str(ROOT), "--github-output", str(out)])
+            lines = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines())
+        self.assertEqual(lines, {"fast_tier_cargo": "true", "fast_tier_cargo_only": '["perf completeness"]',
+                                 "fast_tier_cargo_build": "false"})
+
+    def test_a_lock_change_reaches_an_entry_only_through_its_closure(self):
+        lock = lambda extra: (
+            '[[package]]\nname = "cmux-tui-core"\nversion = "0.1.0"\ndependencies = [\n "serde",\n]\n\n'
+            '[[package]]\nname = "serde"\nversion = "1.0.0"\n\n'
+            '[[package]]\nname = "other"\nversion = "0.1.0"\ndependencies = [\n "serde",\n' + extra + ']\n')
+        base, head = self.route.lock_packages(lock("")), self.route.lock_packages(lock(' "ignore",\n'))
+        self.assertEqual(self.route.lock_closure(head, "cmux-tui-core"), {"cmux-tui-core", "serde"})
+        changed = {k[0] for k in set(base) & set(head) if base[k] != head[k]}
+        self.assertEqual(changed, {"other"})
+
+    def test_a_cmux_next_change_outside_this_job_does_not_reach_it(self):
+        text = "name: x\non: {}\njobs:\n  a:\n    runs-on: x\n  fast-tier-cargo:\n    runs-on: y\n  b:\n    runs-on: z\n"
+        part = self.route.workflow_part(text)
+        self.assertEqual(part, self.route.workflow_part(text.replace("runs-on: z", "runs-on: w")))
+        self.assertNotEqual(part, self.route.workflow_part(text.replace("runs-on: y", "runs-on: w")))
+        self.assertNotEqual(part, self.route.workflow_part(text.replace("on: {}", "on: {push: {}}")))
+
+    def test_the_job_passes_the_selection_only_on_a_pull_request(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        job = workflow["jobs"]["fast-tier-cargo"]
+        self.assertIn("github.event_name == 'pull_request' && needs.path_route.outputs.fast_tier_cargo_only",
+                      job["env"]["CMUX_FAST_TIER_ONLY"])
+        self.assertIn("github.event_name != 'pull_request' ||", job["env"]["CMUX_FAST_CARGO_BUILD"])
+        run = next(step["run"] for step in job["steps"] if "fast-tier.py" in step.get("run", ""))
+        self.assertIn('--only-json "$CMUX_FAST_TIER_ONLY"', run)
+        key = next(step["run"] for step in job["steps"] if "job_input_fingerprint.py" in step.get("run", ""))
+        self.assertIn("entries=$CMUX_FAST_TIER_ONLY", key)
+
 
 if __name__ == "__main__":
     unittest.main()

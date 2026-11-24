@@ -328,6 +328,8 @@ def main():
     parser.add_argument("--quarantine", default=str(here / "quarantine.json"))
     parser.add_argument("--max-seconds", type=int, default=60, help="time cap per entry run, after the build")
     parser.add_argument("--only", action="append", default=[], help="run only this entry (repeatable)")
+    parser.add_argument("--only-json", default="",
+                        help="a JSON list of entry names to run (fast_tier_cargo_route.py); empty runs every entry")
     parser.add_argument("--kind", action="append", default=[], choices=sorted(KINDS),
                         help="run only the entries of this kind (repeatable)")
     parser.add_argument("--repeat", type=int, default=0, help="admission: run each entry N times, no classify rerun")
@@ -337,6 +339,8 @@ def main():
 
     root = Path(args.root)
     entries = load_entries(args.registry)
+    if args.only_json.strip():
+        args.only += json.loads(args.only_json)
     if args.only:
         entries = [e for e in entries if e["name"] in args.only]
     if args.kind:
