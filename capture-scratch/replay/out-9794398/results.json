@@ -1,0 +1,90 @@
+[
+  {
+    "id": "pages.settings--general--en--Apple_System_Colors--w1000",
+    "engine": "chromium",
+    "screenshot": "pages.settings--general--en--Apple_System_Colors--w1000-chromium.png",
+    "params": {
+      "entry": "pages.settings",
+      "variant": "general",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "source": "src/pages/settings/settings.gallery.ts",
+      "frame": "component",
+      "width": 1000,
+      "height": 760
+    },
+    "ready": "1",
+    "readyMs": 4425,
+    "readyCpuMs": 322,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "9794398440a789dfa9bf7ae74024f8925a2be362",
+      "source": "src/pages/settings/settings.gallery.ts",
+      "entryVersion": "1",
+      "entry": "pages.settings",
+      "variant": "general"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.settings--general--en--Apple_System_Colors_Light--w1000",
+    "engine": "chromium",
+    "screenshot": "pages.settings--general--en--Apple_System_Colors_Light--w1000-chromium.png",
+    "params": {
+      "entry": "pages.settings",
+      "variant": "general",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "source": "src/pages/settings/settings.gallery.ts",
+      "frame": "component",
+      "width": 1000,
+      "height": 760
+    },
+    "ready": "1",
+    "readyMs": 1133,
+    "readyCpuMs": 355,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "9794398440a789dfa9bf7ae74024f8925a2be362",
+      "source": "src/pages/settings/settings.gallery.ts",
+      "entryVersion": "1",
+      "entry": "pages.settings",
+      "variant": "general"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  }
+]

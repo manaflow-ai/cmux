@@ -1,0 +1,354 @@
+[
+  {
+    "id": "pages.onboarding--intro-walk-look--en--Apple_System_Colors--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-look--en--Apple_System_Colors--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-look",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1250,
+    "readyCpuMs": 243,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-look"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-look--en--Apple_System_Colors_Light--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-look--en--Apple_System_Colors_Light--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-look",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1004,
+    "readyCpuMs": 223,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-look"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-work--en--Apple_System_Colors--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-work--en--Apple_System_Colors--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-work",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1446,
+    "readyCpuMs": 248,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-work"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-work--en--Apple_System_Colors_Light--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-work--en--Apple_System_Colors_Light--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-work",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1310,
+    "readyCpuMs": 243,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-work"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-trust--en--Apple_System_Colors--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-trust--en--Apple_System_Colors--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-trust",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1100,
+    "readyCpuMs": 236,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-trust"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-trust--en--Apple_System_Colors_Light--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-trust--en--Apple_System_Colors_Light--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-trust",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1567,
+    "readyCpuMs": 263,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-trust"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-tune--en--Apple_System_Colors--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-tune--en--Apple_System_Colors--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-tune",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1021,
+    "readyCpuMs": 229,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-tune"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  },
+  {
+    "id": "pages.onboarding--intro-walk-tune--en--Apple_System_Colors_Light--w640",
+    "engine": "chromium",
+    "screenshot": "pages.onboarding--intro-walk-tune--en--Apple_System_Colors_Light--w640-chromium.png",
+    "params": {
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-tune",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "frame": "component",
+      "width": 640,
+      "height": 520
+    },
+    "ready": "1",
+    "readyMs": 1398,
+    "readyCpuMs": 250,
+    "readyCaptureCpuMs": 0,
+    "revision": {
+      "sha": "a20f1b467072b2438261ccffa593c507184b3d2b",
+      "source": "src/pages/onboarding/Onboarding.gallery.tsx",
+      "entryVersion": "1",
+      "entry": "pages.onboarding",
+      "variant": "intro-walk-tune"
+    },
+    "play": null,
+    "load": {
+      "layoutShift": 0,
+      "shifts": [],
+      "boxShift": 0,
+      "boxMoves": [],
+      "boxFollow": {
+        "movingFrames": 0,
+        "followFrames": 0,
+        "strayFrames": 0,
+        "stray": [],
+        "worst": 0
+      },
+      "undeclared": 0,
+      "undeclaredMoves": []
+    },
+    "invariants": []
+  }
+]
