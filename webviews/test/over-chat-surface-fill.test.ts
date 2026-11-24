@@ -37,12 +37,12 @@ const attributes = (text: string, start: number) => {
   return text.slice(start);
 };
 
-// The classes of every surface over the chat: a <Dialog>'s className, a .ui-glass element's, and
+// The classes of every surface over the chat: a dialog or popover's className, a .ui-glass element's, and
 // the overlay Session Info (SessionInfo.tsx gives it its class only in a ternary).
 const surfaces = new Set<string>(["acpmux-session-info"]);
 for (const file of files(source, /\.tsx$/)) {
   const text = fs.readFileSync(file, "utf8");
-  for (const open of text.matchAll(/<Dialog\b/g)) {
+  for (const open of text.matchAll(/<(?:Dialog|Popover)\b/g)) {
     const className = attributes(text, open.index).match(/\bclassName="([^"]+)"/);
     for (const name of classNames(className?.[1] ?? "")) if (!shared.has(name)) surfaces.add(name);
   }
@@ -61,7 +61,13 @@ const pageColorFill = (value: string) =>
   });
 
 test("finds the dialogs and glass surfaces over the chat", () => {
-  for (const name of ["acpmux-pdf-viewer", "acpmux-image-viewer", "acpmux-chat-gallery", "acpmux-add-project-dialog"]) {
+  for (const name of [
+    "acpmux-pdf-viewer",
+    "acpmux-image-viewer",
+    "acpmux-chat-gallery",
+    "acpmux-add-project-dialog",
+    "acpmux-add-project-palette",
+  ]) {
     expect(surfaces.has(name)).toBe(true);
   }
 });

@@ -50,6 +50,8 @@ public final class AgentPaneMachineLink {
     public var reconnect: @MainActor (String) -> Void = { _ in }
     /// How long a chat waits for its machine to come back before its call fails as it did.
     public var budget: Duration = .seconds(45)
+    /// Each remote chat's link states and live paints, as app events for `cmux events`.
+    public let events = RemoteChatEvents()
 
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()

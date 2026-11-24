@@ -1,7 +1,7 @@
 {
   "name": "cmux.pane/1",
   "version": 1,
-  "docs": "A tab kind: a pane the user opens from the palette, open-with or an op.",
+  "docs": "A tab kind: a pane the user opens from the palette, open-with or an op. With presentation.overlay the same scene also opens as a floating overlay over the window, from the person's own gesture only (mount context surface: overlay, origin user).",
   "props": {
     "title": "string",
     "symbol": "string?"

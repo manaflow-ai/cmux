@@ -82,6 +82,27 @@ team hubs, the hub's users and sessions) are its own; Postgres and Vitess (the m
 `backend/db/drizzle-mysql`). A stack has no TURN keys, APNs keys or Slack token: no relay ICE and no
 push from it.
 
+A stack lives as long as a dogfooded build may use it. Every stack port goes through the VM's router
+(`scripts/cmux-next/cloud-dev-stack/router.mjs`). After 2 h with no request, the stack's workerd
+stops but keeps its files, Durable Object data, credentials and ports. Its next request wakes it:
+the router holds that request until the stack answers, about 6 s when measured, so a build opened
+the next day finds its backend where it left it.
+
+The VM runs at most 16 stacks and keeps its memory and disk floors. A start or wake that does not
+fit stops the least recently used running stack. A stack is released 7 days after its last `up`,
+or earlier, least recently used first, when more than 48 are stopped or disk runs short. After
+that its origins stop answering (Serve is off for its ports) until the next `up` of the tag, and
+`cloud-dev-stack.sh status` shows it released. `cloud-dev-stack.sh stop --tag T` stops a stack by
+hand.
+
+A stack can also have a public origin, so a phone off the tailnet reaches it:
+`https://api.s<N>.wdev.cmux.dev` and its slot's `mobile.` and `hub.` hosts. `up` gives each stack a
+free slot and prints it (`Public:`), and `cloud-dev-stack.sh url --tag T --public` reads it back.
+The Worker `cmux-wdev-gateway` answers those hosts and admits a request only with a signed-in cmux
+team account's token, or a token the stack itself issued. It then sends the request through a
+Cloudflare Tunnel to the VM's router. Details and threat model: `cmux-next-ios/SECURITY.md`, "A
+tag's own Cloud backend".
+
 The tag's hand-off writes the choice next to the selection state, in
 `~/Library/Application Support/cmux-next/<bundle-id>/backend.json`
 (`{"backend": "<origin or name>"}`), so every launch of that tag uses it, from the Tag Opener
@@ -105,6 +126,15 @@ socket's `auth.status` has `backend` and `backend_label` (the same line); the CL
 
 The cmux-next iPhone app takes the same choice as `CMUX_NEXT_CLOUD_BACKEND` at launch (DEBUG
 builds only) and keeps it for later launches; an empty value clears it. Settings > Developer shows
-it as "Cloud backend". `cmux-next-ios/scripts/review.sh --backend <origin|tag-stack|dev>` sets both
-for a tag and prints a `Backend:` line with what the Mac app reports; with `tag-stack`, the phone's
-readiness receipt must also name the stack's mobile Worker (`api_base_url`).
+it as "Cloud backend". `cmux-next-ios/scripts/review.sh` sets both for a tag and prints a `Backend:`
+line with what the Mac app reports:
+- **With no `--backend` (the default)**, it runs `cloud-dev-stack.sh up --tag <tag>` beside the fleet
+  builds and points both apps at the tag's stack. The Mac gets the tailnet origin, the phone the
+  public one when the stack has a slot. An `up` that fails falls back to the shared dev Workers, with
+  the reason on the `Backend:` line.
+- `--backend dev` keeps the shared dev Workers and touches no stack.
+- `--backend tag-stack` takes the stack as it is, with no `up`.
+- `--backend <origin>` takes any allowed origin.
+
+With a tag stack, the phone's readiness receipt must also name the stack's mobile Worker
+(`api_base_url`).

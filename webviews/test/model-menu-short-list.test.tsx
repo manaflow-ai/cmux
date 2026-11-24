@@ -277,7 +277,7 @@ for (const [state, harness, word] of [
             state,
             source: "turn",
             evidenceAt: 1,
-            harness,
+            harness: harness ?? undefined,
             host: null,
             login: { kind: "terminal", command: "claude auth login" },
           }}

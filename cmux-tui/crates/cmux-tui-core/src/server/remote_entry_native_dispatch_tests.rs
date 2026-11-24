@@ -483,6 +483,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-session-share-room",
     "agent-session-share-uninvite",
     "apps-agent-inventory-changed",
+    "apps-chat-action",
     "apps-dispatch",
     "apps-link-changed",
     "apps-list",

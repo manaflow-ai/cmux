@@ -248,15 +248,15 @@ fetch_github() {
   fi
   local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}" asset_api
   if [[ -n "$token" ]]; then
-    asset_api="$(curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 --max-time 60 -H "Authorization: Bearer $token" "https://api.github.com/repos/$repo/releases/tags/$tag" |
+    asset_api="$(curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 60 -H "Authorization: Bearer $token" "https://api.github.com/repos/$repo/releases/tags/$tag" |
       /usr/bin/python3 -c 'import json,sys; a=sys.argv[1]; print(next(x["url"] for x in json.load(sys.stdin)["assets"] if x["name"]==a))' "$asset" || true)"
     if [[ -n "$asset_api" ]]; then
-      curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 \
+      curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 \
         -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" \
         -o "$archive" "$asset_api" >&2 && verified "$archive" "GitHub API" && return 0
     fi
   fi
-  curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 -o "$archive" "$url" >&2 2>/dev/null && verified "$archive" "$url" && return 0
+  curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 -o "$archive" "$url" >&2 2>/dev/null && verified "$archive" "$url" && return 0
   return 1
 }
 

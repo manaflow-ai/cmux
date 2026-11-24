@@ -162,6 +162,24 @@ fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(out.contains("a     -"), "{out}");
 }
 
+/// A row from the send relay's kept listing (`ls_far.rs`) has a peer, its `asOfMs` and no link
+/// state: it shows its own state, never `peer down` (cmuxterm-hq
+/// `docs/findings/2026-11-23-acpmux-ls-peer-down-rows.md`: 2,000 of 2,000 such rows read so).
+#[test]
+fn a_relay_row_from_the_kept_listing_shows_its_state_not_peer_down() {
+    let kept = |state: &str| {
+        with(
+            lane(&format!("gcp-agent-lane-2/{state}")),
+            json!({"peer": "gcp-agent-lane-2", "asOfMs": NOW - 30_000, "state": state, "status": state}),
+        )
+    };
+    let out = compact(&[kept("running"), kept("ready")]);
+    assert!(!out.contains("peer down") && !out.contains("unknown"), "{out}");
+    let line = |n: &str| out.lines().find(|l| l.starts_with(n)).unwrap().to_owned();
+    assert!(line("gcp-agent-lane-2/running").contains(" running"), "{out}");
+    assert!(line("gcp-agent-lane-2/ready").contains(" ready"), "{out}");
+}
+
 #[test]
 fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
     let stale = with(
@@ -391,4 +409,26 @@ fn spoken_handles_show_alongside_the_task_host_and_harness() {
     let output = compact(&[row]);
     let columns: Vec<_> = output.lines().nth(1).unwrap().split_whitespace().collect();
     assert_eq!(&columns[..5], &["Mango", "·", "ci-fleet", "hb", "claude"], "{output}");
+}
+
+/// Leo, 2026-11-21: "ruby dot startup-speedups" -- the alias is the name `cmux agent ls` shows.
+#[test]
+fn an_alias_is_the_name_ls_shows() {
+    let tagged = |alias: &str| {
+        with(
+            lane("hb/startup-speedups"),
+            json!({"handle": "Mango", "sessionId": "one", "peer": "hb", "tags": {"session.alias": alias}}),
+        )
+    };
+    let first = |row| compact(&[row]).lines().nth(1).unwrap().to_owned();
+    // an alias that says the task stands alone
+    assert!(first(tagged("Ruby dot startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // the broker's `+` spelling reads with spaces
+    assert!(first(tagged("Ruby+dot+startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // a bare call name keeps the task beside it
+    assert!(
+        first(tagged("Mochi")).starts_with("Mochi · startup-speedups "),
+        "{}",
+        first(tagged("Mochi"))
+    );
 }

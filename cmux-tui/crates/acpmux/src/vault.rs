@@ -505,12 +505,17 @@ pub async fn bounded<T>(wait: Duration, first: impl std::future::Future<Output =
 /// pulls first, for at most [`INITIAL_WAIT`], before this returns (agent
 /// spawns wait for startup); then every [`EVERY`], with backoff after a failure.
 pub async fn start_worker() {
+    // Launches read the vault env through `login_env` (a lower module); it stays empty until
+    // `ACTIVE` is set below, as `env_for_children` does.
+    crate::login_env::set_vault_env(env_for_children);
     if ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }
     // A machine that is not joined never touches the store.
     let joined = matches!(crate::cli::cloud_join::machine_credential(), Ok(Some(_)));
     let mut failures = 0u32;
+    // The refusal last explained in the log: a standing one is said once, with its next step.
+    let mut said: Option<String> = None;
     let mut first_delay = Duration::ZERO;
     let started = tokio::time::Instant::now();
     // The store check runs store commands (each may wait up to a minute): off
@@ -541,7 +546,7 @@ pub async fn start_worker() {
             }
             Some(Err(code)) => {
                 failures = 1;
-                tracing::warn!(code = %code, failures, "vault pull failed");
+                log_pull_failure(&code, failures, &mut said);
                 first_delay = backoff(failures);
             }
             // Timed out: the pull was dropped; the loop's first round runs it again now.
@@ -554,6 +559,7 @@ pub async fn start_worker() {
             let delay = match run_once().await {
                 Ok(result) => {
                     failures = 0;
+                    said = None;
                     if result != "not_joined" {
                         tracing::info!(result, "vault pull");
                     }
@@ -561,13 +567,52 @@ pub async fn start_worker() {
                 }
                 Err(code) => {
                     failures = failures.saturating_add(1);
-                    tracing::warn!(code = %code, failures, "vault pull failed");
+                    log_pull_failure(&code, failures, &mut said);
                     backoff(failures)
                 }
             };
             tokio::time::sleep(delay).await;
         }
     });
+}
+
+/// Why the hub refuses this machine's vault, and the next step, for a refusal that stays until
+/// someone acts (cmux-platform `server/vault/Vault.ts`, `VaultMachineAuthLive`): retrying never
+/// clears it. None for a refusal that may pass by itself.
+pub fn standing_refusal(code: &str) -> Option<&'static str> {
+    match code {
+        "vault.forbidden" => Some(
+            "the hub gives a person's vault only to a machine joined in that person's personal \
+             team, and this join is in another team; `acpmux machine doctor --here` names the team \
+             and how to move the join",
+        ),
+        "vault.not_granted" => Some(
+            "this machine was never granted its owner's vault; its owner grants it from the cmux \
+             app (PUT /v1/machines/{id}/vault)",
+        ),
+        "vault.grant_expired" => {
+            Some("this machine's vault grant lapsed; its owner renews it from the cmux app")
+        }
+        _ => None,
+    }
+}
+
+/// A failed pull in the log: a standing refusal ([`standing_refusal`]) is a warning with its
+/// cause and next step the first time, then debug while it stays; any other failure warns.
+fn log_pull_failure(code: &str, failures: u32, said: &mut Option<String>) {
+    match standing_refusal(code) {
+        Some(_) if said.as_deref() == Some(code) => {
+            tracing::debug!(code = %code, failures, "vault pull failed")
+        }
+        Some(why) => {
+            *said = Some(code.to_owned());
+            tracing::warn!(code = %code, failures, next = why, "vault pull refused; retrying won't help until fixed");
+        }
+        None => {
+            *said = None;
+            tracing::warn!(code = %code, failures, "vault pull failed");
+        }
+    }
 }
 
 /// 30 s, 60 s, 2 min ... up to [`EVERY`].

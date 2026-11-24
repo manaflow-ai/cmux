@@ -135,6 +135,50 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0, 1])
         }
 
+        /// Google's passkey challenge in the Chief's Home tab (2026-11-20, "try google passkey too it broken, and didnt
+        /// even go to try the QR code version from chrome"): the Chief watches a sign-in it handed to the person with
+        /// `cmux browser right state` / `snapshot` every 5 s (chief-auth-escalation step 6), and each read refused the
+        /// page's WebAuthn again, so a request the page started on its own after the person's click (Google's
+        /// challenge page after "Try again") got NotAllowedError before Chromium's sheet with the phone QR code. Chrome
+        /// refuses only while its agent is in control; a read starts no ceremony. The agent's next action refuses.
+        @Test func anAgentsReadLeavesThePersonsPasskeys() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            runtime.windowRequests.linkClicks.record(.leftMouseDown, on: 10, button: 0, flags: [], timestamp: 1, byPerson: true)
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0])
+            tab.markAgentReading()
+            tab.markAgentReading()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0], "the Chief's watch leaves the person's sign-in alone")
+            tab.markAgentDriven()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0, 1], "the agent's next action refuses again")
+        }
+
+        /// The hand-off's own page: after its trigger, the Chief's reads keep it the person's.
+        @Test func anAgentsReadAfterAHandOffLeavesThePersonsPasskeys() async throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentDriven()
+            try await tab.handOverWebAuthn { @MainActor in }
+            tab.markAgentReading()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1, 0])
+        }
+
+        /// A read on the person's own tab (the Chief reading the shown tab beside Home, which it may only read) marks
+        /// it agent-driven, so no saved password fills, and refuses none of the person's passkeys; an action does.
+        @Test func anAgentsFirstReadMarksTheTabAndRefusesNothing() throws {
+            let (runtime, root) = try Fixture.runtime()
+            defer { Fixture.tearDown(runtime, root) }
+            let (_, tab, _) = try Fixture.liveHost(runtime)
+            tab.markAgentReading()
+            #expect(tab.isAgentDriven)
+            #expect(SpareSpy.webAuthnModes.isEmpty)
+            tab.markAgentDriven()
+            #expect(SpareSpy.webAuthnModes.map(\.mode) == [1])
+        }
+
         /// SECURITY: a click another process posts into the page (a computer-use agent, a script: not the HID system's,
         /// the app's ``CEFLinkClickTracker/isPerson`` check) is no hand-over: the agent tab stays refused.
         @Test func aPostedClickDoesNotTakeTheTab() throws {

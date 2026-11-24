@@ -111,7 +111,7 @@ final class DaemonAppsTransport: AppsTransport {
 
     func list() async throws(AppsTransportError) -> AppsListReply { AppsWireDecoding().list(try await send(AppsListRequest())) }
 
-    func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest(op: op))) }
+    func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest(op: op, args: args.daemonValue))) }
 
     func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
         let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
@@ -130,6 +130,10 @@ final class DaemonAppsTransport: AppsTransport {
 
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) {
         _ = try await send(AppsMountRequest(app: app, interface: interface, mountID: mountID, context: context.daemonValue))
+    }
+    func mount(app: String, interface: String, mountID: String, context: AppJSON, origin: AppOrigin) async throws(AppsTransportError) {
+        _ = try await send(AppsMountRequest(app: app, interface: interface, mountID: mountID, context: context.daemonValue,
+                                            origin: origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)))
     }
 
     func unmount(mountID: String) async throws(AppsTransportError) {

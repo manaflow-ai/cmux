@@ -9,7 +9,8 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 43608103300; 22.1 and 23.9 min from landing to run created.
 
 - With the one job on, a push run and the loop's retry are run-scoped at the workflow level, and nightly-next-one
-  takes nightly-next-one-push (never cancel-in-progress). With it off, the workflow-level push group is as before.
+  takes nightly-next-one-push-<host> (never cancel-in-progress), host from pick-nightly-next-signer on the attempt
+  that made it, else cmux15 (note-33). With it off, the workflow-level push group is as before.
   The group reads every repository variable decide's one_job reads: with NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1 or
   NIGHTLY_NEXT_NOTARY_PAUSED=1 decide builds the split jobs, which the workflow-level push group alone serializes.
   The test reads decide's oneJob from its script, so a new input there fails it until the group reads it too.
@@ -19,7 +20,7 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 - nightly-next-one's end asks main's tick at once (wake-nightly-next-tick), since the tick's workflow_run trigger
   fires only when the whole run ends.
 
-Manual lane (Lawrence 2026-10-23: no new CI tests): python3 tests/test_nightly_next_push_slot_at_build.py.
+Manual lane (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18): python3 tests/test_nightly_next_push_slot_at_build.py.
 """
 from __future__ import annotations
 
@@ -72,9 +73,6 @@ for name, ctx in (("a push run", context(one_job="")), ("the loop's retry", cont
     group = substitute(top, ctx)
     if group != "nightly-build-nightly-next-push":
         failures.append(f"with the one job off, {name} must keep the workflow-level push group, got {group!r}")
-if substitute(top, context("workflow_dispatch", inputs__x="") | {"inputs.nightly_next_sign_stage": "true"}) \
-        != "nightly-build-nightly-next-sign":
-    failures.append("a sign stage keeps the sign group")
 if DOC.get("concurrency", {}).get("cancel-in-progress") is not False:
     failures.append("the workflow-level group never cancels in progress")
 
@@ -141,7 +139,7 @@ for values in itertools.product(*choices.values()):
     vars_ctx = {f"vars.{var}": value for var, value in zip(choices, values)}
     decide_env = {one_job_vars[var]: value for var, value in zip(choices, values)}
     for name, event, extra in (("a push run", "push", {}), ("the loop's retry", "workflow_dispatch", RETRY)):
-        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", ""), "SIGN_STAGE": ""}
+        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", "")}
         try:
             one_job = bool(decide_eval("oneJob", env, event))
         except LookupError as missing:
@@ -158,10 +156,33 @@ one_concurrency = ONE.get("concurrency") or {}
 one_group = str(one_concurrency.get("group", ""))
 if one_concurrency.get("cancel-in-progress") is not False:
     failures.append("nightly-next-one's group must never cancel a started build (cancel-in-progress: false)")
+# One slot per signer Mac (docs/ci/nightly-workflow-notes.md#note-33): the pick's host on the attempt that made it,
+# else cmux15 (a failed or skipped pick, or a re-run of failed jobs that kept an older pick).
+PICK = "needs.pick-nightly-next-signer.outputs"
 for name, ctx in (("a push run", context()), ("the loop's retry", context("workflow_dispatch", **RETRY))):
-    group = substitute(one_group, ctx)
-    if group != "nightly-next-one-push":
-        failures.append(f"{name}'s nightly-next-one must take the push slot nightly-next-one-push, got {group!r}")
+    for pick_ctx, want in (({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
+                            "nightly-next-one-push-ultra1"),
+                           ({f"{PICK}.host": "cmux15", f"{PICK}.attempt": "1", "github.run_attempt": "1"},
+                            "nightly-next-one-push-cmux15"),
+                           ({f"{PICK}.host": "", f"{PICK}.attempt": "", "github.run_attempt": "1"},
+                            "nightly-next-one-push-cmux15"),
+                           ({f"{PICK}.host": "ultra1", f"{PICK}.attempt": "1", "github.run_attempt": "2"},
+                            "nightly-next-one-push-cmux15")):
+        group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": "2"})
+        if group != want:
+            failures.append(f"{name}'s nightly-next-one with {pick_ctx} must take the slot {want}, got {group!r}")
+        for count, mini in (("", ""), ("1", ""), ("2", "one-mini")):
+            group = substitute(one_group, {**ctx, **pick_ctx, "vars.NIGHTLY_NEXT_SLOTS": count, "vars.CI_NIGHTLY_MINI": mini})
+            if group != "nightly-next-one-push":
+                failures.append(f"{name} with slots={count!r} mini={mini!r} must keep the shared group, got {group!r}")
+PICK_JOB = JOBS.get("pick-nightly-next-signer") or {}
+if "pick-nightly-next-signer" not in (ONE.get("needs") or []):
+    failures.append("nightly-next-one must need pick-nightly-next-signer (its group and pin)")
+pick_if = str(PICK_JOB.get("if", ""))
+for clause in ("github.ref == 'refs/heads/nightly-next'", "github.event_name == 'push'",
+               "inputs.nightly_next_loop_retry != ''", "needs.decide.outputs.one_job == 'true'", "!cancelled()"):
+    if clause not in pick_if:
+        failures.append(f"pick-nightly-next-signer runs only for a loop run with the one job on: its if lacks {clause!r}")
 other = substitute(one_group, {**context("workflow_dispatch"), "github.ref": "refs/heads/main", "github.ref_name": "main"})
 if other != "nightly-next-one-43608103300":
     failures.append(f"any other run's nightly-next-one stays run-scoped, got {other!r}")

@@ -29,7 +29,7 @@ extension WorkspaceRowView {
         return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
-    var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+    var hasMeta: Bool { !metaLabel.stringValue.isEmpty }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
@@ -45,15 +45,16 @@ extension WorkspaceRowView {
         return columns.trailingEdge(before: timeLabel.frame)
     }
 
-    /// The Unpin button of an expanded pinned row, with the menu button (hover,
-    /// not renaming): left of it, fading in and out in place with it. Returns
-    /// its minX while it shows. An unpinned row draws no pin, at rest or on
-    /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
-    /// symbol by default").
+    /// The hover pin, with the menu button (hover, not renaming): left of it, fading in and out in place with it, on
+    /// every row the App wires a pin to (`SidebarModel.workspacePin`), at every density. Pin on an unpinned row, Unpin
+    /// on a pinned one (David Beyer 2026-11-20: pinning by drag is awkward). No row draws a pin at rest (Leo
+    /// 2026-10-21: "no empty pin symbol by default"). Returns its minX while it shows.
     func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded && isPinned?() == true
-        setHoverShown(pinSlot, showMore && pinned, fades: fades)
-        guard pinned else { return nil }
+        // The pin state is read only while the controls show: a row at rest asks nothing.
+        let pinned = showMore ? isPinned?() : nil
+        setHoverShown(pinSlot, pinned != nil, fades: fades)
+        guard let pinned else { return nil }
+        pinSlot.made.map { applyPin($0, pinned: pinned) }
         if SidebarTunables.rowCloseSpot.value.atEnd {
             let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
             let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
@@ -61,7 +62,7 @@ extension WorkspaceRowView {
         } else {
             pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
-        return showMore ? pinSlot.frame.minX : nil
+        return pinSlot.frame.minX
     }
 
     /// The title, the second line and the meta line, top to bottom from `top`.
