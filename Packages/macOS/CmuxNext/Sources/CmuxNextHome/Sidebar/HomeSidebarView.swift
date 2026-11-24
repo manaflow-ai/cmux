@@ -358,7 +358,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         let text = performWithTheme { Palette.textPrimary }
         list.neutralSelectionFill = text.withAlphaComponent(0.07)
         layer?.backgroundColor = fill.cgColor
-        let glass = HomeSidebarGlass(surface: fill, dark: themeTokens.isDark)
+        // What already covers the desktop under the panel: the window's tint, then the column's fill.
+        let windowTint = performWithTheme { WindowBackdrop.currentTint(themeTokens) }
+        let cover = 1 - (1 - windowTint) * (1 - Double(fill.alphaComponent))
+        let glass = HomeSidebarGlass(surface: performWithTheme { Palette.windowBackground }, cover: cover, dark: themeTokens.isDark)
         panel.layer?.backgroundColor = glass.tint.cgColor
         self.glass = glass
         layoutWash()
