@@ -303,7 +303,7 @@ try {
     },
   });
   releases.push(() => statics.stop(true));
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${CHAT}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${CHAT}`;
 
   const rates: { name: string; args: string[] }[] = [
     { name: "60hz", args: [] },

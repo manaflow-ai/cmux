@@ -190,7 +190,9 @@ test("a failed listing says so with Try again, which reads again", async () => {
   });
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
-  expect(container.querySelector('.acpmux-surge-note[role="alert"]')).not.toBeNull();
+  expect(container.querySelector('.acpmux-surge-failed[role="alert"]')).not.toBeNull();
+  // The failure keeps acpmux's own words, not a bare Try again.
+  expect(container.querySelector(".acpmux-surge-failed-reason")?.textContent).toContain("offline");
   fail = false;
   await click(container.querySelector(".acpmux-surge-retry"));
   await settle();
