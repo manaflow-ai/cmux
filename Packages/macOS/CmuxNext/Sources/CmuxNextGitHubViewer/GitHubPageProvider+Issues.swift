@@ -8,10 +8,10 @@ import Foundation
 /// pull requests (which GitHub's issues endpoint also lists) are left out.
 extension GitHubPageProvider {
     /// The fields of an issue the page draws.
-    static let issueFields = ["number", "title", "state", "state_reason", "comments", "created_at", "updated_at",
-                              "html_url", "body"]
+    nonisolated static let issueFields = ["number", "title", "state", "state_reason", "comments", "created_at", "updated_at",
+                                          "html_url", "body"]
     /// The fields of a comment the page draws.
-    static let commentFields = ["body", "created_at", "html_url"]
+    nonisolated static let commentFields = ["body", "created_at", "html_url"]
 
     /// `{repo}` → `{issues}`: the repository's issues, newest activity first.
     func listIssues(_ params: JSONValue) async throws -> JSONValue {

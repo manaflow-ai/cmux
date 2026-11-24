@@ -10,7 +10,9 @@
 //! manifest's tree below it, as an open folder renamed away on a disk does: the old number is
 //! [`Inner::retired`], never handed out again.
 
+#[cfg(target_os = "linux")]
 use std::ffi::CString;
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt as _;
 
 use super::Type;
@@ -20,6 +22,7 @@ use super::{fs, join};
 const RENAME_NOREPLACE: u32 = 1;
 const RENAME_EXCHANGE: u32 = 2;
 
+#[cfg(target_os = "linux")]
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
@@ -40,6 +43,12 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     } else {
         Ok(())
     }
+}
+
+/// `renameat2` is Linux's: the Mac build (its tests) has no such call, so a swap there refuses.
+#[cfg(not(target_os = "linux"))]
+fn rename2(_from: &Path, _to: &Path, _flags: u32) -> Result<(), i32> {
+    Err(libc::ENOTSUP)
 }
 
 impl Overlay {
