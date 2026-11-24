@@ -98,6 +98,34 @@ pub(crate) struct HealthMessages {
     pub fail: &'static str,
     pub healthy: &'static str,
     pub unhealthy: &'static str,
+    /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
+    pub record: RecordMessages,
+}
+
+/// `cmux window record` / `cmux pane record`: a clip of the app's own window or pane, from its own
+/// screenshots. The JSON keys stay English; `{name}` placeholders are filled by cli/app/record.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RecordMessages {
+    /// `{noun}`: window or pane.
+    pub usage: &'static str,
+    pub seconds: &'static str,
+    pub fps: &'static str,
+    /// `{max}`: the most frames one recording takes.
+    pub too_many_frames: &'static str,
+    /// `{path}`, `{error}`.
+    pub cannot_write: &'static str,
+    /// Every frame failed; `{error}` is the app's first refusal.
+    pub no_frames: &'static str,
+    /// `{frames}`, `{fps}`, `{asked}`, `{seconds}`, `{path}`.
+    pub recorded: &'static str,
+    /// `{areas}`: what the grey areas are.
+    pub masked: &'static str,
+    /// `{dropped}`: ticks skipped because every capture was still running; `{failed}`: captures the app refused.
+    pub skipped: &'static str,
+    /// `{dir}`: no ffmpeg, so the frames and their times are the result.
+    pub no_ffmpeg: &'static str,
+    /// `{error}`, `{dir}`: ffmpeg ran and failed; the frames are kept.
+    pub encode_failed: &'static str,
 }
 
 /// `cmux app launch-times`: the app's recorded launches. The JSON keys and the table's column
@@ -365,6 +393,19 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         healthy: "healthy",
         unhealthy: "unhealthy: a check failed",
     },
+    record: RecordMessages {
+        usage: "usage: cmux {noun} record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]\n  Records the app's own {noun} as it shows, with no Screen Recording permission: the frames are the\n  app's own `cmux {noun} screenshot` (browser pages, chats and Home masked in grey, as for every\n  script). Default 5 seconds at 30 fps, at most 1800 frames. --out FILE.mp4 (or .mov, .m4v) encodes\n  with ffmpeg when it is installed; a folder, or no ffmpeg, keeps the PNG frames and frames.json\n  (each frame's time in ms). With no --out it writes to the temporary folder. --json prints the report.",
+        seconds: "--seconds must be a whole number from 1 to 60",
+        fps: "--fps must be a whole number from 1 to 60",
+        too_many_frames: "--seconds times --fps must be at most {max} frames",
+        cannot_write: "cannot write {path}: {error}",
+        no_frames: "recorded no frame: {error}",
+        recorded: "Recorded {frames} frames in {seconds} s ({fps} fps of {asked} asked): {path}",
+        masked: "Masked in grey (pixels scripts never get): {areas}",
+        skipped: "{dropped} frames skipped while captures were still running, {failed} refused by the app",
+        no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames, frames.json (their times) and frames.ffconcat are in {dir}. On a Mac with ffmpeg, this makes the movie:",
+        encode_failed: "ffmpeg failed ({error}); the PNG frames and frames.json are kept in {dir}",
+    },
     launch_times: LaunchTimesMessages {
         usage: "usage: cmux app launch-times [--limit <n>] [--file <path>] [--phases]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, whether Home\nshowed by its page or its deadline, ms to the window taking keys (Home's message field), ms to the first\nshell output, whether the launch had no saved snapshot to show, whether the updater pre-warmed the build,\nand whether it was the build's first launch. --phases adds a line under each launch with its phases (ms since\nprocess start, in order, each with its step from the one before). Read from\n~/Library/Application Support/<bundle id>/launch-times.jsonl; the app need not run.",
         no_app: "no cmux app around this CLI: run the CLI bundled in the app, or set CMUX_BUNDLE_ID",
@@ -604,6 +645,19 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         fail: "失敗",
         healthy: "正常",
         unhealthy: "異常: 失敗した確認があります",
+    },
+    record: RecordMessages {
+        usage: "使い方: cmux {noun} record [--target <ID>] [--seconds <1-60>] [--fps <1-60>] [--out <ファイル.mp4|フォルダ>]\n  アプリ自身の {noun} を表示どおりに録画します。画面収録の許可は不要です: 各フレームはアプリ自身の\n  `cmux {noun} screenshot` です (スクリプトでは常に、ブラウザのページ、チャット、Home は灰色で隠されます)。\n  既定は 5 秒、30 fps、最大 1800 フレーム。--out ファイル.mp4 (.mov、.m4v も可) は ffmpeg があれば\n  動画にします。フォルダを指定した場合や ffmpeg がない場合は、PNG フレームと frames.json (各フレームの ms)\n  を残します。--out がなければ一時フォルダに書き込みます。--json でレポートを表示します。",
+        seconds: "--seconds は 1 から 60 までの整数にしてください",
+        fps: "--fps は 1 から 60 までの整数にしてください",
+        too_many_frames: "--seconds と --fps の積は {max} フレーム以下にしてください",
+        cannot_write: "{path} に書き込めません: {error}",
+        no_frames: "フレームを 1 枚も録画できませんでした: {error}",
+        recorded: "{seconds} 秒で {frames} フレームを録画しました ({asked} fps 指定のうち {fps} fps): {path}",
+        masked: "灰色で隠した領域 (スクリプトには渡さないピクセル): {areas}",
+        skipped: "キャプチャの実行中に {dropped} フレームを飛ばし、{failed} フレームはアプリが拒否しました",
+        no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレーム、frames.json (各フレームの時刻)、frames.ffconcat は {dir} にあります。ffmpeg のある Mac では、次のコマンドで動画になります:",
+        encode_failed: "ffmpeg が失敗しました ({error})。PNG フレームと frames.json は {dir} に残しています",
     },
     launch_times: LaunchTimesMessages {
         usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>] [--phases]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome がページと期限のどちらで表示されたか、\nウィンドウがキー入力を受け付けるまで (Home のメッセージ欄) の ms、最初のシェル出力までの ms、保存されたスナップショットがなかったか、\nアップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n--phases を付けると、各起動の下にその起動フェーズ (プロセス開始からの ms、発生順、直前からの差分付き) を 1 行で表示します。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",
