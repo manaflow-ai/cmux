@@ -13,6 +13,11 @@
 //! `CMUX_MOBILE_LOCAL_LINK=0` turns it off; `=1` turns it on for an
 //! unsupervised hostd (netlab), which admits any device id, as an
 //! unsupervised link serves without auth anyway.
+//!
+//! Beside mdns-sd's responder, [`answer_qu`] answers NWBrowser's first
+//! question (QU, from port 5353) by unicast at once: mdns-sd answers it by
+//! multicast after a shared-record delay, or not at all within its
+//! once-per-second rate limit (`cmux_mobile_link::local_dns`).
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
@@ -31,6 +36,7 @@ pub struct LocalLink {
     hub: LocalHub,
     serve: tokio::task::JoinHandle<()>,
     mdns: Option<mdns_sd::ServiceDaemon>,
+    _qu: Option<AbortOnDrop>,
 }
 
 impl Drop for LocalLink {
@@ -122,16 +128,23 @@ pub async fn start(
     });
     let ad = LocalAd { device_id: config.device_id.clone(), version: AD_VERSION, tag };
     let mdns = advertise(&ad, hub.port());
-    tracing::info!(port = hub.port(), advertised = mdns.is_some(), "local link hub up");
-    Some(LocalLink { hub, serve, mdns })
+    let qu = mdns.as_ref().and_then(|_| answer_qu(&ad, hub.port()));
+    tracing::info!(port = hub.port(), advertised = mdns.is_some(), qu = qu.is_some(), "local link hub up");
+    Some(LocalLink { hub, serve, mdns, _qu: qu })
+}
+
+/// The ad's instance and host names (`cmux-<id>`, `cmux-<id>.local.`).
+fn ad_names(ad: &LocalAd) -> (String, String) {
+    let short: String = ad.device_id.chars().filter(char::is_ascii_alphanumeric).take(12).collect();
+    let instance = format!("cmux-{short}");
+    let host = format!("{instance}.local.");
+    (instance, host)
 }
 
 /// Advertise `ad` on every interface for the hub at `port`.
 fn advertise(ad: &LocalAd, port: u16) -> Option<mdns_sd::ServiceDaemon> {
     let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| tracing::warn!(%e, "mDNS not started")).ok()?;
-    let short: String = ad.device_id.chars().filter(char::is_ascii_alphanumeric).take(12).collect();
-    let instance = format!("cmux-{short}");
-    let host = format!("{instance}.local.");
+    let (instance, host) = ad_names(ad);
     let txt: Vec<(String, String)> = ad.txt();
     let info = mdns_sd::ServiceInfo::new(SERVICE_TYPE, &instance, &host, "", port, &txt[..])
         .map_err(|e| tracing::warn!(%e, "mDNS ad not built"))
@@ -278,6 +291,153 @@ fn one_shot_sockets() -> Vec<(Arc<tokio::net::UdpSocket>, SocketAddr)> {
         }
     }
     out
+}
+
+/// Answer QU questions for [`SERVICE_TYPE`] (NWBrowser's first question,
+/// from port 5353) with `ad`'s full record set by unicast, at once, from
+/// port 5353 (RFC 6762 §5.4, §6), beside mdns-sd, whose multicast answer
+/// to it waits out a shared-record delay and its one-second rate limit.
+/// Questions from other ports are mdns-sd's (it answers those unicast at
+/// once already), as are QM questions. `None` when neither family's socket
+/// opened: the ad still works, only slower to a first NWBrowser question.
+fn answer_qu(ad: &LocalAd, port: u16) -> Option<AbortOnDrop> {
+    let (instance, host) = ad_names(ad);
+    let txt = ad.txt();
+    let sockets: Vec<Arc<tokio::net::UdpSocket>> =
+        [qu_socket_v4(), qu_socket_v6()].into_iter().flatten().map(Arc::new).collect();
+    if sockets.is_empty() {
+        tracing::debug!("no QU answer socket on port 5353");
+        return None;
+    }
+    let task = tokio::spawn(async move {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(usize, Vec<u8>, SocketAddr)>();
+        let mut readers = Vec::new();
+        for (index, socket) in sockets.iter().enumerate() {
+            let (socket, tx) = (Arc::clone(socket), tx.clone());
+            readers.push(AbortOnDrop(tokio::spawn(async move {
+                let mut buffer = vec![0u8; 9000];
+                while let Ok((n, from)) = socket.recv_from(&mut buffer).await {
+                    if tx.send((index, buffer[..n].to_vec(), from)).is_err() {
+                        break;
+                    }
+                }
+            })));
+        }
+        drop(tx);
+        while let Some((index, packet, from)) = rx.recv().await {
+            if from.port() != local_dns::MDNS_PORT || !local_dns::asks_unicast(&packet) {
+                continue;
+            }
+            let addresses = reply_addresses(&cmux_transport::local_networks(), from, interface_index);
+            if addresses.is_empty() {
+                continue;
+            }
+            let reply = local_dns::answer(&instance, &host, port, &txt, &addresses);
+            let sent = sockets[index].send_to(&reply, from).await;
+            tracing::debug!(?from, ?addresses, ok = sent.is_ok(), "answered a QU question");
+        }
+    });
+    Some(AbortOnDrop(task))
+}
+
+/// The addresses to answer `from`'s question with: this host's addresses of
+/// `from`'s family on the interface it asked on (its IPv6 scope, else the
+/// subnet that holds it), else every non-loopback one of that family.
+fn reply_addresses(
+    networks: &[cmux_transport::LocalNetwork],
+    from: SocketAddr,
+    index_of: impl Fn(&str) -> u32,
+) -> Vec<IpAddr> {
+    let family: Vec<&cmux_transport::LocalNetwork> = networks
+        .iter()
+        .filter(|n| n.address.is_ipv4() == from.is_ipv4() && !n.address.is_loopback() && !n.address.is_unspecified())
+        .collect();
+    let interface = match from {
+        SocketAddr::V6(v6) if v6.scope_id() != 0 => {
+            family.iter().find(|n| index_of(&n.interface) == v6.scope_id()).map(|n| n.interface.clone())
+        }
+        _ => family.iter().find(|n| same_subnet(n.address, n.prefix, from.ip())).map(|n| n.interface.clone()),
+    };
+    let chosen: Vec<IpAddr> = family
+        .iter()
+        .filter(|n| interface.as_ref().is_none_or(|i| *i == n.interface))
+        .map(|n| n.address)
+        .collect();
+    let mut out = Vec::new();
+    for address in chosen {
+        if !out.contains(&address) {
+            out.push(address);
+        }
+    }
+    out
+}
+
+fn same_subnet(network: IpAddr, prefix: u8, ip: IpAddr) -> bool {
+    match (network, ip) {
+        (IpAddr::V4(n), IpAddr::V4(ip)) => {
+            let mask = u32::MAX.checked_shl(32 - u32::from(prefix.min(32))).unwrap_or(0);
+            u32::from(n) & mask == u32::from(ip) & mask
+        }
+        (IpAddr::V6(n), IpAddr::V6(ip)) => {
+            let mask = u128::MAX.checked_shl(128 - u32::from(prefix.min(128))).unwrap_or(0);
+            u128::from(n) & mask == u128::from(ip) & mask
+        }
+        _ => false,
+    }
+}
+
+fn interface_index(name: &str) -> u32 {
+    let Ok(name) = std::ffi::CString::new(name) else { return 0 };
+    // SAFETY: a NUL-terminated name, read only.
+    unsafe { libc::if_nametoindex(name.as_ptr()) }
+}
+
+/// A port-5353 socket shared with the platform's responder and mdns-sd
+/// (SO_REUSEADDR and SO_REUSEPORT), in the mDNS group on every up IPv4
+/// interface, replies at TTL 255 (RFC 6762 §11).
+fn qu_socket_v4() -> Option<tokio::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).ok()?;
+    socket.set_reuse_address(true).ok()?;
+    #[cfg(unix)]
+    socket.set_reuse_port(true).ok()?;
+    socket.set_ttl_v4(255).ok()?;
+    socket.set_multicast_ttl_v4(255).ok()?;
+    socket.bind(&SocketAddr::from(([0, 0, 0, 0], local_dns::MDNS_PORT)).into()).ok()?;
+    let mut joined = false;
+    for network in cmux_transport::local_networks() {
+        if let IpAddr::V4(v4) = network.address
+            && !v4.is_loopback()
+        {
+            joined |= socket.join_multicast_v4(&local_dns::MDNS_V4, &v4).is_ok();
+        }
+    }
+    socket.set_nonblocking(true).ok()?;
+    joined.then(|| tokio::net::UdpSocket::from_std(socket.into()).ok()).flatten()
+}
+
+/// [`qu_socket_v4`]'s IPv6 twin (AWDL is IPv6 link-local only).
+fn qu_socket_v6() -> Option<tokio::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP)).ok()?;
+    socket.set_only_v6(true).ok()?;
+    socket.set_reuse_address(true).ok()?;
+    #[cfg(unix)]
+    socket.set_reuse_port(true).ok()?;
+    socket.set_unicast_hops_v6(255).ok()?;
+    socket.set_multicast_hops_v6(255).ok()?;
+    socket.bind(&SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, local_dns::MDNS_PORT, 0, 0)).into()).ok()?;
+    let mut joined = std::collections::HashSet::new();
+    for network in cmux_transport::local_networks() {
+        if network.address.is_ipv6() && !network.address.is_loopback() {
+            let index = interface_index(&network.interface);
+            if index != 0 && !joined.contains(&index) && socket.join_multicast_v6(&local_dns::MDNS_V6, index).is_ok() {
+                joined.insert(index);
+            }
+        }
+    }
+    socket.set_nonblocking(true).ok()?;
+    (!joined.is_empty()).then(|| tokio::net::UdpSocket::from_std(socket.into()).ok()).flatten()
 }
 
 /// mdns-sd's browse: the first matching resolved ad. Never returns
