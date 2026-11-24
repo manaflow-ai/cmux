@@ -184,6 +184,28 @@ pub(crate) fn tmux_control_mode_enabled(env: &dyn Fn(&str) -> Option<String>) ->
         && !disables(TMUX_CONTROL_MODE)
 }
 
+/// The `DisabledFeatures` name of the hybrid chat start (cmux-cloud-start-core `hybrid`): a
+/// `cmux chat --on cloud` that answers here at once and moves to its Cloud machine once it is up.
+pub(crate) const HYBRID_CHAT_START: &str = "hybrid-chat-start";
+/// Turns the hybrid chat start on (`1`, `true`, `on`, `yes`) or off (`0`, `false`, `off`, `no`)
+/// whatever the plan.
+pub(crate) const HYBRID_CHAT_START_ENV: &str = "CMUX_HYBRID_START";
+
+/// The hybrid start's flag (`hybrid::Account::flag`), which wins over the plan: `CMUX_HYBRID_START`
+/// when it says on or off, else off when the managed policy or this tester's wave disables
+/// [`HYBRID_CHAT_START`] (`disabled`), else none (the plan decides).
+pub(crate) fn hybrid_chat_start_flag(
+    env: &dyn Fn(&str) -> Option<String>,
+    disabled: &dyn Fn(&str) -> bool,
+) -> Option<bool> {
+    match env(HYBRID_CHAT_START_ENV).as_deref().map(str::trim) {
+        Some("1" | "true" | "on" | "yes") => Some(true),
+        Some("0" | "false" | "off" | "no") => Some(false),
+        _ if disabled(HYBRID_CHAT_START) => Some(false),
+        _ => None,
+    }
+}
+
 /// Whether the managed policy or this tester's wave turns `feature` off.
 pub(crate) fn disables(feature: &str) -> bool {
     let env = |name: &str| std::env::var(name).ok();

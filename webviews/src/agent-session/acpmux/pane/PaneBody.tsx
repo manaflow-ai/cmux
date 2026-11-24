@@ -83,7 +83,7 @@ import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import { NewProjectUnsupported } from "../newtab/NewProjectName";
-import { newWorktree } from "../startFolderModel";
+import { newWorktree, cloneRepository } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
 import { HandoffReviewMessage } from "../handoff/ReviewMessage";
@@ -223,6 +223,7 @@ export type PaneBodyDeps = NewTabShown &
     newTabStartMachine: string | undefined;
     leaveNewTabDraft: (text: string, attachments: ComposerAttachment[]) => void;
     takeNewTabDraft: () => { text: string; attachments: ComposerAttachment[] } | undefined;
+    initialNewProject: boolean;
     cloudPickPending: boolean;
     takeCloudPick: () => void;
     cloudHintShown: boolean;
@@ -521,6 +522,7 @@ export function drawPaneBody({
   newTabStartMachine,
   leaveNewTabDraft,
   takeNewTabDraft,
+  initialNewProject,
   cloudPickPending,
   takeCloudPick,
   cloudHintShown,
@@ -887,6 +889,7 @@ export function drawPaneBody({
                   environments
                   onLeaveDraft={leaveNewTabDraft}
                   takeDraft={takeNewTabDraft}
+                  initialNewProject={initialNewProject}
                   {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
                   {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
                   {...(newTabRunMode
@@ -1000,11 +1003,17 @@ export function drawPaneBody({
                       ? client.newProject(name)
                       : Promise.reject(new NewProjectUnsupported());
                   }}
-                  onNewWorktree={(cwd) => {
+                  onCloneRepository={!quick && !remoteChat ? (url) => cloneRepository(callNative, url) : undefined}
+                  onNewWorktree={(cwd, github) => {
                     let folder: string | undefined;
-                    return newWorktree(callNative, cwd, (used) => {
-                      folder = used;
-                    }).then(() => folder);
+                    return newWorktree(
+                      callNative,
+                      cwd,
+                      (used) => {
+                        folder = used;
+                      },
+                      github,
+                    ).then(() => folder);
                   }}
                   accessory={<DictationMic dictation={dictation} />}
                   upload={uploadFiles}
@@ -1069,7 +1078,6 @@ export function drawPaneBody({
                   extraFolders={{
                     draft: extraFolderDraft,
                     onChange: setExtraFolderDraft,
-                    onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
                   }}
                   chips={registryChips ?? NewTabComposerChips}
                   focusField={newTab.focusesField !== false}

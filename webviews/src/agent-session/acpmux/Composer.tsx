@@ -478,6 +478,13 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A GitHub repository picked for a new chat on this Mac (ComposerContext `onGitHubHere`).
   onGitHubHere?(repo: string, candidates: string[]): void;
+  onCloneRepository?(url: string): Promise<string>;
+  onNoProject?(): void;
+  onCloudFolderWaiting?(waiting: boolean): void;
+  onNewProject?(): void;
+  noProject?: boolean;
+  sourceRepository?: { cwd: string; name: string };
+  cloningRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -760,6 +767,13 @@ function ComposerFrame({
   extraFolders,
   onNewWorktree,
   onGitHubHere,
+  onCloneRepository,
+  onNoProject,
+  onCloudFolderWaiting,
+  onNewProject,
+  noProject,
+  sourceRepository,
+  cloningRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -2729,6 +2743,13 @@ function ComposerFrame({
       {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       {...(onGitHubHere ? { onGitHubHere } : {})}
+      onCloneRepository={onCloneRepository}
+      onNoProject={onNoProject}
+      onCloudFolderWaiting={onCloudFolderWaiting}
+      onNewProject={onNewProject}
+      noProject={noProject}
+      sourceRepository={sourceRepository}
+      cloningRepository={cloningRepository}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
