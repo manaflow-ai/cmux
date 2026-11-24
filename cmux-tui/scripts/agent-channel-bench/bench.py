@@ -210,7 +210,8 @@ def channel(args, a):
         r = cli("a", "--json", "channel", "open", "box", "review", "--text", f"hi {i}", "--reply")
         t1 = time.time()
         if r.returncode: print("open failed:", r.stdout, r.stderr, file=sys.stderr); continue
-        v = json.loads(r.stdout.strip().splitlines()[-1])
+        try: v = json.loads(r.stdout)
+        except ValueError: print("unparsed:", repr(r.stdout[:300]), repr(r.stderr[-300:]), file=sys.stderr); continue
         marks.append((i, t0, t1, v)); time.sleep(0.6)
     lis.terminate()
     rows = payload_times(cap, "10.77.0.1")
