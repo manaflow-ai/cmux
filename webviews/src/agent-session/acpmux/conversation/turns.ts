@@ -2146,8 +2146,12 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place, as Claude's and Codex's apps draw a lone subagent.
-    const unlabeled = saysNothing({ durationMs, toolCount, previous, ...(named && { workedMessages: messages }) });
+    // alone: it draws no fold, its rows in place (`outside`), as Claude's and Codex's apps draw a
+    // lone subagent. Only where its work holds no call and no message between agents to count.
+    const unlabeled =
+      saysNothing({ durationMs, toolCount, previous, ...(named && { workedMessages: messages }) }) &&
+      callsIn(work) === 0 &&
+      messages.sent + messages.received === 0;
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
       const from = segment.anchor.at;
@@ -2236,7 +2240,16 @@ function shapeTurn(
     // where it stood pinned while the turn ran (shapeLiveTurn), so the turn's end only folds it.
     const outside = (rows: readonly AcpmuxRow[]) =>
       rows.flatMap((row) =>
-        isPlan(row) ? [] : out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version),
+        isPlan(row)
+          ? []
+          : out(row)
+            ? [endedPlan(row)]
+            : dialogue
+              ? [row]
+              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`).
+                unlabeled
+                ? withoutDrafts(row).filter((part) => !isEdit(part))
+                : renderRows([row], version),
       );
     // Closed over a turn that said something before its answer, the replies read in order and the
     // work around them stays under Worked for, as chatgpt.com draws it: no tool call shows beside a

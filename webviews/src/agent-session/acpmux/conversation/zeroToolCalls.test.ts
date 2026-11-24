@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { translate, type Translate } from "../i18n";
 import { withSubagentLines } from "../subagents/runningTray";
+import { SUBAGENT_DONE } from "../subagents/subagentRows";
 import { BACKGROUND_TURN } from "./backgroundTurns";
 import { BACKGROUND_END, footerLabel, turnView, WORKED, workedLabel } from "./turns";
 
@@ -52,8 +53,9 @@ for (const quiet of [true, false])
       const view = turnView([...withSubagentLines(subagentOnlyTurn(quiet))], new Set(), { agentFamily });
       const labels = view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry));
       expect(labels.filter((label) => /\b0 tool calls\b/.test(label) || label === "")).toEqual([]);
-      // The subagent stays in sight, not folded away under an empty line.
-      expect(view.some((entry) => entry.kind.startsWith("subagent"))).toBe(true);
+      // The subagent's end stays in sight, in its place, not folded away under an empty line.
+      expect(view.filter((entry) => entry.kind === SUBAGENT_DONE).map((entry) => entry.id)).toHaveLength(1);
+      expect(view.at(-1)?.kind).toBe("turnSummary");
     }
   });
 
