@@ -254,7 +254,7 @@ def once_key(name: str, args: tuple, kwargs: dict) -> tuple | None:
     if name in ("json", "blob"):
         return (name, repr(args), repr(sorted(kwargs.items())))
     if name == "run" and args and isinstance(args[0], list) and args[0][:2] == ["api", "graphql"]:
-        return ("graphql", repr(args[0]))
+        return ("graphql", kwargs.get("repo"), repr(args[0]))
     return None
 
 
@@ -563,17 +563,17 @@ def conditional_read(args: list[str], root: Path) -> str | None:
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
-    def run(self, args: list[str]) -> str:
+    def run(self, args: list[str], *, repo: str | None = None) -> str:
         """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
         if not gh_read(args):
-            return _evidence.GitHub.run(self, args)
-        return read_once(("gh", *args), lambda: self.read_conditional(args))
+            return _evidence.GitHub.run(self, args, repo=repo)
+        return read_once(("gh", repo, *args), lambda: self.read_conditional(args, repo))
 
-    def read_conditional(self, args: list[str]) -> str:
+    def read_conditional(self, args: list[str], repo: str | None = None) -> str:
         """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
         root = etags_root()
         said = conditional_read(args, root) if root is not None else None
-        return said if said is not None else _evidence.GitHub.run(self, args)
+        return said if said is not None else _evidence.GitHub.run(self, args, repo=repo)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
@@ -4634,9 +4634,12 @@ class SuiteChecks:
     def read(self, suites: dict[str, str], name: str) -> None:
         self.known.update(((suite, name), None) for suite in suites)
         if not self.rooted:
+            # Suite IDs name no repository: gh must use their repository even in a judge started from another
+            # checkout. On cmuxterm-hq#22832 the unscoped read spent the jobs budget on twelve empty base runs.
             query = SUITE_CHECKS_QUERY.format(ids=", ".join(json.dumps(suite) for suite in suites))
             try:
-                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"]))
+                found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
+                                                   repo=self.repo))
             except Refused as why:
                 if "root field nodes is refused" not in str(why):
                     return  # read over REST instead, as before
@@ -5819,7 +5822,6 @@ GUARD_WORKFLOWS = {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
-        "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
