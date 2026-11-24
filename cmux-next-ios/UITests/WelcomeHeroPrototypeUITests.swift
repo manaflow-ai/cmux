@@ -46,10 +46,8 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
     /// cursor flies home. The recording shows both; the stills are settled.
     @MainActor
     func testGlideRevealsInLightAndDark() throws {
-        defer { XCUIDevice.shared.appearance = .light }
         for dark in [false, true] {
-            XCUIDevice.shared.appearance = dark ? .dark : .light
-            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "glide"])
+            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "glide"] + appearance(dark))
             XCTAssertTrue(element(app, id: "welcome.wordmark.glide").waitForExistence(timeout: 20))
             XCTAssertFalse(app.buttons["welcome.hero.morph"].exists, "a pinned launch must not show the picker")
             // The whole reveal, for the recording.
@@ -67,10 +65,8 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
     /// dark; the step's recording is the evidence for the motion.
     @MainActor
     func testSignInRowsHoldAndFollowADrag() throws {
-        defer { XCUIDevice.shared.appearance = .light }
         for dark in [false, true] {
-            XCUIDevice.shared.appearance = dark ? .dark : .light
-            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "morph"])
+            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "morph"] + appearance(dark))
             XCTAssertTrue(element(app, id: "welcome.wordmark.morph").waitForExistence(timeout: 20))
             let github = app.buttons["Continue with GitHub"]
             XCTAssertTrue(github.waitForExistence(timeout: 5))
@@ -84,6 +80,13 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
             capture("held-drag-\(dark ? "dark" : "light")")
             app.terminate()
         }
+    }
+
+    /// The app's own appearance setting (Settings > Appearance), which it
+    /// applies to every window: the simulator's appearance, set from a UI
+    /// test, does not reach the app on the fleet.
+    private func appearance(_ dark: Bool) -> [String] {
+        ["-cmuxMobile.settings.appearance", dark ? "dark" : "light"]
     }
 
     private func launch(arguments: [String] = []) -> XCUIApplication {
