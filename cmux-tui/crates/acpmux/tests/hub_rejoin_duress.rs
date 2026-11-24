@@ -216,7 +216,8 @@ async fn until(a: &Hub, want: bool, budget: Duration) -> Option<Duration> {
     Some(started.elapsed())
 }
 
-/// The stressors' process group, killed on drop; each also dies by `timeout -s KILL`.
+/// The stressors' process group, killed on drop; each also dies by `timeout -s KILL` after 30 min,
+/// longer than both duress passes (300 s died mid-pass and left `duress kept` unloaded).
 struct Load(Vec<std::process::Child>);
 
 impl Load {
@@ -226,7 +227,7 @@ impl Load {
             std::env::var("ACPMUX_DURESS_CPU_X").ok().and_then(|v| v.parse().ok()).unwrap_or(10);
         let spawn = |script: &str| {
             std::process::Command::new("timeout")
-                .args(["-s", "KILL", "300", "sh", "-c", script])
+                .args(["-s", "KILL", "1800", "sh", "-c", script])
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
