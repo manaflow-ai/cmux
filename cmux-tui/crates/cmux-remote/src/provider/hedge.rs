@@ -51,10 +51,7 @@ pub fn v6_first(addresses: &[SocketAddr]) -> Vec<SocketAddr> {
 }
 
 /// Keep a caller's preferred prefix ahead of RFC 8305 family ordering.
-pub fn v6_first_after_prefix(
-    addresses: &[std::net::SocketAddr],
-    preferred_len: usize,
-) -> Vec<std::net::SocketAddr> {
+pub fn v6_first_after_prefix(addresses: &[SocketAddr], preferred_len: usize) -> Vec<SocketAddr> {
     let preferred_len = preferred_len.min(addresses.len());
     let mut out = addresses[..preferred_len].to_vec();
     out.extend(v6_first(&addresses[preferred_len..]));
@@ -88,7 +85,21 @@ pub async fn connect_tcp(
     addresses: &[SocketAddr],
     policy: HedgePolicy,
 ) -> io::Result<TcpStream> {
-    connect_remembered(&LAST_GOOD, host, port, addresses, policy, TcpStream::connect).await
+    connect_remembered(&LAST_GOOD, host, port, addresses, 0, policy, TcpStream::connect).await
+}
+
+/// [`connect_tcp`] with the first `preferred_len` addresses kept ahead of the RFC 8305 order
+/// of the rest (a direct Tailscale path, [`super::tailnet`]). The last-good route still goes
+/// first, so a preferred address races beside it at t=0 rather than displacing it.
+pub async fn connect_tcp_preferring(
+    host: &str,
+    port: u16,
+    addresses: &[SocketAddr],
+    preferred_len: usize,
+    policy: HedgePolicy,
+) -> io::Result<TcpStream> {
+    connect_remembered(&LAST_GOOD, host, port, addresses, preferred_len, policy, TcpStream::connect)
+        .await
 }
 
 async fn connect_remembered<T, F, Fut>(
@@ -96,6 +107,7 @@ async fn connect_remembered<T, F, Fut>(
     host: &str,
     port: u16,
     addresses: &[SocketAddr],
+    preferred_len: usize,
     policy: HedgePolicy,
     connect: F,
 ) -> io::Result<T>
@@ -104,7 +116,7 @@ where
     Fut: Future<Output = io::Result<T>>,
 {
     let key = (host.to_ascii_lowercase(), port);
-    let (ordered, lead) = memory.order(&key, &v6_first(addresses));
+    let (ordered, lead) = memory.order(&key, &v6_first_after_prefix(addresses, preferred_len));
     match cmux_braid_path::race(&ordered, policy.with_lead(lead), connect).await {
         Ok(won) => {
             if let Some(winner) = ordered.get(won.target_index) {

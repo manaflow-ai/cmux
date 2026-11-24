@@ -151,11 +151,12 @@ impl Dialer for TailnetDialer {
             Err(error) => return Err(error),
         };
         let addresses = merge_direct_candidates(&hinted, &resolved);
-        let addresses = super::hedge::v6_first_after_prefix(&addresses, hinted.len());
-        let stream = super::hedge::connect(
+        let stream = super::hedge::connect_tcp_preferring(
+            host,
+            port,
             &addresses,
+            hinted.len(),
             super::hedge::HedgePolicy::INTERNET,
-            TcpStream::connect,
         )
         .await
         .map_err(|error| LinkError::Transport(format!("connect {host}:{port}: {error}")))?;
