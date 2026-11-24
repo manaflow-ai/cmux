@@ -91,9 +91,8 @@ export interface PopupResizeDrag {
 function availableRoom(positioner: HTMLElement, popup: HTMLElement): { width: number; height: number } {
   const computed = popup.ownerDocument.defaultView?.getComputedStyle(popup);
   const px = (name: string) => {
-    const value = Number.parseFloat(
-      positioner.style.getPropertyValue(name) || computed?.getPropertyValue(name) || "",
-    );
+    const set = positioner.style.getPropertyValue(name) || computed?.getPropertyValue(name);
+    const value = Number.parseFloat(set || "");
     return Number.isFinite(value) && value > 0 ? value : Infinity;
   };
   return { width: px("--available-width"), height: px("--available-height") };
@@ -141,12 +140,8 @@ export function startPopupResize(
   const leastWidth = Math.min(mostWidth, drag.least.width, Math.floor(start.width));
   // The room is the popup's; the height set is its content's, short of it by the popup's own chrome.
   const chrome = Math.max(0, start.height - startHeight);
-  const mostHeight = Math.max(
-    Math.floor(startHeight),
-    Math.floor(
-      Math.min(fromTop ? start.bottom - (bound.top ?? 5) : bound.bottom - start.top, room.height - chrome),
-    ),
-  );
+  const roomHeight = fromTop ? start.bottom - (bound.top ?? 5) : bound.bottom - start.top;
+  const mostHeight = Math.max(Math.floor(startHeight), Math.floor(Math.min(roomHeight, room.height - chrome)));
   const leastHeight = Math.min(mostHeight, drag.least.height, Math.floor(startHeight));
   let width = start.width;
   let height = startHeight;
