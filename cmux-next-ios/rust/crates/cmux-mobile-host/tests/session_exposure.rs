@@ -31,7 +31,7 @@ struct Fixture {
     mac_id: String,
     exposure: watch::Sender<SessionExposure>,
     backend: mpsc::UnboundedReceiver<Value>,
-    /// `_acpmux/info` lookups hostd made (each one a fresh trusted side socket).
+    /// Canonicalize `_acpmux/info` lookups hostd made (each one a fresh trusted side socket).
     info_calls: Arc<AtomicUsize>,
     _dirs: Vec<tempfile::TempDir>,
 }
@@ -77,7 +77,11 @@ async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>, Arc<AtomicUsi
                 while let Some(Ok(Message::Text(text))) = source.next().await {
                     let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
                     if request["method"] == "_acpmux/info" {
-                        counted.fetch_add(1, Ordering::SeqCst);
+                        // Only the trusted canonicalize lookup (fresh socket, `waitLogs`), not
+                        // the mode check on hostd's kept side connection.
+                        if request["params"].get("waitLogs").is_some() {
+                            counted.fetch_add(1, Ordering::SeqCst);
+                        }
                         let answer = json!({
                             "jsonrpc": "2.0",
                             "id": request["id"],
