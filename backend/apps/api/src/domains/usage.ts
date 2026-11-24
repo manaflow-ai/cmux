@@ -34,7 +34,7 @@ export const COST_USD_PER_UNIT: Readonly<Record<Meter, number>> = {
   // Cloud machine time, priced by CloudDO at list price (Leo 2026-11-09): the record is already USD.
   "cloud.machine_usd": 1,
   "snapshot.stored_usd": 1,
-  "history.stored_usd": 1,
+  "session_history.stored_usd": 1,
   "projection.stored_usd": 1,
   "projection.transfer_usd": 1,
   "net.egress_usd": 1,
@@ -68,7 +68,7 @@ export const MONEY_METERS: ReadonlySet<Meter> = new Set([
   "model.spend_usd",
   "cloud.machine_usd",
   "snapshot.stored_usd",
-  "history.stored_usd",
+  "session_history.stored_usd",
   "projection.stored_usd",
   "projection.transfer_usd",
   "net.egress_usd",
