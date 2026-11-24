@@ -26,6 +26,10 @@ class RepairOnRedTests(unittest.TestCase):
         # the first term gates the whole expression: event is not a pull request, or this is a re-run
         self.assertRegex(expr, r"^\$\{\{ \(github\.event_name != 'pull_request' \|\| github\.run_attempt > 1\) &&")
 
+    def test_a_rerun_of_a_draft_head_still_repairs(self):
+        # the re-run's event payload keeps draft=true; the draft tier must not skip an explicit re-run
+        self.assertNotIn("draft", repair_if())
+
     def test_other_events_are_not_gated_by_the_attempt(self):
         # the attempt term is only ever OR-ed with the non-pull_request case
         self.assertEqual(len(re.findall(r"run_attempt", repair_if())), 1)

@@ -705,8 +705,10 @@ jobs:
     # (`gh api -X POST repos/OWNER/REPO/actions/jobs/ID/rerun`) when it acts on a red head whose run has no
     # artifact, then waits for the artifact. It cost 28,441 runner-min/day on every head, and Leo, 2026-11-21:
     # "de facto, im asking for 99% fewer minutes of ci time, period." A re-run reuses action-areas' outputs and
-    # the event's head and merge commit, so the repair is of exactly the red head. A push event still runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
+    # the event's head and merge commit, so the repair is of exactly the red head. A re-run also skips the draft
+    # tier's term: the event payload of a re-run still says draft after the PR is ready, and a lane's red PR is
+    # usually a draft. A push event still runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # clippy compiles the changed crates (cached below).
     timeout-minutes: 40
