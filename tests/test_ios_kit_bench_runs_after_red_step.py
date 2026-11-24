@@ -69,7 +69,7 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         # The lint keeps its teeth: it is not advisory, only no longer in the bench's way.
         lint = next(step for step in steps() if step.get("name") == "Connection notices")
         self.assertNotIn("continue-on-error", lint)
-        self.assertEqual(lint["env"]["LINT_RESULT"], "${{ needs.connection-notices.result }}")
+        self.assertEqual(lint["env"]["LINT_RESULT"], "${{ needs.connection-notices.outputs.lint_result }}")
         self.assertIn('test "$LINT_RESULT" = success', lint["run"])
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         linux = jobs["connection-notices"]
@@ -77,7 +77,8 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         self.assertEqual(linux["needs"], "runner")
         self.assertIn(linux["if"].removeprefix("${{ ").removesuffix(" }}"), jobs["kit-tests"]["if"])
         check = next(step for step in linux["steps"] if step.get("name") == "Connection notices")
-        self.assertNotIn("continue-on-error", check)
+        self.assertTrue(check["continue-on-error"])
+        self.assertEqual(linux["outputs"]["lint_result"], "${{ steps." + check["id"] + ".outcome }}")
         self.assertIn("check-connection-notices.py", check["run"])
         self.assertIn("!cancelled()", jobs["kit-tests"]["if"])
 
