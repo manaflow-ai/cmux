@@ -222,7 +222,10 @@ async fn handle(
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             let target = hub.subsession_write_target(&caller, key, false)?;
             let close = params.get("close").and_then(Value::as_bool).unwrap_or(false);
-            hub.subsession_stop(&target, close).await
+            // An agent's stop_session: recorded as `mcp` by the caller (`close_why.rs`).
+            let actor = crate::close_why::CloseActor::new("mcp").session(Some(&caller.id));
+            let why = crate::close_why::CloseWhy::from_params(actor, params);
+            hub.subsession_stop_why(&target, close, why).await
         }
         method::MUX_SUBSESSION_RETRY => {
             let key = str_param(params, "sessionId")
