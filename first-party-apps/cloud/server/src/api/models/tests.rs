@@ -186,6 +186,21 @@ fn disk_bar_is_computed_by_the_relay() {
     assert_eq!(bar["state"], "almost_full");
     assert_eq!(bar["segments"][0]["kind"], "used");
 
+    // The guest's own names (acpmux `peer load`, cmux#53708): root bytes and a nested split win.
+    let gib = 1024_u64.pow(3);
+    let guest = decode(with(
+        record("vm-guest", "1"),
+        json!({ "disk_health": health(json!({
+            "free_mb": 4096, "used_mb": 20480, "total_mb": 24576,
+            "rootTotalBytes": 24 * gib, "rootUsedBytes": 20 * gib, "rootFreeBytes": 4 * gib,
+            "diskSplit": { "at": 5, "systemBytes": 5 * gib, "projectBytes": 10 * gib, "cachesBytes": 5 * gib },
+        })) }),
+    ));
+    let bar = &encode(&guest)["disk_health"]["bar"];
+    assert_eq!(bar["label"], "20 / 24 GB");
+    assert_eq!(bar["segments"][1]["kind"], "project");
+    assert_eq!(bar["segments"][1]["gb"], 10.0);
+
     // A report the relay cannot trust: the allocation alone (the record's 16 GB).
     let invalid = decode(with(
         record("vm-invalid", "1"),
