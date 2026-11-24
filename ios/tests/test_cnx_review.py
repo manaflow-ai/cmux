@@ -1515,6 +1515,22 @@ read_ios_artifact; echo RC=$?""")
                 if marked:
                     self.assertEqual(marker.read_text().strip(), 'step1')
 
+    def test_an_unsafe_zip_or_another_heads_manifest_clears_the_reuse_mark(self):
+        # Review of #53313: the mark was cleared only after these early returns, so a stale one survived them and
+        # every rerun reused the bad artifact.
+        for case in ('unsafe-zip', 'other-head'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / 'ios').mkdir()
+                (root / 'ios/handoff.json').write_text(json.dumps({**self.good, 'source_sha': 'c' * 40}))
+                (root / 'ios-passed').write_text('older-step\n')
+                unzip = 'return 1' if case == 'unsafe-zip' else ':'
+                r = bash(f"""source "{REVIEW}"; set +e; SLUG={TAG} SHA={SHA} STATE="{root}" SIM_STEP=step1
+safe_unzip() {{ {unzip}; }}
+read_ios_artifact; echo RC=$?""")
+                self.assertIn('RC=1', r.stdout, r.stderr)
+                self.assertFalse((root / 'ios-passed').exists())
+
     def zip_with(self, links):
         import zipfile
         temp = tempfile.mkdtemp()

@@ -420,6 +420,9 @@ safe_unzip() {
 # The simulator verdict and the device app from the step's artifact.
 read_ios_artifact() {
   local why
+  # The head is reusable only once this read passes (below): an unsafe zip, a manifest of another head or a failed
+  # check must never leave an older mark that a rerun would reuse.
+  rm -f "$STATE/ios-passed"
   why="$(safe_unzip "$STATE/ios.zip" "$STATE/ios" 2>&1)" ||
     { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; return 1; }
   local check
@@ -430,7 +433,6 @@ read_ios_artifact() {
   local status host device reason dir
   { IFS= read -r status; IFS= read -r host; IFS= read -r device; IFS= read -r reason; } <<<"$check"
   dir="$STATE/ios"
-  rm -f "$STATE/ios-passed"
   if [[ "$status" == pass ]]; then
     REPORT_SIM="fleet simulator ($host, $device), signed in (agent account), restored after a credential-free relaunch: $dir (screens/signed-in-auto_login.png, screens/signed-in-restored.png, recording.mp4; step $SIM_STEP)"
   else
