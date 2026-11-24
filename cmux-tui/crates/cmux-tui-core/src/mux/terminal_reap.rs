@@ -27,6 +27,17 @@
 //! grace when a frontend connects again, and run out as usual once the app has stayed away for
 //! [`MAX_FRONTEND_AWAY_HOLD`].
 //!
+//! Cold adoption. A new owner (a whole-app update, a daemon restart) starts with no attach stream
+//! and inherits terminals whose unplaced times are far past the grace: the terminals with no tab
+//! that lived because the app held an attach stream on each (an agent's terminal). Counted from
+//! those times they were due on the new owner's first pass, seconds before the app attached
+//! again (2026-11-24: 18 of 18 ended 3.5 s after the owner change). Each such terminal therefore
+//! gets one adoption hold: until [`COLD_ADOPTION_HOLD`] after the owner first read it, shortened
+//! to one grace from when the app's frontend is connected, and the cap does not count it
+//! meanwhile. The hold's start is durable (`terminal_unplaced_adopted`), so owners that restart
+//! faster than the hold do not give it again and an abandoned terminal still ends; it is given
+//! anew only after a client was seen attached to the terminal, or it was placed or kept.
+//!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
 //! (`workspace_registry/terminal_unplaced_store.rs`), and a restarted owner
@@ -61,6 +72,10 @@ pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 
 /// it the app is taken as not coming back, and each terminal ends at its own grace again.
 pub(crate) const MAX_FRONTEND_AWAY_HOLD: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// How long a terminal an owner inherited past its grace waits for the app to attach again when
+/// no frontend has connected (see "Cold adoption" above). Once per terminal, not per owner start.
+pub(crate) const COLD_ADOPTION_HOLD: Duration = Duration::from_secs(5 * 60);
+
 const TERMINAL_REAP_MUTATION_ORIGIN: &str = "cmux-tui-terminal-reap";
 pub(super) const END_TERMINALS_MUTATION_ORIGIN: &str = "cmux-tui-end-terminals";
 
@@ -94,6 +109,14 @@ pub(crate) struct ReapSchedule {
     /// When a frontend this owner served was first seen gone; `None` while
     /// one is connected or none ever was.
     frontend_gone_since: Option<Instant>,
+    /// This owner has read the adoption holds of the terminals it inherited.
+    adoption_read: bool,
+    /// Inherited terminals in their adoption hold: when each hold ends at the latest.
+    adopted: HashMap<String, Instant>,
+    /// The adopted terminals whose deadline already carries the hold.
+    adoption_applied: HashSet<String>,
+    /// A frontend was connected at an earlier pass of this owner.
+    adoption_frontend: bool,
 }
 
 impl ReapSchedule {
@@ -170,6 +193,60 @@ impl ReapSchedule {
         }
         let since = *self.frontend_since.get_or_insert(now);
         now.saturating_duration_since(since) < grace
+    }
+
+    /// The adoption holds this owner read at its first pass: each terminal's adoption time as
+    /// how long ago it was (`adopted_for`).
+    pub(crate) fn adopt(&mut self, now: Instant, adopted_for: HashMap<String, Duration>) {
+        self.adoption_read = true;
+        self.adopted = adopted_for
+            .into_iter()
+            .filter(|(_, held_for)| *held_for < COLD_ADOPTION_HOLD)
+            .map(|(terminal_id, held_for)| {
+                (terminal_id, deadline_after(now, COLD_ADOPTION_HOLD.saturating_sub(held_for)))
+            })
+            .collect();
+    }
+
+    /// Apply the adoption holds to the deadlines (after
+    /// [`ReapSchedule::observe_unplaced`]). With no frontend a held terminal waits to its hold's
+    /// end; from the pass that first sees a frontend connected it waits one `grace`, the time
+    /// the window takes to attach again, and never past the hold's end. A terminal the owner
+    /// finishes adopting later gets the same from the pass that first lists it.
+    pub(crate) fn hold_adopted(&mut self, now: Instant, grace: Duration, connected: bool) {
+        self.adopted.retain(|_, limit| *limit > now);
+        self.adoption_applied.retain(|terminal_id| self.adopted.contains_key(terminal_id));
+        if self.adopted.is_empty() {
+            return;
+        }
+        let arrived = connected && !self.adoption_frontend;
+        self.adoption_frontend |= connected;
+        let reattach = deadline_after(now, grace.max(MIN_RETRY));
+        for (terminal_id, limit) in &self.adopted {
+            let Some(deadline) = self.deadlines.get_mut(terminal_id) else { continue };
+            let first = self.adoption_applied.insert(terminal_id.clone());
+            if first || arrived {
+                *deadline = if self.adoption_frontend { reattach.min(*limit) } else { *limit };
+            }
+        }
+    }
+
+    /// The terminals in an adoption hold now: the cap and the PTY reclaim leave them.
+    pub(crate) fn adoption_held(&self, now: Instant) -> HashSet<String> {
+        self.adopted
+            .iter()
+            .filter(|(terminal_id, limit)| {
+                **limit > now
+                    && self.deadlines.get(*terminal_id).is_none_or(|deadline| *deadline > now)
+            })
+            .map(|(terminal_id, _)| terminal_id.clone())
+            .collect()
+    }
+
+    /// A client is attached to `terminal_id`: its adoption hold is over (its attach keeps it).
+    fn end_adoption(&mut self, terminal_id: &str) {
+        self.adopted.remove(terminal_id);
+        self.adoption_applied.remove(terminal_id);
     }
 
     /// No deadline comes before `until`. Pushed out, never dropped, so the
@@ -392,6 +469,56 @@ impl Mux {
             .collect())
     }
 
+    /// This owner's first read of the unplaced times it inherited: how long ago each terminal
+    /// that was already past `grace` got its adoption hold (zero when this read gives it). A
+    /// zero grace reaps at once and holds nothing.
+    fn adopt_inherited_unplaced(
+        &self,
+        grace: Duration,
+    ) -> anyhow::Result<HashMap<String, Duration>> {
+        if grace.is_zero() {
+            return Ok(HashMap::new());
+        }
+        let wall_ms = now_ms();
+        let grace_ms = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX);
+        let adopted = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .adopt_terminal_unplaced(grace_ms, wall_ms)?;
+        Ok(adopted
+            .into_iter()
+            .map(|(terminal_id, adopted_ms)| {
+                (terminal_id, Duration::from_millis(wall_ms.saturating_sub(adopted_ms)))
+            })
+            .collect())
+    }
+
+    /// End the adoption hold of every held terminal a client is attached to again, durably, so
+    /// the next owner start holds it anew. Reads nothing once no terminal is held.
+    fn end_adoption_of_attached(&self, schedule: &mut ReapSchedule) {
+        if schedule.adopted.is_empty() {
+            return;
+        }
+        let attached: Vec<String> =
+            self.attached_among(schedule.adopted.keys()).into_iter().collect();
+        if attached.is_empty() {
+            return;
+        }
+        if let Err(error) = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .release_terminal_adoption(&attached)
+        {
+            self.report_internal_diagnostic(format!("terminal adoption release failed: {error}"));
+            return;
+        }
+        for terminal_id in &attached {
+            schedule.end_adoption(terminal_id);
+        }
+    }
+
     /// End one unplaced terminal. The placement, `keep` and attach checks
     /// are repeated atomically with the close, so a terminal that gained a
     /// view, was kept or got an attach stream since the caller looked is
@@ -460,19 +587,37 @@ impl Mux {
         now: Instant,
     ) -> Vec<String> {
         let grace = self.terminal_reap_grace();
+        if !schedule.adoption_read {
+            // Before the scan: the scan gives a terminal it first sees unplaced a time of its own.
+            match self.adopt_inherited_unplaced(grace) {
+                Ok(adopted_for) => schedule.adopt(now, adopted_for),
+                Err(error) => {
+                    self.report_internal_diagnostic(format!(
+                        "terminal reap adoption read failed: {error}"
+                    ));
+                    schedule.defer_due_after_failed_scan(now);
+                    return Vec::new();
+                }
+            }
+        }
         let over_cap = match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty)
         {
-            Ok(reapable) => {
+            Ok(mut reapable) => {
                 schedule.observe_unplaced(now, grace, &reapable);
+                let connected = self.control_clients.main_frontend_connected();
                 let relaunching = schedule.relaunch_hold(
                     now,
                     grace,
                     self.control_clients.frontend_seen(),
-                    self.control_clients.main_frontend_connected(),
+                    connected,
                 );
+                schedule.hold_adopted(now, grace, connected);
+                self.end_adoption_of_attached(schedule);
                 if relaunching {
                     Vec::new()
                 } else {
+                    let held = schedule.adoption_held(now);
+                    reapable.retain(|terminal_id, _| !held.contains(terminal_id));
                     over_grace_cap(&reapable, &self.attached_reap_candidates(&reapable))
                 }
             }
@@ -1020,8 +1165,9 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                 break;
             }
             let Some(mux) = weak.upgrade() else { break };
-            mux.reap_unplaced_terminals(&mut schedule, Instant::now());
-            mux.reclaim_ptys_if_low(&mut reclaim);
+            let now = Instant::now();
+            mux.reap_unplaced_terminals(&mut schedule, now);
+            mux.reclaim_ptys_if_low_leaving(&mut reclaim, &schedule.adoption_held(now));
             // Never hold the mux across the wait: the thread must not keep
             // the mux alive after its other owners are gone.
             drop(mux);
