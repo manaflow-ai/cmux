@@ -972,9 +972,6 @@ struct TabsScreen<Source: TabsDataSource>: View {
         zoomDriver.release(toOverview: BarSwipe.releaseToOverviewOnCancel(progress: progress))
     }
 
-    /// Closing from the grid: the active card is first handed to the grid
-    /// (one update), so its removal fades and shrinks the card instead of
-    /// the live page vanishing in one frame.
     /// The chevron (or the encasement) of stack `id`: opens it in place, or
     /// folds it back under its front card. The folded cards are put under
     /// the front card first, without animation, so on the next frame the
@@ -1008,6 +1005,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         DispatchQueue.main.async { run() }
     }
 
+    /// Closing from the grid: the active card is first handed to the grid
+    /// (one update), so its removal fades and shrinks the card instead of
+    /// the live page vanishing in one frame.
     private func closeFromGrid(_ id: String) async -> Bool {
         if id == activeID, zoomState.phase == .overview, !activeChangedOnGrid {
             activeChangedOnGrid = true
