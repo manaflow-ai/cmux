@@ -16,7 +16,9 @@
 //!
 //! The watch is event-driven: it sleeps on the mux event bus (output, title,
 //! program status and agent events, coalesced per surface) and wakes on a
-//! timer only while a terminal it saw is waiting for its confirmation. It
+//! timer only for a terminal it saw: a program's confirmation, or one more
+//! look [`RECHECK`] after an event that found the shell (a typed command's
+//! echo comes before the shell forks it). It
 //! checks one terminal at most once per [`RECHECK`], with one PTY query and
 //! one process-name read, never a process scan. Once the plugin is demanded
 //! the watch ends; the plugin then runs for the daemon's life.
@@ -120,11 +122,16 @@ pub(crate) struct DemandWatch {
 
 impl DemandWatch {
     /// Check the terminal whose PTY child is `pid` at `now`, with `program`
-    /// telling who holds it. True: the plugin should start.
+    /// telling who holds it. True: the plugin should start. `event`: an event
+    /// of this terminal asked for the check. One that finds the shell still
+    /// holding it checks once more [`RECHECK`] later: the echo of a typed
+    /// command arrives before the shell forks it, and a silent program
+    /// (`sleep`, a quiet build) sends no further event.
     pub(crate) fn check(
         &mut self,
         pid: u32,
         now: Instant,
+        event: bool,
         program: impl FnOnce(u32) -> Option<u32>,
     ) -> bool {
         let seen = self.seen.entry(pid).or_default();
@@ -147,7 +154,12 @@ impl DemandWatch {
                 seen.candidate = Some((leader, now));
                 seen.due = Some(now + CONFIRM);
             }
-            (None, _) => seen.candidate = None,
+            (None, _) => {
+                seen.candidate = None;
+                if event {
+                    seen.due = Some(now + RECHECK);
+                }
+            }
         }
         false
     }
@@ -237,7 +249,7 @@ fn watch_held(mux: &Weak<Mux>) -> bool {
         }
         pids.extend(watch.due(now));
         for pid in pids {
-            if watch.check(pid, now, running_program) {
+            if watch.check(pid, now, false, running_program) {
                 release(&strong, "a terminal runs a program");
                 return false;
             }
@@ -267,7 +279,7 @@ fn watch_held(mux: &Weak<Mux>) -> bool {
             }
             Wake::Surface(surface) => {
                 if let Some(pid) = strong.surface(surface).and_then(|s| s.process_id())
-                    && watch.check(pid, Instant::now(), running_program)
+                    && watch.check(pid, Instant::now(), true, running_program)
                 {
                     release(&strong, "a terminal runs a program");
                     return false;

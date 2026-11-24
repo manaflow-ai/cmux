@@ -32,40 +32,58 @@ fn a_shell_at_its_prompt_never_releases() {
     let mut watch = DemandWatch::default();
     let start = Instant::now();
     for second in 0..30 {
-        assert!(!watch.check(100, start + Duration::from_secs(second), |_| None));
+        assert!(!watch.check(100, start + Duration::from_secs(second), false, |_| None));
     }
     assert_eq!(watch.next_due(), None, "an idle terminal schedules no check");
+}
+
+#[test]
+fn an_event_that_finds_the_shell_checks_once_more() {
+    let mut watch = DemandWatch::default();
+    let start = Instant::now();
+    // The echo of `sleep 120⏎` comes before the shell forks `sleep`.
+    assert!(!watch.check(100, start, true, |_| None));
+    assert_eq!(watch.next_due(), Some(start + RECHECK), "one follow-up check");
+    assert!(watch.due(start + RECHECK).contains(&100));
+    // The follow-up finds the silent program; no further event comes.
+    assert!(!watch.check(100, start + RECHECK, false, |_| Some(200)));
+    assert!(watch.check(100, start + RECHECK + CONFIRM, false, |_| Some(200)));
+    // A follow-up that finds the shell again schedules nothing more.
+    let mut idle = DemandWatch::default();
+    assert!(!idle.check(100, start, true, |_| None));
+    assert!(!idle.check(100, start + RECHECK, false, |_| None));
+    assert_eq!(idle.next_due(), None);
 }
 
 #[test]
 fn a_quick_command_does_not_release() {
     let mut watch = DemandWatch::default();
     let start = Instant::now();
-    assert!(!watch.check(100, start, |_| Some(200)));
+    assert!(!watch.check(100, start, true, |_| Some(200)));
     // `ls` ended before its confirmation: the shell holds the terminal again.
-    assert!(!watch.check(100, start + CONFIRM, |_| None));
+    assert!(!watch.check(100, start + CONFIRM, true, |_| None));
     // A new job is a new candidate, confirmed only CONFIRM after it was seen.
-    assert!(!watch.check(100, start + CONFIRM + RECHECK, |_| Some(201)));
-    assert!(!watch.check(100, start + CONFIRM + RECHECK * 2, |_| Some(202)));
+    assert!(!watch.check(100, start + CONFIRM + RECHECK, true, |_| Some(201)));
+    assert!(!watch.check(100, start + CONFIRM + RECHECK * 2, true, |_| Some(202)));
 }
 
 #[test]
 fn a_program_that_holds_the_terminal_releases_at_its_confirmation() {
     let mut watch = DemandWatch::default();
     let start = Instant::now();
-    assert!(!watch.check(100, start, |_| Some(200)));
+    assert!(!watch.check(100, start, true, |_| Some(200)));
     assert_eq!(watch.next_due(), Some(start + CONFIRM), "the confirmation is scheduled");
     assert!(watch.due(start + CONFIRM).contains(&100));
-    assert!(watch.check(100, start + CONFIRM, |_| Some(200)));
+    assert!(watch.check(100, start + CONFIRM, true, |_| Some(200)));
 }
 
 #[test]
 fn checks_within_the_recheck_interval_are_deferred_not_dropped() {
     let mut watch = DemandWatch::default();
     let start = Instant::now();
-    assert!(!watch.check(100, start, |_| None));
+    assert!(!watch.check(100, start, true, |_| None));
     let mut probed = false;
-    assert!(!watch.check(100, start + Duration::from_millis(10), |_| {
+    assert!(!watch.check(100, start + Duration::from_millis(10), true, |_| {
         probed = true;
         Some(200)
     }));
@@ -77,7 +95,7 @@ fn checks_within_the_recheck_interval_are_deferred_not_dropped() {
 fn retain_forgets_ended_terminals() {
     let mut watch = DemandWatch::default();
     let start = Instant::now();
-    assert!(!watch.check(100, start, |_| Some(200)));
+    assert!(!watch.check(100, start, true, |_| Some(200)));
     watch.retain(&std::collections::HashSet::new());
     assert_eq!(watch.next_due(), None);
 }
