@@ -1,5 +1,8 @@
 //! Agent notification levels are applied before a producer adds an unread item.
 //! Ordinary errors, plan reviews and cache reminders keep their existing delivery.
+//! `Blocked` is the one opt-in event: a report (screen detection, a plugin, the
+//! socket) that turns an agent Blocked with no hook alert of its own posts only
+//! when `notifications.delivery.blocked` is `badge` or `banner`.
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -7,6 +10,7 @@ pub(super) enum AgentEvent {
     PermissionRequest,
     Question,
     TaskComplete,
+    Blocked,
 }
 
 impl AgentEvent {
@@ -28,11 +32,19 @@ pub(super) enum Delivery {
     Banner,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(super) struct AgentNotificationLevels {
     permission_request: Delivery,
     question: Delivery,
     task_complete: Delivery,
+    blocked: Delivery,
+}
+
+impl Default for AgentNotificationLevels {
+    /// The levels of an empty settings file: every event at its default.
+    fn default() -> Self {
+        Self::from_settings(&Value::Null)
+    }
 }
 
 impl AgentNotificationLevels {
@@ -55,6 +67,11 @@ impl AgentNotificationLevels {
             } else {
                 Delivery::Banner
             },
+            blocked: match level("blocked") {
+                Some("badge") => Delivery::Badge,
+                Some("banner") => Delivery::Banner,
+                _ => Delivery::Off,
+            },
         }
     }
 
@@ -63,6 +80,7 @@ impl AgentNotificationLevels {
             AgentEvent::PermissionRequest => self.permission_request,
             AgentEvent::Question => self.question,
             AgentEvent::TaskComplete => self.task_complete,
+            AgentEvent::Blocked => self.blocked,
         }
     }
 }
@@ -104,6 +122,28 @@ mod tests {
             {
                 assert_eq!(levels.for_event(event), Delivery::Banner);
             }
+        }
+    }
+
+    #[test]
+    fn agent_blocked_delivery_is_opt_in_with_three_levels() {
+        assert_eq!(
+            AgentNotificationLevels::default().for_event(AgentEvent::Blocked),
+            Delivery::Off
+        );
+        for (value, expected) in [
+            (json!("off"), Delivery::Off),
+            (json!("badge"), Delivery::Badge),
+            (json!("banner"), Delivery::Banner),
+            (json!("loud"), Delivery::Off),
+            (json!(true), Delivery::Off),
+        ] {
+            let levels = AgentNotificationLevels::from_settings(
+                &json!({"notifications": {"delivery": {"blocked": value}}}),
+            );
+            assert_eq!(levels.for_event(AgentEvent::Blocked), expected);
+            // The other events keep their own levels.
+            assert_eq!(levels.for_event(AgentEvent::Question), Delivery::Banner);
         }
     }
 }

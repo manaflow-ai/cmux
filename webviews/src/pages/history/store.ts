@@ -33,6 +33,8 @@ export type Connection = "connecting" | "connected" | "disconnected";
 export interface HistorySnapshot {
   text: string;
   filter: HistoryFilter;
+  /** How far back the list reaches (the When menu); "all" reads every entry. */
+  range: HistoryRange;
   grouping: HistoryGrouping;
   entries: HistoryEntry[];
   groups: HistoryGroup[];
@@ -82,6 +84,7 @@ export class HistoryStore {
     this.snapshot = {
       text: "",
       filter: "all",
+      range: "all",
       grouping: "day",
       entries: [],
       groups: [],
@@ -329,6 +332,12 @@ export class HistoryStore {
     void this.reload();
   }
 
+  setRange(range: HistoryRange): void {
+    if (range === this.snapshot.range) return;
+    this.set({ range });
+    void this.reload();
+  }
+
   setGrouping(grouping: HistoryGrouping): void {
     if (grouping === this.snapshot.grouping) return;
     this.set({ grouping, groups: groupEntries(this.snapshot.entries, grouping) });
@@ -342,8 +351,9 @@ export class HistoryStore {
   async reload(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
-    const { text, filter } = this.snapshot;
+    const { text, filter, range } = this.snapshot;
     const params: HistoryListParams = { kinds: filterKinds(filter), text, limit: PAGE_LIMIT };
+    if (range !== "all") params.range = range;
     if (!this.snapshot.loading) this.set({ loading: true });
     try {
       const result = await this.client.call<HistoryListResult>(HistoryOps.list, params);

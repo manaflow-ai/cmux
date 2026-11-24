@@ -156,7 +156,8 @@ def main():
         res["new_tab_reply"] = call("action.run", {"action": "newTab", "args": {"name": "cef-helper-check"},
                                                    "focus": True, "origin": "script"})
         res["terminal_pane"] = bool(wait_for(lambda: (focused_pane() or {}).get("kind") == "terminal", 60))
-        time.sleep(1)  # test harness: the shell prompt draws before the next tab opens
+        # The shell prompt has drawn once the focused terminal shows text (best-effort, as before).
+        wait_for(lambda: (rpc("surface.read_text").get("text") or "").strip(), 15)
         res["open_reply"] = call("action.run", {"action": "openBrowser.chromium", "args": {"url": page},
                                                 "focus": True, "origin": "script"})
 
@@ -172,7 +173,9 @@ def main():
             title = wait_for(title_ran, 45)
         res["focused_kind"] = (focused_pane() or {}).get("kind")
         res["title"] = title
-        time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
+        # sleep-ok: the observation window for a crash loop (renderers that die do so ~0.6 s after launch); a
+        # healthy renderer sends no event that says it will not die
+        time.sleep(opts.settle)
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
         renderer_suffix = " Helper (Renderer).app/Contents/MacOS/"
         # Chromium 156 (gpu_process_host.cc) starts the GPU process from the " (GPU)" helper only when SwiftShader

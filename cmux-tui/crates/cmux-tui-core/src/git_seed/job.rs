@@ -12,6 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -81,6 +82,43 @@ struct Status {
     exported: Option<serde_json::Map<String, Value>>,
     /// The seed marked its head on the sync barrier and fills the rest.
     head_ready: bool,
+    /// Where the job's time went, its status `timings`: since it began, since `phase` began,
+    /// each phase it left, its whole time once ended, and its thread's git runs and waits
+    /// ([`super::git::take_runs`]).
+    began: Instant,
+    phase_began: Instant,
+    phase_times: Vec<(&'static str, Duration)>,
+    took: Option<Duration>,
+    runs: Value,
+}
+
+impl Status {
+    /// Adds the time since `phase` began to it.
+    fn close_phase(&mut self, now: Instant) {
+        let took = now.duration_since(self.phase_began);
+        let name = self.phase.name();
+        match self.phase_times.iter_mut().find(|(phase, _)| *phase == name) {
+            Some((_, sum)) => *sum += took,
+            None => self.phase_times.push((name, took)),
+        }
+        self.phase_began = now;
+    }
+
+    fn timings(&self) -> Value {
+        let mut phases: Vec<(&'static str, Duration)> = self.phase_times.clone();
+        if self.took.is_none() {
+            phases.push((self.phase.name(), self.phase_began.elapsed()));
+        }
+        let phases: serde_json::Map<String, Value> = phases
+            .into_iter()
+            .map(|(name, took)| (name.to_owned(), json!(took.as_millis())))
+            .collect();
+        json!({
+            "job_ms": self.took.unwrap_or_else(|| self.began.elapsed()).as_millis(),
+            "phases": phases,
+            "git": self.runs,
+        })
+    }
 }
 
 /// One seed.
@@ -106,7 +144,10 @@ impl Job {
     }
 
     pub(super) fn enter(&self, phase: Phase) {
-        self.update(|status| status.phase = phase);
+        self.update(|status| {
+            status.close_phase(Instant::now());
+            status.phase = phase;
+        });
     }
 
     pub(super) fn progress(&self, line: &str) {
@@ -138,6 +179,13 @@ impl Job {
     }
 
     pub(super) fn finish(&self, result: Result<(), Failed>) {
+        let runs = super::git::take_runs();
+        self.update(|status| {
+            let now = Instant::now();
+            status.close_phase(now);
+            status.took = Some(now.duration_since(status.began));
+            status.runs = runs;
+        });
         self.update(|status| match result {
             Ok(()) => status.state = State::Done,
             Err(failed) => {
@@ -164,6 +212,7 @@ impl Job {
                 "total_objects": status.progress.total_objects,
             },
             "notes": status.notes,
+            "timings": status.timings(),
         });
         if status.head_ready
             && let Some(object) = answer.as_object_mut()
@@ -562,6 +611,11 @@ impl Status {
             head: None,
             exported: None,
             head_ready: false,
+            began: Instant::now(),
+            phase_began: Instant::now(),
+            phase_times: Vec::new(),
+            took: None,
+            runs: Value::Null,
         }
     }
 }

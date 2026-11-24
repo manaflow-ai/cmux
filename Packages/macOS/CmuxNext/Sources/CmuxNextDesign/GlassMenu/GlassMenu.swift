@@ -10,7 +10,9 @@ import CmuxNextCompat
 ///
 /// The popup is a ``NativePopupPanel`` under a ``NativePopupHost`` (placement, the one-frame open and
 /// the fade on close, the dismiss rules) with ``Glass/makeMenuPanel(content:cornerRadius:interactive:)``
-/// as its card. Rows are ``PopupRowView``s on the menu grid (``MenuMetrics``). The pointer and the
+/// as its card, at ``GlassMenuMaterial/menuCornerRadius`` around a hover pill of the surface radius: the Codex and
+/// ChatGPT menus' look (Lawrence 2026-11-23: "we need better menu design. potentially let's just match these
+/// screenshots"), with plain icons in the secondary ink. Rows are ``PopupRowView``s on the menu grid (``MenuMetrics``). The pointer and the
 /// keys share one highlight: Up and Down move it, Right or Return opens a submenu beside its row, Left
 /// closes one layer, Escape closes the menu, Return or a click runs the row. A row runs after the menu
 /// has closed, on the next turn of the run loop, as a chosen `NSMenuItem` does.
@@ -26,7 +28,8 @@ public final class GlassMenu {
     let list = GlassMenuListView()
     private let surface: OverlaySurfaceView
     private weak var parentMenu: GlassMenu?
-    private var child: GlassMenu?
+    /// The submenu open beside this menu, else nil.
+    private(set) var child: GlassMenu?
     private var scope: ThemeScope?
     /// The control the menu opened from: a click on it is the control's (it closes the menu
     /// itself, a toggle), not a click outside that closes and then reopens it.
@@ -40,7 +43,8 @@ public final class GlassMenu {
         host = NativePopupHost(panel: panel)
         surface = Glass.makeMenuPanel(content: list)
         surface.samplesBehindWindow = true
-        panel.adoptPopupStyle(card: surface)
+        // The rounder card, and its shadow, at the menu radius (the host gives a card the popup radius).
+        panel.adoptPopupStyle(card: surface).cornerRadius = GlassMenuMaterial.menuCornerRadius
         panel.setAccessibilityRole(.menu)
         host.onDismiss = { [weak self] in self?.finish(runs: nil) }
         // A click in a submenu, or in the menu a submenu opened from, is inside the menu.

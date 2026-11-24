@@ -127,6 +127,21 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
+/// This process (or, on Linux, this thread) at nice 0 when it runs below it: an agent host or a
+/// harness the daemon starts, which inherits a negative nice the daemon took
+/// (`daemon_priority.rs`). Raising a nice needs no privilege. Async-signal-safe: it runs between
+/// fork and exec (`cpu_class::start_at_normal`).
+#[cfg(unix)]
+pub fn at_least_default_nice() {
+    // SAFETY: plain syscalls on the calling process. -1 is also getpriority's error answer, and
+    // raising -1 to 0 is right either way.
+    unsafe {
+        if libc::getpriority(libc::PRIO_PROCESS, 0) < 0 {
+            libc::setpriority(libc::PRIO_PROCESS, 0, 0);
+        }
+    }
+}
+
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
 /// the default disk tier (lead rule 2026-11-04: a reply the person waits for never waits on a
 /// throttled sync) and only its background threads yield ([`background_thread`]). Nothing to
@@ -134,21 +149,14 @@ fn agent_background() -> bool {
 pub fn enter_daemon() {}
 
 /// The base priority a process runs at when nothing lowered it (macOS `BASEPRI_DEFAULT`): the
-/// daemon's CPU tier ([`Tier::Serving`]).
+/// daemon's CPU tier. `daemon_priority.rs` reports the daemon's base priority against it.
+#[cfg(target_os = "macos")]
 pub const DAEMON_PRIORITY: i32 = 31;
 
-/// This process's base priority when it runs below the daemon's tier ([`DAEMON_PRIORITY`]), None
-/// when it does not, when it cannot be read, off macOS, or with the policy off (`ACPMUX_QOS=off`).
-///
-/// [`enter_daemon`] sets nothing, so a daemon runs at whatever its starter gave it, and both
-/// what lowers a process on macOS are inherited by everything it starts and cannot be undone
-/// from inside: the QoS clamp of a launchd job of `ProcessType` `Standard` or `Background` (and
-/// of this module's agent tiers), and nice. Leo's NIGHTLY daemon (2026-11-21, "Waiting for the
-/// agent service (1:07)"): `nightly-update`, a `Standard` launchd job, ran `acpmux daemon
-/// restart`, and that daemon and every update's `--take-over` successor after it ran all 98
-/// threads at priority 20, below every default process on a Mac at load 80 to 170, so the
-/// `_acpmux/status` every pane's connect waits on took 0.2 to 51 s. Such a daemon starts again
-/// as a login-session job (`daemon/login_session.rs`: launchd starts it, at `Interactive`).
+/// This process's base priority when it runs below [`DAEMON_PRIORITY`], None when it does not,
+/// when it cannot be read, or with the policy off (`ACPMUX_QOS=off`). A launchd `Standard` or
+/// `Background` job's QoS clamp, and nice, lower it for everything the process starts.
+#[cfg(target_os = "macos")]
 pub fn lowered_priority() -> Option<i32> {
     if !enabled() {
         return None;
@@ -173,6 +181,11 @@ pub fn background_thread() {
 pub fn enter(role: Role) {
     if !enabled() {
         return;
+    }
+    // Never above the default: the daemon may run at a negative nice (`daemon_priority.rs`).
+    #[cfg(unix)]
+    if matches!(tier(role), Tier::Agent | Tier::AgentStart) {
+        at_least_default_nice();
     }
     match tier(role) {
         // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
@@ -470,10 +483,6 @@ mod imp {
 mod imp {
     pub(super) fn disk_utility() {}
     pub(super) fn thread_disk_utility() {}
-    /// Linux: a unit or a command starts the daemon where it belongs; nothing re-places it.
-    pub(super) fn base_priority() -> Option<i32> {
-        None
-    }
 
     /// nice +5: inherited by everything the process starts. Not undone (an
     /// unprivileged process cannot lower its nice value), and not needed to be.
@@ -510,9 +519,6 @@ mod imp {
 mod imp {
     pub(super) fn disk_utility() {}
     pub(super) fn thread_disk_utility() {}
-    pub(super) fn base_priority() -> Option<i32> {
-        None
-    }
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {
         clamp_cpu_utility();

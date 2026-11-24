@@ -23,6 +23,7 @@ import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } 
 import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
 import { fitTooltipWidth } from "./tooltipFit";
+import { keycapLegend } from "./keycapLegend";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
@@ -265,7 +266,7 @@ export function installTooltips(
     if (shortcut) {
       const hint = doc.createElement("span");
       hint.className = "ui-tooltip-hint";
-      hint.textContent = shortcut;
+      hint.textContent = keycapLegend(shortcut);
       tip.replaceChildren(hint, label);
     } else tip.replaceChildren(label);
     const anchor = anchorBox(target);

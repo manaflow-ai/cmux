@@ -13,12 +13,14 @@ import {
   type HeldThread,
   type SurgeHold,
 } from "./conversation/surgeHold";
+import { errorMessage } from "./transportErrors";
 import "./SurgeHoldRow.css";
 
 /// How the line reads (the gallery's variants; the shipped look is `counts`).
 export type SurgeRowLook = "counts" | "sentence" | "needFirst";
 
-type Listing = { state: "loading" } | { state: "failed" } | { state: "ready"; threads: HeldThread[] };
+/// The listing's read: under way, failed with acpmux's (or the bridge's) own words, or its threads.
+type Listing = { state: "loading" } | { state: "failed"; reason: string } | { state: "ready"; threads: HeldThread[] };
 
 /// The chat's held surge as one row of the composer hat (conversation/surgeHold.ts): how many
 /// messages its inbox holds without a turn and how many of them need the person, updated in place as
@@ -63,7 +65,8 @@ export function SurgeHoldRow({
     let live = true;
     listThreads().then(
       (reply) => live && setListing({ state: "ready", threads: heldThreads(reply) }),
-      () => live && setListing({ state: "failed" }),
+      // The failure keeps its own words: a bare "Try again" told Leo nothing (2026-11-22).
+      (error: unknown) => live && setListing({ state: "failed", reason: errorMessage(error) }),
     );
     return () => {
       live = false;
@@ -86,10 +89,17 @@ export function SurgeHoldRow({
   };
   const heldText = t("surge.held", { n: held });
   const needText = t("surge.needYou", { n: needYou });
+  const lineText =
+    look === "sentence"
+      ? needYou > 0
+        ? t("surge.sentenceNeed", { held, need: needYou })
+        : t("surge.sentence", { held })
+      : [look === "needFirst" && needYou > 0 ? needText : "", t("surge.title"), heldText].filter(Boolean).join(", ");
   return (
+    // The stack's own material and edge, as the goal row, the questions band and the tray take them.
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape from any control inside (search, filters, threads) closes the open panel; the controls themselves take the keyboard.
     <section
-      className="acpmux-surge"
+      className="ui-glass ui-glass-floats acpmux-stack-material acpmux-surge"
       data-open={open || undefined}
       data-need={needYou > 0 || undefined}
       data-look={look}
@@ -131,12 +141,22 @@ export function SurgeHoldRow({
             {listing.state === "loading" ? (
               <p className="acpmux-surge-note">{t("surge.loading")}</p>
             ) : listing.state === "failed" ? (
-              <p className="acpmux-surge-note" role="alert">
-                {t("surge.loadFailed")}{" "}
-                <button type="button" className="acpmux-surge-retry" onClick={() => setAttempt(attempt + 1)}>
+              <div className="acpmux-surge-failed" role="alert">
+                <p className="acpmux-surge-failed-copy">
+                  <span className="acpmux-surge-failed-title">{t("surge.loadFailed")}</span>
+                  {listing.reason && <span className="acpmux-surge-failed-reason">{listing.reason}</span>}
+                </p>
+                <button
+                  type="button"
+                  className="acpmux-surge-retry"
+                  onClick={() => {
+                    setListing({ state: "loading" });
+                    setAttempt(attempt + 1);
+                  }}
+                >
                   {t("surge.retry")}
                 </button>
-              </p>
+              </div>
             ) : found.length === 0 ? (
               <p className="acpmux-surge-note">{t("surge.noMatch")}</p>
             ) : (
@@ -165,36 +185,38 @@ export function SurgeHoldRow({
           </div>
         </section>
       )}
+      {/* The line is one button under its words (the goal row's pattern, TaskGoalStrip.css), so the
+          need-you button can stand in the column before the chevron, which ends the line. */}
       <div className="acpmux-surge-line">
         <button
           type="button"
           className="acpmux-surge-toggle"
+          aria-label={lineText}
           aria-expanded={open}
           aria-controls={open ? panelId : undefined}
           onClick={() => toggle(!open)}
-        >
-          <span className="acpmux-surge-mark" aria-hidden="true">
-            <Envelope size={14} />
+        />
+        <span className="acpmux-surge-mark" aria-hidden="true">
+          <Envelope size={14} />
+        </span>
+        {look === "sentence" ? (
+          <span className="acpmux-surge-copy" aria-hidden="true">
+            {lineText}
           </span>
-          {look === "sentence" ? (
-            <span className="acpmux-surge-copy">
-              {needYou > 0 ? t("surge.sentenceNeed", { held, need: needYou }) : t("surge.sentence", { held })}
-            </span>
-          ) : (
-            <span className="acpmux-surge-copy">
-              {look === "needFirst" && needYou > 0 && <span className="acpmux-surge-need">{needText}</span>}
-              <span className="acpmux-surge-title">{t("surge.title")}</span>
-              <span className="acpmux-surge-count">{heldText}</span>
-            </span>
-          )}
-          <ChevronDown size={12} className="acpmux-surge-chevron" />
-        </button>
+        ) : (
+          <span className="acpmux-surge-copy" aria-hidden="true">
+            {look === "needFirst" && needYou > 0 && <span className="acpmux-surge-need">{needText}</span>}
+            <span className="acpmux-surge-title">{t("surge.title")}</span>
+            <span className="acpmux-surge-count">{heldText}</span>
+          </span>
+        )}
         {look === "counts" && needYou > 0 && (
           // The ones that need the person open the panel on them alone.
           <button type="button" className="acpmux-surge-need" onClick={() => toggle(true, true)}>
             {needText}
           </button>
         )}
+        <ChevronDown size={12} className="acpmux-surge-chevron" aria-hidden="true" />
       </div>
     </section>
   );

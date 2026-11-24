@@ -277,6 +277,17 @@ pub fn drag(p: &Posting, from: Point, to: Point, button: Button, front: bool) ->
     Ok(())
 }
 
+/// Moves the pointer to `at` and presses nothing (a hover). On a process
+/// route the move names the window and its point inside it, as a scroll
+/// does: a mouse-moved event raises no window, so it is always addressed.
+/// On the HID route it moves the real pointer.
+pub fn move_to(p: &Posting, at: Point) -> DResult<()> {
+    let route = p.route();
+    let src = source()?;
+    post_mouse(route, Aim::of(route), &mouse_event(&src, MOUSE_MOVED, at, Button::Left, 0)?, at);
+    Ok(())
+}
+
 /// Scrolls by lines at `at` (`dy > 0` down, `dx > 0` right).
 pub fn scroll(p: &Posting, at: Point, dx: f64, dy: f64) -> DResult<()> {
     let route = p.route();

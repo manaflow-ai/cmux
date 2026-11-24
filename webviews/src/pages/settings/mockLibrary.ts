@@ -125,6 +125,7 @@ export function mockLongLibrary(count: number): LibraryListing {
 /** Runs one library verb on `listing` the way the engine does; null for a name it does not have. */
 export function runLibrary(listing: LibraryListing, run: LibraryRun): LibraryListing | null {
   if (run.verb === "list") return listing;
+  if (!("name" in run)) return null;
   const at = listing.entries.findIndex((item) => item.name === run.name);
   if (at === -1) return null;
   const entries = [...listing.entries];

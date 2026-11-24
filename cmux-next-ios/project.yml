@@ -268,6 +268,11 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
       configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
         Production:
           # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.mobile.prod):
           # Stack tokens never mix with the Demo or Debug installs. No app group:
@@ -353,15 +358,11 @@ targets:
         # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
         # WebRTC host candidates) before falling back to the relay.
         NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.
-        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan the pairing code on your Mac.
-        # A Mac's pairing code (`cmux-next://pair?…`, MobileHostPairInvite): the Camera
-        # opens it here. Every configuration registers it; side-by-side installs share the scheme.
+        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan an invite code on your Mac.
         # cmux links (CmuxLink: `cmux://tab/tab_…`, `cmux://agent/claude/…`) in each Mac
         # build's scheme open what they name, from Safari, Messages, Notes or a QR code.
         # (`cmux-dev-<tag>` links of a tagged Mac open only when tapped inside the app.)
         CFBundleURLTypes:
-          - CFBundleURLName: dev.cmux.mobile.pair
-            CFBundleURLSchemes: [cmux-next]
           - CFBundleURLName: dev.cmux.mobile.link
             CFBundleURLSchemes: [cmux, cmux-nightly, cmux-rc, cmux-dev]
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
@@ -418,6 +419,11 @@ targets:
         CMUX_MOBILE_ENTITLEMENTS_YES: NotificationContent/NotificationContent-Group.entitlements
         CODE_SIGN_ENTITLEMENTS: $(CMUX_MOBILE_ENTITLEMENTS_$(CMUX_MOBILE_APP_GROUP))
       configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
         TestFlight:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
@@ -480,6 +486,11 @@ targets:
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         CODE_SIGN_ENTITLEMENTS: NotificationService/NotificationService.entitlements
       configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
         TestFlight:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
@@ -522,3 +533,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: 7WLXT3NR37
         CODE_SIGN_STYLE: Automatic
+      configs:
+        # Debug also runs on an iPad mini simulator: its window stands in for an
+        # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
+        # Every build people install stays iPhone-only.
+        Debug:
+          TARGETED_DEVICE_FAMILY: "1,2"
