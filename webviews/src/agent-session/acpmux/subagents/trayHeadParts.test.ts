@@ -4,7 +4,7 @@
 // makes more sense to have at baseline", each kind with its icon to hover across.
 import { expect, test } from "bun:test";
 import { translate } from "../i18n";
-import { trayHead, trayHeadParts } from "./trayHeadKinds";
+import { trayHead, trayHeadForms, trayHeadParts } from "./trayHeadKinds";
 import { finishedTrayItems, trayItems } from "./runningTray";
 import type { BackgroundCommand } from "../session-info/processes";
 
@@ -84,4 +84,27 @@ test("the tally of only finished, fine work is empty, so the header keeps its ow
   );
   expect(done.length).toBe(1);
   expect(trayHeadParts(translate, { items: [], finished: done, waiting: new Set(), working: false }, true)).toEqual([]);
+});
+
+// The `summary` arm's words (trayFoldHead.experiment.ts; Leo, 2026-11-23: "x subagents running y
+// commands running etc with full text when you have space and it gradually shrinks when there is none").
+test("each kind's long, short and count forms; a state kind is its state already", () => {
+  const subagent = (id: string, state = "running") => ({
+    id,
+    parent: null,
+    name: id,
+    state,
+    startedAt: 1_794_000_000_000,
+    ...(state === "running" ? {} : { endedAt: 1_794_000_100_000 }),
+  });
+  const items = trayItems([subagent("a"), subagent("b")], [...commands, command("misc", "ls -la")], [], true);
+  const finished = finishedTrayItems([subagent("f", "failed")], []);
+  const parts = trayHeadParts(translate, { items, finished, waiting: new Set(), working: true }, true, "claude");
+  expect(parts.map((part) => trayHeadForms(translate, part))).toEqual([
+    { long: "2 subagents running", short: "2 subagents", count: "2" },
+    { long: "1 message running", short: "1 message", count: "1" },
+    { long: "1 wait running", short: "1 wait", count: "1" },
+    { long: "1 command running", short: "1 command", count: "1" },
+    { long: "1 failed", short: "1 failed", count: "1" },
+  ]);
 });

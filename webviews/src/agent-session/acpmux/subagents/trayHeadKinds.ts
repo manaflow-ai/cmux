@@ -282,3 +282,21 @@ export function trayHeadParts(
 
 /// A subagent's mark when the header draws no harness logo for it (agentIdentityModel.ts).
 const SUBAGENT_ICON = "task.ai";
+
+/// One kind's words in the `summary` arm's steps (trayFoldHead.experiment.ts; Leo, 2026-11-23: "x
+/// subagents running y commands running etc with full text when you have space and it gradually
+/// shrinks when there is none"): long ("2 subagents running"), short ("2 subagents") and the number
+/// alone, drawn by its mark. A state kind (waiting, failed) is its state already, so its long form is
+/// its short one. A reader always hears the long form.
+export type TrayHeadForms = { long: string; short: string; count: string };
+
+export function trayHeadForms(t: Translate, part: TrayHeadPart): TrayHeadForms {
+  const short = part.text;
+  const n = part.items.length;
+  const long = part.tone
+    ? short
+    : part.key.startsWith("agents")
+      ? t("subagents.allRunning", { n })
+      : t("tray.summary.kindRunning", { kind: short });
+  return { long, short, count: String(n) };
+}
