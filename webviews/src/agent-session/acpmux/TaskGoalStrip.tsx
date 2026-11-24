@@ -4,7 +4,8 @@ import { Tooltip } from "../../ui/Tooltip";
 import { Clock as ClockText } from "../../ui/Typography";
 import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
-import { ChevronDown, Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
+import { Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
+import { Icon } from "./icons/Icon";
 import { formatDuration } from "./conversation/turns";
 import { goalHatPlace } from "./goalHat.experiment";
 import { cssTimeMs } from "./conversation/fold";
@@ -364,7 +365,8 @@ function GoalStrip({
         </span>
         <GoalTime goal={goal} live={live} />
         <span className="acpmux-goal-chevron" aria-hidden="true">
-          <ChevronDown size={14} />
+          {/* The hat's chevron glyph (SubagentTray.tsx), so the two read as one column (cmux#51039). */}
+          <Icon name="disclosure.expanded" size={14} row />
         </span>
       </span>
       {error && (

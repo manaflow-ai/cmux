@@ -247,4 +247,101 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
       }
     });
   }
+
+  // The Goal row over the plan's hat (the person, 2026-11-23: "icons are not matching properly"): its
+  // dot, the plan's mark and + share one leading column, the words one start, and the chevrons and the
+  // panel button one trailing edge and one glyph size, each on its first line's centre.
+  for (const density of pageDensities)
+    for (const scheme of ["dark", "light"] as const)
+      test(`${density.name}, ${scheme}: the Goal row stands on the hat's columns`, async () => {
+        const port = (server.httpServer!.address() as { port: number }).port;
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 720 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+          colorScheme: scheme,
+        });
+        try {
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-goal", { variant: "with-plan", width: "normal" })}`,
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.waitForSelector(".acpmux-goal[data-look] .acpmux-goal-mark");
+          await page.waitForSelector(".acpmux-running-tray__head");
+          await page.evaluate((value) => {
+            const root = document.documentElement;
+            for (const name of ["--cmux-density-scale", "--cmux-density-text-scale", "--cmux-row-icon-scale"])
+              root.style.setProperty(name, String(value));
+            window.dispatchEvent(new Event("cmux-ui-scale-change"));
+          }, density.scale);
+          await page.evaluate(() =>
+            document.fonts.ready.then(
+              () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+            ),
+          );
+          const m = await page.evaluate(() => {
+            const q = (selector: string) => document.querySelector(selector);
+            const rect = (node: Element | null) => {
+              if (!node) return null;
+              const r = node.getBoundingClientRect();
+              const style = getComputedStyle(node);
+              return {
+                cx: r.left + r.width / 2,
+                cy: r.top + r.height / 2,
+                right: r.right,
+                w: Number.parseFloat(style.width) || r.width,
+              };
+            };
+            const textLeft = (node: Element | null) => {
+              if (!node) return null;
+              const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+              let text: Node | null;
+              while ((text = walker.nextNode())) if ((text.textContent ?? "").trim()) break;
+              if (!text) return null;
+              const range = document.createRange();
+              range.setStart(text, 0);
+              range.setEnd(text, 1);
+              const r = range.getBoundingClientRect();
+              // The text box's start (each font's first letter has its own side bearing) and its line's centre.
+              return { left: node.getBoundingClientRect().left, cy: r.top + r.height / 2 };
+            };
+            const head = q(".acpmux-running-tray__head")!;
+            return {
+              plus: rect(q(".acpmux-composer-plus svg")),
+              goalMark: rect(q(".acpmux-goal[data-look] .acpmux-goal-mark > span")),
+              goalText: textLeft(q(".acpmux-goal[data-look] .acpmux-goal-state")),
+              goalChevron: rect(q(".acpmux-goal[data-look] .acpmux-goal-chevron > svg")),
+              goalChevronBox: rect(q(".acpmux-goal[data-look] .acpmux-goal-chevron")),
+              hatMark: rect(
+                head.querySelector(
+                  ":scope > .acpmux-lineage__icon > svg, .acpmux-running-tray__kind:first-child > svg",
+                ),
+              ),
+              hatText: textLeft(
+                head.querySelector(".acpmux-running-tray__kind-text, :scope > .acpmux-running-tray__title"),
+              ),
+              hatChevron: rect(q(".acpmux-running-tray__chevron svg")),
+              hatChevronBox: rect(q(".acpmux-running-tray__chevron")),
+              panel: rect(q(".acpmux-running-tray__open > svg")),
+            };
+          });
+          const off: string[] = [];
+          const near = (what: string, a: number | null | undefined, b: number | null | undefined, slack = 0.5) => {
+            if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a - b) > slack)
+              off.push(`${what}: ${a} vs ${b}`);
+          };
+          near("goal dot on the plan's mark", m.goalMark?.cx, m.hatMark?.cx);
+          near("goal dot on +", m.goalMark?.cx, m.plus?.cx);
+          near("goal words at the plan's", m.goalText?.left, m.hatText?.left);
+          near("goal chevron over the plan's", m.goalChevron?.cx, m.hatChevron?.cx);
+          near("goal chevron's right edge", m.goalChevron?.right, m.hatChevron?.right);
+          near("goal chevron size", m.goalChevron?.w, m.hatChevron?.w);
+          near("panel glyph size", m.panel?.w, m.hatChevron?.w);
+          near("goal dot on its first line", m.goalMark?.cy, m.goalText?.cy, 1);
+          near("goal chevron on its first line", m.goalChevron?.cy, m.goalText?.cy, 1);
+          expect(off).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      });
 });
