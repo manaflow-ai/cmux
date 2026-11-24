@@ -57,7 +57,7 @@ public final class GitHubStarPrompt {
     public func start() {
         guard observer == nil else { return }
         observer = NotificationCenter.default.addObserver(forName: .cmuxPromptSent, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.recordPromptSent() }
+            Task { @MainActor in self?.recordPromptSent() }
         }
     }
 
@@ -75,12 +75,12 @@ public final class GitHubStarPrompt {
 
     /// Shows after ``idle`` with no key, click or scroll while cmux is frontmost; each input restarts it.
     private func waitForIdle() {
-        let restart: @MainActor () -> Void = { [weak self] in
+        let restart: @MainActor @Sendable () -> Void = { [weak self] in
             guard let self else { return }
             idleTimer.schedule(after: Self.idle) { @MainActor [weak self] in self?.idleElapsed() }
         }
         activity = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) { event in
-            MainActor.assumeIsolated { restart() }
+            Task { @MainActor in restart() }
             return event
         }
         restart()
