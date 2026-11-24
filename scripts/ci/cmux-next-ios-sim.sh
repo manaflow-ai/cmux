@@ -38,7 +38,7 @@
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against the app in config= (below); with ui= and no only=, the kit run is skipped.
-#               A suite named *ColdUITests runs each of its test*Cold methods
+#               A suite named *ColdUITests or *ColdLiveUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
 #               LaunchColdLiveUITests also accepts repeatable net=lte|lossy-3|off
@@ -125,6 +125,16 @@
 #             base=SHA           the commit before the highlight (with before)
 #           The artifact whats-new-clips.zip holds only the clips folder; the
 #           media workflow's iphone-clips job fetches it.
+#   theme-relaunch [N]   (through the fleet controller: shots theme-relaunch=N, the same step)
+#           build, plus the cached Mac theme across relaunch (R&D card rc-3586df8c): mock data,
+#           setup marked complete, no Mac. One launch with no theme ever applied (the stock
+#           reference), one with `-cmux-mobile-mac-appearance mocha-wallpaper` (a dark Mac theme
+#           and a wallpaper, applied and kept as hostd's frame would be: the themed reference),
+#           then N (1-20, default 10) terminate-and-relaunch cycles with no fixture and no Mac,
+#           each a burst of screenshots from launch and a settled one, and the cache file's
+#           digest before each. ios_theme_relaunch_count.py counts the relaunches with a frame
+#           nearer the stock screen than the themed one; SUMMARY.md has "theme lost on K of N".
+#           The artifact keeps theme-relaunch/ (every frame, verdict.json).
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
 #           DerivedData. Copy the identical head benchmark test to the baseline
@@ -301,12 +311,17 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
+# theme-relaunch through the shots form too (shots theme-relaunch=N), until the controller lists it.
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == theme-relaunch=* ]]; then
+  set -- theme-relaunch "${2#theme-relaunch=}"
+  mode=theme-relaunch
+fi
 # try through the shots form too (shots try=dev), until the controller lists try.
 if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
   set -- try
   mode=try
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or try, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
 if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
 fi
@@ -325,6 +340,13 @@ appstore=0
 for scene in "${@:2}"; do
   if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; else scenes+=("$scene"); fi
 done
+theme_relaunches=10
+if [[ "$mode" == theme-relaunch ]]; then
+  [[ $# -le 2 ]] || { echo "cmux-next-ios-sim.sh: theme-relaunch takes at most one argument, the relaunch count" >&2; exit 2; }
+  if [[ $# -eq 2 ]]; then theme_relaunches="$2"; fi
+  [[ "$theme_relaunches" =~ ^([1-9]|1[0-9]|20)$ ]] ||
+    { echo "cmux-next-ios-sim.sh: theme-relaunch wants a count of 1-20, got '$theme_relaunches'" >&2; exit 2; }
+fi
 # handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
 handoff_tag=""
 if [[ "$mode" == handoff ]]; then
@@ -365,9 +387,10 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         for item in "${items[@]}"; do
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
-          # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
-          # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
-          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
+          # A suite named *ColdUITests or *ColdLiveUITests (SUITE or SUITE/test) runs each of its
+          # test*Cold methods on a freshly booted simulator, CMUX_LAUNCH_COLD_RUNS times (default 10):
+          # one cold launch per run.
+          if [[ "${item%%/*}" == *ColdUITests || "${item%%/*}" == *ColdLiveUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       duress=?*)
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
@@ -1353,7 +1376,7 @@ ui_profile_finish() {
   rm -rf "$profile_trace"
 }
 
-# Cold suites (ui=*ColdUITests): each test*Cold method of the suite, once per fresh boot of the
+# Cold suites (ui=*ColdUITests, ui=*ColdLiveUITests): each test*Cold method of the suite, once per fresh boot of the
 # UI tests' iPhone (shut down, booted, then the one test), CMUX_LAUNCH_COLD_RUNS times (default 10,
 # at most 30). The app's LAUNCHTTI lines from every run go to launch-tti.jsonl; each run's console
 # and per-test results to ui-cold/.
@@ -1849,6 +1872,66 @@ if [[ "$mode" == shots ]]; then
   done
   simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
   note "- screens: $((SECONDS - t0)) s"
+fi
+
+# --- theme-relaunch: the cached Mac theme across relaunch --------------------
+if [[ "$mode" == theme-relaunch ]]; then
+  t0=$SECONDS
+  tr_dir="$out/theme-relaunch"
+  tr_small="$work/theme-relaunch-small"
+  mkdir -p "$tr_dir" "$tr_small"
+  simctl spawn "$udid" defaults write "$bundle_id" cmuxMobile.setupComplete -bool YES
+  tr_data="$(simctl get_app_container "$udid" "$bundle_id" data)"
+  tr_cache="$tr_data/Library/Application Support/cmux-mac-appearance"
+  tr_launch() { env SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 xcrun simctl --set "$sims" launch "$udid" "$bundle_id" "$@" >/dev/null; }
+  tr_shot() { simctl io "$udid" screenshot "$1" >/dev/null 2>&1 || true; }
+  tr_digest() { if [[ -f "$tr_cache/appearance.json" ]]; then shasum -a 256 "$tr_cache/appearance.json" | awk '{ print substr($1, 1, 16) }'; else echo none; fi; }
+  note ""
+  note "## Mac theme across relaunch (mock data, no Mac)"
+  note ""
+  rm -rf "$tr_cache"
+  # The stock reference: no theme was ever applied on this install.
+  tr_launch
+  sleep 6
+  tr_shot "$tr_dir/stock.png"
+  simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  # The themed reference: a dark Mac theme with a wallpaper, applied and kept (CmuxMobileMacTheme.apply).
+  tr_launch -cmux-mobile-mac-appearance mocha-wallpaper
+  for _ in $(seq 40); do
+    [[ -f "$tr_cache/appearance.json" ]] && ls "$tr_cache"/chat-wallpaper-*.img >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+  sleep 4
+  tr_shot "$tr_dir/themed.png"
+  simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  note "- applied mocha-wallpaper; cache: appearance.json $(tr_digest), $(ls "$tr_cache" 2>/dev/null | tr '\n' ' ')"
+  launches=()
+  for i in $(seq -w 1 "$theme_relaunches"); do
+    d="$tr_dir/launch-$i"
+    mkdir -p "$d"
+    before="$(tr_digest)"
+    tr_launch
+    # The first frames: as fast as simctl takes them (about 0.2-0.4 s each), for about 4 s.
+    start=$SECONDS k=0
+    while (( SECONDS - start < 4 && k < 20 )); do
+      k=$((k + 1))
+      tr_shot "$d/f$(printf '%02d' "$k").png"
+    done
+    sleep 3
+    tr_shot "$d/settled.png"
+    simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+    note "- launch $i: cache before $before, after $(tr_digest), $k early frames"
+    launches+=("$tr_small/launch-$i")
+  done
+  # Downscaled copies for the count (pure-Python decoding of full stills is slow).
+  for f in "$tr_dir"/*.png "$tr_dir"/launch-*/*.png; do
+    rel="${f#"$tr_dir"/}"
+    mkdir -p "$tr_small/$(dirname "$rel")"
+    sips -s format png --resampleHeightWidth 160 74 "$f" --out "$tr_small/$rel" >/dev/null 2>&1 || true
+  done
+  python3 -I scripts/ci/ios_theme_relaunch_count.py --stock "$tr_small/stock.png" --themed "$tr_small/themed.png" \
+    --out "$tr_dir/verdict.json" "${launches[@]}" | tee -a "$summary" || note "- theme-relaunch: the count failed"
+  note "- theme-relaunch: $((SECONDS - t0)) s"
 fi
 
 # --- What's New clip (clips) ----------------------------------------------
