@@ -111,13 +111,22 @@ struct Parked {
     surface: Arc<Surface>,
     _guards: ReaderGuards,
     connection: Option<Connection>,
+    /// The mirror was parked with the reader: rebuilt when it reads again.
+    mirror_parked: bool,
 }
 
 impl Parked {
     fn run(mut self, mut next: Next) {
         loop {
             let connection = match next {
-                Next::Read => self.connection.take(),
+                Next::Read => {
+                    if std::mem::take(&mut self.mirror_parked)
+                        && let Some(pty) = self.surface.as_pty()
+                    {
+                        self.reader.mirror_resumed(pty);
+                    }
+                    self.connection.take()
+                }
                 Next::Connect(reader) => {
                     rehost::request_custody(&self.surface);
                     self.reader.connect(reader).ok()
@@ -132,6 +141,9 @@ impl Parked {
                         #[cfg(unix)]
                         let slot = connection.frames.consumer_slot();
                         self.connection = Some(connection);
+                        // Nobody views the terminal: its mirror parks with
+                        // the reader (surface/mirror_park.rs).
+                        self.mirror_parked = self.reader.park_mirror(pty);
                         #[cfg(unix)]
                         match slot.park(self, Parked::resume) {
                             Ok(()) => return,
@@ -191,7 +203,7 @@ impl HostedReader {
             ),
             _wake_waiting_input: WakeInputOnReaderEnd(surface.clone()),
         };
-        Parked { reader: self, surface, _guards: guards, connection: None }
+        Parked { reader: self, surface, _guards: guards, connection: None, mirror_parked: false }
             .run(Next::Connect(reader));
     }
 
