@@ -11,6 +11,7 @@ public protocol OpenAIKeyStoring: Sendable {
     func delete() throws
 }
 
+#if canImport(Security)
 /// The key in this iPhone's Keychain, one item per cmux account: a second
 /// account signed in on the same phone never calls with the first one's key.
 /// `AfterFirstUnlockThisDeviceOnly`: readable while the phone is locked (a
@@ -24,7 +25,6 @@ public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
         account = accountID
     }
 
-    #if canImport(Security)
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: Self.service,
@@ -60,18 +60,21 @@ public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
-    #else
-    // No keychain without the Security framework (a Linux build of the kit's tests): no key is kept.
-    public func load() -> String? { nil }
-    public func save(_ key: String) throws { throw KeychainError(status: -1) }
-    public func delete() throws {}
-    #endif
 
-    /// `status` is the keychain's OSStatus (Int32).
     public struct KeychainError: Error, Equatable {
-        public let status: Int32
+        public let status: OSStatus
     }
 }
+#else
+/// No Keychain off Apple platforms (the Linux test build): no key is ever stored.
+public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
+    public init(accountID: String) {}
+    public func load() -> String? { nil }
+    public func save(_ key: String) throws { throw Unavailable() }
+    public func delete() throws {}
+    public struct Unavailable: Error {}
+}
+#endif
 
 /// The key for the signed-in account as Settings and the call screen see it:
 /// whether there is one, its masked form, the newest check against OpenAI.

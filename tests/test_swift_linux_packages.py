@@ -61,8 +61,8 @@ def check_rows(failures: list[str]) -> None:
             failures.append(f"{dir_} is listed twice")
         seen.add(dir_)
         manifest = ROOT / dir_ / "Package.swift"
-        if not re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+|cmux-next-ios/CmuxMobileKit", dir_) or not manifest.is_file():
-            failures.append(f"{dir_}: not a package directory under Packages/ (or cmux-next-ios/CmuxMobileKit)")
+        if not re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or not manifest.is_file():
+            failures.append(f"{dir_}: not a package directory under Packages/")
             continue
         text = manifest.read_text()
         for target in targets:
@@ -84,7 +84,7 @@ def check_workflow(failures: list[str]) -> None:
     # manifest (scripts/ci/pr_router.json) carries its former pull_request paths.
     import json
     routed = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"].get(WORKFLOW.name, {})
-    for path in ("Packages/**", "cmux-next-ios/CmuxMobileKit/**", "scripts/ci/swift-linux-packages.txt", "scripts/ci/package-test-lane.sh"):
+    for path in ("Packages/**", "scripts/ci/swift-linux-packages.txt", "scripts/ci/package-test-lane.sh"):
         if f"- {path}" not in wf or path not in routed.get("paths", []):
             failures.append(f"{WORKFLOW.name} must run on pull requests (pr_router.json) and pushes that change {path}")
 
