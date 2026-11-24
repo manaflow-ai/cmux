@@ -71,7 +71,12 @@ export function SecretCard({
         </button>
       </div>
       <label className="acpmux-secret-card-keep">
-        <input type="checkbox" checked={keep} onChange={(event) => setKeep(event.target.checked)} />
+        <input
+          type="checkbox"
+          aria-label={t("secret.keep", { name: ask.name })}
+          checked={keep}
+          onChange={(event) => setKeep(event.target.checked)}
+        />
         <span>{t("secret.keep", { name: ask.name })}</span>
       </label>
     </form>
