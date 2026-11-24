@@ -321,8 +321,8 @@ export function ComposerContext({
   /// chooser; another machine's folders are its listed ones or a typed path.
   extraFolders?: ExtraFolderControl;
   /// Gallery and test seam: the Environment chip's control (CloudEnvironmentChip.tsx). Omitted, a new
-  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on
-  /// (composerSettings.ts `cloudEnvironments`); off, there is no chip.
+  /// chat's strip reads the account's environments itself while CLOUD_ENVIRONMENTS_ENABLED is on (the
+  /// default; composerSettings.ts `cloudEnvironments`); off, there is no chip.
   cloudEnvironment?: CloudEnvironmentControl;
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
@@ -1334,7 +1334,14 @@ function BranchPicker({ branch }: { branch: string }) {
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
-        <MenuPopup side={side} flip={flip} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup
+          side={side}
+          flip={flip}
+          anchor={anchor}
+          className="acpmux-menu acpmux-location-menu"
+          align="end"
+          resize={{ id: "composer.branch" }}
+        >
           <MenuRadioGroup value={branch} onValueChange={() => undefined}>
             <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
               <span className="acpmux-menu-text">
@@ -1705,6 +1712,7 @@ function LocationPicker({
         className="acpmux-menu acpmux-location-menu"
         side={side}
         flip={flip}
+        resize={{ id: "composer.location" }}
       >
         <Combobox
           key={addingExtra ? "extra" : "pick"}

@@ -1,10 +1,10 @@
 // Prism: a browser-as-sidebar look in Light. The window is a frame tinted in one bright "space"
-// color (a lavender here) that holds the rows vertically, the work sits in one borderless white
+// color (a pale lavender here) that holds the rows vertically, the work sits in one borderless white
 // card inset into that frame, an indigo-blue accent does selection, focus, Send and links, and
 // motion is a quick, slightly bouncy spring. Its twin is Prism Dark.
 {
   "name": "Prism",
-  "description": "Light: a lavender space-tinted frame holding the rows, a borderless white card inset in it, indigo-blue accent.",
+  "description": "Light: a pale lavender space-tinted frame holding the rows, a borderless white card inset in it, indigo-blue accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
@@ -83,9 +83,11 @@
   "appearance.metrics.dividerThickness": 0,
 
   // The frame: the space color, a little translucent so the desktop tints it, no edge line, and
-  // hairline-separated sections (pinned above, today below).
+  // hairline-separated sections (pinned above, today below). The lavender is pale (#fffdff): the app
+  // fits its muted inks to the white page, so the deeper #d4ccfb left the sidebar captions under
+  // 4.5:1 (`cmux theme check`).
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#d4ccfb",
+  "appearance.surfaces.sidebar.color": "#fffdff",
   "appearance.surfaces.sidebar.opacity": 0.86,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -107,7 +109,7 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#ffffff",
   "appearance.surfaces.markdown.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#d4ccfb",
+  "appearance.surfaces.splitDivider.color": "#fffdff",
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings and pages: the onboarding pages' white card over a pale wash of the space color.

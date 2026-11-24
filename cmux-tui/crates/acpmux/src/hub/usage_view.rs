@@ -4,21 +4,27 @@
 //! A pass reads every Claude Code and Codex chat that is open or changed in the
 //! last day, on one blocking thread, from where the last pass ended. It finds them among the
 //! live chats and the kept list order's rows of the last day (`list_order.rs`), never by a walk
-//! of every chat: a god daemon's 110,000 closed chats cost a first pass 161 ms. Nothing
-//! watches the files and no timer runs: a session list that asks for usage
-//! (`usage: true`: `acpmux ls --wide`, `--json`) or an info read starts a pass at
-//! most every [`REFRESH_EVERY_MS`] (sooner when a turn ended since), and a turn's
-//! end reads its own chat only; one pass at a time. A plain list reads nothing,
-//! and its rows carry what the last pass found. Only the list waits for its pass,
-//! at most [`READ_WAIT`]. A pass ends when every chat's
-//! new lines are read (at most 64 MiB a file); nothing outlives it but each
-//! chat's offsets and minute buckets, and a closed or purged chat's go on the
-//! next pass.
+//! of every chat: a god daemon's 110,000 closed chats cost a first pass 161 ms. No timer runs:
+//! a session list that asks for usage (`usage: true`: `acpmux ls --wide`, `--json`, Session
+//! Info's usage read) or an info read starts a pass at most every [`REFRESH_EVERY_MS`] (sooner
+//! when a turn ended or a transcript changed since), and a turn's end reads its own chat only;
+//! one pass at a time. A plain list reads nothing, and its rows carry what the last pass found.
+//!
+//! What a pass found is kept in a tag cache (`cmux-tag-cache`, hq#13932), keyed by the chat and
+//! tagged with it ([`UsageTag::Chat`], invalidated by its turn's end) and its harness transcript
+//! ([`UsageTag::Transcript`], invalidated by the chat index's file watch when it sees the file
+//! change). A read serves what is cached, fresh or stale, at once, and the pass that brings it up
+//! to date runs behind it (stale-while-revalidate, one at a time): only a read before any whole
+//! pass finished waits for one, at most [`READ_WAIT`]. A pass ends when every chat's new lines
+//! are read (at most 64 MiB a file); nothing outlives it but each chat's offsets, minute buckets
+//! and stats, and a closed or purged chat's go on the next pass.
 
 use super::{Hub, Session};
 use crate::protocol::session::UsageStats;
 use crate::store::{SessionMeta, SessionStatus};
-use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
+use crate::usage_stats::{DAY_MS, HOUR_MS, Models, Source, Tracker};
+use cmux_chat_index::{AdapterKind, ChatChange, ChatKey};
+use cmux_tag_cache::{Stamp, TagCache};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,50 +35,213 @@ use std::time::Duration;
 pub const RECORD_KIND: &str = "usage_stats";
 /// The least time between the starts of two passes a read starts.
 const REFRESH_EVERY_MS: u64 = 5_000;
-/// How long a session list or info read waits for its pass; past that it
-/// answers with the last pass's stats and the pass ends on its own.
-pub(crate) const READ_WAIT: Duration = Duration::from_millis(750);
+/// How long a read before any whole pass finished waits for one; past that it answers with
+/// what is cached and the pass ends on its own.
+const READ_WAIT: Duration = Duration::from_millis(750);
+/// How many chats' stats are kept: a pass reads the live chats and those of the last day.
+const USAGE_ENTRIES: usize = 16_384;
 
-#[derive(Default)]
+/// What a chat's stats were read from: an invalidation of either leaves them stale.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum UsageTag {
+    /// The acpmux chat, by id: its turn ended.
+    Chat(String),
+    /// Its harness's transcript, by the chat index's key: the file watch saw it change.
+    Transcript(ChatKey),
+}
+
+/// Each chat's last stats, in the tag cache, and the ids written (the cache has no walk; a
+/// whole pass's prune walks these).
+pub(crate) struct UsageStatsCache {
+    cache: TagCache<String, UsageStats, UsageTag>,
+    keys: HashSet<String>,
+}
+
+impl Default for UsageStatsCache {
+    fn default() -> Self {
+        Self { cache: TagCache::new(USAGE_ENTRIES), keys: HashSet::new() }
+    }
+}
+
+impl UsageStatsCache {
+    /// The chat's stats, fresh or stale: a read draws what is cached.
+    pub(crate) fn get(&self, id: &str) -> Option<&UsageStats> {
+        self.cache.get(id).value()
+    }
+
+    /// The chat's stats only while no tag of theirs was invalidated since they were read.
+    #[cfg(test)]
+    pub(crate) fn fresh(&self, id: &str) -> Option<&UsageStats> {
+        self.cache.get(id).fresh()
+    }
+
+    pub(crate) fn invalidate(&mut self, tag: UsageTag) {
+        self.cache.invalidate(tag);
+    }
+
+    /// Writes `stats` for `id` as of `read`, a stamp taken before they were read.
+    fn insert_at(&mut self, id: String, stats: UsageStats, tags: Vec<UsageTag>, read: Stamp) {
+        self.keys.insert(id.clone());
+        self.cache.insert_at(id, stats, tags, read);
+    }
+
+    /// Drops `id`'s stats; whether any were kept.
+    fn remove(&mut self, id: &str) -> bool {
+        self.keys.remove(id);
+        self.cache.remove(id).is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_for_test(&mut self, id: &str, stats: UsageStats) {
+        let tags = vec![UsageTag::Chat(id.to_owned())];
+        let now = self.cache.stamp();
+        self.insert_at(id.to_owned(), stats, tags, now);
+    }
+}
+
+/// The chat index's key of a source's transcript: what its file watch names.
+fn transcript_key(source: &Source) -> Option<ChatKey> {
+    let harness = match source.family.as_str() {
+        "claude" => AdapterKind::ClaudeCode,
+        "codex" => AdapterKind::Codex,
+        _ => return None,
+    };
+    Some(ChatKey { harness, session_id: source.agent_session_id.clone() })
+}
+
 pub(crate) struct UsageCache {
     trackers: Arc<StdMutex<HashMap<String, Tracker>>>,
-    stats: Arc<StdMutex<HashMap<String, UsageStats>>>,
+    pub(crate) stats: Arc<StdMutex<UsageStatsCache>>,
     /// Held for a pass, with when the last one started: a read that comes
     /// meanwhile waits for it instead of reading the stats it is about to replace.
     pass: tokio::sync::Mutex<u64>,
-    /// A turn ended since the last pass began: the next read reads, however soon.
+    /// A turn ended or a transcript changed since the last pass began: the next read reads,
+    /// however soon.
     dirty: AtomicBool,
+    /// A whole pass finished: a read serves the cache from then on, and never waits.
+    warm: Arc<AtomicBool>,
+    /// A pass started behind a read is queued or running: another read starts none.
+    behind: AtomicBool,
     /// How many whole passes ran, and how many chats the last one read: a gate's timed pass is
     /// one that ran, over the sources it says.
     #[cfg(test)]
     passes: std::sync::atomic::AtomicU64,
     #[cfg(test)]
     sources_read: std::sync::atomic::AtomicUsize,
+    /// How long each pass's read takes on top of its own (a slow reader's stub).
+    #[cfg(test)]
+    read_delay_ms: std::sync::atomic::AtomicU64,
 }
 
-/// Drops the trackers and stats of chats not in `sources` (a whole pass's chats): closed a day
-/// ago or purged. A chat still listed keeps what the last pass found until a pass finds more.
+impl Default for UsageCache {
+    fn default() -> Self {
+        Self {
+            trackers: Arc::default(),
+            stats: Arc::new(StdMutex::new(UsageStatsCache::default())),
+            pass: tokio::sync::Mutex::new(0),
+            dirty: AtomicBool::new(false),
+            warm: Arc::new(AtomicBool::new(false)),
+            behind: AtomicBool::new(false),
+            #[cfg(test)]
+            passes: Default::default(),
+            #[cfg(test)]
+            sources_read: Default::default(),
+            #[cfg(test)]
+            read_delay_ms: Default::default(),
+        }
+    }
+}
+
+impl UsageCache {
+    fn stats(&self) -> std::sync::MutexGuard<'_, UsageStatsCache> {
+        self.stats.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+/// Drops the trackers and stats ids of chats not in `sources` (a whole pass's chats): closed a
+/// day ago or purged. A chat still listed keeps what the last pass found until a pass finds more.
 /// Returns the chats whose stats went. A set of the listed ids: one lookup per chat, where a
 /// walk of every source per chat cost N x N (~9 million compares with 3,000 chats).
-pub(super) fn prune_unlisted<T, S>(
+pub(super) fn prune_unlisted<T>(
     trackers: &mut HashMap<String, T>,
-    stats: &mut HashMap<String, S>,
+    stats: &HashSet<String>,
     sources: &[(String, Source)],
 ) -> Vec<String> {
     let listed: HashSet<&str> = sources.iter().map(|(s, _)| s.as_str()).collect();
     trackers.retain(|id, _| listed.contains(id.as_str()));
-    let mut gone = Vec::new();
-    stats.retain(|id, _| {
-        let keep = listed.contains(id.as_str());
-        if !keep {
-            gone.push(id.clone());
-        }
-        keep
-    });
-    gone
+    stats.iter().filter(|id| !listed.contains(id.as_str())).cloned().collect()
 }
 
 impl Hub {
+    /// The usage read of a session list or row read that asks for usage (`usage: true`, Session
+    /// Info's usage read): what is cached is served at once, and a pass, when one is due, runs
+    /// behind it. Only a read before any whole pass finished waits for its pass, at most
+    /// [`READ_WAIT`].
+    pub(crate) async fn read_usage_for_list(self: &Arc<Self>) {
+        if !self.usage_stats.warm.load(Ordering::SeqCst) {
+            let _ = tokio::time::timeout(READ_WAIT, self.refresh_usage_stats()).await;
+            return;
+        }
+        self.revalidate_usage();
+    }
+
+    /// Starts a pass behind the read, unless one is queued or running: it runs only when due
+    /// ([`Self::refresh_usage_stats`]).
+    pub(crate) fn revalidate_usage(self: &Arc<Self>) {
+        if self.usage_stats.behind.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let hub = self.clone();
+        self.scope.spawn_named("usage-revalidate", async move {
+            hub.refresh_usage_stats().await;
+            hub.usage_stats.behind.store(false, Ordering::SeqCst);
+        });
+    }
+
+    /// Follows the chat index's changes (`chats/watch.rs`, its file watch): a Claude Code or
+    /// Codex transcript that changed leaves its chat's stats stale, and the next read starts a
+    /// pass however soon. Ends with the index.
+    pub(crate) fn watch_usage_transcripts(self: &Arc<Self>, service: &crate::chats::ChatService) {
+        let mut changes = service.subscribe();
+        let hub = Arc::downgrade(self);
+        self.scope.spawn_until_cancelled("usage-transcripts", async move {
+            loop {
+                let batch = changes.recv().await;
+                let Some(hub) = hub.upgrade() else { return };
+                match batch {
+                    Ok(batch) => hub.usage_transcripts_changed(batch.iter().map(|c| &c.change)),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        hub.usage_stats.dirty.store(true, Ordering::SeqCst);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+    }
+
+    /// Invalidates the transcript tag of each changed Claude Code or Codex chat: one write each.
+    pub(crate) fn usage_transcripts_changed<'a>(
+        &self,
+        changes: impl Iterator<Item = &'a ChatChange>,
+    ) {
+        let mut any = false;
+        let mut stats = self.usage_stats.stats();
+        for change in changes {
+            let key = match change {
+                ChatChange::Upsert { chat } => chat.entry.key(),
+                ChatChange::Removed { key } => key.clone(),
+            };
+            if matches!(key.harness, AdapterKind::ClaudeCode | AdapterKind::Codex) {
+                stats.invalidate(UsageTag::Transcript(key));
+                any = true;
+            }
+        }
+        drop(stats);
+        if any {
+            self.usage_stats.dirty.store(true, Ordering::SeqCst);
+        }
+    }
+
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
     /// the last few seconds and no turn ended since.
     pub(crate) async fn refresh_usage_stats(&self) {
@@ -156,6 +325,8 @@ impl Hub {
     /// Reads one chat's usage and leaves it to run: its turn ended, so its spend changed. The
     /// next list that asks for usage reads too, however soon, so it never misses this turn.
     pub(crate) fn refresh_usage_stats_of(self: &Arc<Self>, session: &Arc<Session>) {
+        // Its stats are stale until this read writes them: one write, whatever is cached.
+        self.usage_stats.stats().invalidate(UsageTag::Chat(session.id.clone()));
         self.usage_stats.dirty.store(true, Ordering::SeqCst);
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
@@ -184,34 +355,55 @@ impl Hub {
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
+        #[cfg(test)]
+        let delay = Duration::from_millis(cache.read_delay_ms.load(Ordering::SeqCst));
+        let warm = cache.warm.clone();
         let pass = tokio::task::spawn_blocking(move || {
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
+            // Taken before the files are read: a turn's end or a transcript change meanwhile
+            // leaves what this read writes stale (`TagCache::insert_at`).
+            let read_at = stats.lock().unwrap_or_else(|e| e.into_inner()).cache.stamp();
+            #[cfg(test)]
+            std::thread::sleep(delay);
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
                 let tracker = trackers.entry(id.clone()).or_default();
                 if let Some(found) = tracker.refresh(source, crate::store::now_ms(), &models) {
-                    fresh.push((id.clone(), found));
+                    let mut tags = vec![UsageTag::Chat(id.clone())];
+                    tags.extend(transcript_key(source).map(UsageTag::Transcript));
+                    fresh.push((id.clone(), found, tags));
                 }
             }
             let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
             let same = |a: &UsageStats, b: &UsageStats| {
-                UsageStats { updated_at: 0, ..a.clone() }
-                    == UsageStats { updated_at: 0, ..b.clone() }
+                a.updated_at / HOUR_MS == b.updated_at / HOUR_MS
+                    && UsageStats { updated_at: 0, ..a.clone() }
+                        == UsageStats { updated_at: 0, ..b.clone() }
             };
-            let changed: Vec<(String, UsageStats)> = fresh
+            let changed: Vec<String> = fresh
                 .iter()
-                .filter(|(id, new)| stats.get(id).is_none_or(|old| !same(old, new)))
-                .cloned()
+                .filter(|(id, new, _)| stats.get(id).is_none_or(|old| !same(old, new)))
+                .map(|(id, _, _)| id.clone())
                 .collect();
             let mut gone = Vec::new();
             if whole {
-                gone = prune_unlisted(&mut *trackers, &mut *stats, &sources);
+                gone = prune_unlisted(&mut *trackers, &stats.keys, &sources);
+                gone.retain(|id| stats.remove(id));
             }
             // A turn's own read announces its chat's whether or not a list's pass read the
             // turn first, so every turn's end is followed by its usage.
-            let announce = if whole { Vec::new() } else { fresh.clone() };
-            stats.extend(fresh);
-            let changed: Vec<String> = changed.into_iter().map(|(id, _)| id).chain(gone).collect();
+            let announce: Vec<(String, UsageStats)> = if whole {
+                Vec::new()
+            } else {
+                fresh.iter().map(|(id, found, _)| (id.clone(), found.clone())).collect()
+            };
+            for (id, found, tags) in fresh {
+                stats.insert_at(id, found, tags, read_at);
+            }
+            if whole {
+                warm.store(true, Ordering::SeqCst);
+            }
+            let changed: Vec<String> = changed.into_iter().chain(gone).collect();
             (changed, announce)
         });
         let Ok((changed, announce)) = pass.await else { return };
@@ -235,8 +427,8 @@ impl Hub {
     /// The last pass's stats for a chat, with what the hub itself knows over them:
     /// the window its harness reported, and the background subagents it follows.
     pub(super) fn usage_stats_of(&self, session: &Session, m: &SessionMeta) -> Option<UsageStats> {
-        let stats = self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stats = stats.get(&m.id).cloned()?;
+        // Fresh or stale: a stale entry is drawn at once while the pass behind the read reads it.
+        let mut stats = self.usage_stats.stats().get(&m.id).cloned()?;
         let size = m.usage.as_ref().and_then(|u| u.get("size")).and_then(Value::as_u64);
         if let Some(size) = size.filter(|s| *s > 0) {
             stats.context_window = Some(size);
@@ -288,6 +480,11 @@ impl Hub {
         (copied_us, live_us, candidates.len())
     }
 
+    /// Each pass's read takes `ms` longer from now on.
+    pub(crate) fn slow_usage_reads_for_test(&self, ms: u64) {
+        self.usage_stats.read_delay_ms.store(ms, Ordering::SeqCst);
+    }
+
     /// How many whole passes ran, and how many chats the last one read.
     pub(crate) fn usage_passes_for_test(&self) -> (u64, usize) {
         let cache = &self.usage_stats;
@@ -303,7 +500,7 @@ mod tests;
 impl Hub {
     /// Sets `id`'s stats as a pass that found them does: kept, and its row told changed.
     pub(crate) fn set_usage_stats_for_test(&self, id: &str, stats: UsageStats) {
-        self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner()).insert(id.into(), stats);
+        self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner()).insert_for_test(id, stats);
         if let Some(session) = self.session_by_id(id) {
             self.events.row_changed(&session);
         }
