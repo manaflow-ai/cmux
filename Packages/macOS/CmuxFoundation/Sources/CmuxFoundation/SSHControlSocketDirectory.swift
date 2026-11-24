@@ -23,11 +23,20 @@ enum SSHControlSocketDirectory {
     ///
     /// - Returns: The directory, or `nil` when it is shared, can't be created,
     ///   or can't go into a `ControlPath` verbatim.
-    static func prepare(home: String, userID: Int) -> String? {
+    ///
+    /// - Parameter namespace: The cmux build these sockets belong to, from ``appNamespace()``.
+    ///   `nil` is the release app, which keeps `<home>/.cmux/ssh` itself; any other build gets
+    ///   a subdirectory of its own.
+    static func prepare(home: String, userID: Int, namespace: String? = nil) -> String? {
         guard home.hasPrefix("/") else { return nil }
         let cmuxDirectory = (home as NSString).appendingPathComponent(".cmux")
-        let socketDirectory = (cmuxDirectory as NSString).appendingPathComponent("ssh")
-        for directory in [cmuxDirectory, socketDirectory] {
+        let sharedDirectory = (cmuxDirectory as NSString).appendingPathComponent("ssh")
+        var directories = [cmuxDirectory, sharedDirectory]
+        if let namespace {
+            directories.append((sharedDirectory as NSString).appendingPathComponent(directoryName(for: namespace)))
+        }
+        let socketDirectory = directories[directories.count - 1]
+        for directory in directories {
             if mkdir(directory, 0o700) != 0, errno != EEXIST { return nil }
         }
         guard let resolvedPointer = realpath(socketDirectory, nil) else { return nil }
@@ -35,6 +44,57 @@ enum SSHControlSocketDirectory {
         free(resolvedPointer)
         guard isUsable(resolved), isPrivate(resolved, userID: userID) else { return nil }
         return resolved
+    }
+
+    /// The release app's bundle identifier. Its sockets stay where they have always been.
+    static let releaseBundleIdentifier = "com.cmuxterm.app"
+
+    /// Which cmux build this process belongs to, or `nil` for the release app.
+    ///
+    /// The release app, a nightly and tagged development builds can run side by side, and each
+    /// opens `cmux ssh` connections to the same hosts. With one directory, `%C` gave them the same
+    /// master. On a host that allows one session per connection (`MaxSessions 1`), whichever build
+    /// opened it holds its only session, and the other builds' connections are refused
+    /// ("Session open refused by peer"). Measured: a second build's `cmux ssh` failed outright
+    /// while the first build's workspace was open.
+    ///
+    /// The app knows its bundle. The bundled CLI does not, since `Bundle.main` has no identifier
+    /// for a command-line tool, so it reads the identifier of the app its executable sits in. The
+    /// two then agree on the directory.
+    static func appNamespace(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        executableURL: URL? = Bundle.main.executableURL
+    ) -> String? {
+        let identifier = bundleIdentifier ?? executableURL.flatMap(enclosingAppBundleIdentifier)
+        guard let identifier, !identifier.isEmpty, identifier != releaseBundleIdentifier else { return nil }
+        return identifier
+    }
+
+    /// The bundle identifier of the `.app` that contains `executableURL`, following symlinks so a
+    /// linked `cmux` on PATH resolves to the app it came from.
+    static func enclosingAppBundleIdentifier(_ executableURL: URL) -> String? {
+        var url = executableURL.resolvingSymlinksInPath()
+        while url.pathComponents.count > 1 {
+            url.deleteLastPathComponent()
+            if url.pathExtension == "app" {
+                return Bundle(url: url)?.bundleIdentifier
+            }
+        }
+        return nil
+    }
+
+    /// A short, fixed-length directory name for a namespace, so a long tag cannot push the socket
+    /// path past the AF_UNIX limit. Eight hex characters: the nested directory costs nine bytes of
+    /// a 103-byte path that already holds a 40-character socket name and OpenSSH's 17-byte bind
+    /// suffix. A home too long to fit the extra bytes shares no connections, as one too long for
+    /// the shared directory already does.
+    static func directoryName(for namespace: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in namespace.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return String(format: "%08llx", hash & 0xffff_ffff)
     }
 
     /// Whether `path` can go into a `ControlPath` and a shell pattern

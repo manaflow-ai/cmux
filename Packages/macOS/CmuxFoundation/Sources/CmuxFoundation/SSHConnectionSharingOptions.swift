@@ -67,13 +67,16 @@ public struct SSHConnectionSharingOptions: Sendable {
     ]
 
     /// Creates an option merger for the current local user, creating
-    /// `~/.cmux/ssh` if needed.
+    /// `~/.cmux/ssh` if needed. A cmux build other than the release app gets
+    /// its own subdirectory, so builds running side by side never share a
+    /// master (see ``SSHControlSocketDirectory/appNamespace(bundleIdentifier:executableURL:)``).
     public init() {
         let userID = Int(getuid())
         self.userID = userID
         self.controlSocketDirectoryPath = SSHControlSocketDirectory.prepare(
             home: NSHomeDirectory(),
-            userID: userID
+            userID: userID,
+            namespace: SSHControlSocketDirectory.appNamespace()
         )
         self.authenticationLockDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
     }
