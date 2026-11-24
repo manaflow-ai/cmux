@@ -375,7 +375,7 @@ export function useInlineAttachments(options: Options) {
       if (before !== shape) changed = dom;
     }
     shapes.current = next;
-    changed?.dispatchEvent(new CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
+    changed?.dispatchEvent(new window.CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
   }, [views, options.pending, options.attachments]);
 
   const chips = [...views].map(([id, dom]) =>

@@ -110,25 +110,41 @@ function canDraw(): boolean {
   return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
 }
 
+async function decodeFile(file: Blob): Promise<ImageBitmap | undefined> {
+  if (!canDraw()) return undefined;
+  // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
+  // it goes as a file, linked or uploaded, which the agent opens itself.
+  // One whose size cannot be read is not decoded either: it may be any size. A picture the engine
+  // converts (an iPhone's HEIC, TIFF, BMP, AVIF) has no header read here: past a file size no
+  // phone photo reaches, it goes as a file.
+  if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
+  const size = await imageSize(file);
+  if (size && (size.width === undefined || size.height === undefined)) return undefined;
+  if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
+    return undefined;
+  return createImageBitmap(file);
+}
+
+/// A local file's display thumbnail. Only the small canvas result crosses back to the composer.
+export async function fileThumbnail(file: Blob): Promise<Thumb | undefined> {
+  const bitmap = await decodeFile(file);
+  if (!bitmap) return undefined;
+  try {
+    return await drawThumb(bitmap);
+  } finally {
+    bitmap.close();
+  }
+}
+
 /// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
 /// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
 /// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
-  if (!canDraw()) return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
-    // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
-    // it goes as a file, linked or uploaded, which the agent opens itself.
-    // One whose size cannot be read is not decoded either: it may be any size. A picture the engine
-    // converts (an iPhone's HEIC, TIFF, BMP, AVIF) has no header read here: past a file size no
-    // phone photo reaches, it goes as a file.
-    if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
-    const size = await imageSize(file);
-    if (size && (size.width === undefined || size.height === undefined)) return undefined;
-    if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
-      return undefined;
-    bitmap = await createImageBitmap(file);
+    bitmap = await decodeFile(file);
+    if (!bitmap) return undefined;
     const fitted = await fit(bitmap, file.type);
     if (!fitted) return undefined;
     const thumb = await drawThumb(bitmap);

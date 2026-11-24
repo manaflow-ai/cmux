@@ -9,11 +9,14 @@ import { Dialog } from "../../../ui/Dialog";
 import { inlineCopyParent, thumbnail, type ComposerAttachment } from "../attachments";
 
 import { ImageViewerContext } from "../conversation/imageViewerContext";
+import { readLinkedImage } from "../chips/host";
+import { linkedImagePath } from "../conversation/userBubbleModel";
 import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
-import { keptThumb } from "./imagePool";
+import { keptThumb, localImagePreview } from "./imagePool";
+import type { Thumb } from "./imageWork";
 import { useStripReorder } from "./stripReorder";
 
 import { SourceBadge } from "./SourceBadge";
@@ -428,13 +431,37 @@ function AttachmentChipPreview({
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
   const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name, attachment.video);
-  const isImage = attachment.kind === "image" && Boolean(attachment.data);
+  // Disk images send as links. Only their mounted chip requests a preview.
+  const path =
+    attachment.kind === "link" && !attachment.saved && attachment.path?.startsWith("/")
+      ? linkedImagePath({ path: attachment.path, mimeType: attachment.mimeType })
+      : undefined;
+  const fresh = attachment[localImagePreview];
+  const [linkedPreview, setLinkedPreview] = useState<{ path: string; src?: string; thumb?: Thumb }>();
+  useEffect(() => {
+    if (!path) return;
+    let showing = true;
+    const preview = fresh
+      ? fresh().then((thumb) => ({ path, src: thumb?.url, thumb }))
+      : readLinkedImage(path).then((src) => ({ path, src }));
+    void preview.then((result) => {
+      if (showing) setLinkedPreview(result);
+    });
+    return () => {
+      showing = false;
+    };
+  }, [path, fresh]);
+  const drawn = path && linkedPreview?.path === path ? linkedPreview : undefined;
+  const pathPreview = drawn?.src;
+  const displayedThumb = drawn?.thumb ?? thumb;
+  const embeddedImage = attachment.kind === "image" && Boolean(attachment.data);
+  const isImage = embeddedImage || Boolean(pathPreview);
   const image = isImage && !broken;
-  const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
+  const source = image ? (pathPreview ?? `data:${attachment.mimeType};base64,${attachment.data}`) : undefined;
   // A pasted image's name is WebKit's "image.png": show what it is instead (imageLabel.ts).
   const pasted = attachment.kind === "pasted";
   const name = isImage
-    ? imageLabel(t, { name: attachment.name, ...(thumb ?? size) })
+    ? imageLabel(t, { name: attachment.name, ...(displayedThumb ?? size) })
     : pasted
       ? t(ATTACHMENT_LABELS.pastedText)
       : attachment.name;
@@ -490,6 +517,41 @@ function AttachmentChipPreview({
       {chip}
     </ContextMenu>
   );
+  const open =
+    openImage && (source || (fresh && path))
+      ? () => {
+          // A fresh thumbnail is cropped. The viewer asks for the full image only on an explicit open.
+          if (fresh && path) {
+            void readLinkedImage(path).then((full) => {
+              const expanded = full ?? source;
+              if (expanded) openImage(expanded, name, path);
+            });
+          } else if (source) openImage(source, name, path);
+        }
+      : undefined;
+  if (path && !pathPreview && (!drawn || fresh)) {
+    return menu(
+      open,
+      <div
+        className="acpmux-attachment acpmux-attachment-image"
+        /* tooltip-allow: the image tile shows its glyph while its preview loads */ title={withSourceLabel(name, from)}
+      >
+        {open ? (
+          <button
+            type="button"
+            className="acpmux-attachment-open"
+            aria-label={t(ATTACHMENT_LABELS.openAttachment, { name })}
+            onClick={open}
+          >
+            <ImageIcon size={16} />
+          </button>
+        ) : (
+          <ImageIcon size={16} />
+        )}
+        {remove}
+      </div>,
+    );
+  }
   if (image && source) {
     const img = (
       <img
@@ -497,29 +559,29 @@ function AttachmentChipPreview({
         // A drag moves the chip along the strip (stripReorder.ts), never the picture out as a file.
         draggable={false}
         // Its thumbnail's shape before it decodes, so the chip is its final width from its first frame.
-        style={imageShape(thumb)}
-        src={thumb?.url ?? source}
+        style={imageShape(displayedThumb)}
+        src={displayedThumb?.url ?? source}
         onError={() => setBroken(true)}
         onLoad={(event) => {
           const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
           // An image that decodes to no pixels draws nothing: it failed too.
           if (!width || !height) setBroken(true);
-          else if (!thumb) setSize({ width, height });
+          else if (!displayedThumb) setSize({ width, height });
         }}
       />
     );
     return menu(
-      openImage ? () => openImage(source, name) : undefined,
+      open,
       <div
         className="acpmux-attachment acpmux-attachment-image"
         /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(name, from)}
       >
-        {openImage ? (
+        {open ? (
           <button
             type="button"
             className="acpmux-attachment-open"
             aria-label={t(ATTACHMENT_LABELS.openAttachment, { name })}
-            onClick={() => openImage(source, name)}
+            onClick={open}
           >
             {img}
           </button>
@@ -540,7 +602,7 @@ function AttachmentChipPreview({
   }
   // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
   // file name; its × still removes it.
-  if (isImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
+  if (embeddedImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
   // A huge paste (pastedText.ts): a compact chip that opens its whole text, Edit in Prompt and Keep
   // as .txt in the opened view (PastedTextChip.tsx). Its menu keeps both too.
   if (pasted) {

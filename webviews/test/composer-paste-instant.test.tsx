@@ -682,7 +682,7 @@ test("a send resumed after its screenshot asks the hold again as a late check", 
   await paste([shot.file]);
   act(() => composer.current!.restore("open Notes with @computer-use", [], true));
   act(() => {
-    composer.current!.send();
+    host.querySelector<HTMLButtonElement>(".acpmux-send")!.click();
   });
   // Computer Use stops while the screenshot is still being read.
   ready = false;

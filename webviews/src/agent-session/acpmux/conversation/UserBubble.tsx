@@ -67,7 +67,7 @@ import {
   sentImageWidth,
   sentImageSize,
 } from "./userBubbleModel";
-import { callChipHost } from "../chips/host";
+import { readLinkedImage } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
 
@@ -541,10 +541,7 @@ function SentLinkedImage({
 }) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
-  const read = useCallback(async () => {
-    const reply = (await callChipHost("image.load", { src: path })) as { src?: unknown } | undefined;
-    return typeof reply?.src === "string" && reply.src.startsWith("data:image/") ? reply.src : undefined;
-  }, [path]);
+  const read = useCallback(() => readLinkedImage(path), [path]);
   if (scope?.host !== undefined || readOnly) return <>{chip}</>;
   return (
     <SentImage
