@@ -14,6 +14,16 @@
     "hybrid.waiting.label": {"comment":"Agent pane, the cloud button's visible name while every slot is taken and this chat waits for one","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"في انتظار خانة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka mjesto"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på en plads"}},"de":{"stringUnit":{"state":"needs_review","value":"Wartet auf Platz"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for a Slot"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando un hueco"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente d’une place"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di un posto"}},"ja":{"stringUnit":{"state":"needs_review","value":"スロット待ち"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំកន្លែង"}},"ko":{"stringUnit":{"state":"needs_review","value":"슬롯 대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på en plass"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czeka na miejsce"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando uma vaga"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидает места"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอช่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yer bekleniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікує місця"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ chỗ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待位置"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待位置"}}}},
     "hybrid.pin.local.help": {"comment":"Agent pane, the three-state cloud control: tooltip of the Only on This Mac choice","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعمل دائمًا على هذا الـ Mac. تتوقف مؤقتًا عند سكونه."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uvijek radi na ovom Macu. Pauzira se kada on spava."}},"da":{"stringUnit":{"state":"needs_review","value":"Kører altid på denne Mac. Sættes på pause, når den sover."}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft immer auf diesem Mac. Pausiert, wenn er schläft."}},"en":{"stringUnit":{"state":"translated","value":"Always runs on this Mac. Pauses when it sleeps."}},"es":{"stringUnit":{"state":"needs_review","value":"Siempre se ejecuta en este Mac. Se pausa cuando entra en reposo."}},"fr":{"stringUnit":{"state":"needs_review","value":"S’exécute toujours sur ce Mac. Se met en pause quand il est en veille."}},"it":{"stringUnit":{"state":"needs_review","value":"Viene sempre eseguita su questo Mac. Va in pausa quando è in stop."}},"ja":{"stringUnit":{"state":"needs_review","value":"常にこのMacで実行します。スリープ中は一時停止します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការលើ Mac នេះជានិច្ច។ ផ្អាកនៅពេលវាដេក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"항상 이 Mac에서 실행됩니다. 잠자기 상태에서는 일시 정지됩니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører alltid på denne Macen. Settes på pause når den sover."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zawsze działa na tym Macu. Wstrzymuje się, gdy on śpi."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sempre é executada neste Mac. Pausa quando ele entra em repouso."}},"ru":{"stringUnit":{"state":"needs_review","value":"Всегда работает на этом Mac. Приостанавливается, когда он спит."}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานบน Mac เครื่องนี้เสมอ หยุดชั่วคราวเมื่อพักเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Her zaman bu Mac’te çalışır. Mac uyuduğunda duraklar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Завжди працює на цьому Mac. Призупиняється, коли він спить."}},"vi":{"stringUnit":{"state":"needs_review","value":"Luôn chạy trên máy Mac này. Tạm dừng khi máy ngủ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"始终在这台 Mac 上运行。睡眠时暂停。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一律在這台 Mac 上執行。睡眠時暫停。"}}}},
     "hybrid.pin.cloud.help": {"comment":"Agent pane, the three-state cloud control: tooltip of the Only in Cloud choice","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعمل دائمًا على السحابة وتحجز خانة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uvijek radi u oblaku i zauzima jedno mjesto."}},"da":{"stringUnit":{"state":"needs_review","value":"Kører altid i skyen og optager en plads."}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft immer in der Cloud und belegt einen Platz."}},"en":{"stringUnit":{"state":"translated","value":"Always runs in Cloud and holds a slot."}},"es":{"stringUnit":{"state":"needs_review","value":"Siempre se ejecuta en la nube y ocupa un hueco."}},"fr":{"stringUnit":{"state":"needs_review","value":"S’exécute toujours dans le cloud et occupe une place."}},"it":{"stringUnit":{"state":"needs_review","value":"Viene sempre eseguita nel cloud e occupa un posto."}},"ja":{"stringUnit":{"state":"needs_review","value":"常にクラウドで実行し、スロットを1つ使います。"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការលើ Cloud ជានិច្ច ហើយកាន់កន្លែងមួយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"항상 클라우드에서 실행되며 슬롯 하나를 사용합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører alltid i skyen og opptar en plass."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zawsze działa w chmurze i zajmuje jedno miejsce."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sempre é executada na nuvem e ocupa uma vaga."}},"ru":{"stringUnit":{"state":"needs_review","value":"Всегда работает в облаке и занимает одно место."}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานบนคลาวด์เสมอและใช้หนึ่งช่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Her zaman bulutta çalışır ve bir yer tutar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Завжди працює у хмарі та займає одне місце."}},"vi":{"stringUnit":{"state":"needs_review","value":"Luôn chạy trên đám mây và giữ một chỗ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"始终在云端运行，占用一个位置。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一律在雲端執行，佔用一個位置。"}}}},
+    "githubConnect.notConnected": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"bs":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"da":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"de":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"en":{"stringUnit":{"state":"translated","value":"GitHub isn't connected for this chat"}},"es":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"it":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"km":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"ko":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"nb":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"th":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"tr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"uk":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"vi":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}}}},
+    "githubConnect.notConnectedRepo": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line; {repo} is the repository the call named, OWNER/REPO","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"bs":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"da":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"de":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"en":{"stringUnit":{"state":"translated","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"es":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"fr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"it":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"ja":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"km":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"ko":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"nb":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"pl":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"ru":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"th":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"tr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"uk":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"vi":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}}}},
+    "githubConnect.needsReauth": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line when the connection must be linked again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"bs":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"da":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"de":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"en":{"stringUnit":{"state":"translated","value":"This chat's GitHub connection needs connecting again"}},"es":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"fr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"it":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"ja":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"km":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"ko":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"nb":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"pl":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"ru":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"th":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"tr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"uk":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"vi":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}}}},
+    "githubConnect.notCovered": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line when the connection leaves the repository out","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"bs":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"da":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"de":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"en":{"stringUnit":{"state":"translated","value":"This chat's GitHub connection doesn't include this repository"}},"es":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"fr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"it":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"ja":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"km":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"ko":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"nb":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"pl":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"ru":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"th":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"tr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"uk":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"vi":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include this repository"}}}},
+    "githubConnect.notCoveredRepo": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line when the connection leaves the repository out; {repo} is OWNER/REPO","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"bs":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"da":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"de":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"en":{"stringUnit":{"state":"translated","value":"This chat's GitHub connection doesn't include {repo}"}},"es":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"fr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"it":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"ja":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"km":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"ko":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"nb":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"pl":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"ru":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"th":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"tr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"uk":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"vi":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection doesn't include {repo}"}}}},
+    "githubConnect.connect": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's one button","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"bs":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"da":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"de":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"en":{"stringUnit":{"state":"translated","value":"Connect GitHub"}},"es":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"fr":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"it":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"ja":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"km":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"ko":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"nb":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"pl":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"ru":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"th":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"tr":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"uk":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"vi":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Connect GitHub"}}}},
+    "githubConnect.finishOnGitHub": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): after the tap, while GitHub's page is open","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"bs":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"da":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"de":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"en":{"stringUnit":{"state":"translated","value":"Finish on GitHub. This chat goes on when you're back"}},"es":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"fr":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"it":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"ja":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"km":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"ko":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"nb":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"pl":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"ru":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"th":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"tr":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"uk":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"vi":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Finish on GitHub. This chat goes on when you're back"}}}},
+    "githubConnect.continuing": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card sent the chat's Continue after the person came back","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"da":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"de":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"en":{"stringUnit":{"state":"translated","value":"Back from GitHub. Continuing…"}},"es":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"it":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"ja":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"km":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"ko":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"th":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Back from GitHub. Continuing…"}}}},
+    "githubConnect.notRun": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the app did not run Connect GitHub and gave no reason","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"bs":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"da":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"de":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"en":{"stringUnit":{"state":"translated","value":"Connect GitHub didn't start"}},"es":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"fr":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"it":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"ja":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"km":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"ko":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"nb":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"pl":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"ru":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"th":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"tr":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"uk":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"vi":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Connect GitHub didn't start"}}}},
+    "githubConnect.tryAgain": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the button after Connect GitHub did not start","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Try again"}},"bs":{"stringUnit":{"state":"needs_review","value":"Try again"}},"da":{"stringUnit":{"state":"needs_review","value":"Try again"}},"de":{"stringUnit":{"state":"needs_review","value":"Try again"}},"en":{"stringUnit":{"state":"translated","value":"Try again"}},"es":{"stringUnit":{"state":"needs_review","value":"Try again"}},"fr":{"stringUnit":{"state":"needs_review","value":"Try again"}},"it":{"stringUnit":{"state":"needs_review","value":"Try again"}},"ja":{"stringUnit":{"state":"needs_review","value":"Try again"}},"km":{"stringUnit":{"state":"needs_review","value":"Try again"}},"ko":{"stringUnit":{"state":"needs_review","value":"Try again"}},"nb":{"stringUnit":{"state":"needs_review","value":"Try again"}},"pl":{"stringUnit":{"state":"needs_review","value":"Try again"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Try again"}},"ru":{"stringUnit":{"state":"needs_review","value":"Try again"}},"th":{"stringUnit":{"state":"needs_review","value":"Try again"}},"tr":{"stringUnit":{"state":"needs_review","value":"Try again"}},"uk":{"stringUnit":{"state":"needs_review","value":"Try again"}},"vi":{"stringUnit":{"state":"needs_review","value":"Try again"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Try again"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Try again"}}}},
     "turn.live.retry.outage.dns": {"comment":"Agent pane: the live line while the model API cannot be resolved by DNS. {host} is the host (Can't reach api.anthropic.com (DNS) · retrying (3 of 10) · retrying in 45s)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"bs":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"da":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"de":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"en":{"stringUnit":{"state":"translated","value":"Can't reach {host} (DNS)"}},"es":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"fr":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"it":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"ja":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"km":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"ko":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"nb":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"pl":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"ru":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"th":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"tr":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"uk":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"vi":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Can't reach {host} (DNS)"}}}},
     "turn.live.retry.outage.host": {"comment":"Agent pane: the live line while the model API cannot be connected to (refused, timed out, unreachable). {host} is the host","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"en":{"stringUnit":{"state":"translated","value":"Can't reach {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"km":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Can't reach {host}"}}}},
     "turn.live.retry.outage.theApi": {"comment":"Agent pane: stands for the host when the error names none, in 'Can't reach the API'","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"the API"}},"bs":{"stringUnit":{"state":"needs_review","value":"the API"}},"da":{"stringUnit":{"state":"needs_review","value":"the API"}},"de":{"stringUnit":{"state":"needs_review","value":"the API"}},"en":{"stringUnit":{"state":"translated","value":"the API"}},"es":{"stringUnit":{"state":"needs_review","value":"the API"}},"fr":{"stringUnit":{"state":"needs_review","value":"the API"}},"it":{"stringUnit":{"state":"needs_review","value":"the API"}},"ja":{"stringUnit":{"state":"needs_review","value":"the API"}},"km":{"stringUnit":{"state":"needs_review","value":"the API"}},"ko":{"stringUnit":{"state":"needs_review","value":"the API"}},"nb":{"stringUnit":{"state":"needs_review","value":"the API"}},"pl":{"stringUnit":{"state":"needs_review","value":"the API"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"the API"}},"ru":{"stringUnit":{"state":"needs_review","value":"the API"}},"th":{"stringUnit":{"state":"needs_review","value":"the API"}},"tr":{"stringUnit":{"state":"needs_review","value":"the API"}},"uk":{"stringUnit":{"state":"needs_review","value":"the API"}},"vi":{"stringUnit":{"state":"needs_review","value":"the API"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"the API"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"the API"}}}},
@@ -433122,6 +433132,798 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在等待連結…"
+          }
+        }
+      }
+    },
+    "cloudSetup.steps.account": {
+      "comment": "Agent pane: first Cloud send's setup strip, the step that signs in to a cmux account",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入"
+          }
+        }
+      }
+    },
+    "cloudSetup.steps.plan": {
+      "comment": "Agent pane: first Cloud send's setup strip, the step that picks a Cloud plan",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abonnement"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarif"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forfait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요금제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abonnement"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тариф"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แผน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тариф"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gói"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        }
+      }
+    },
+    "cloudSetup.steps.model": {
+      "comment": "Agent pane: first Cloud send's setup strip, the step that connects a model subscription or key",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النموذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        }
+      }
+    },
+    "cloudSetup.steps.progress": {
+      "comment": "Agent pane: first Cloud send's setup strip, its accessible name and caption; {step} is the current step's number, {total} how many there are",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخطوة {step} من {total}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korak {step} od {total}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trin {step} af {total}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritt {step} von {total}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step {step} of {total}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paso {step} de {total}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étape {step} sur {total}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passaggio {step} di {total}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ {step}/{total}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំហាន {step} នៃ {total}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{total}단계 중 {step}단계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trinn {step} av {total}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krok {step} z {total}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etapa {step} de {total}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаг {step} из {total}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขั้นตอนที่ {step} จาก {total}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adım {step}/{total}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крок {step} з {total}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bước {step}/{total}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 {step} 步，共 {total} 步"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 {step} 步，共 {total} 步"
+          }
+        }
+      }
+    },
+    "cloudSetup.signIn.body": {
+      "comment": "Agent pane: first Cloud send's sign-in card, under Set up Cloud: why the person signs in",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول لتشغيل هذه المحادثة على جهاز Cloud."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavite se da biste pokrenuli ovaj chat na Cloud mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind for at køre denne chat på en Cloud-maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um diesen Chat auf einer Cloud-Maschine auszuführen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to run this chat on a Cloud machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión para ejecutar este chat en una máquina de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour exécuter ce chat sur une machine Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi per eseguire questa chat su una macchina Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットを Cloud マシンで実行するにはサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូល ដើម្បីដំណើរការការជជែកនេះលើម៉ាស៊ីន Cloud។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅을 Cloud 머신에서 실행하려면 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på for å kjøre denne chatten på en Cloud-maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się, aby uruchomić ten czat na maszynie Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre para executar este chat em uma máquina do Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите, чтобы запустить этот чат на машине Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้เพื่อเรียกใช้แชทนี้บนเครื่อง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbeti bir Cloud makinesinde çalıştırmak için oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть, щоб запустити цей чат на машині Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập để chạy cuộc trò chuyện này trên máy Cloud."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录后即可在 Cloud 机器上运行此聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入後即可在 Cloud 機器上執行此聊天。"
+          }
+        }
+      }
+    },
+    "cloudSetup.keepsPrompt": {
+      "comment": "Agent pane: first Cloud send's setup cards: the person's message is kept and sends by itself after the last setup step",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُرسل رسالتك تلقائيًا عند الانتهاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša poruka se šalje sama kada završite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din besked sendes af sig selv, når du er færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Nachricht wird von selbst gesendet, sobald du fertig bist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your message sends by itself when you're done."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu mensaje se envía solo cuando termines."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre message part tout seul une fois terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo messaggio viene inviato da solo quando hai finito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了するとメッセージは自動で送信されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាររបស់អ្នកនឹងផ្ញើដោយខ្លួនឯង នៅពេលអ្នករួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료하면 메시지가 자동으로 전송됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldingen din sendes av seg selv når du er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja wiadomość wyśle się sama, gdy skończysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua mensagem é enviada sozinha quando você terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение отправится само, когда вы закончите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความของคุณจะส่งเองเมื่อคุณทำเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşiniz bitince mesajınız kendiliğinden gönderilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повідомлення надішлеться само, коли ви закінчите."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn của bạn sẽ tự gửi khi bạn xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成后，你的消息会自动发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成後，你的訊息會自動傳送。"
           }
         }
       }
