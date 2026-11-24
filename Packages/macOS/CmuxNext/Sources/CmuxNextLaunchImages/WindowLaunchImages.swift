@@ -13,8 +13,11 @@ import CmuxNextWakeups
 /// pruning are the store's (stub-decision.md 8). This type only reads the window state AppKit owns,
 /// runs the capture call and hands the bytes over. Incognito windows are never captured.
 @MainActor
-final class WindowLaunchImages {
-    private weak var manager: WindowManager?
+public final class WindowLaunchImages {
+    /// The windows the store keeps: open and not incognito, by id (the app's window manager).
+    private let liveWindows: @MainActor () -> [(id: String, window: NSWindow)]
+    /// True once the app is quitting: no new captures but the quit's own.
+    private let isTerminating: @MainActor () -> Bool
     private let work: BackgroundWork
     private let record: AppLaunchRecord
     /// `<support>/launch-images`, nil with no bundle id (as the launch record). Lives as long as the app.
@@ -26,13 +29,15 @@ final class WindowLaunchImages {
     private var observers: [NSObjectProtocol] = []
 
     /// The system's appearance, as stage 0 reads it before the app sets its own (`LaunchShell.prepare`).
-    static var systemIsDark: Bool {
+    public static var systemIsDark: Bool {
         if NSApp.appearance == nil { return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
         return UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     }
 
-    init(manager: WindowManager?, work: BackgroundWork, record: AppLaunchRecord, bundleID: String?) {
-        self.manager = manager
+    public init(windows: @escaping @MainActor () -> [(id: String, window: NSWindow)], isTerminating: @escaping @MainActor () -> Bool,
+                work: BackgroundWork, record: AppLaunchRecord, bundleID: String?) {
+        liveWindows = windows
+        self.isTerminating = isTerminating
         self.work = work
         self.record = record
         build = LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:])
@@ -58,14 +63,7 @@ final class WindowLaunchImages {
 
     private static var nowMs: UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
 
-    /// The windows the store keeps: open, not incognito.
-    private var windows: [(id: String, window: NSWindow)] {
-        guard let manager else { return [] }
-        return manager.controllers.compactMap { controller in
-            guard let window = controller.window, !manager.isIncognito(window: controller.state.id) else { return nil }
-            return (controller.state.id, window)
-        }
-    }
+    private var windows: [(id: String, window: NSWindow)] { liveWindows() }
 
     private func schedule(_ id: String) -> OpaquePointer? {
         if let schedule = schedules[id] { return schedule }
@@ -80,8 +78,8 @@ final class WindowLaunchImages {
 
     /// A frame, theme, workspace, tab or visibility change (each record save, the launch settle):
     /// every window notes it, and the timer waits for the first one due.
-    func windowsChanged() {
-        guard directory != nil, manager?.isTerminating == false else { return }
+    public func windowsChanged() {
+        guard directory != nil, !isTerminating() else { return }
         let now = Self.nowMs
         let live = windows
         for (id, window) in live {
@@ -122,7 +120,7 @@ final class WindowLaunchImages {
 
     /// The quit: every shown window changed since its last capture (or never captured) is captured
     /// now, before the launch record's last write.
-    func captureForQuit() async {
+    public func captureForQuit() async {
         guard directory != nil else { return }
         timer.cancel()
         var captures: [Task<Void, Never>] = []
@@ -134,7 +132,7 @@ final class WindowLaunchImages {
     }
 
     /// A window the person closed: its images go with it (stub-decision.md 8).
-    func windowClosed(_ id: String) {
+    public func windowClosed(_ id: String) {
         forget(id)
         guard let directory else { return }
         record.setImage(nil, forWindow: id)

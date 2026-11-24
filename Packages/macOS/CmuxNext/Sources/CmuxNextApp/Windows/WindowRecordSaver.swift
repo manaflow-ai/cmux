@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLaunchImages
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextControl
@@ -53,8 +54,12 @@ final class WindowRecordSaver {
             self?.host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
         })
     /// Each window's last frame for the next launch's stage 0 (`WindowLaunchImages`).
-    private(set) lazy var launchImages = WindowLaunchImages(manager: owner, work: work, record: launchRecord,
-                                                            bundleID: host?.environment.launch.bundleID)
+    private(set) lazy var launchImages = WindowLaunchImages(
+        windows: { [weak self] in // open, not incognito
+            guard let owner = self?.owner else { return [] }
+            return owner.controllers.compactMap { c in c.window.flatMap { owner.isIncognito(window: c.state.id) ? nil : (c.state.id, $0) } }
+        }, isTerminating: { [weak self] in self?.owner?.isTerminating ?? true },
+        work: work, record: launchRecord, bundleID: host?.environment.launch.bundleID)
     /// Every window's layout, for the next launch to draw already placed.
     private(set) lazy var layoutCache = LayoutCacheWriter(bundleID: host?.environment.launch.bundleID, work: work,
         restored: { [weak self] in self?.host?.windows.restored ?? false }, snapshot: { [weak self] in self?.host?.layoutCacheJSON() })
