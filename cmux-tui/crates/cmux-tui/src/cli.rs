@@ -99,6 +99,8 @@ mod cloud_machines;
 #[cfg(unix)]
 mod cloud_pause_all;
 #[cfg(unix)]
+mod cloud_preflight;
+#[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
@@ -1036,6 +1038,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
+        .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
@@ -1052,6 +1055,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| chat_start::hybrid_start::run_if_requested(args))
         .or_else(|| cloud_agent::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
