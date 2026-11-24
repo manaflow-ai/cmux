@@ -4071,6 +4071,65 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(live(2, 0, 2, variable="blacksmith-12vcpu-macos-26").persistent)
         self.assertFalse(live(2, 0, 2, ios_version="26.4").persistent)
         self.assertFalse(live(2, 0, 2, fork=True).persistent)
+        # Without the slots label on a sim-first runner the build never leaves the pool.
+        self.assertEqual(json.loads(route.build_runs_on), [MINI, IOS_SIM])
+
+    def test_live_free_counts_simulator_slots_per_mini(self):
+        def runner(host, k, *labels, busy=False):
+            return {"name": f"{host}-glaeda" + (f"-{k}" if k else ""), "status": "online", "busy": busy,
+                    "labels": [{"name": label} for label in labels]}
+
+        slots2 = "glaeda-sim-slots-2"
+        # mini-a advertises two slots on one of its runners; mini-b none (one slot).
+        runners = [runner("mini-a", 0, MINI, IOS_SIM, slots2), runner("mini-a", 1, MINI, IOS_SIM),
+                   runner("mini-b", 0, MINI, IOS_SIM)]
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=8).sim, 3)
+        # The capacity entry still caps the simulator jobs at once.
+        self.assertEqual(ios_pool.live_free(runners, MINI, [], now=NOW, capacity=2).sim, 2)
+        # Without any slots label: one per mini, as before.
+        plain = [runner("mini-a", 0, MINI, IOS_SIM), runner("mini-a", 1, MINI, IOS_SIM),
+                 runner("mini-b", 0, MINI, IOS_SIM)]
+        self.assertEqual(ios_pool.live_free(plain, MINI, [], now=NOW, capacity=8).sim, 2)
+        # One simulator job running on mini-a leaves its second slot free.
+        title = "iOS tests · main · simulator · all · iphone · default · on auto"
+        run = {"id": 7, "display_title": title, "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+        picker = {"name": "runner", "status": "completed", "conclusion": "success",
+                  "labels": ["blacksmith-4vcpu-ubuntu-2404"]}
+        jobs = {7: [picker, {"name": "ios-simulator-build", "status": "completed", "conclusion": "success",
+                             "labels": [MINI, IOS_SIM], "runner_name": "mini-b-glaeda"},
+                    {"name": "ios-simulator (iphone)", "status": "in_progress", "labels": [MINI, IOS_SIM],
+                     "runner_name": "mini-a-glaeda-1"}]}
+        placed = ios_pool.Placements(frozenset({7}))
+        busy = [runner("mini-a", 0, MINI, IOS_SIM, slots2), runner("mini-a", 1, MINI, IOS_SIM, busy=True),
+                runner("mini-b", 0, MINI, IOS_SIM)]
+        self.assertEqual(ios_pool.live_free(busy, MINI, [run], now=NOW, capacity=8, jobs=jobs,
+                                            placements=placed).sim, 2)
+        self.assertEqual(ios_pool.live_free(plain, MINI, [run], now=NOW, capacity=8, jobs=jobs,
+                                            placements=placed).sim, 1)
+        # A mini with a free slot stays listed for the sim-first route while one of its simulator jobs runs.
+        first = self.sim_first_runner("mini-a", label=self.SIM_FIRST)
+        first["labels"].append({"name": slots2})
+        free = ios_pool.live_free(busy + [first], MINI, [run], now=NOW, capacity=8, jobs=jobs,
+                                  placements=placed, sim_first_label=self.SIM_FIRST)
+        self.assertEqual(free.sim_first, 1)
+        self.assertEqual(ios_pool.sim_slots({"labels": [{"name": "glaeda-sim-slots-0"}]}), None)
+        self.assertEqual(ios_pool.sim_slots({"labels": [{"name": IOS_SIM}]}), None)
+
+    def test_a_build_on_the_sim_first_label_holds_a_slot(self):
+        title = "iOS tests · main · simulator · all · iphone · default · on auto"
+        run = {"id": 7, "display_title": title, "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+        picker = {"name": "runner", "status": "completed", "conclusion": "success",
+                  "labels": ["blacksmith-4vcpu-ubuntu-2404"]}
+        placed = ios_pool.Placements(frozenset({7}))
+        running = [picker, {"name": "ios-simulator-build", "status": "in_progress", "labels": [self.SIM_FIRST],
+                            "runner_name": "mini-a-glaeda-3"}]
+        held = ios_pool.hold(run, running, MINI, placed, NOW)
+        # Its matrix still reads sim_runs_on, so it is charged a pool machine (Build placement).
+        self.assertEqual((held.machines, held.sims, held.sim_jobs_on), (1, 1, ("mini-a",)))
+        # A failed build there means no simulator matrix will follow.
+        failed = [picker, {"name": "ios-simulator-build", "status": "completed", "conclusion": "failure",
+                           "labels": [self.SIM_FIRST]}]
+        self.assertEqual(ios_pool.hold(run, failed, MINI, placed, NOW), ios_pool.Hold())
 
     def test_build_route_takes_the_sim_first_label_for_an_owned_test_ios_run(self):
         # 2026-11-17: cmux#44053's ios-simulator-build (job 133824519208) queued from 04:44Z on
