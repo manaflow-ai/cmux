@@ -35,12 +35,25 @@ async fn stage_history(
     id: &str,
     through: &Value,
 ) -> (Value, String) {
+    stage_history_for(src, dst, id, through, Value::Null).await
+}
+
+/// [`stage_history`] staged under `control` (`peer`, `web`, or Null for none), as a cmux
+/// daemon's `agent-transfer-stage` stages it under its receive guard's control.
+async fn stage_history_for(
+    src: &mut TestClient,
+    dst: &mut TestClient,
+    id: &str,
+    through: &Value,
+    control: Value,
+) -> (Value, String) {
     let have =
         dst.request("_acpmux/transfer_history_have", json!({"sessionId": id})).await.unwrap();
     let ask = json!({"sessionId": id, "throughSeq": through, "have": have["have"]});
     let export = src.request("_acpmux/transfer_history_export", ask).await.unwrap();
     assert_eq!(export["afterSeq"], *through, "{export}");
-    let staged = dst.request("_acpmux/transfer_stage", json!({"manifest": export})).await.unwrap();
+    let ask = json!({"manifest": export, "control": control});
+    let staged = dst.request("_acpmux/transfer_stage", ask).await.unwrap();
     let stage_id = staged["stageId"].as_str().unwrap().to_owned();
     let sent = page(src, dst, &export, &stage_id).await;
     assert_eq!(sent, export["packed"]["bundleBytes"].as_u64().unwrap(), "{export}");
@@ -301,4 +314,58 @@ async fn the_freeze_of_a_history_later_move_does_not_grow_with_the_log() {
         large.carried,
         large.log_bytes,
     );
+}
+
+/// A history staged under a guard's control arrives rewritten for it, as the guarded receive
+/// rewrites the tail (`transfer_guard.rs` `guarded_record`): every turn of the history that
+/// followed runs under the target's control, not the source's.
+#[tokio::test]
+async fn a_history_staged_under_a_guard_arrives_rewritten_for_it() {
+    let (dirs, mut src, mut dst) = two_local().await;
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for n in 0..3 {
+        src.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), "hi")).await.unwrap();
+    }
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-last", "last")).await.unwrap();
+    let ask = json!({"sessionId": id, "historyLater": {"keepTurns": 1}});
+    let prepared = src.request("_acpmux/transfer_prepare", ask).await.unwrap();
+    let through = prepared["afterSeq"].clone();
+    let staged =
+        dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.unwrap();
+    let stage_id = staged["stageId"].as_str().unwrap().to_owned();
+    page(&mut src, &mut dst, &prepared, &stage_id).await;
+    dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.unwrap();
+    move_staged(&mut src, &mut dst, &id, &prepared, &stage_id, false).await;
+
+    let (_, history) = stage_history_for(&mut src, &mut dst, &id, &through, json!("web")).await;
+    let arrived = dst
+        .request("_acpmux/transfer_history", json!({"sessionId": id, "stageId": history}))
+        .await
+        .unwrap();
+    assert_eq!(arrived["throughSeq"], through, "{arrived}");
+
+    let through = through.as_u64().unwrap();
+    let page = dst
+        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+        .await
+        .unwrap();
+    let started: Vec<&Value> = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["seq"].as_u64().unwrap() <= through && e["kind"] == "turn_started")
+        .collect();
+    assert_eq!(started.len(), 3, "{page}");
+    for e in started {
+        assert_eq!(
+            (&e["msg"]["control"], &e["msg"]["trustGate"]),
+            (&json!("web"), &json!(true)),
+            "{e}"
+        );
+    }
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
