@@ -35,6 +35,7 @@ mod settled_attach;
 mod settled_attach_tests;
 mod successor;
 mod time_breakdown_gate;
+pub(super) use time_breakdown_gate::without as without_time_breakdown;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
@@ -3664,7 +3665,7 @@ async fn dispatch_request_with_identity(
                     "readThrough": read_through,
                     "hold": true,
                 });
-                time_breakdown_gate::apply(&mut reply, &params);
+                time_breakdown_gate::apply(&mut reply, &params, conn);
                 return Ok(reply);
             }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
@@ -3714,7 +3715,7 @@ async fn dispatch_request_with_identity(
                     if let Some(mut reply) =
                         crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
                     {
-                        time_breakdown_gate::apply(&mut reply, &params);
+                        time_breakdown_gate::apply(&mut reply, &params, conn);
                         return Ok(reply);
                     }
                     Some(key)
@@ -3781,7 +3782,7 @@ async fn dispatch_request_with_identity(
                 reply["settled"] = Value::Null;
                 hub.settle_view_for_open(&s, key);
             }
-            time_breakdown_gate::apply(&mut reply, &params);
+            time_breakdown_gate::apply(&mut reply, &params, conn);
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -4685,6 +4686,9 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // (`peer_text.rs`) knows a summary only whole, so a masked peer always gets whole rows.
     conn.session_delta
         .store(super::session_patch::allowed(params, conn.raw_text), Ordering::SeqCst);
+    // Opt-in too (`time_breakdown_gate.rs`): a client that does not ask keeps every breakdown.
+    let omit = params.pointer("/_meta/acpmux/omitTimeBreakdown").and_then(Value::as_bool);
+    conn.omit_time_breakdown.store(omit == Some(true), Ordering::SeqCst);
     *conn.sent_rows.lock_or_recover() = Default::default();
 }
 

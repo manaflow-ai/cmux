@@ -362,6 +362,11 @@ PARTS = [
     # frame p95/p99, input to paint, caret lag, dropped keys, stray layout shift and blank frames per input class
     # (webui.power_user.*). Its own part, under the 30-minute run cap.
     {"name": "web-ui-power-user", "where": "linux", "kind": "webui", "needs": "web-ui-power-user"},
+    # A settled page after a chat or workspace switch (webviews/bench/settled-page.bench.ts, goal settled-page-ceiling,
+    # Leo 2026-11-21: "reach a settled page (zero layout shift after first paint, streaming included) within 2x of a
+    # derived bound"): webui.settled_page.score_max is NOW's settled_page_score_max. The suite marks it ownPart, so the
+    # web-ui part never ran it and the row read unknown. Its own part, about 3 minutes.
+    {"name": "web-ui-settled", "where": "linux", "kind": "webui", "needs": "web-ui-settled"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -434,6 +439,7 @@ ROW_PARTS = [
     (r"^webui\.orchestrator\.", "web-ui-orchestrator"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.power_user\.", "web-ui-power-user"),
+    (r"^webui\.settled_page\.", "web-ui-settled"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
@@ -1275,6 +1281,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-power-user":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-settled":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "settled-page"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
@@ -2487,6 +2495,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-power-user":
             ok = has_path(sha, f"{POWER_USER_BENCH}")
+        elif need == "web-ui-settled":
+            ok = has_path(sha, f"{SETTLED_PAGE_BENCH}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "web-ui-memory":
@@ -2593,6 +2603,7 @@ CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 ORCHESTRATOR_BENCH = "webviews/bench/orchestrator-16.bench.ts"
 # The web-ui-power-user part's adapter around the power-user input stress harness.
 POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
+SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"

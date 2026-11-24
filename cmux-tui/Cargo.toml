@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-terminal-host-protocol",
     "crates/acpmux-tui",
     "crates/cmux-egress",
     "crates/acpmux-core",
@@ -157,6 +158,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
+    "crates/cmux-pane-pictures",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -309,6 +311,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
+    "crates/cmux-pane-pictures",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -469,6 +472,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }
