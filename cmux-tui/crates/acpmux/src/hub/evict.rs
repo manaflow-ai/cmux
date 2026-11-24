@@ -288,13 +288,20 @@ impl Hub {
         // A chat this reaper tried within the last idle period and could not evict waits out that
         // period: else the same kept chats fill every batch, `more_due` stays set and the reaper
         // runs pass after pass at once (98.8% CPU, 374 wakeups/s idle at n=1,000).
-        let due: Vec<Arc<Session>> = self
+        let mut due: Vec<Arc<Session>> = self
             .session_handles()
             .into_iter()
             .filter(|s| s.evict_tried_at.load(Ordering::Relaxed).saturating_add(after) <= now)
             .filter(|s| self.evictable(s, now, after))
-            .take(EVICT_AT_ONCE)
             .collect();
+        // The least recently tried go first (never tried: 0), so more than a batch of kept
+        // chats cannot take every batch from the chats behind them in the map's order.
+        if due.len() > EVICT_AT_ONCE {
+            due.select_nth_unstable_by_key(EVICT_AT_ONCE, |s| {
+                s.evict_tried_at.load(Ordering::Relaxed)
+            });
+            due.truncate(EVICT_AT_ONCE);
+        }
         let full = due.len() == EVICT_AT_ONCE;
         // Each handle moves into `evict`: a clone kept here would count as a third holder. Each
         // is marked tried first; one that leaves takes the mark with it.
