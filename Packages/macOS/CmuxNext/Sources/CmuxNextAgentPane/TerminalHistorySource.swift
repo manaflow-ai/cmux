@@ -25,7 +25,7 @@ package nonisolated struct TerminalHistorySource: Equatable, Sendable {
     }
 
     @MainActor
-    package func page(environment: AcpmuxEnvironment?, host: any AgentPaneHostProviding) -> PageWebView {
+    package func page(environment: AcpmuxEnvironment?, host: any AgentPaneHostProviding) -> PageWebView? {
         let provider = TerminalHistoryBridge(source: self, environment: environment, host: host)
         let descriptor = PageDescriptor(id: "cmux.terminal-history", resource: "terminal-history",
                                         namespaces: [TerminalHistoryBridge.namespace], ownsSearchField: true,

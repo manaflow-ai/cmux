@@ -151,7 +151,7 @@ extension WebPageTab {
             return
         }
         let key = LocalPageTab.makeKey(id), services = pane.services
-        tab.views.bind(source.page(environment: QuitAgents.environment(services), host: services.agentTabs.localSessionHost ?? services.agentTabs.host), to: key, route: source.key)
+        guard tab.views.bind(source.page(environment: QuitAgents.environment(services), host: services.agentTabs.localSessionHost ?? services.agentTabs.host), to: key, route: source.key) else { return }
         pages.open(id, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                    window: services.windowController(showing: pane), key: key)
         pane.apply(pane.snapshot())

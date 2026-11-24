@@ -56,8 +56,7 @@ package final class TerminalHistoryButton: NSButton {
         // In a narrow split use the same action's glyph and accessibility label.
         let label = (fullTitle as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)])
         let compact = room < label.width + 40
-        let position: NSCell.ImagePosition = compact ? .imageOnly : .imageLeading
-        if imagePosition != position { imagePosition = position }
+        if (imagePosition == .imageOnly) != compact { imagePosition = compact ? .imageOnly : .imageLeading }
         if title != fullTitle { title = fullTitle }
         let size = intrinsicContentSize
         let width = min(room, size.width)

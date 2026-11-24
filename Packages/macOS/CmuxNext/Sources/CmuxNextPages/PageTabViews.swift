@@ -12,9 +12,11 @@ package final class PageTabViews {
         self.make = make
     }
 
-    package func bind(_ view: PageWebView, to key: String, route: String) {
+    package func bind(_ view: PageWebView?, to key: String, route: String) -> Bool {
+        guard let view else { return false }
         localPages[key] = view
         routes[key] = route
+        return true
     }
 
     package func view(for key: String) -> NSView {
