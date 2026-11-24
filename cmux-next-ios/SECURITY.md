@@ -508,7 +508,8 @@ from the admitted `wg-init` / `wg-resp` exchange.
   allocation, and the dial goes on without that path.
 - **TURN credentials** come only from `/v1/ice` (short-lived Cloudflare TURN
   credentials, 1 h), never stored, and are the same ones WebRTC uses.
-- **The TeamHub carries no data.** It drops every binary frame and answers
+- **The TeamHub carries no data** (the session's WebSocket relay, below, is a
+  separate object). It drops every binary frame and answers
   `relay_retired` at most once per socket and session every 5 s, naming the
   session. It still admits and forwards signals only between the two
   devices of a session (or to a Mac of the sender's own user), now including
@@ -533,6 +534,45 @@ from the admitted `wg-init` / `wg-resp` exchange.
 | Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
 | Mutates or destroys objects the session does not own? | No. A `wg-endpoints` signal is admitted only within its session and changes only that session's candidate addresses. |
 | Reads local state the remote should not see? | No. The TURN server and the backend see ciphertext and addresses, as with TURN over UDP and the retired relay. |
+
+## Link transport: the WebSocket relay on cmux's host (API 0.17.0, `cnx-link-https-relay`)
+
+The last way a WireGuard link reaches the Mac (PROTOCOL.md "WebSocket
+relay"): WireGuard datagrams in WebSocket messages on the mobile Worker's own
+host, for networks that block UDP and every TURN host, or let only real HTTPS
+through. Like TURN it adds a way for ciphertext to travel, not a way into the
+Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/phone-link-https-relay.md).
+
+- **Confidentiality and integrity stay end to end.** The relay forwards
+  WireGuard datagrams it cannot decrypt or forge: the tunnel accepts only
+  what authenticates under the session's keys from the admitted `wg-init` /
+  `wg-resp` exchange. The Worker sees what a TURN operator sees: ciphertext,
+  sizes, timing, plus the two device ids it already knows from signaling.
+- **Who can join.** Only a device that the caller's own hub (one per user and
+  build space) bound to that session at its first admitted signal, with that
+  user's Stack token; a third device of the same user, another user, or a
+  session id no signal opened gets `403`. Each device gets one socket (a
+  newer join replaces it). The object is named by the verified owner key,
+  space and session id, so two users or two dev builds never share one.
+- **No impersonation.** The relay overwrites the frame's peer field with the
+  sender's authenticated device id; a receiving side drops frames that name
+  anyone but its session's peer. Frames go only to the other party's socket.
+- **Route confirmation stays in the tunnel.** `reach` still travels inside
+  WireGuard, so the relay can never confirm a route (the retired relay's
+  marker was authenticated only by the backend, which is why it went).
+- **Bounded.** Frames are 16 KiB at most, `datagrams` only, rate limited per
+  socket; the object keeps no storage. `LINK_RELAY_MODE=off` refuses every
+  join (`503 relay_off`); clients then fall back to their other paths and
+  report the relay as off.
+- **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator
+  `CMUX_MOBILE_DEV_FORCE_RELAY`) only narrows the phone's own paths, like
+  Block UDP.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
+| Mutates or destroys objects the session does not own? | No. A join admits only the session's two devices, and a `wg-relay` signal is admitted only within its session. |
+| Reads local state the remote should not see? | No. The Worker sees ciphertext, sizes and the two device ids, as TURN sees ciphertext and addresses. |
 
 ## Media lane: browser video as RTP (WebRTC track or WireGuard UDP)
 
