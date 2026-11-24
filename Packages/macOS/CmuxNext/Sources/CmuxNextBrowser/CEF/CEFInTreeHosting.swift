@@ -347,7 +347,7 @@ final class CEFInTreeHosting {
         if fullScreenTransition { return nil }
         if liveResize { return liveResizeWaitMs }
         if windowResized { return Int32(max(8, refreshMs.rounded(.up))) }
-        return Int32(max(1, (refreshMs * CEFResizeSyncDeadline.frameShare).rounded(.down)))
+        return nil // RED ONLY: an in-window resize waits for nothing (65b2c165's rule, before f383c3b7)
     }
 
     /// Gives the page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of the
