@@ -12,7 +12,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
@@ -3171,6 +3171,59 @@ open(out, 'w').write(json.dumps(seen))
       rmSync(home, { recursive: true, force: true });
     }
   });
+  // The same fake, but it stays for the first prompt and accepts it, as acpmux's queue_prompt does.
+  const FAKE_ACPMUX_PROMPT = `import json, os, socket, sys
+path, out, accept = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
+s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1)
+c, _ = s.accept(); f = c.makefile('r'); seen = []
+def send(m): c.sendall((json.dumps(m) + '\\n').encode())
+for line in f:
+    m = json.loads(line); seen.append(m)
+    if m['method'] == 'session/prompt':
+        if accept:
+            send({'jsonrpc': '2.0', 'method': '_acpmux/prompt_accepted', 'params': {'sessionId': 's-1', 'promptId': m['params']['_meta']['acpmux']['promptId']}})
+        else:
+            send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'no'}})
+        break
+    send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-1'} if m['method'] == 'session/new' else {}})
+open(out, 'w').write(json.dumps(seen))
+`;
+  const runPrompted = (accept: boolean) => {
+    const home = mkdtempSync("/tmp/jp-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_PROMPT);
+      const token = "sk-ant-oat01-journeystub-abc123";
+      const prompt = "Say \"hi\" and it's done";
+      const program = launchCredentialStartProgram("journey-jr-1", "claude/claude-sonnet-5-5", "CLAUDE_CODE_OAUTH_TOKEN", token, prompt);
+      expect(program.split("\n")[0]).not.toContain(token);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json ${accept ? 1 : 0} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      return { r, prompt, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+  test("with a first prompt, the start sends it on the same link after session/new and waits for acpmux to take it", { timeout: 30_000 }, () => {
+    const { r, prompt, seen } = runPrompted(true);
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.stdout).toContain("@@prompted");
+    expect(r.status).toBe(0);
+    expect(seen.map((m: any) => m.method)).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(seen[2].params.sessionId).toBe("s-1");
+    expect(seen[2].params.prompt).toEqual([{ type: "text", text: prompt }]);
+    expect(seen[2].params._meta.acpmux).toMatchObject({ steer: false, resend: false });
+    expect(seen[2].params._meta.acpmux.promptId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+  test("a refused first prompt is a red after the session started, never a second start", { timeout: 30_000 }, () => {
+    const { r, seen } = runPrompted(false);
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.stdout).toContain("@@noprompt");
+    expect(r.stdout).not.toContain("@@prompted");
+    expect(r.status).toBe(2);
+    expect(seen.filter((m: any) => m.method === "session/new")).toHaveLength(1);
+  });
   test("no acpmux socket is a failed start that names the paths it tried", () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
     try {
@@ -3270,5 +3323,39 @@ describe("waitForSpareReady", () => {
   });
   test("neither within the budget names both routes", async () => {
     await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => ({ status: "starting" }), pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
+  });
+});
+
+describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a shared account of 52)", () => {
+  const rows = (a: number, b: number) => Array.from({ length: b - a }, (_, k) => ({ id: `vm_${a + k}`, status: "running" }));
+  test("follows next_cursor to the page that holds the machine", async () => {
+    const seen: unknown[] = [];
+    const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
+    const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
+    expect(r.detail).toBe("52 machines");
+    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+  });
+  test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
+    const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));
+    expect(r.row.size).toEqual({ cpu: 2 });
+    expect(r.detail).toContain("49 machines listed, no next_cursor (a page cap)");
+  });
+  test("a machine neither read finds fails", async () => {
+    await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => { throw new Error("HTTP 404"); })).rejects.toThrow("vm_99 missing from 3 machines, and cloud.machine.get: HTTP 404");
+    await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
+  });
+});
+
+describe("guestTimed", () => {
+  const { guestTimed, guestMs, guestDetail } = require("./cloud-journey");
+  test("times a heredoc command on its own lines and keeps its output and exit marker", () => {
+    const r = spawnSync("bash", ["-c", guestTimed(`python3 -I - <<'X'\nprint('@@session s1')\nX\necho "@@exit $?"`)], { encoding: "utf8" });
+    expect(r.stdout).toContain("@@session s1");
+    expect(r.stdout).toContain("@@exit 0");
+    const ms = guestMs(r.stdout);
+    expect(ms).not.toBeNull();
+    expect(ms).toBeGreaterThanOrEqual(0);
+    expect(guestDetail(ms)).toContain("on the guest");
+    expect(guestDetail(null)).toBe("");
   });
 });

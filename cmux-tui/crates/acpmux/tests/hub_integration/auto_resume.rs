@@ -15,8 +15,14 @@ mod context;
 #[path = "auto_resume_rate_hold.rs"]
 mod rate_hold;
 
+#[path = "auto_resume_exit_429.rs"]
+mod exit_429;
+
 #[path = "auto_resume_429_storm.rs"]
 mod storm_429;
+
+#[path = "auto_resume_overload_storm.rs"]
+mod overload_storm;
 
 #[path = "auto_resume_limits.rs"]
 mod limits;
