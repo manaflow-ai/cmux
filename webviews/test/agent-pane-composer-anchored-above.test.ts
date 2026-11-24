@@ -249,6 +249,19 @@ await requireBrowserLane("agent-pane-composer-anchored-above.test.ts", async () 
       row.appendChild(late);
     }, grow);
 
+  /// The chat's inspector (the pane's debug event view) over the stage: the stack goes from floating
+  /// over the transcript into the pane's flow under it.
+  const inspector = (open: boolean) => inPage((open) => window.cmuxAcpmuxBridge!.toggleInspector(open), open);
+  /// A draft of `lines` lines in the composer, typed before the case records: a tall card a short pane
+  /// clamps (bottomStack.css max-height).
+  const typeDraft = async (page: Page, lines: number) => {
+    await page.locator(".acpmux-composer-box [contenteditable]").first().click();
+    await page.keyboard.type("draft");
+    for (let n = 1; n < lines; n++) {
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type(`line ${n}`);
+    }
+  };
   const width = (page: Page, viewport: { width: number; height: number }, to: number) =>
     page.setViewportSize({ width: to, height: viewport.height });
 
@@ -278,6 +291,14 @@ await requireBrowserLane("agent-pane-composer-anchored-above.test.ts", async () 
       unavailable("notFound"),
       unavailable(null),
     ],
+    "connecting-draft": () => [
+      unavailable("connecting"),
+      unavailable(null),
+      unavailable("connecting"),
+      unavailable(null),
+    ],
+    inspector: () => [inspector(true), inspector(false), inspector(true), inspector(false)],
+    "inspector-draft": () => [inspector(true), inspector(false)],
     "late-row": () => [rowGrows(28), rowGrows(60), rowGrows(null)],
     "width-only": (viewport) => [
       (page) => width(page, viewport, viewport.width - 140),
@@ -299,6 +320,10 @@ await requireBrowserLane("agent-pane-composer-anchored-above.test.ts", async () 
           engine = name;
           const page = await pane.open(viewport);
           try {
+            if (scenario.endsWith("-draft")) {
+              await typeDraft(page, 14);
+              await paint(page, 20);
+            }
             await startRecording(page);
             await paint(page, 4);
             for (const step of steps(viewport)) {
