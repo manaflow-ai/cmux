@@ -191,6 +191,7 @@ struct CloudChatsConnecting: View {
             let elapsed = Int(context.date.timeIntervalSince(since))
             if elapsed >= quiet {
                 VStack(spacing: 2) {
+                    // placeholder-ok: a delayed connection status above the retained rows.
                     Text("Connecting to \(machine) through \(mac)…")
                     Text("\(elapsed)s elapsed, up to \(cloudConnectBudget.components.seconds)s")
                         .foregroundStyle(.tertiary)
@@ -329,7 +330,6 @@ private struct CloudMachineChatsScreen: View {
                             if relay?.hub.isReady == true { listRetry += 1 } else { refresh += 1 }
                         }
                     } else if relay?.hub.isReady != true {
-                        // placeholder-ok: the connection line is quiet until the delay and leaves cached rows visible.
                         CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
                             .listRowSeparator(.hidden)
                     }
