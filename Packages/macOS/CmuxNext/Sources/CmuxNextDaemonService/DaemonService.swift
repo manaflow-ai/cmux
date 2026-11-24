@@ -198,6 +198,11 @@ public final class DaemonService {
     /// Hands the local daemon off for a confirmed server-update restart (`restartForUpdate`); nil
     /// for a remote or test service.
     @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
+    /// Holds the local daemon's unplaced terminals across an update's quit (`holdTerminalsForUpdate`);
+    /// nil for a remote or test service.
+    @ObservationIgnored var updateHold: (@Sendable () async -> Void)?
+    /// The hold an update's relaunch started; the quit waits for it (`updateHoldSettled`).
+    @ObservationIgnored var updateHoldTask: Task<Void, Never>?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -236,6 +241,7 @@ public final class DaemonService {
         }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
+        updateHold = { await launcher.holdTerminalsForUpdate() }
         launchSnapshotSession = launcher.configuration.session
         // The slow request log (always on): the prestart's connection records into its own; the store records rollbacks.
         let slowLog = prestart?.slowRequestLog ?? SlowRequestLog()

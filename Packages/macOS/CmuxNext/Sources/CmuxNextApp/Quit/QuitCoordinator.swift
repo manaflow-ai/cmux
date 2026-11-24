@@ -186,7 +186,7 @@ final class QuitCoordinator {
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
+        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }; await services.daemon.updateHoldSettled() // an update's hold is set first
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.

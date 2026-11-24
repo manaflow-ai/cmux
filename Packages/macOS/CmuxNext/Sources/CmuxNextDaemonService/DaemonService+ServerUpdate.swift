@@ -16,6 +16,19 @@ extension DaemonService {
         return await successor(of: previous, within: timeout)
     }
 
+    /// An update is about to quit this app: start the hold of every local terminal that only this
+    /// app's attach streams keep (`DaemonLauncher.holdTerminalsForUpdate`). Once per quit.
+    public func holdTerminalsForUpdate() {
+        guard updateHoldTask == nil, let hold = updateHold else { return }
+        updateHoldTask = Task { await hold() }
+    }
+
+    /// Returns once the hold `holdTerminalsForUpdate` started is done (bounded there); at once
+    /// when no update started one.
+    public func updateHoldSettled() async {
+        await updateHoldTask?.value
+    }
+
     /// The first handshake from another daemon process than `previous`, through the store's
     /// observed identity (no polling), or nil when `timeout` passes first.
     private func successor(of previous: DaemonIdentity, within timeout: Duration) async -> DaemonIdentity? {

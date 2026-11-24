@@ -37,5 +37,23 @@ extension DaemonLauncher {
         }
     }
 
+    /// Thin call site, before the app quits for an update: `server hold-terminals` of the bundled
+    /// binary on this launcher's session marks every terminal with no tab and no `keep` mark as
+    /// kept, so the reaper of the running owner (of any build) leaves them when this app's attach
+    /// streams end; the next owner lifts the mark once a client streams them again (cmux-tui
+    /// `cli/lifecycle.rs`, `mux/update_hold.rs`). Bounded; a failure is logged and the quit goes on.
+    public func holdTerminalsForUpdate() async {
+        guard configuration.binaryIsBundled else { return }
+        do {
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: ["--session", configuration.session, "--json", "server", "hold-terminals"],
+                environment: await ensureEnvironment(), timeout: .seconds(3), clock: clock)
+            Self.capabilityLogger.notice("update hold exit \(result.status): \(String(decoding: result.stdout, as: UTF8.self), privacy: .public)")
+        } catch {
+            Self.capabilityLogger.error("update hold failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     static let capabilityLogger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
 }
