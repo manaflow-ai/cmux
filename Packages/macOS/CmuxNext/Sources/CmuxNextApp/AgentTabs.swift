@@ -73,7 +73,7 @@ final class AgentTabStore {
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE`
     /// (`1` full, `0` capped) for measuring either rate.
     private let renderRate: AgentPaneRenderRate
-    /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
+    /// `~/.config/cmux-next/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
     let customization: AgentPaneCustomizationWatcher
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab

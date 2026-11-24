@@ -246,4 +246,35 @@ struct ClassicFolderItemsMoveTests {
         #expect(NextSupport.pathIdentity(before) == before)
         #expect(NextSupport.pathIdentity("/tmp/x") == "/tmp/x")
     }
+
+    /// NEXT's own files leave classic's `~/.config/cmux` once; classic's cmux.json, its skill and
+    /// cmux-tui.json (copied, not moved) stay where classic reads them.
+    @Test func nextsConfigFilesLeaveClassicsConfigFolderOnce() throws {
+        let home = try Self.support()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = BuildStatePaths(build: BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil), userHome: home,
+                                    applicationSupport: home.appending(path: "Library/Application Support"),
+                                    caches: home.appending(path: "Library/Caches"))
+        let old = home.appending(path: ".config/cmux"), new = home.appending(path: ".config/cmux-next")
+        try Self.write("next", old.appending(path: "cmux-next.json"))
+        try Self.write("classic", old.appending(path: "cmux.json"))
+        try Self.write("tui", old.appending(path: "cmux-tui.json"))
+        try Self.write("auto", old.appending(path: "automations/a.json"))
+        try Self.write("mine", old.appending(path: "skills/mine.md"))
+        try Self.write("cloud", old.appending(path: "skills/cmux-cloud.md"))
+
+        let outcomes = ClassicFolderItemsMove.moveConfigItems(paths: paths)
+        #expect(outcomes["cmux-next.json"] == .moved)
+        #expect(try Self.read(new.appending(path: "cmux-next.json")) == "next")
+        #expect(try Self.read(new.appending(path: "automations/a.json")) == "auto")
+        #expect(try Self.read(new.appending(path: "skills/mine.md")) == "mine")
+        #expect(try Self.read(new.appending(path: "cmux-tui.json")) == "tui")
+        #expect(try Self.read(old.appending(path: "cmux-tui.json")) == "tui")
+        #expect(try Self.read(old.appending(path: "cmux.json")) == "classic")
+        #expect(try Self.read(old.appending(path: "skills/cmux-cloud.md")) == "cloud")
+        #expect(!FileManager.default.fileExists(atPath: old.appending(path: "cmux-next.json").path))
+        #expect(!FileManager.default.fileExists(atPath: new.appending(path: "skills/cmux-cloud.md").path))
+        // Once: a second launch finds nothing of NEXT's left to move.
+        #expect(ClassicFolderItemsMove.moveConfigItems(paths: paths).values.allSatisfy { $0 == .nothing })
+    }
 }

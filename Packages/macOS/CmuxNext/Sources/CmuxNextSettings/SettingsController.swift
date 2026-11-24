@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// Loads `~/.config/cmux/cmux-next.json`, applies it to `DesignSettings` and the
+/// Loads `~/.config/cmux-next/cmux-next.json`, applies it to `DesignSettings` and the
 /// action registry, and re-applies on every change to the file (kernel file
 /// events, no polling). Writes go through `file` to the daemon's settings owner (`writer`) and come
 /// back through the watcher, so the file stays the single source of truth.
@@ -64,7 +64,7 @@ public final class SettingsController {
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
     /// The theme file `appearance.themeFile` names, as the last load read it (nil: none named).
     public private(set) var themeFile: ThemeFileOverlay?
-    /// Every theme file in `~/.config/cmux/themes`, name to text, as the last load read them (the
+    /// Every theme file in `~/.config/cmux-next/themes`, name to text, as the last load read them (the
     /// palette's and Settings' list, and what a preview of one applies with no disk read).
     public private(set) var themeFileSources: [String: String] = [:]
     /// The effective settings under the theme file (`snapshot.root` before it applies), so a preview
