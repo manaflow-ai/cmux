@@ -582,7 +582,7 @@ def main():
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
             if paired and offline:
                 app, offline_ok = offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc,
-                                              phone_shot, note)
+                                              phone_shot, note, url)
             if paired and not offline:
                 try:
                     theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
@@ -1319,7 +1319,7 @@ def tree_pids(root_pid, mac_app):
     return sorted(pids)
 
 
-def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note):
+def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note, pair_url):
     """cmux#52200, on one recording: (1) the Mac asleep (its whole process tree stopped: sockets stay open
     until the service times them out) shows "<Mac> is offline" with a last-seen time; (2) cmux quit on it
     shows "isn't responding" or "cmux on <Mac> isn't answering"; (3) Retry walks its steps in view;
@@ -1397,8 +1397,34 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
     def rowids(ids):
         return {i for i in ids if i.startswith("workspaces.row") or i.startswith("workspace.row")}
 
+    def scope_phone_to_mac():
+        """The phone's Mac filter on the target Mac (UserDefaults cmuxMobile.workspaces.macFilter.<team>), the
+        single-Mac view where MacRecoveryPanel draws. Written while the app is not running."""
+        import urllib.parse
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(pair_url or "").query)
+        mac_id, team_id = (q.get("mac") or [""])[0], (q.get("team") or [""])[0]
+        if not (mac_id and team_id):
+            log("scope", ok=False, why="no mac/team in the pairing link")
+            return False
+        r = subprocess.run(simctl + ["spawn", a.udid, "defaults", "write", a.bundle_id,
+                                     "cmuxMobile.workspaces.macFilter." + team_id, "-string", mac_id],
+                           capture_output=True, text=True)
+        log("scope", ok=r.returncode == 0, err=(r.stderr or "")[:200])
+        return r.returncode == 0
+
+    def make_workspace():
+        """One workspace on the target Mac, so step 4 has something to keep."""
+        r = rpc("action.run", {"action": "workspace.newAtBottom", "focus": True})
+        log("workspace-create", reply=str(r)[:300])
+        time.sleep(4)
+
+    def sig(texts):
+        """The screen's words without clocks: what must be the same after the Mac is back."""
+        return {t for t in texts if not re.fullmatch(r"\d{1,2}:\d{2}", t)}
+
     def launch_workspaces():
         subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
+        scope_phone_to_mac()
         subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-tab", "workspaces"],
                        env=phone_env, check=True, capture_output=True)
         phone_log.wait(re.compile(r"live data on"), 60)
@@ -1417,11 +1443,13 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             subprocess.run(simctl + ["ui", a.udid, "content_size", size], capture_output=True)
             tag = f"{size_name}-"
             log("size", size=size)
+            make_workspace()
             launch_workspaces()
             _, base_texts, base_ids = snap()
             phone_shot(tag + "0-connected")
             log("baseline", texts=base_texts, ids=sorted(base_ids))
-            base_rows = rowids(base_ids)
+            base_rows = sig(base_texts)
+            log("baseline-has-workspace", ok=not has(base_texts, "No workspaces"))
             # 1. the Mac asleep: its tree frozen; the service keeps the socket until its own timeout.
             frozen = tree_pids(app.pid, a.mac_app)
             log("sleep", pids=len(frozen))
@@ -1437,8 +1465,8 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             back, t_back, _ = show(tag + "woke", lambda t, i: "mac.recovery" not in i and not has(t, "is offline")
                                    and not has(t, "isn't responding") and not has(t, "isn't answering") and not has(t, "didn't answer"),
                                    180, shot_name=tag + "4a-woke")
-            rows_back = rowids(snap()[2])
-            results[(size_name, "4a")] = (back and base_rows <= rows_back, f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows_back)}")
+            rows_back = sig(snap()[1])
+            results[(size_name, "4a")] = (back and not has(list(rows_back), "No workspaces") and not has(base_texts, "No workspaces") and base_rows <= rows_back, f"back after {t_back:.0f} s; rows before {len(base_rows)}, after {len(rows_back)}")
             # 2. cmux quit on the Mac.
             rpc("action.run", {"action": "quitEndSessions"})
             try:
@@ -1484,8 +1512,8 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
                 ax_tap(a.udid, "mac.recovery.retry")
             back2, t_b2, _ = show(tag + "restart", lambda t, i: "mac.recovery" not in i and not has(t, "isn't answering")
                                   and not has(t, "isn't responding") and not has(t, "is offline"), 180, shot_name=tag + "4b-restarted")
-            rows2 = rowids(snap()[2])
-            results[(size_name, "4b")] = (back2 and base_rows <= rows2, f"back after {t_b2:.0f} s; rows before {len(base_rows)}, after {len(rows2)}")
+            rows2 = sig(snap()[1])
+            results[(size_name, "4b")] = (back2 and not has(list(rows2), "No workspaces") and not has(base_texts, "No workspaces") and base_rows <= rows2, f"back after {t_b2:.0f} s; rows before {len(base_rows)}, after {len(rows2)}")
             for k in ("4a", "2", "3", "4b"):
                 ok, why = results[(size_name, k)]
                 note(f"- offline[{size_name}] step {k}: {'PASS' if ok else 'FAIL'} {why}")
