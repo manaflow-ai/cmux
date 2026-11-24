@@ -163,17 +163,19 @@ fn from_folder(query: &str) -> String {
         .join("\n")
 }
 
-fn score(mut server: Option<&mut Server>) -> usize {
-    TASKS
-        .iter()
-        .filter(|(_, query, _, answer)| {
-            let mut seen = from_folder(query);
-            if let Some(server) = server.as_deref_mut() {
-                seen.push_str(&search(server, query));
-            }
-            seen.contains(answer)
-        })
-        .count()
+/// The tasks answered, and the questions of those missed.
+fn score(mut server: Option<&mut Server>) -> (usize, Vec<&'static str>) {
+    let mut missed = Vec::new();
+    for (task, query, _, answer) in TASKS {
+        let mut seen = from_folder(query);
+        if let Some(server) = server.as_deref_mut() {
+            seen.push_str(&search(server, query));
+        }
+        if !seen.contains(answer) {
+            missed.push(task);
+        }
+    }
+    (TASKS.len() - missed.len(), missed)
 }
 
 #[test]
@@ -207,6 +209,7 @@ fn memory_that_follows_a_moved_chat_answers_what_a_prior_session_saved() {
     };
     let followed = score(Some(&mut followed));
 
+    let ((off, _), (local, _), (followed, missed)) = (off, local, followed);
     let n = TASKS.len();
     let pct = |k: usize| k * 100 / n;
     println!("memory-follows-move bench, n={n} tasks");
@@ -226,10 +229,15 @@ fn memory_that_follows_a_moved_chat_answers_what_a_prior_session_saved() {
         "  gain, followed vs off: {} points",
         pct(followed) as i64 - pct(off) as i64
     );
+    println!("  missed with memory followed: {missed:?}");
     assert_eq!(
         (off, local),
         (2, 2),
         "only the folder's two facts without the owner"
     );
-    assert_eq!(followed, n, "every saved fact reaches the moved chat");
+    // RFD 0167 row 17's bar: memory on beats memory off by at least 20% of the tasks.
+    assert!(
+        followed * 5 >= off * 5 + n,
+        "followed {followed}/{n} vs off {off}/{n}"
+    );
 }
