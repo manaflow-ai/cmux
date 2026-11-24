@@ -265,6 +265,18 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 600_000,
     ownPart: true,
   },
+  // The power-user input stress harness's long seed (Leo, 2026-11-22: "we need to test like power users more often"):
+  // test/power-user-bursts.browser.test.ts with a random seed and 150 waves of overlapping scroll flicks, resizes,
+  // pointer sweeps, 15-60 key/s typing, large pastes and chat switches mid-stream, in Chromium and WebKit; its numbers
+  // per input class as webui.power_user.* rows and each breach with its replay seed. perf-cron.py's web-ui-power-user
+  // part runs it.
+  {
+    name: "power-user-bursts",
+    file: "power-user-bursts.bench.ts",
+    args: ["--waves", "150", "--seed", "random", "--engines", "chromium,webkit"],
+    timeoutMs: 1_500_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
