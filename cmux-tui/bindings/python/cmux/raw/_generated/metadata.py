@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c62b97e65b9dbc498226315e359eae940883b946ca0a4aa815981a0e81599ba5'
+IR_SHA256 = 'fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0'
 
 
 @dataclass(frozen=True)
@@ -3267,6 +3267,7 @@ COMMANDS = {
         None,
         {
             'api_revision': CommandFieldMetadata(12, None),
+            'api_version': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),

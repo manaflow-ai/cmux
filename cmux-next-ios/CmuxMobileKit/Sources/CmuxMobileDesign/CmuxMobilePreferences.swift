@@ -16,6 +16,8 @@ public enum CmuxMobilePreferences {
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
+        /// The terminal composer's Autocorrect toggle (its + menu, Settings → Terminal).
+        public static let terminalComposerAutocorrect = "cmuxMobile.settings.terminalComposerAutocorrect"
         /// Settings → Terminal → Terminal and Chat Toggle (off by default; Leo, 2026-11-17: "the
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
@@ -35,6 +37,9 @@ public enum CmuxMobilePreferences {
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
+        /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
+        public static let attentionMark = "cmuxMobile.settings.attentionMark"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
     }
@@ -48,6 +53,9 @@ public enum CmuxMobilePreferences {
     public static let defaultPredictiveEcho = true
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
+    /// Off: a shell line is not prose. On for talking to an agent CLI in
+    /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
+    public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
@@ -68,6 +76,12 @@ public enum CmuxMobilePreferences {
 
     public static func keyClicks(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.keyClicks) as? Bool ?? defaultKeyClicks
+    }
+
+    public static func terminalComposerAutocorrect(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalComposerAutocorrect) == nil
+            ? defaultTerminalComposerAutocorrect : defaults.bool(forKey: Key.terminalComposerAutocorrect)
     }
 
     public static func terminalJumpToBottom(_ defaults: UserDefaults = .standard) -> Bool {

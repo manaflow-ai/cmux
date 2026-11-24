@@ -1087,6 +1087,8 @@ Params:
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
+| `api_revision` | `uint32` | default none | The API revision the client reads and writes; absent: revision 12 |
+| `api_version` | `string` | default none | A dated API version, `YYYY-MM-DD`; see [api-versioning.md](api-versioning.md) |
 
 `set-client-info` labels a connection; it never sets the `client-hello` role
 or the request origin. Identity fields are clamped like `name`. A connection that sends
@@ -1103,9 +1105,12 @@ receives `linux`, `windows` and any later kind as they are in every size state
 SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
 the real kind for every connection.
 
-Result: `object{}`.
+Result: `object{}`; with `api_version`, `object{api_version:string,api_revision:uint32}`: the dated
+version that serves the connection and its revision. The promise behind it (no breaking change
+without a new dated version, 12 months of overlap): [api-versioning.md](api-versioning.md).
 
-Errors: `bad request: ...` for wrong JSON types.
+Errors: `bad request: ...` for wrong JSON types; a malformed `api_version`, one older than the
+oldest version served, or one that disagrees with `api_revision`.
 
 CLI mapping:
 
@@ -1802,6 +1807,14 @@ too), the request fails with `agent not waiting: ...` and writes nothing. `submi
 a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
+
+With `send-typed-submit-v1`, a `submit` after typed text (`paste:false`, a non-empty `text` or `bytes`)
+writes Return 250 ms after the text, still in the same request; after a paste the PTY writer's paste
+pacing holds Return until the program read it, and a bare `submit` writes Return at once. The gap is
+past an agent TUI's paste-burst window (Codex joins unbracketed characters arriving within about
+120 ms into one paste, and took a Return right behind typed text for a newline). The phone sends a
+one-line draft for a full-screen program this way, as one keyed request, instead of the text and a
+separate Return. A server without the capability writes Return right after the text.
 
 With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
 the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
@@ -9767,6 +9780,15 @@ as `output` bytes: the ones the screen has set right after the first frame,
 then each set and reset as it is written, so the viewer's keys and pastes
 encode the way the program expects. A terminal that is full-screen when it attaches starts with `vt-state`,
 and a `resized` while full-screen (or leaving it) passes as `resized`.
+A connection that declared all three and `terminal-full-screen-frames-v1`
+gets a full-screen program as `agent-cli-lean` frames too, as an agent CLI on
+the alternate screen goes: the alternate screen and the input modes (mouse
+tracking 1000, 1002, 1003 among them) as `output` bytes, a switch of screens
+followed by a keyframe of the screen switched to, frames at most one per
+16.7 ms (one display frame) instead of one per 100 ms, and no `vt-state` or
+PTY bytes, also for a terminal that is full-screen when it attaches. A program
+that repaints its whole screen for each change then sends the cells that
+changed. Agent CLI terminals keep their 100 ms pace.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -11613,7 +11635,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11643,6 +11665,16 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+`begin_token` (`agent-transfer-begin-token-v1`; 1 to 128 of `[A-Za-z0-9_-]`,
+else `agent_transfer.bad_request`) is the client's own mark for this begin.
+acpmux keeps it beside the move's bundle, which a restart keeps while the
+move runs, and the `transfer.moving` refusal of a later begin hands it back
+as `error_details: {transfer_id, begin_token}`. A pump that lost its begin
+answer and recorded the token first can tell the frozen move is its own (it
+learned no transfer id, so it asked no target to receive it) and abort it at
+once instead of waiting out the source's lease (`cmux link agent move`). A
+move begun without a token, or by an older acpmux, hands back none.
 
 ### agent-transfer-source
 
