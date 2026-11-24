@@ -10,8 +10,9 @@
 //! inbound path, and everything else runs on one sampler thread.
 //!
 //! How a command's processes are found (Linux, `/proc`): the harness runs it as a descendant of
-//! the session's agent process. Once a second, while any shell call is in flight, the sampler
-//! reads each process's parent, start time, CPU times and RSS. Walking down from the agent
+//! the session's agent process, which acpmux holds. Once a second, while any shell call is in
+//! flight, the sampler walks down from that one process (its threads' `children` files, never a
+//! listing of `/proc`) and reads each descendant's parent, start time, CPU times and RSS. Walking down from the agent
 //! process, the first process on each branch that started after one of the session's calls began
 //! is that call's, and so is everything under it: the call it belongs to is the latest one that
 //! began before it started. A process a call owns stays its own after it leaves the tree (`nohup
@@ -622,22 +623,34 @@ pub fn parse_listening(text: &str, into: &mut HashMap<u64, u16>) {
     }
 }
 
-/// The whole process table from `/proc`, with listening sockets; None elsewhere than Linux.
-fn read_procs() -> Option<Procs> {
+/// The processes under `roots` (the sessions' agent processes, which acpmux holds, and the
+/// processes calls already own), with listening sockets; None elsewhere than Linux. No process
+/// table is listed: it walks down from each root through its threads' `children` files and reads
+/// those processes' `stat` only.
+fn read_procs(roots: &[u32]) -> Option<Procs> {
     #[cfg(target_os = "linux")]
     {
         // SAFETY: sysconf takes a constant and has no other effect.
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as u64;
         let mut procs = Procs::default();
-        for entry in std::fs::read_dir("/proc").ok()?.flatten() {
-            let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+        let mut stack: Vec<u32> = roots.to_vec();
+        while let Some(pid) = stack.pop() {
+            if procs.rows.contains_key(&pid) || procs.rows.len() >= 1 << 14 {
                 continue;
-            };
-            if let Some(p) = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            }
+            let Some(p) = std::fs::read_to_string(format!("/proc/{pid}/stat"))
                 .ok()
                 .and_then(|t| parse_stat(&t, page))
-            {
-                procs.rows.insert(pid, p);
+            else {
+                continue;
+            };
+            procs.rows.insert(pid, p);
+            let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { continue };
+            for task in tasks.flatten() {
+                let Ok(text) = std::fs::read_to_string(task.path().join("children")) else {
+                    continue;
+                };
+                stack.extend(text.split_whitespace().filter_map(|c| c.parse::<u32>().ok()));
             }
         }
         for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
@@ -645,11 +658,11 @@ fn read_procs() -> Option<Procs> {
                 parse_listening(&text, &mut procs.listening);
             }
         }
-        // Sockets only for processes that are descendants of some process: read lazily below.
         Some(procs)
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = roots;
         None
     }
 }
@@ -672,7 +685,13 @@ impl Shadow {
     /// and measurement (the daemon's sampler; a test passes its own reading to `tick`).
     pub fn tick_live(&self) {
         self.tick(&|| {
-            let mut procs = read_procs()?;
+            let roots: Vec<u32> = {
+                let inner = self.lock();
+                let agents = inner.flights.values().filter_map(|f| f.start.agent_pid);
+                let owned = inner.flights.values().flat_map(|f| f.procs.keys().copied());
+                agents.chain(owned).collect::<BTreeSet<_>>().into_iter().collect()
+            };
+            let mut procs = read_procs(&roots)?;
             #[cfg(target_os = "linux")]
             if !procs.listening.is_empty() {
                 let mut inner = self.lock();
