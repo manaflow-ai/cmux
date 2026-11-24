@@ -96,7 +96,7 @@ export const fakeCloud = async (owner: string): Promise<FakeMachine> => {
 export const lookAgain = (): void => advance(10_001)
 export const starts = (owner: string) => runIn(indexStub(owner), async (_i, state) => state.storage.sql.exec(`SELECT * FROM starts`).toArray() as Array<Record<string, number | string>>)
 
-export const setMachine = (a: Person, machine = M) => call("PUT", "/v1/auto-sessions/machine", as(a.session), { team: a.team, machine })
+export const setMachine = (a: Person, machine = M) => call("PUT", "/v1/auto-sessions/machine", as(a.installToken), { team: a.team, machine })
 export const open = (t: string, id: string, more: Record<string, unknown> = {}) => call("PUT", `/v1/auto-sessions/${id}`, as(t), { auto: true, title: "Fix the flaky test", harness: "claude", device: "mac1", ...more })
 export const get = (t: string, id: string) => call("GET", `/v1/auto-sessions/${id}`, as(t))
 export const lease = (t: string, id: string, holder: string, epoch: number, more: Record<string, unknown> = { needsRun: false }) => call("POST", `/v1/auto-sessions/${id}/lease`, as(t), { holder, epoch, ...more })
@@ -113,8 +113,8 @@ export const lapse = async (owner: string, id: string): Promise<void> => {
 export const copied = (t: string, id: string, holder = LAPTOP, epoch = 1) => post(t, id, "snapshot", { holder, epoch, manifest: { v: 1, at: 1, lastSeq: 0, harness: "claude", cwd: { kind: "folder", tar: [] }, queue: [] } })
 /** A chat its laptop left with a turn running: the Auto machine holds it at epoch 2 with a `takeover` to pick up. */
 export const takenOver = async (a: Person, id: string): Promise<void> => {
-  await open(a.session, id)
-  await lease(a.session, id, LAPTOP, 1, { needsRun: true })
+  await open(a.installToken, id)
+  await lease(a.installToken, id, LAPTOP, 1, { needsRun: true })
   await lapse(a.user, id)
 }
 

@@ -7,7 +7,7 @@ import { deliver, memberRow, stackWorld, teamIdOf, useStack } from "./team-stack
 const VM2 = `vm:${M2}`
 const other = (letter: string) => `vm_${letter.repeat(20)}`
 const machine = (t: string) => call("GET", "/v1/auto-sessions/machine", as(t))
-const session = async (a: Person, id: string) => (await get(a.session, id)).body.session
+const session = async (a: Person, id: string) => (await get(a.installToken, id)).body.session
 /** The chats `id` (a machine) still has to pick up. */
 const assigned = async (a: Person, id: string): Promise<Array<string>> =>
   ((await call("GET", "/v1/auto-sessions/assignments?timeoutMs=0", as(await vmBearer(a, id)))).body.assignments as Array<{ session: { id: string } }>).map((x) => x.session.id).sort()
@@ -33,9 +33,9 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
       listed(a, other("f"), { status: "running", classic: true, last_active_at: 99_999 })
     )
     await takenOver(a, "run")
-    expect((await get(a.session, "run")).body.session).toMatchObject({ holder: VM2, epoch: 2, state: "resuming", blocked: null, needsRun: true, team: a.team })
+    expect((await get(a.installToken, "run")).body.session).toMatchObject({ holder: VM2, epoch: 2, state: "resuming", blocked: null, needsRun: true, team: a.team })
     expect(m.lists).toBe(1)
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M2 })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M2 })
     // It is the Auto machine in every way: it reads its assignment, and its start is open.
     const vm2 = await vmBearer(a, M2)
     expect((await call("GET", "/v1/auto-sessions/assignments?timeoutMs=0", as(vm2))).body.assignments).toMatchObject([{ kind: "takeover", session: { id: "run", epoch: 2 } }])
@@ -48,14 +48,14 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     advance(60_001)
     const reads = m.reads
     await takenOver(a, "next")
-    expect((await get(a.session, "next")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
+    expect((await get(a.installToken, "next")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
     expect([m.lists, m.reads]).toEqual([1, reads + 1])
 
     // With none running: the one used or made last.
     const b = await person("pick-recent")
     const mb = await fakeCloud(b.user)
     mb.machines.push(listed(b, M, { created_at: 50, last_active_at: 60 }), listed(b, M2, { created_at: 70 }))
-    expect((await machine(b.session)).body).toEqual({ team: b.team, machine: M2 })
+    expect((await machine(b.installToken)).body).toEqual({ team: b.team, machine: M2 })
   })
 
   it("nothing is picked from a team the owner may not use, nor a machine someone else made", async () => {
@@ -64,21 +64,21 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     const team = `team_${"0".repeat(20)}`
     const m = await fakeCloud(a.user)
     m.machines.push(listed(a, M, { team, status: "running" }), listed(a, M2, { status: "running", creator: mate.user }))
-    await open(a.session, "theirs")
-    await lease(a.session, "theirs", LAPTOP, 1, { needsRun: true })
+    await open(a.installToken, "theirs")
+    await lease(a.installToken, "theirs", LAPTOP, 1, { needsRun: true })
     // The chat is of a team its owner has left since.
     await runIn(chatStub(a.user, "theirs"), async (_i, state) => void state.storage.sql.exec(`UPDATE session SET team = ?`, team))
     await lapse(a.user, "theirs")
-    expect((await get(a.session, "theirs")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: "no_machine", needsRun: true, team })
+    expect((await get(a.installToken, "theirs")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: "no_machine", needsRun: true, team })
     // That team's machines were never read.
     expect(m.lists).toBe(0)
     // In their own team the only machine is a teammate's.
-    const none = await machine(a.session)
+    const none = await machine(a.installToken)
     expect([none.status, none.body.error.code, m.lists]).toEqual([404, "auto.no_machine", 1])
     // The alarm's look does no better: it asks only for the chat's team, and reads nothing of it.
     advance(15_000)
     await fireAlarm(indexStub(a.user))
-    expect((await get(a.session, "theirs")).body.session).toMatchObject({ holder: "parked", blocked: "no_machine" })
+    expect((await get(a.installToken, "theirs")).body.session).toMatchObject({ holder: "parked", blocked: "no_machine" })
     expect(m.lists).toBe(1)
   })
 
@@ -86,20 +86,20 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     const a = await person("later")
     const m = await fakeCloud(a.user)
     await takenOver(a, "waits")
-    expect((await get(a.session, "waits")).body.session).toMatchObject({ holder: "parked", epoch: 2, state: "parked", blocked: "no_machine", needsRun: true })
+    expect((await get(a.installToken, "waits")).body.session).toMatchObject({ holder: "parked", epoch: 2, state: "parked", blocked: "no_machine", needsRun: true })
     // A read straight after does not read the Cloud again.
     expect(m.lists).toBe(1)
     // The person makes a machine. A renewal never looks for one, though a look is due and the renewal is accepted
     // and written: a second laptop stands by on the chat, which is kept in the Cloud and so stays parked.
-    expect((await post(a.session, "waits", "keep", { keepInCloud: true })).status).toBe(200)
+    expect((await post(a.installToken, "waits", "keep", { keepInCloud: true })).status).toBe(200)
     m.machines.push(listed(a, M, { status: "provisioning" }))
     lookAgain()
-    expect((await lease(a.session, "waits", "device:mac2", 1, { standby: true })).body).toMatchObject({ role: "standby", session: { holder: "parked", epoch: 2, blocked: "no_machine", standby: ["device:mac2"] } })
+    expect((await lease(a.installToken, "waits", "device:mac2", 1, { standby: true })).body).toMatchObject({ role: "standby", session: { holder: "parked", epoch: 2, blocked: "no_machine", standby: ["device:mac2"] } })
     expect(m.lists).toBe(1)
     // Their next read of the chat finds the machine, with nothing else to do.
-    expect((await get(a.session, "waits")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming", blocked: null })
+    expect((await get(a.installToken, "waits")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming", blocked: null })
     expect(m.lists).toBe(2)
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
 
     // Their list finds it for every chat that waits.
     const b = await person("later-list")
@@ -108,7 +108,7 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     await takenOver(b, "two")
     mb.machines.push(listed(b, M2, { status: "running" }))
     lookAgain()
-    const page = await call("GET", "/v1/auto-sessions", as(b.session))
+    const page = await call("GET", "/v1/auto-sessions", as(b.installToken))
     expect(page.body.sessions.map((s: any) => [s.id, s.holder, s.blocked, s.state])).toEqual([["two", VM2, null, "resuming"], ["one", VM2, null, "resuming"]])
 
     // Nobody calls: the index's alarm looks again, waiting longer each time it finds nothing, and starts the machine it finds.
@@ -130,7 +130,7 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     mc.machines.push(listed(c, M))
     advance(30_000)
     await fireAlarm(indexStub(c.user))
-    expect((await get(c.session, "left")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming", blocked: null })
+    expect((await get(c.installToken, "left")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming", blocked: null })
     expect(await look()).toBeUndefined()
     await fireAlarm(indexStub(c.user))
     expect(mc.starts).toEqual([`auto-session-start:${c.user}:${M}:rev1`])
@@ -141,17 +141,17 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     const m = await fakeCloud(a.user)
     m.machines.push(listed(a, M2, { status: "running" }))
     await takenOver(a, "moved")
-    expect((await get(a.session, "moved")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
+    expect((await get(a.installToken, "moved")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
     expect((await setMachine(a)).body).toEqual({ team: a.team, machine: M })
     // The chat the pick never picked up goes to the named machine.
-    expect((await get(a.session, "moved")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming" })
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await get(a.installToken, "moved")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming" })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
     // So do later chats, long after, though the owner's machines do not list it: a named machine is not read again.
     advance(120_000)
     const reads = m.reads
     await takenOver(a, "after")
-    expect((await get(a.session, "after")).body.session).toMatchObject({ holder: VM, epoch: 2 })
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await get(a.installToken, "after")).body.session).toMatchObject({ holder: VM, epoch: 2 })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
     expect([m.lists, m.reads]).toEqual([1, reads])
   })
 
@@ -159,11 +159,11 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     const a = await person("phone-pick")
     const m = await fakeCloud(a.user)
     const body = { harness: "claude", repo: { remote: "https://example.com/acme/web.git", branch: "main" }, firstMessage: { id: "first", text: "start on the flaky test" } }
-    const none = await call("POST", "/v1/auto-sessions", as(a.session), body)
+    const none = await call("POST", "/v1/auto-sessions", as(a.installToken), body)
     expect([none.status, none.body.error.code]).toEqual([409, "auto.no_machine"])
     m.machines.push(listed(a, M, { status: "running" }))
     lookAgain()
-    const made = await call("POST", "/v1/auto-sessions", as(a.session), body)
+    const made = await call("POST", "/v1/auto-sessions", as(a.installToken), body)
     expect(made.status).toBe(201)
     expect(made.body.session).toMatchObject({ holder: VM, epoch: 1, state: "resuming", inbox: 1, team: a.team })
     const vm = await vmBearer(a, M)
@@ -171,13 +171,13 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
 
     const b = await person("parked-message")
     const mb = await fakeCloud(b.user)
-    await open(b.session, "idle")
-    await copied(b.session, "idle")
+    await open(b.installToken, "idle")
+    await copied(b.installToken, "idle")
     await lapse(b.user, "idle")
-    expect((await get(b.session, "idle")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: null })
+    expect((await get(b.installToken, "idle")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: null })
     mb.machines.push(listed(b, M2))
     lookAgain()
-    expect((await post(b.session, "idle", "inbox", { id: "m1", text: "go on" })).body).toMatchObject({ state: "resuming", session: { holder: VM2, epoch: 3, state: "resuming", inbox: 1 } })
+    expect((await post(b.installToken, "idle", "inbox", { id: "m1", text: "go on" })).body).toMatchObject({ state: "resuming", session: { holder: VM2, epoch: 3, state: "resuming", inbox: 1 } })
   })
 
   it("a pick whose machine is gone is replaced by another of the owner's; while the Cloud cannot be read it stays", async () => {
@@ -185,25 +185,25 @@ describe("auto sessions: the Auto machine nobody named", { timeout: 60_000 }, ()
     const m = await fakeCloud(a.user)
     m.machines.push(listed(a, M2, { status: "running" }))
     await takenOver(a, "first")
-    expect((await get(a.session, "first")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
+    expect((await get(a.installToken, "first")).body.session).toMatchObject({ holder: VM2, epoch: 2 })
     m.failRead = true
     advance(60_001)
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M2 })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M2 })
     // The person deletes that machine and makes another: the next chat goes to the new one, and so does the chat
     // the deleted one never picked up.
     m.failRead = false
     m.machines.splice(0, 1, listed(a, M))
     advance(60_001)
     await takenOver(a, "second")
-    expect((await get(a.session, "second")).body.session).toMatchObject({ holder: VM, epoch: 2 })
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
-    expect((await get(a.session, "first")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming" })
+    expect((await get(a.installToken, "second")).body.session).toMatchObject({ holder: VM, epoch: 2 })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
+    expect((await get(a.installToken, "first")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming" })
     // With none left, the pick is dropped and chats wait as they do for an owner with no machine.
     m.machines.length = 0
     advance(60_001)
     await takenOver(a, "third")
-    expect((await get(a.session, "third")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: "no_machine" })
-    expect((await machine(a.session)).status).toBe(404)
+    expect((await get(a.installToken, "third")).body.session).toMatchObject({ holder: "parked", epoch: 2, blocked: "no_machine" })
+    expect((await machine(a.installToken)).status).toBe(404)
   })
 })
 
@@ -223,8 +223,8 @@ const sharedTeam = async (a: Person, sub: string): Promise<string> => {
 
 /** A chat of `team` its laptop left with a turn running. The Auto routes act in the session's own team, so the chat is put in `team` where it is stored. */
 const leftIn = async (a: Person, id: string, team: string): Promise<void> => {
-  await open(a.session, id)
-  await lease(a.session, id, LAPTOP, 1, { needsRun: true })
+  await open(a.installToken, id)
+  await lease(a.installToken, id, LAPTOP, 1, { needsRun: true })
   await runIn(chatStub(a.user, id), async (_i, state) => void state.storage.sql.exec(`UPDATE session SET team = ?`, team))
   await lapse(a.user, id)
 }
@@ -255,7 +255,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     expect(m.asked.filter((q) => q.team === work).map((q) => q.op)).toEqual(["cloud.machine.list"])
     expect(m.asked.filter((q) => q.team === a.team).map((q) => q.op)).toEqual(["cloud.machine.list"])
     for (const q of m.asked) expect(q.as).toEqual({ kind: "session", user: a.user, team: q.team })
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
     // A machine made in the shared team gets the shared team's chat, and only that one: the personal chat, which
     // its machine has not picked up either, stays where it is.
     m.machines.push(listed(a, M2, { team: work, status: "running" }))
@@ -267,7 +267,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     await leftIn(a, "work2", work)
     await takenOver(a, "home2")
     expect([await session(a, "work2"), await session(a, "home2")]).toMatchObject([{ holder: VM2, epoch: 2, team: work }, { holder: VM, epoch: 2, team: a.team }])
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
     expect(m.asked.filter((q) => q.op === "cloud.machine.list")).toHaveLength(3)
     for (const q of m.asked) expect(q.as).toEqual({ kind: "session", user: a.user, team: q.team })
     // A machine the owner names is for every chat of theirs, whatever its team, as before.
@@ -304,7 +304,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
       index.env = { ...index.env, AUTO_SESSION_DO: { idFromName: (name: string) => chats.idFromName(name), get: crossed } }
     })
     // The look that picked answers what is stored when it ends, and every chat is on the machine the owner named.
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
     expect([await session(a, "one"), await session(a, "two")]).toMatchObject([{ holder: VM, state: "resuming", blocked: null }, { holder: VM, state: "resuming", blocked: null }])
     expect([await assigned(a, M), await assigned(a, M2)]).toEqual([["one", "two"], []])
   })
@@ -319,7 +319,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     m.machines.length = 0
     m.gone.push(M2)
     advance(60_001)
-    expect((await machine(a.session)).status).toBe(404)
+    expect((await machine(a.installToken)).status).toBe(404)
     expect(await session(a, "left")).toMatchObject({ holder: "parked", epoch: 3, state: "parked", blocked: "no_machine", needsRun: true, team: a.team })
     expect(await assigned(a, M2)).toEqual([])
     // The person makes a machine: the look the waiting chat opened finds it, with nobody calling.
@@ -356,7 +356,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     mc.gone.push(M2)
     await fireAlarm(indexStub(c.user))
     advance(60_001)
-    expect((await machine(c.session)).body).toEqual({ team: c.team, machine: M2 })
+    expect((await machine(c.installToken)).body).toEqual({ team: c.team, machine: M2 })
     expect(await session(c, "kept")).toMatchObject({ holder: VM2, epoch: 2, state: "resuming" })
     expect([mc.lists, (await starts(c.user)).map((s) => [s.machine, s.tries])]).toEqual([0, [[M2, 1]]])
   })
@@ -373,13 +373,13 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     m.endless = true
     advance(60_001)
     const lists = m.lists
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M2 })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M2 })
     expect(m.lists).toBe(lists + 5)
     expect(await session(a, "kept")).toMatchObject({ holder: VM2, epoch: 2, state: "resuming", blocked: null })
     // Read whole, the list says so for a fact.
     m.endless = false
     advance(60_001)
-    expect((await machine(a.session)).status).toBe(404)
+    expect((await machine(a.installToken)).status).toBe(404)
     expect(await session(a, "kept")).toMatchObject({ holder: "parked", epoch: 3, blocked: "no_machine" })
 
     // One of the owner's machines among the pages that were read is still a pick.
@@ -387,7 +387,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     const mb = await fakeCloud(b.user)
     mb.endless = true
     mb.machines.push(listed(b, M))
-    expect((await machine(b.session)).body).toEqual({ team: b.team, machine: M })
+    expect((await machine(b.installToken)).body).toEqual({ team: b.team, machine: M })
   })
 
   it("teams the owner has left do not keep the alarm's look from the teams that can have a machine", async () => {
@@ -424,7 +424,7 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     // What the owner named is still named (it is not read again, gone or not), and each chat's row has its team.
     m.gone.push(M)
     advance(60_001)
-    expect((await machine(a.session)).body).toEqual({ team: a.team, machine: M })
+    expect((await machine(a.installToken)).body).toEqual({ team: a.team, machine: M })
     expect(await runIn(indexStub(a.user), async (_i, state) => state.storage.sql.exec(`SELECT id, team FROM sessions`).toArray())).toEqual([{ id: "old", team: a.team }])
     await takenOver(a, "new")
     expect([await session(a, "old"), await session(a, "new")]).toMatchObject([{ holder: VM, epoch: 2 }, { holder: VM, epoch: 2 }])
@@ -443,12 +443,12 @@ describe("auto sessions: a pick is its team's, and a pick that is gone", { timeo
     })
     // It is its team's pick: answered with no new look, and, unlike a named machine, dropped once it is gone.
     const lists = mb.lists
-    expect((await machine(b.session)).body).toEqual({ team: b.team, machine: M2 })
+    expect((await machine(b.installToken)).body).toEqual({ team: b.team, machine: M2 })
     expect(mb.lists).toBe(lists)
     mb.machines.length = 0
     mb.gone.push(M2)
     advance(60_001)
-    expect((await machine(b.session)).status).toBe(404)
+    expect((await machine(b.installToken)).status).toBe(404)
     expect(await session(b, "old")).toMatchObject({ holder: "parked", epoch: 3, blocked: "no_machine" })
   })
 })

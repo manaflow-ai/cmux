@@ -4,6 +4,7 @@ import { MAX_EVENTS_PAGE, type EventIn } from "./events.ts"
 import { answer, bodyOf, bounded, bytesOf, CHAT_ID, count, DEVICE, fail, HARNESS, hex, invalid, json, MACHINE, MESSAGE_ID, noContent, notFound, rawJson, refusal, repoOf, TEAM, titleOf, WRITER_HELP, writerOf } from "./http.ts"
 import { mayUseTeam, type AutoListCursor } from "./index-do.ts"
 import { MAX_CHUNK_BYTES, MAX_EVENTS_PER_POST, MAX_EVENTS_POST_BYTES, MAX_INBOX_TEXT_BYTES, MAX_MANIFEST_BYTES, MAX_WAIT_MS, type AutoCaller, type AutoSessionView } from "./model.ts"
+import { NOT_A_LAPTOP } from "./devices.ts"
 import { SHA256_HEX } from "./snapshots.ts"
 
 /**
@@ -40,19 +41,25 @@ import { SHA256_HEX } from "./snapshots.ts"
  *   POST /v1/auto-sessions/:id/keep             owner    {keepInCloud} -> {session}
  *   POST /v1/auto-sessions/:id/assignment/ack   machine  {holder, epoch} -> {session}
  *
- * A write that names a holder or epoch that is not current is refused 409 auto.not_holder or auto.stale_epoch.
+ * A write that names a holder or epoch that is not current is refused 409 auto.not_holder or auto.stale_epoch. A holder
+ * write (and a PUT with `auto: true`) from an install that holds no chat (a phone, a browser session) is refused 403
+ * auto.not_a_laptop; one that names a `device:` another of the owner's installs named first in the chat, 403
+ * auto.wrong_device (devices.ts).
  * The routes answer 404 where AUTO_SESSION_DO is unbound (production, until Auto mode ships there).
  */
 export const AUTO_SESSIONS_PATH = /^\/v1\/auto-sessions(?:\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?)?$/
 
 type Caller = AutoCaller & { readonly team: string | null }
 type Call = { readonly request: Request; readonly env: Env; readonly url: URL; readonly id: string; readonly last: string | undefined; readonly by: Caller }
-type Route = { readonly allow: "owner" | "machine" | "either"; readonly run: (c: Call) => Promise<Response> }
+/** `holds`: the route is a holder write, which only a laptop or a machine makes (devices.ts). */
+type Route = { readonly allow: "owner" | "machine" | "either"; readonly holds?: true; readonly run: (c: Call) => Promise<Response> }
 
 const stub = (env: Env, owner: string, id: string) => env.AUTO_SESSION_DO!.get(env.AUTO_SESSION_DO!.idFromName(`${owner}/${id}`))
 const indexOf = (env: Env, owner: string) => env.AUTO_SESSION_INDEX_DO!.get(env.AUTO_SESSION_INDEX_DO!.idFromName(owner))
 const chat = (c: Call) => stub(c.env, c.by.owner, c.id)
-const who = (c: Call): AutoCaller => (c.by.kind === "machine" ? { kind: "machine", owner: c.by.owner, machine: c.by.machine } : { kind: "owner", owner: c.by.owner })
+const who = (c: Call): AutoCaller => (c.by.kind === "machine" ? { kind: "machine", owner: c.by.owner, machine: c.by.machine } : { kind: "owner", owner: c.by.owner, install: c.by.install ?? null })
+/** A holder write from an owner's install that holds no chat (a phone, a browser session): refused before its body is read. */
+const noLaptop = (c: Call): Response | null => (c.by.kind === "owner" && !c.by.install ? refusal(NOT_A_LAPTOP) : null)
 const session = (s: AutoSessionView) => ({ session: s })
 const refused = (w: Refused): Response => fail(w.status, w.code, w.message)
 
@@ -60,7 +67,9 @@ const open = async (c: Call): Promise<Response> => {
   const b = await bodyOf(c.request)
   if (b instanceof Response) return b
   if (typeof b.auto !== "boolean") return invalid("auto: true to keep the chat in Auto mode, false to turn it off")
-  if (!b.auto) return answer(await chat(c).open(c.by.owner, c.id, c.by.team, null), session)
+  if (!b.auto) return answer(await chat(c).open(who(c), c.id, c.by.team, null), session)
+  const laptop = noLaptop(c)
+  if (laptop) return laptop
   const title = titleOf(b.title)
   if (title === null) return invalid("title: the chat's title (at most 200 characters)")
   if (typeof b.harness !== "string" || !HARNESS.test(b.harness)) return invalid("harness: the agent the chat runs (lowercase letters, digits, _ . -, at most 32)")
@@ -68,7 +77,7 @@ const open = async (c: Call): Promise<Response> => {
   if (b.keepInCloud !== undefined && typeof b.keepInCloud !== "boolean") return invalid("keepInCloud: true or false")
   const repo = b.repo === undefined ? undefined : b.repo === null ? null : repoOf(b.repo)
   if (repo === null && b.repo !== null) return invalid("repo: {remote, branch}")
-  return answer(await chat(c).open(c.by.owner, c.id, c.by.team, { title, harness: b.harness, device: b.device, ...(typeof b.keepInCloud === "boolean" ? { keepInCloud: b.keepInCloud } : {}), ...(repo === undefined ? {} : { repo }) }), session)
+  return answer(await chat(c).open(who(c), c.id, c.by.team, { title, harness: b.harness, device: b.device, ...(typeof b.keepInCloud === "boolean" ? { keepInCloud: b.keepInCloud } : {}), ...(repo === undefined ? {} : { repo }) }), session)
 }
 
 const lease = async (c: Call): Promise<Response> => {
@@ -150,18 +159,19 @@ const ROUTES: Record<string, Route> = {
   "GET ": { allow: "either", run: async (c) => answer(await chat(c).get(who(c)), session) },
   "PUT ": { allow: "owner", run: open },
   "GET wait": { allow: "owner", run: async (c) => answer(await chat(c).wait(c.by.owner, bounded(c.url.searchParams.get("after"), 0, Number.MAX_SAFE_INTEGER), bounded(c.url.searchParams.get("timeoutMs"), MAX_WAIT_MS, MAX_WAIT_MS)), session) },
-  "POST lease": { allow: "either", run: lease },
-  "POST release": { allow: "either", run: (c) => written(c, async (holder, epoch) => answer(await chat(c).release(who(c), holder, epoch), session)) },
-  "POST events": { allow: "either", run: postEvents },
+  "POST lease": { allow: "either", holds: true, run: lease },
+  "POST release": { allow: "either", holds: true, run: (c) => written(c, async (holder, epoch) => answer(await chat(c).release(who(c), holder, epoch), session)) },
+  "POST events": { allow: "either", holds: true, run: postEvents },
   "GET events": { allow: "either", run: getEvents },
-  "PUT chunks/:": { allow: "either", run: putChunk },
+  "PUT chunks/:": { allow: "either", holds: true, run: putChunk },
   "GET chunks/:": { allow: "either", run: getChunk },
-  "POST snapshot": { allow: "either", run: postSnapshot },
+  "POST snapshot": { allow: "either", holds: true, run: postSnapshot },
   "GET snapshot": { allow: "either", run: getSnapshot },
   "POST inbox": { allow: "owner", run: postInbox },
   "GET inbox": { allow: "either", run: async (c) => answer(await chat(c).inbox(who(c), bounded(c.url.searchParams.get("after"), 0, Number.MAX_SAFE_INTEGER)), (v) => v) },
   "POST inbox/ack": {
     allow: "either",
+    holds: true,
     run: (c) =>
       written(c, async (holder, epoch, b) => {
         const through = count(b.through)
@@ -185,7 +195,9 @@ const forChat = async (request: Request, env: Env, id: string, sub: string | und
   const route = ROUTES[`${request.method} ${path}`]
   if (!route) return METHODS.some((m) => ROUTES[`${m} ${path}`]) ? fail(405, "method_not_allowed", METHODS.filter((m) => ROUTES[`${m} ${path}`]).join(" or ")) : notFound()
   const by = await callerFor(request, env, route.allow, request.method !== "GET")
-  return isRefused(by) ? refused(by) : route.run({ request, env, url: new URL(request.url), id, last, by })
+  if (isRefused(by)) return refused(by)
+  const c = { request, env, url: new URL(request.url), id, last, by }
+  return (route.holds && noLaptop(c)) || route.run(c)
 }
 
 const encodeCursor = (c: AutoListCursor) => btoa(JSON.stringify(c)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")

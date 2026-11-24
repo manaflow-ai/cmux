@@ -7,6 +7,7 @@ import { ackInbox, addMessage, dropInbox, INBOX_TABLE, readInbox, sentState, typ
 import { ackAssignment, ackedInbox, close, cloudRecord, deliver, edit, fence, keep, leaseDue, machineSet, nextDue, openRecord, release, renew, tick, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
 import { machineGone } from "./machine-gone.ts"
 import { isVm, LEASE_MS, MAX_CHAT_BYTES, MAX_CHUNK_BYTES, MAX_INBOX_PENDING, MAX_WAIT_MS, viewOf, vmHolder, type AutoCaller, type AutoIndexEntry, type AutoMachine, type AutoRecord, type AutoRefusal, type AutoRepo, type AutoResult, type AutoSessionView, type InboxState } from "./model.ts"
+import { claimDevice } from "./devices.ts"
 import { armIndexRetry, indexState, insertRecord, loadRecord, markIndexed, saveRecord } from "./record-store.ts"
 import { acceptSnapshot, chunkNames, CHUNKS_TABLE, dropSnapshots, getChunk, hasChunk, putChunk, readSnapshot, roomForChunk, sha256Hex, SNAPSHOTS_TABLE, weighChunks } from "./snapshots.ts"
 
@@ -188,9 +189,13 @@ export class AutoSessionDO extends DurableObject<Env> {
    * `PUT /v1/auto-sessions/:id`. With `input`: the first call makes the chat, held by the laptop that sent it, at
    * epoch 1; later calls update what it names, and open a closed chat again. Without (`auto: false`): the chat closes.
    */
-  async open(owner: string, id: string, team: string | null, input: OpenInput | null): Promise<AutoResult<AutoSessionView>> {
+  async open(by: AutoCaller, id: string, team: string | null, input: OpenInput | null): Promise<AutoResult<AutoSessionView>> {
+    const owner = by.owner
     const existing = loadRecord(this.sql)
     if (existing && existing.owner !== owner) return NOT_FOUND
+    // The laptop that opens or updates the chat names itself as its holder: it must be that device's install.
+    const wrong = input ? claimDevice(this.sql, by, `device:${input.device}`) : null
+    if (wrong) return wrong
     if (!existing) return input ? this.create(openRecord(id, owner, team, input, Date.now()), () => undefined) : NOT_FOUND
     const r = await this.apply<null>((current, now) => {
       if (input) return edit(current, input, now)
@@ -246,6 +251,8 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   async lease(by: AutoCaller, input: RenewInput): Promise<AutoResult<{ readonly session: AutoSessionView; readonly role: LeaseRole; readonly leaseMs: number }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
+    const wrong = claimDevice(this.sql, by, input.holder)
+    if (wrong) return wrong
     const r = await this.apply((current, now) => renew(current, by, input, now))
     return r.ok ? ok({ session: r.value.session, role: r.value.out.role, leaseMs: LEASE_MS }) : r
   }
@@ -253,6 +260,8 @@ export class AutoSessionDO extends DurableObject<Env> {
   async release(by: AutoCaller, holder: string, epoch: number): Promise<AutoResult<AutoSessionView>> {
     const held = this.admitted(by, true)
     if (!held) return NOT_FOUND
+    const wrong = claimDevice(this.sql, by, holder)
+    if (wrong) return wrong
     const machine = await this.autoMachine(held)
     const r = await this.apply((current, now) => release(current, by, holder, epoch, machine, now))
     return r.ok ? ok(r.value.session) : r
@@ -296,6 +305,8 @@ export class AutoSessionDO extends DurableObject<Env> {
   /** `POST events`: new events go on from the last stored one. A repeat of stored seqs changes nothing; a hole is refused with the last seq stored. */
   async appendEvents(by: AutoCaller, holder: string, epoch: number, events: ReadonlyArray<EventIn>): Promise<AutoResult<{ readonly lastSeq: number }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
+    const wrong = claimDevice(this.sql, by, holder)
+    if (wrong) return wrong
     const r = await this.apply<number>((current) => {
       const refused = fence(current, by, holder, epoch)
       if (refused) return refused
@@ -319,6 +330,8 @@ export class AutoSessionDO extends DurableObject<Env> {
   /** `PUT chunks/:sha256`: the bytes are kept only under the name that is their SHA-256. A chunk already stored is accepted again as it is. */
   async putChunk(by: AutoCaller, holder: string, epoch: number, sha: string, bytes: ArrayBuffer): Promise<AutoResult<null>> {
     if (!this.admitted(by, true)) return NOT_FOUND
+    const wrong = claimDevice(this.sql, by, holder)
+    if (wrong) return wrong
     const oversize = bytes.byteLength > MAX_CHUNK_BYTES
     const named = oversize || (await sha256Hex(bytes)) === sha
     const r = await this.apply<null>((current, now) => {
@@ -349,6 +362,8 @@ export class AutoSessionDO extends DurableObject<Env> {
    */
   async putSnapshot(by: AutoCaller, holder: string, epoch: number, manifest: string, lastSeq: number): Promise<AutoResult<{ readonly snapshot: number }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
+    const wrong = claimDevice(this.sql, by, holder)
+    if (wrong) return wrong
     const names = chunkNames(JSON.parse(manifest))
     const r = await this.apply<number>((current, now) => {
       const refused = fence(current, by, holder, epoch)
@@ -394,6 +409,8 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   async ackInbox(by: AutoCaller, holder: string, epoch: number, through: number): Promise<AutoResult<AutoSessionView>> {
     if (!this.admitted(by, true)) return NOT_FOUND
+    const wrong = claimDevice(this.sql, by, holder)
+    if (wrong) return wrong
     const r = await this.apply<null>((current, now) => {
       const refused = fence(current, by, holder, epoch)
       if (refused) return refused

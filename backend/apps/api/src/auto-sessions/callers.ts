@@ -7,6 +7,7 @@ import type { AutoCaller } from "./model.ts"
  * Who calls an Auto mode route, as hand-offs resolve it (handoffs/routes.ts):
  *
  * - The owner: a signed-in session or a person's install (callerOf): the laptop's daemon, the Mac app, the phone.
+ *   Only a laptop's install holds a chat, as the `device:` it first named there (devices.ts).
  * - A machine: the bearer of a VM install bound to one of the owner's Cloud machines. Its holder is
  *   `vm:<that machine>`, and it reaches only chats that machine holds (session-do.ts `admitted`).
  *
@@ -15,6 +16,12 @@ import type { AutoCaller } from "./model.ts"
 export type Refused = { readonly status: number; readonly code: string; readonly message: string }
 export type Who = (AutoCaller & { readonly team: string | null }) | Refused
 export const isRefused = (who: Who): who is Refused => "status" in who
+
+/**
+ * The install kinds that run a laptop's cmux and so may hold a chat as `device:<id>`: the Mac app, the CLI and its
+ * daemon. A phone, the web app and a browser session read a chat and send it messages, and hold none (devices.ts).
+ */
+const HOLDS = new Set(["mac", "cli", "daemon"])
 
 /** `allow`: who the route is for. `write`: an owner's install needs a grant that covers changes. */
 export const callerFor = async (request: Request, env: Env, allow: "owner" | "machine" | "either", write: boolean): Promise<Who> => {
@@ -30,5 +37,7 @@ export const callerFor = async (request: Request, env: Env, allow: "owner" | "ma
   if (allow === "machine") return { status: 401, code: "auth.unauthenticated", message: "the Auto machine's VM install is required" }
   const caller = await callerOf(request, env, write ? "mutate-shared" : "read")
   if ("status" in caller) return { status: caller.status, code: caller.code, message: caller.message }
-  return { kind: "owner", owner: caller.user, team: caller.principal.team ?? null }
+  const from = caller.principal
+  const install = from.kind === "install" && HOLDS.has(from.install_kind ?? "") ? (from.install ?? null) : null
+  return { kind: "owner", owner: caller.user, install, team: from.team ?? null }
 }

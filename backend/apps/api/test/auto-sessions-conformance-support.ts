@@ -108,7 +108,7 @@ const requestOf = (s: Step, id: string, team: string): { readonly method: string
 }
 
 const bearerOf = async (w: World, by: string): Promise<string> => {
-  if (by === "owner") return w.owner.session
+  if (by === "owner") return w.owner.installToken
   const machine = /^machine:(.+)$/.exec(by)?.[1]
   if (!machine) throw new Error(`the vectors name a caller this replayer does not know: ${by}`)
   const known = w.bearers.get(machine) ?? (await vmBearer(w.owner, machine))

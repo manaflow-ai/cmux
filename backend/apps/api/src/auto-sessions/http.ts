@@ -21,7 +21,9 @@ const STATUS: Record<string, number> = {
   "auto.no_snapshot": 404,
   "auto.chunk_mismatch": 400,
   "auto.too_large": 413,
-  "auto.closed": 409
+  "auto.closed": 409,
+  "auto.wrong_device": 403,
+  "auto.not_a_laptop": 403
 }
 /** A refusal goes out with the chat as it is now, and with what its code promises (`lastSeq`, `missing`), beside `error`. */
 export const refusal = (r: Extract<AutoResult<unknown>, { ok: false }>): Response => fail(STATUS[r.code] ?? 400, r.code, r.message, { ...(r.session ? { session: r.session } : {}), ...r.extra })
