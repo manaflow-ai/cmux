@@ -5,7 +5,8 @@ import os
 /// handler, even if only a typed "unavailable" one. Debug builds stop at
 /// launch when one is missing; release builds log a fault.
 @MainActor
-package enum HandlerCoverage {
+package struct HandlerCoverage {
+    package init() {}
     package static let categories: Set<ActionCategory> = [.tab, .pane, .screen, .terminal]
 
     package static func verify(_ registry: ActionRegistry) {
