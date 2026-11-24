@@ -1,4 +1,5 @@
 #!/bin/sh
+# tooling-steps runs: scripts/cmux-next/web-bundle-key.py scripts/cmux-next/sync-app-runtime.sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
 # webviews app (diff, markdown and editor pages) and the Chief memory inspector,

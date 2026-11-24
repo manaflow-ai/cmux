@@ -325,7 +325,21 @@ required_base() { # BASE: fetch it when the checkout lacks it, then print the me
     echo "base: cannot fetch $base (tried the commit, $requiredChecksBranch and the full history)" >&2
     return 3
   fi
-  git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
+  # The merge base, never BASE itself when HEAD is not on it: a pool checkout holds HEAD at depth 1, so `merge-base`
+  # found nothing and BASE (the base tip) stood in. Every file the base changed since the branch was cut then read as
+  # the branch's own (2026-11-24: cmux#53262's panic ratchet counted its old cli/hub.rs, 890 indexing_slicing hits,
+  # against a base where #51720 had rewritten it; the merge base was 20 commits back). Deepen HEAD until they meet.
+  local head merged
+  head="$(git -C "$root" rev-parse HEAD)"
+  merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+  if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]]; then
+    git -C "$root" fetch --quiet --no-tags --deepen=200 "$remote" "$head" || true
+    merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+    git -C "$root" fetch --quiet --no-tags --unshallow "$remote" "$head" || true
+    merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+  fi
+  echo "base: HEAD and $base share no history here; comparing with $base itself" >&2
+  echo "$base"
 }
 requiredChecksBranch=feat-cmux-next
 # Go at cmux-tailnet's pin (crates/cmux-tailnet/go-version) first on PATH: its build.rs builds libtailscale with
