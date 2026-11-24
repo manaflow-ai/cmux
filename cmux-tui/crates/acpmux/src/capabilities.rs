@@ -64,7 +64,7 @@ pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
 
 /// A `session/prompt` with `_meta.acpmux.waitForLink: true` for a chat on a peer that is down is
 /// held, with `_acpmux/prompt_held`, until the link is back, instead of refused as unreachable
-/// (`server/peer_forward.rs` `hold_for_link`). Older daemons ignore the field and refuse it.
+/// (`server/peer_forward.rs` `wait_for_prompt_link`). Older daemons ignore the field and give it the short wait.
 pub const PROMPT_LINK_WAIT: &str = "prompt-link-wait-v1";
 
 pub struct Capability {

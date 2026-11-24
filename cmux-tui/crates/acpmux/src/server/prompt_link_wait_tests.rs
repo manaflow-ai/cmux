@@ -1,14 +1,18 @@
-//! A send never blocks on the link (`hold_for_link`, `capabilities::PROMPT_LINK_WAIT`): a prompt
-//! that asks to wait for its chat's link is held while the peer is down and goes once it is back;
-//! one that does not ask (an older client) is refused as unreachable at once, as before.
+//! A prompt for a peer's chat sent while the peer's link is down for a moment (a daemon restart,
+//! a Wi-Fi blip) waits a short time for the link and goes once it is back
+//! (`peer_forward::PROMPT_LINK_WAIT`), instead of being refused at once. A link still down at the
+//! end of the wait, and a peer that was removed, refuse as before.
+//!
+//! The tests run on paused tokio time: the link comes back at a virtual instant, and the times
+//! measured are virtual ones.
 
 use super::*;
 use crate::config::{Config, StoreMode};
 use std::time::Duration;
 
-const CHAT: &str = "0190f2a4-7c1e-7d3a-9f00-00000000b10c";
+const CHAT: &str = "0190f2a4-7c1e-7d3a-9f00-00000000b11b";
 
-/// A hub with peer `far` listing one idle chat, its link down.
+/// A hub with peer `far` listing one chat, its link down.
 fn hub_with_peer() -> (Arc<Hub>, Arc<crate::peer::Peer>) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
@@ -22,98 +26,180 @@ fn row() -> Value {
     json!({"sessionId": CHAT, "name": "lane", "status": "idle", "turnCount": 1, "updatedAt": 5})
 }
 
-fn prompt(wait: bool) -> Value {
-    let mut mux = json!({"promptId": "p-held-1"});
-    if wait {
-        mux.set("waitForLink", json!(true));
-    }
+fn prompt(prompt_id: &str) -> Value {
     json!({
         "sessionId": format!("far/{CHAT}"),
-        "prompt": [{"type": "text", "text": "keep going"}],
-        "_meta": {"acpmux": mux},
+        "prompt": [{"type": "text", "text": "through the blip"}],
+        "_meta": {"acpmux": {"promptId": prompt_id}},
     })
 }
 
-/// A unix-socket connection that has sent `session/prompt` with `params` as request 2.
-struct Sent {
-    _input: mpsc::Sender<String>,
-    output: mpsc::Receiver<String>,
-}
-
-async fn send(hub: &Arc<Hub>, params: Value) -> Sent {
+/// `session/prompt` on a new unix-socket connection to `hub`: its result or its error, and how
+/// long after it was sent the answer came.
+async fn send(hub: &Arc<Hub>, params: Value) -> (Result<Value, Value>, Duration) {
     let (input, incoming) = mpsc::channel(8);
-    let (out, output) = mpsc::channel(64);
-    tokio::spawn(serve_connection_with(hub.clone(), incoming, out, Origin::Local));
+    let (output, mut outgoing) = mpsc::channel(64);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
     let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
-    for line in [
-        Message::request(1, method::INITIALIZE, hello),
-        Message::request(2, method::SESSION_PROMPT, params),
-    ] {
-        input.send(line.to_line()).await.unwrap();
-    }
-    Sent { _input: input, output }
-}
-
-impl Sent {
-    /// The next line that is the prompt's reply or a `prompt_held`, within `within`.
-    async fn next(&mut self, within: Duration) -> Option<Value> {
-        let deadline = tokio::time::Instant::now() + within;
-        loop {
-            let line = tokio::time::timeout_at(deadline, self.output.recv()).await.ok()??;
-            let v: Value = serde_json::from_str(&line).unwrap();
-            if v.get("id") == Some(&json!(2))
-                || v.get("method").and_then(Value::as_str) == Some(method::MUX_PROMPT_HELD)
-            {
-                return Some(v);
-            }
+    input.send(Message::request(1, method::INITIALIZE, hello).to_line()).await.unwrap();
+    let sent = tokio::time::Instant::now();
+    input.send(Message::request(2, method::SESSION_PROMPT, params).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(60), outgoing.recv()).await;
+        let reply: Value = serde_json::from_str(&line.unwrap().unwrap()).unwrap();
+        if reply.get("id") == Some(&json!(2)) {
+            let took = sent.elapsed();
+            return match reply.get("error") {
+                Some(e) => (Err(e.clone()), took),
+                None => (Ok(reply["result"].clone()), took),
+            };
         }
     }
 }
 
-fn reason(v: &Value) -> Option<&str> {
-    v.pointer("/error/data/reason").and_then(Value::as_str)
+/// `peer`'s link back as a finished handshake leaves it: ready, its chats listed, and the hub
+/// told, so that link's restores are decided (`restore_peer_journals`) and the restore gate lets
+/// a prompt go.
+async fn link_up(hub: &Arc<Hub>, peer: &crate::peer::Peer) {
+    peer.open_link_for_tests();
+    hub.seed_peer_back(peer, vec![row()]);
+    let notice = (peer.name.clone(), peer.generation, crate::peer::PeerNotice::Connected);
+    let _ = hub.peer_notices.send(notice).await;
 }
 
-/// The old contract, which an older client still gets: no `waitForLink`, refused at once.
-#[tokio::test]
-async fn a_prompt_that_does_not_ask_to_wait_is_refused_at_once_as_before() {
-    let (hub, _peer) = hub_with_peer();
-    let mut sent = send(&hub, prompt(false)).await;
-    let first = sent.next(Duration::from_secs(20)).await.expect("an answer");
-    assert_eq!(first.get("id"), Some(&json!(2)), "no prompt_held first: {first}");
-    assert_eq!(reason(&first), Some("peer_unreachable"), "{first}");
+/// The link comes back `after` from now, as a finished handshake leaves it, and the far daemon
+/// answers the prompt it then takes: the prompt's line, or None when none came.
+fn link_back_after(
+    hub: &Arc<Hub>,
+    peer: &Arc<crate::peer::Peer>,
+    after: Duration,
+) -> tokio::task::JoinHandle<Value> {
+    let (hub, peer) = (hub.clone(), peer.clone());
+    tokio::spawn(async move {
+        tokio::time::sleep(after).await;
+        link_up(&hub, &peer).await;
+        let answer = json!({"stopReason": "end_turn"});
+        peer.answer_until_for_tests(method::SESSION_PROMPT, answer).await
+    })
 }
 
-/// The new contract: held with a notice, unanswered while the link is down, and sent on once the
-/// link is back (with no transport here, the peer's own request then fails: it was tried).
-#[tokio::test]
-async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
-    let (hub, peer) = hub_with_peer();
-    let mut sent = send(&hub, prompt(true)).await;
-    let held = sent.next(Duration::from_secs(20)).await.expect("a notice");
-    assert_eq!(held["method"], method::MUX_PROMPT_HELD, "{held}");
-    assert_eq!(held["params"]["promptId"], "p-held-1");
-    assert_eq!(held["params"]["peer"], "far");
-    assert!(sent.next(Duration::from_millis(1500)).await.is_none(), "not answered while down");
-    hub.seed_peer_back(&peer, vec![row()]);
-    let reply = sent.next(Duration::from_secs(20)).await.expect("sent on once the link is back");
-    assert_eq!(reply.get("id"), Some(&json!(2)), "{reply}");
+fn reason(e: &Value) -> Option<&str> {
+    e.pointer("/data/reason").and_then(Value::as_str)
 }
 
-/// A link that never comes back: refused as unreachable once the hold's bound is spent.
+/// (1) A prompt sent while the link is down for 3 s goes once the link is back, exactly once,
+/// and its caller gets the far daemon's answer.
 #[tokio::test(start_paused = true)]
-async fn a_held_prompt_is_refused_once_its_bound_is_spent() {
-    let (hub, _peer) = hub_with_peer();
-    let mut sent = send(&hub, prompt(true)).await;
-    let held = sent.next(Duration::from_secs(20)).await.expect("a notice");
-    assert_eq!(held["method"], method::MUX_PROMPT_HELD, "{held}");
-    let reply = sent.next(PROMPT_LINK_WAIT + Duration::from_secs(60)).await.expect("refused");
-    assert_eq!(reason(&reply), Some("peer_unreachable"), "{reply}");
+async fn a_prompt_sent_while_the_link_blips_goes_once_it_is_back() {
+    let (hub, peer) = hub_with_peer();
+    let back = link_back_after(&hub, &peer, Duration::from_secs(3));
+    let (reply, took) = send(&hub, prompt("prompt-blip")).await;
+    let reply = reply.expect("refused while the link came back within the wait");
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert!(took >= Duration::from_secs(3) && took < PROMPT_LINK_WAIT, "{took:?}");
+    let line = back.await.unwrap();
+    assert_eq!(line.pointer("/params/_meta/acpmux/promptId"), Some(&json!("prompt-blip")));
+    assert_eq!(peer.queued_for_tests(method::SESSION_PROMPT).await, 0, "sent twice");
 }
 
-#[test]
-fn only_an_explicit_true_asks_to_wait() {
-    assert!(waits_for_peer_link(&prompt(true)));
-    assert!(!waits_for_peer_link(&prompt(false)));
-    assert!(!waits_for_peer_link(&json!({"_meta": {"acpmux": {"waitForLink": "yes"}}})));
+/// (2) A link still down when the wait ends refuses as before: the same unreachable error, its
+/// data saying it was not sent and may be tried again, and nothing reaches the link after.
+#[tokio::test(start_paused = true)]
+async fn a_link_down_past_the_wait_refuses_as_before() {
+    let (hub, peer) = hub_with_peer();
+    let (reply, took) = send(&hub, prompt("prompt-long-outage")).await;
+    let e = reply.expect_err("a link down past the wait took the prompt");
+    assert_eq!(reason(&e), Some("peer_unreachable"), "{e}");
+    assert_eq!(e.pointer("/data/retryable"), Some(&json!(true)), "{e}");
+    assert!(took >= PROMPT_LINK_WAIT, "refused before the wait ended: {took:?}");
+    // The link coming back later does not send the refused prompt.
+    link_up(&hub, &peer).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    assert_eq!(peer.queued_for_tests(method::SESSION_PROMPT).await, 0, "sent after its refusal");
+}
+
+/// (3) A peer that is removed while a prompt waits for it refuses at once: no wait out.
+#[tokio::test(start_paused = true)]
+async fn a_removed_peer_refuses_a_waiting_prompt_at_once() {
+    let (hub, peer) = hub_with_peer();
+    let stopper = peer.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        stopper.stop();
+    });
+    let (reply, took) = send(&hub, prompt("prompt-removed")).await;
+    let e = reply.expect_err("a stopped peer took the prompt");
+    assert_eq!(reason(&e), Some("peer_unreachable"), "{e}");
+    assert!(took < Duration::from_secs(1), "waited {took:?} on a stopped peer");
+    // A peer stopped before the prompt came refuses it with no wait at all.
+    let (reply, took) = send(&hub, prompt("prompt-removed-before")).await;
+    assert!(reply.is_err() && took < Duration::from_millis(50), "{reply:?} after {took:?}");
+}
+
+/// A client that leaves while its prompt waits gets no late send: its wait ends with it.
+#[tokio::test(start_paused = true)]
+async fn a_caller_that_leaves_while_its_prompt_waits_gets_no_late_send() {
+    let (hub, peer) = hub_with_peer();
+    let (input, incoming) = mpsc::channel(8);
+    let (output, outgoing) = mpsc::channel(64);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
+    input.send(Message::request(1, method::INITIALIZE, hello).to_line()).await.unwrap();
+    let line = Message::request(2, method::SESSION_PROMPT, prompt("prompt-gone")).to_line();
+    input.send(line).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    drop((input, outgoing));
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    link_up(&hub, &peer).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    assert_eq!(peer.queued_for_tests(method::SESSION_PROMPT).await, 0, "sent for a caller gone");
+}
+
+/// The duress table for the PR: the same prompt against a link cut for 1 s, 3 s and 10 s, 20
+/// times each with a seeded jitter of up to 250 ms on the cut, on paused (virtual) tokio time.
+/// It prints, per cut, the share delivered and refused, and the p50/p95 time to the answer.
+/// It asserts nothing, so the same harness measures the build before the change too.
+#[tokio::test(start_paused = true)]
+async fn duress_table_prompt_through_a_cut_link() {
+    const REPS: usize = 20;
+    let mut seed: u64 = 0x5eed_b11b;
+    let mut jitter = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        Duration::from_millis(seed % 250)
+    };
+    let mut table = String::from(
+        "| link cut | delivered | refused | delivered p50 / p95 | refused p50 / p95 |\n|---|---|---|---|---|\n",
+    );
+    for cut in [1u64, 3, 10] {
+        let (mut ok, mut refused) = (Vec::new(), Vec::new());
+        for rep in 0..REPS {
+            let (hub, peer) = hub_with_peer();
+            let back = link_back_after(&hub, &peer, Duration::from_secs(cut) + jitter());
+            let (reply, took) = send(&hub, prompt(&format!("prompt-{cut}-{rep}"))).await;
+            match reply {
+                Ok(_) => ok.push(took),
+                Err(_) => refused.push(took),
+            }
+            back.abort();
+        }
+        let pct = |mut v: Vec<Duration>, q: f64| -> String {
+            if v.is_empty() {
+                return "-".into();
+            }
+            v.sort();
+            let at = ((v.len() as f64 - 1.0) * q).round() as usize;
+            format!("{:.2} s", v[at].as_secs_f64())
+        };
+        let (n_ok, n_refused) = (ok.len(), refused.len());
+        table.push_str(&format!(
+            "| {cut} s | {n_ok}/{REPS} | {n_refused}/{REPS} | {} / {} | {} / {} |\n",
+            pct(ok.clone(), 0.5),
+            pct(ok, 0.95),
+            pct(refused.clone(), 0.5),
+            pct(refused, 0.95),
+        ));
+    }
+    println!("{table}");
 }
