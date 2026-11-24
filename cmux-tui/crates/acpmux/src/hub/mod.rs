@@ -13,7 +13,7 @@ mod activity;
 mod app_exit;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
 mod usage_share;
-// A foreground shell still running after a minute goes to the background (Claude Code).
+// A foreground shell still running after five minutes goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
@@ -87,6 +87,8 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+#[cfg(test)]
+mod title_log_tests;
 pub use fork::Retarget;
 #[cfg(test)]
 mod forum_held_turn_tests;
@@ -151,12 +153,15 @@ pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
 pub(crate) mod book_tee;
+pub mod chat_activity;
+mod chat_index;
 mod closed_rows;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
 mod live_ages;
@@ -356,6 +361,7 @@ mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
 mod capacity_retry;
+mod title_log;
 mod titles;
 mod tool_installs;
 mod tool_paths;
@@ -953,8 +959,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
-    /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
-    pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
+    pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
     /// as it was.
     pub(super) book_tee: std::sync::OnceLock<Arc<book_tee::BookTee>>,
@@ -1032,6 +1038,11 @@ pub struct Hub {
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
     pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
+    /// Hub-routed session reads shared by callers while the same network read is in flight.
+    pub(crate) mesh_read_flights: crate::single_flight::SingleFlight<
+        crate::server::mesh_relay::read::ReadKey,
+        Result<Value, crate::rpc::RpcError>,
+    >,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -1598,6 +1609,7 @@ impl Hub {
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
             mesh_read_parts: Default::default(),
+            mesh_read_flights: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
