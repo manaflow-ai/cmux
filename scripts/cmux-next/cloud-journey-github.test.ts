@@ -16,6 +16,8 @@ import {
   githubConnectionDetail,
   githubConnectionFacts,
   githubSandbox,
+  githubSandboxLookup,
+  GITHUB_SANDBOX_PAGES,
 } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
@@ -55,6 +57,37 @@ describe("the team's GitHub connection, as counts", () => {
     expect(githubConnectionFacts({ ...ACTIVE, connection: { ...ACTIVE.connection, account: "ghs_x y/z" } }, null).account).toBeNull();
   });
 
+  test("a sandbox past the first page: looked up by name across cursors, never read as not listed", async () => {
+    const firstPage = { repos: [{ full_name: "sandbox-org/a", private: true }], truncated: true, cursor: "p2" };
+    // The bounded first page alone cannot say the sandbox is missing.
+    expect(githubConnectionFacts(ACTIVE, firstPage, SANDBOX).sandbox_listed).toBeNull();
+    expect(githubConnectionBlocker(githubConnectionFacts(ACTIVE, firstPage, SANDBOX), SANDBOX)).toBeNull();
+    const asked: string[] = [];
+    const pages: Record<string, unknown> = { "": { repos: [], cursor: "c1" }, c1: { repos: [{ full_name: SANDBOX.toUpperCase(), private: true }], cursor: null } };
+    const lookup = await githubSandboxLookup(async (route) => {
+      asked.push(route);
+      return { status: 200, body: pages[new URL(route, "https://x.invalid").searchParams.get("cursor") ?? ""] };
+    }, "team_1", SANDBOX);
+    expect(lookup).toMatchObject({ pages: 2, complete: true });
+    expect(asked[0]).toBe(`/v1/integrations/github/repos?team=team_1&query=${encodeURIComponent(SANDBOX)}`);
+    expect(asked[1]).toContain("&cursor=c1");
+    const f = githubConnectionFacts(ACTIVE, firstPage, SANDBOX, lookup);
+    expect(f).toMatchObject({ listed: 1, sandbox_listed: true, sandbox_private: true });
+    expect(githubConnectionBlocker(f, SANDBOX)).toBeNull();
+  });
+
+  test("the lookup stops at its page cap (unknown, not a blocker), and a list that ends without the sandbox is a blocker", async () => {
+    let calls = 0;
+    const endless = await githubSandboxLookup(async () => ({ status: 200, body: { repos: [], cursor: `c${++calls}` } }), undefined, SANDBOX);
+    expect(calls).toBe(GITHUB_SANDBOX_PAGES);
+    expect(endless).toEqual({ repo: null, pages: GITHUB_SANDBOX_PAGES, complete: false });
+    expect(githubConnectionFacts(ACTIVE, { repos: [], cursor: "x" }, SANDBOX, endless).sandbox_listed).toBeNull();
+    const ended = await githubSandboxLookup(async () => ({ status: 200, body: { repos: [{ full_name: `${SANDBOX}-old`, private: true }], cursor: null } }), undefined, SANDBOX);
+    expect(ended).toEqual({ repo: null, pages: 1, complete: true });
+    expect(githubConnectionBlocker(githubConnectionFacts(ACTIVE, { repos: [], cursor: "x" }, SANDBOX, ended), SANDBOX)).toContain("does not list");
+    expect(await githubSandboxLookup(async () => ({ status: 503, body: {} }), undefined, SANDBOX)).toBeNull();
+  });
+
   test("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO", () => {
     expect(githubSandbox(` ${SANDBOX} `)).toBe(SANDBOX);
     for (const bad of [undefined, "", "repo", "a/b/c", "a/b;rm", "https://github.com/a/b"]) expect(githubSandbox(bad)).toBeNull();
@@ -64,7 +97,8 @@ describe("the team's GitHub connection, as counts", () => {
     const ask = githubAgentAsk(SANDBOX, "jr-abc_1");
     expect(ask.branch).toBe("cmux-agent-e2e/jr-abc-1");
     expect(ask.file).toBe("cmux-e2e/agent-jr-abc-1.md");
-    for (const part of [SANDBOX, ask.branch, ask.file, "draft pull request", "push"]) expect(ask.prompt).toContain(part);
+    expect(ask.line).toBe("cmux agent e2e jr-abc-1");
+    for (const part of [SANDBOX, ask.branch, ask.file, `"${ask.line}"`, "draft pull request", "push"]) expect(ask.prompt).toContain(part);
   });
 
   test("e2eLines keeps only the cells", () => {
@@ -73,11 +107,14 @@ describe("the team's GitHub connection, as counts", () => {
 });
 
 /** A fake gh that answers the commands cloud-github-e2e.sh sends, logging each, and a fake acpmux github-mcp. */
-function fakeTools(dir: string, opts: { private?: boolean; agentPr?: boolean } = {}) {
+function fakeTools(dir: string, opts: { private?: boolean; agentPr?: boolean; content?: string; draft?: boolean } = {}) {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   const log = join(dir, "gh.log");
   const comments = join(dir, "comments");
+  // The agent's file as the branch holds it.
+  const agentFile = join(dir, "agent-file");
+  writeFileSync(agentFile, opts.content ?? "cmux agent e2e jr-1\n");
   writeFileSync(join(bin, "gh"), [
     "#!/bin/sh",
     `echo "GH_REPO=$GH_REPO $*" >> ${JSON.stringify(log)}`,
@@ -91,8 +128,9 @@ function fakeTools(dir: string, opts: { private?: boolean; agentPr?: boolean } =
     '  "api repos/"*"/status"*) echo pending ;;',
     '  "pr close"*) : ;;',
     '  "api repos/"*"/branches/"*) echo b ;;',
-    '  "api repos/"*"/contents/"*) echo f ;;',
+    `  "api -H Accept: application/vnd.github.raw repos/"*"/contents/"*) cat ${JSON.stringify(agentFile)} ;;`,
     `  "pr list"*) ${opts.agentPr === false ? ":" : "echo 9"} ;;`,
+    `  "pr view 9 --json isDraft"*) echo ${opts.draft === false ? "false" : "true"} ;;`,
     '  "api -X DELETE"*) : ;;',
     '  *) echo "fake gh: unexpected $*" >&2; exit 2 ;;',
     "esac",
@@ -205,16 +243,19 @@ describe("cloud-github-e2e.sh: the live cells", () => {
   });
 });
 
+const AGENT_ARGS = ["--agent-pr", SANDBOX, "cmux-agent-e2e/jr-1", "cmux-e2e/agent-jr-1.md", "cmux agent e2e jr-1"];
+
 describe("cloud-github-e2e.sh --agent-pr: what the agent did, read back and cleaned up", () => {
   test("branch, file and open PR found; the PR closed and the branch deleted", () => {
     const dir = mkdtempSync(join(tmpdir(), "gh-e2e-"));
     try {
       const { bin, log } = fakeTools(dir);
-      const r = runScript(dir, bin, "file:///nowhere", ["--agent-pr", SANDBOX, "cmux-agent-e2e/jr-1", "cmux-e2e/agent-jr-1.md"]);
-      expect(cells(r.stdout)).toEqual({ agent_branch: "ok", agent_commit: "ok", agent_pr: "ok", pr_close: "ok", branch_delete: "ok", no_token_at_rest: "ok" });
+      const r = runScript(dir, bin, "file:///nowhere", AGENT_ARGS);
+      expect(cells(r.stdout)).toEqual({ agent_branch: "ok", agent_commit: "ok", agent_content: "ok", agent_pr: "ok", agent_pr_draft: "ok", pr_close: "ok", branch_delete: "ok", no_token_at_rest: "ok" });
       expect(r.status).toBe(0);
       const sent = readFileSync(log, "utf8");
-      expect(sent).toContain(`api repos/${SANDBOX}/contents/cmux-e2e/agent-jr-1.md?ref=cmux-agent-e2e/jr-1`);
+      expect(sent).toContain(`repos/${SANDBOX}/contents/cmux-e2e/agent-jr-1.md?ref=cmux-agent-e2e/jr-1`);
+      expect(sent).toContain("pr view 9 --json isDraft");
       expect(sent).toContain("pr close 9");
       expect(sent).toContain(`api -X DELETE repos/${SANDBOX}/git/refs/heads/cmux-agent-e2e/jr-1`);
     } finally {
@@ -226,11 +267,45 @@ describe("cloud-github-e2e.sh --agent-pr: what the agent did, read back and clea
     const dir = mkdtempSync(join(tmpdir(), "gh-e2e-"));
     try {
       const { bin, log } = fakeTools(dir, { agentPr: false });
-      const r = runScript(dir, bin, "file:///nowhere", ["--agent-pr", SANDBOX, "cmux-agent-e2e/jr-1", "cmux-e2e/agent-jr-1.md"]);
+      const r = runScript(dir, bin, "file:///nowhere", AGENT_ARGS);
       expect(cells(r.stdout).agent_pr).toBe("FAIL");
       expect(cells(r.stdout).branch_delete).toBe("ok");
       expect(r.status).toBe(1);
       expect(readFileSync(log, "utf8")).not.toContain("pr close");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cloud-github-e2e.sh --agent-pr: the file's line and the draft", () => {
+  for (const [name, opts, failed] of [
+    ["a file with another line", { content: "something else\n" }, "agent_content"],
+    ["a PR that is not a draft", { draft: false }, "agent_pr_draft"],
+  ] as const) {
+    test(`${name} fails its cell, and the PR is still closed and the branch deleted`, () => {
+      const dir = mkdtempSync(join(tmpdir(), "gh-e2e-"));
+      try {
+        const { bin, log } = fakeTools(dir, opts);
+        const r = runScript(dir, bin, "file:///nowhere", AGENT_ARGS);
+        expect(cells(r.stdout)[failed]).toBe("FAIL");
+        expect(cells(r.stdout)).toMatchObject({ pr_close: "ok", branch_delete: "ok" });
+        expect(r.status).toBe(1);
+        const sent = readFileSync(log, "utf8");
+        expect(sent).toContain("pr close 9");
+        expect(sent).toContain(`api -X DELETE repos/${SANDBOX}/git/refs/heads/cmux-agent-e2e/jr-1`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test("CRLF and a trailing newline still match the line; without LINE the content is not judged", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gh-e2e-"));
+    try {
+      const { bin } = fakeTools(dir, { content: "cmux agent e2e jr-1\r\n\n" });
+      expect(cells(runScript(dir, bin, "file:///nowhere", AGENT_ARGS).stdout).agent_content).toBe("ok");
+      expect(cells(runScript(dir, bin, "file:///nowhere", AGENT_ARGS.slice(0, 4)).stdout).agent_content).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -244,7 +319,7 @@ describe("the journey's GitHub steps", () => {
     const { steps, probe, log } = runJourney({ github: { status: { configured: true, allowed: true, connection: null } } });
     expect(step(steps, GITHUB_STATUS_STEP)).toMatchObject({ status: "pass", detail: expect.stringContaining("connected no") });
     expect(log.filter((l) => l.startsWith("github status"))).toHaveLength(1);
-    expect(log).not.toContain("github repos");
+    expect(log.filter((l) => l.startsWith("github repos"))).toHaveLength(0);
     expect(step(steps, "GitHub on the machine (live)")).toMatchObject({ status: "skip", detail: "CMUX_JOURNEY_GITHUB_REPO is not set" });
     expect(step(steps, GITHUB_AGENT_STEP)).toMatchObject({ status: "skip" });
     expect(probe.outcome).toBe("ok");
@@ -275,6 +350,34 @@ describe("the journey's GitHub steps", () => {
     expect(log).toContain("github agent-pr");
     // The agent's cell runs after the reply, outside the first-text window.
     expect(steps.findIndex((s) => s.step === GITHUB_AGENT_STEP)).toBeGreaterThan(steps.findIndex((s) => s.step === "reply"));
+  });
+
+  test("a sandbox past the first page of the list is found by its lookup, and the status step passes", () => {
+    const { steps, log } = runJourney({
+      github: {
+        sandbox: SANDBOX, status: ACTIVE, repos: { repos: [{ full_name: "sandbox-org/a", private: true }], truncated: true, cursor: "p2" },
+        lookup: { "": { repos: [], cursor: "c1" }, c1: { repos: [{ full_name: SANDBOX, private: true }], cursor: null } },
+        script: { live: ["clone ok"], agent: ["agent_pr ok"] },
+      },
+    });
+    const status = step(steps, GITHUB_STATUS_STEP);
+    expect(status.status).toBe("pass");
+    expect(status.detail).toContain("sandbox listed yes (private yes)");
+    expect(status.detail).toContain("sandbox looked up in 2 page(s)");
+    const repos = log.filter((l) => l.startsWith("github repos"));
+    expect(repos).toHaveLength(3);
+    expect(repos[1]).toContain(`query=${encodeURIComponent(SANDBOX)}`);
+    expect(repos[2]).toContain("cursor=c1");
+  });
+
+  test("an agent turn that fails is cancelled and waited out before the read back and its cleanup", () => {
+    const { steps, log } = runJourney({
+      github: { sandbox: SANDBOX, status: ACTIVE, repos: LISTED, agentTurn: "fail", script: { live: ["clone ok"], agent: ["agent_pr ok", "pr_close ok", "branch_delete ok"] } },
+    });
+    expect(step(steps, GITHUB_AGENT_STEP)).toMatchObject({ status: "fail", detail: expect.stringContaining("the turn was cancelled and ended") });
+    const cancel = log.indexOf("acp cancel");
+    expect(cancel).toBeGreaterThan(log.indexOf("agent turn fails"));
+    expect(cancel).toBeLessThan(log.indexOf("github agent-pr"));
   });
 
   test("a failed read back fails the agent's cell, and the journey still cleans up", () => {
