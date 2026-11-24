@@ -2421,6 +2421,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-redact"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-relay"
 version = "0.1.0"
 dependencies = [

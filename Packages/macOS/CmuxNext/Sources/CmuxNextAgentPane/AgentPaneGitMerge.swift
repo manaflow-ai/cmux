@@ -25,12 +25,12 @@ extension AgentPaneGitPullRequest {
 
     /// A merge's first read: the pull request as `gh pr view --json` names its fields (its checks
     /// as `statusCheckRollup`), and the method to merge with.
-    struct MergeView {
+    nonisolated struct MergeView {
         var pullRequest: [String: Any]
         var method: String
     }
 
-    struct MergeRefusal: Error {
+    nonisolated struct MergeRefusal: Error {
         var message: String
     }
 
