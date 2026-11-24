@@ -155,6 +155,36 @@ impl std::fmt::Display for SessionStatus {
     }
 }
 
+/// Why a chat waits on the person: every [`SessionStatus::Waiting`] has one, written with it
+/// (`Hub::set_waiting`, the only way into Waiting), so a client always says what it waits for (the
+/// summary's `waitingOn`). Never a bare Waiting (goal cloud-chat-waiting-always-explained).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitReason {
+    /// An agent's question (AskUserQuestion, Codex user input), carried as a permission request.
+    Question,
+    /// A tool's permission: only the person allows it (`hub/person.rs`).
+    Permission,
+    /// A card asking to connect an MCP server (`hub/mcp_connect.rs`).
+    McpConnect,
+    /// A private card asking for a secret's value (`hub/secrets.rs`).
+    Secret,
+    /// A private card asking for the password to run one command as root (`hub/elevation.rs`).
+    Elevation,
+}
+
+impl WaitReason {
+    /// The summary's `waitingOn` for it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Question => "question",
+            Self::Permission => "permission",
+            Self::McpConnect => "mcp_connect",
+            Self::Secret => "secret",
+            Self::Elevation => "elevation",
+        }
+    }
+}
+
 /// What a watched chat follows (`hub/watch.rs`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
