@@ -82,10 +82,24 @@ public struct TerminalFramePlacement: Equatable, Sendable {
     }
 }
 
-/// A still handed to a detached measure: CGImage is immutable and thread safe to read.
-struct TerminalUncheckedImage: @unchecked Sendable {
-    let image: CGImage
-    init(_ image: CGImage) { self.image = image }
+/// The last stills measured (``TerminalFrameRows``), by identity: a still handed from one host
+/// to the next (a reconnect, the warm set, the frame keep) is measured once.
+@MainActor
+enum TerminalFrameRowsMemo {
+    private static var entries: [(image: WeakImage, rows: TerminalFrameRows?)] = []
+
+    private struct WeakImage {
+        weak var image: UIImage?
+    }
+
+    static func rows(for image: UIImage) -> TerminalFrameRows? {
+        entries.removeAll { $0.image.image == nil }
+        if let hit = entries.first(where: { $0.image.image === image }) { return hit.rows }
+        let rows = image.cgImage.flatMap { TerminalFrameRows.measure($0) }
+        entries.append((WeakImage(image: image), rows))
+        if entries.count > 8 { entries.removeFirst(entries.count - 8) }
+        return rows
+    }
 }
 
 /// The software keyboard's height over the bottom of the screen (0: down), for views that lay

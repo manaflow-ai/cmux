@@ -175,29 +175,21 @@ public final class TerminalModel {
         measureColdFrame(image)
     }
 
-    /// Where the cached frame's rows end (``TerminalFrameRows``), measured off the main
-    /// thread when the frame is restored; nil until then (the page draws no still until it
-    /// knows where its rows go) or for a blank frame.
+    /// Where the cached frame's rows end (``TerminalFrameRows``), measured when the frame is
+    /// restored; nil for no frame or a blank one.
     public private(set) var coldFrameRows: TerminalFrameRows?
     /// The cached frame has been measured (its rows may still be nil: a blank still).
     public private(set) var coldFrameMeasured = false
 
+    /// Measured at once, in the call that restores the frame: the page's first frame already
+    /// draws the still in its place (Leo, 2026-11-24: "the loading has layout shifts and
+    /// placeholder states that likely dont need to be so placeholder and better diffed"). A
+    /// measure off the main thread left a frame or two with nothing, then the still popped in.
+    /// The scan reads a 256 px wide copy (a few ms), once per restored still; the same still
+    /// handed to the next host (a reconnect, the warm set) is not measured again.
     private func measureColdFrame(_ image: UIImage) {
-        coldFrameRows = nil
-        coldFrameMeasured = false
-        guard let cgImage = image.cgImage else {
-            coldFrameMeasured = true
-            return
-        }
-        let box = TerminalUncheckedImage(cgImage)
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let rows = TerminalFrameRows.measure(box.image)
-            await MainActor.run { [weak self] in
-                guard let self, self.coldFrame === image else { return }
-                self.coldFrameRows = rows
-                self.coldFrameMeasured = true
-            }
-        }
+        coldFrameRows = TerminalFrameRowsMemo.rows(for: image)
+        coldFrameMeasured = true
     }
 
     /// The cached frame this host was given (`restoreLastFrame`), kept after
