@@ -1,4 +1,4 @@
-#if DEBUG
+#if os(iOS) && DEBUG
 import CmuxMobileAgentChat
 
 /// The `offline-held` demo's chat (`-cmux-mobile-demo offline-held`): the app's own source for a
