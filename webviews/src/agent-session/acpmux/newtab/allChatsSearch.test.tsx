@@ -182,12 +182,14 @@ test("a failed first read is asked again on its own, with no button, and says on
   const asked = requests.length;
   expect(asked).toBeGreaterThan(3);
 
-  // It keeps asking (the backoff tops out at 30 s) and the first read that lands clears the line.
+  // It keeps asking (the jittered backoff tops out at 30 s, so a 30 s wait holds at least one ask) and
+  // the first read that lands clears the line.
   await wait(30_000);
-  expect(requests.length).toBe(asked + 1);
+  expect(requests.length).toBeGreaterThan(asked);
   await act(async () => requests.at(-1)!.resolve({ chats: [row("claude:a", "A")], ready: true }));
   expect(quietLine()).toBeNull();
   // Nothing more is asked once it landed.
+  const landed = requests.length;
   await wait(60_000);
-  expect(requests.length).toBe(asked + 1);
+  expect(requests.length).toBe(landed);
 });

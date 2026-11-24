@@ -33,6 +33,7 @@ export function ChatUnavailableState({
   now = Date.now(),
   onResumeMachine,
   resuming = false,
+  resumeLong = false,
   error,
   onRemove,
   onReconnect,
@@ -50,6 +51,9 @@ export function ChatUnavailableState({
   now?: number;
   onResumeMachine?(): void;
   resuming?: boolean;
+  /// The resume has run past useCloudChatRecovery's RESUME_SLOW_MS: one line says it is taking longer
+  /// than usual, and Resume machine is enabled again (Resume from Transcript is the other way out).
+  resumeLong?: boolean;
   error?: string;
   onRemove(): void;
   /// Reads the machines and the chat list again; the state asks it on its own while offline.
@@ -157,7 +161,7 @@ export function ChatUnavailableState({
           type="button"
           className="acpmux-unavailable-action"
           data-action={action.kind}
-          disabled={resuming}
+          disabled={resuming && !resumeLong}
           onClick={action.run}
         >
           {action.label}
@@ -195,6 +199,7 @@ export function ChatUnavailableState({
           </p>
         )}
         {detail && <p className="acpmux-watch-hint">{detail}</p>}
+        {resumeLong && <p className="acpmux-watch-hint">{t("unavailable.resumeSlow")}</p>}
         {actions}
       </div>
     );
@@ -252,6 +257,7 @@ export function ChatUnavailableState({
           </p>
         )}
         {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
+        {resumeLong && <p className="acpmux-unavailable-detail">{t("unavailable.resumeSlow")}</p>}
         {session && (
           <p className="acpmux-unavailable-detail acpmux-unavailable-session">
             {t("unavailable.session", { session: shortSession(session) })}

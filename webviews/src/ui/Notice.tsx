@@ -169,6 +169,7 @@ export function Notice({
       ref={card}
       id={id}
       className={cx("ui-notice ui-glass", className)}
+      data-surface-role={kind === "toast" ? "toast" : "card"}
       data-kind={kind}
       data-placement={placement}
       data-state={state}

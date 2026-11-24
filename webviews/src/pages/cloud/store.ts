@@ -122,6 +122,8 @@ export interface CloudState {
   planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
+  /** The account's latest payment failed (`cmux.cloud.billing.status`): the plan shows a notice. */
+  paymentPastDue?: boolean;
   /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
@@ -460,6 +462,16 @@ export class CloudStore {
   dismissError(): void {
     if (this.state.error || this.state.refusal || this.state.blocked)
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
+  }
+
+  /** The page is shown again (the app became active, the tab came back): read the billing state again. */
+  refreshBilling(): Promise<void> {
+    return this.account.readBilling(this.session);
+  }
+
+  /** Manage Billing beside the payment notice. */
+  manageBilling(): Promise<void> {
+    return this.account.manageBilling();
   }
 
   /** Reads the plan again after a failed read (the storefront asks on its own, useAutoRetry). */
@@ -1337,6 +1349,7 @@ function signedOutState(): Partial<CloudState> {
     teams: [],
     plan: undefined,
     migration: undefined,
+    paymentPastDue: undefined,
     refusal: undefined,
     blocked: undefined,
     selection: undefined,

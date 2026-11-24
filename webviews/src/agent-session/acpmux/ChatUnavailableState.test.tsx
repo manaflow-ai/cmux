@@ -237,3 +237,37 @@ test("an offline chat reads the machines and the chat list again on its own, wit
   await act(async () => void jest.advanceTimersByTime(2_000));
   expect(asks).toBe(2);
 });
+
+test("a resume past the slow bound says it is taking longer and enables Resume machine again", async () => {
+  const container = installDom();
+  let clicks = 0;
+  const render = (resumeLong: boolean) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <ChatUnavailableState
+          unavailable={{ reason: "paused", machine: "remote" }}
+          machine="remote"
+          onRemove={() => undefined}
+          onReconnect={() => undefined}
+          onResumeMachine={() => void clicks++}
+          onResume={() => undefined}
+          resuming
+          resumeLong={resumeLong}
+          noteDelayMs={0}
+        />,
+      );
+    });
+  await render(false);
+  const button = () => container.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]')!;
+  expect(button().disabled).toBe(true);
+  expect(container.textContent).not.toContain("taking longer than usual");
+  await render(true);
+  expect(button().disabled).toBe(false);
+  expect(container.textContent).toContain("This is taking longer than usual.");
+  expect(container.querySelector('[data-action="resume"]')).not.toBeNull();
+  // Still resuming: the spinner stays.
+  expect(container.querySelector(".acpmux-unavailable-progress .cv-spinner")).not.toBeNull();
+  await act(async () => button().click());
+  expect(clicks).toBe(1);
+});
