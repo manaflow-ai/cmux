@@ -250,6 +250,11 @@ run_arm() { # run_arm NAME HOSTNAME IP MODE(open|drop) MOVE(0|1)
     sleep 0.5
   done
   local settled=$([[ $path == "$want" ]] && echo 1 || echo 0)
+  if [[ $settled == 0 ]]; then
+    # the arm's path is not the one it names: keep the status for the report, and say so loudly
+    ts status --json >"$OUT/$name.unsettled-status.json" 2>/dev/null || true
+    log "arm $name: NOT SETTLED (wanted $want, have $path); its rows are not that path's"
+  fi
   local load_start
   load_start=$(load1)
   d exec "$CLIENT" rm -f "/root/$name.jsonl"

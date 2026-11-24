@@ -93,6 +93,40 @@ class Ingest(unittest.TestCase):
             self.ingest("no summary here\n")
 
 
+class ClientReconnects(unittest.TestCase):
+    def test_client_reconnects_after_a_server_drop(self):
+        """A server that drops every connection after one echo: the client must log a disconnect and reconnect."""
+        import asyncio
+        import socket
+
+        def port():
+            with socket.socket() as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        p = port()
+
+        async def drop(r, w):
+            line = await r.readline()
+            w.write(line)
+            await w.drain()
+            w.close()
+
+        async def main():
+            srv = await asyncio.start_server(drop, "127.0.0.1", p)
+            out = Path(tempfile.mkdtemp(prefix="tnsb-recon-")) / "ev.jsonl"
+            try:
+                await tailnet_bench.client("tcp", "127.0.0.1", p, 1.5, str(out), 1.0)
+            finally:
+                srv.close()
+            return [json.loads(x) for x in out.read_text().splitlines() if x.strip()]
+
+        events = asyncio.run(main())
+        self.assertGreaterEqual(sum(1 for e in events if e["ev"] == "connect"), 2)
+        self.assertGreaterEqual(sum(1 for e in events if e["ev"] == "disconnect"), 1)
+        self.assertEqual(events[-1]["ev"], "end")
+
+
 class Harness(unittest.TestCase):
     def test_shell_syntax(self):
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)

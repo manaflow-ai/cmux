@@ -177,7 +177,7 @@ async def client(proto, host, port, duration, out, idle, socks=None):
                 await asyncio.sleep(0.05)
                 continue
             log(ev="connect", t=now_ns())
-            seq, _ = await tcp_session(r, w, end, idle, log, seq)
+            seq = await tcp_session(r, w, end, idle, log, seq)
     log(ev="end", sent=seq)
     ev.close()
 
