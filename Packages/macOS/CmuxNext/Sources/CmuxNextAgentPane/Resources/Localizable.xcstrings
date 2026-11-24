@@ -7161,7 +7161,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always allow"
+            "value": "Always Allow"
           }
         },
         "es": {
@@ -33138,7 +33138,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enroll this Mac on %@ to allow from here"
+            "value": "Enroll this Mac on %@ first"
           }
         },
         "es": {
@@ -33936,7 +33936,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always allow isn't available from this Mac; Allow once and Deny work."
+            "value": "From this Mac: Allow once or Deny"
           }
         },
         "es": {
@@ -34210,7 +34210,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac couldn't sign that Allow once"
+            "value": "Couldn't sign that Allow once"
           }
         },
         "es": {
@@ -34353,7 +34353,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click Allow once to answer this from this Mac."
+            "value": "Click Allow once to answer here"
           }
         },
         "es": {
@@ -34496,7 +34496,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac hadn't received that request yet. Choose Allow once again."
+            "value": "Not received yet. Choose Allow once again."
           }
         },
         "es": {
@@ -34639,7 +34639,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Answers with notes aren't available from this Mac; Allow once and Deny work."
+            "value": "Notes don't work from this Mac"
           }
         },
         "es": {

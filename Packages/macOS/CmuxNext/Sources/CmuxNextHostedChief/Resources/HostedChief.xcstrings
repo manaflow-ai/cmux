@@ -1580,7 +1580,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only this Mac drives its Chief's computer."
+            "value": "Only this Mac drives its Chief’s computer."
           }
         },
         "ar": {
@@ -1712,7 +1712,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Name the Chief's computer (chief:<id>) and one of its ops."
+            "value": "Name the Chief’s computer (chief:<id>) and one of its ops."
           }
         },
         "ar": {
