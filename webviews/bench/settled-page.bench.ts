@@ -291,6 +291,7 @@ function installFrameReader() {
     rows: { id: string; top: number }[];
     composer: { top: number; height: number } | null;
     scrollTop: number | null;
+    drawnBy?: number;
   };
   const w = window as unknown as {
     __settle?: {
@@ -383,6 +384,13 @@ function installFrameReader() {
       rows,
       composer: composer ? { top: composer.top, height: composer.height } : null,
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
+      // How far the thread is drawn from its place (the follow glide's translate): a row's place in the content is
+      // its box less this, as VirtualTranscript's own `drawnBy` reads it.
+      drawnBy: (() => {
+        const thread = scroller?.querySelector<HTMLElement>(".acpmux-thread");
+        const translate = thread ? getComputedStyle(thread).translate : "none";
+        return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+      })(),
       ...(scroller
         ? {
             geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} thread=${(() => {
@@ -457,9 +465,16 @@ async function framesOf(page: Page, mark: string): Promise<Read> {
   return page.evaluate(() => (window as unknown as { __settle: Reader }).__settle.stop());
 }
 
-/** The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. */
+/** How far a frame's thread was drawn from its place (the follow glide), 0 when not read. */
+const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy ?? 0;
+
+/**
+ * The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. A row's
+ * place in the content leaves out the follow glide's translate: the glide eases the view after the reply, so with it
+ * counted every row above crept ~1.6 px a frame in the content for 2.5 s (109 "shifts" in workspace_switch stream).
+ */
 function streamView(frame: FrameRecord): FrameRecord {
-  const offset = frame.scrollTop ?? 0;
+  const offset = (frame.scrollTop ?? 0) - drawnBy(frame);
   const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset }));
   let bottom = -1;
   rows.forEach((row, at) => {
@@ -480,7 +495,7 @@ function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
     const before = new Map(a.rows.map((row) => [row.id, row.top]));
-    const offset = (frame: FrameRecord) => frame.scrollTop ?? 0;
+    const offset = (frame: FrameRecord) => (frame.scrollTop ?? 0) - drawnBy(frame);
     for (const row of b.rows) {
       const top = before.get(row.id);
       if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
