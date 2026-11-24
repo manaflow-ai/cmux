@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "menu.browserMore.takeScreenshot": {
+      "comment": "The browser More (⋮) menu's screenshot row: drag over the page to copy a picture of that part.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take Screenshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンショットを撮る"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التقاط لقطة شاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napravi snimak ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tag skærmbillede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfoto aufnehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hacer captura de pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire une capture d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acquisisci screenshot"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតរូបអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷 찍기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta skjermbilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrób zrzut ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fazer captura de tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сделать снимок экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถ่ายภาพหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Görüntüsü Al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зробити знімок екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chụp ảnh màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截屏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截圖"
+          }
+        }
+      }
+    },
+    "menu.browserMore.findInPage": {
+      "comment": "The browser More (⋮) menu's Find row: find text in the page.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ内を検索"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في الصفحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronađi na stranici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find på siden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Seite suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar en la página"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans la page"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trova nella pagina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកក្នុងទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페이지에서 찾기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finn på siden"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znajdź na stronie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localizar na página"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти на странице"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาในหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfada Bul"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знайти на сторінці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tìm trong trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在页面中查找"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在頁面中尋找"
+          }
+        }
+      }
+    },
     "menu.name.divider": {
       "comment": "Settings > Menus: the menu of a split divider, which a right-click on the divider opens.",
       "extractionState": "manual",
@@ -30476,530 +30740,6 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "İlk kurulum betiği"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Скрипт початкового налаштування"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tập lệnh khởi tạo ban đầu"}}
-      }
-    },
-    "action.chief.importMemories" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bring Your History"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "أحضر سجلك"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prenesite svoju historiju"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tag din historik med"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bringe deinen Verlauf mit"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trae tu historial"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importez votre historique"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Porta la tua cronologia"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴を引き継ぐ"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "នាំយកប្រវត្តិរបស់អ្នក"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "기록 가져오기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ta med historikken din"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Przenieś swoją historię"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Traga seu histórico"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перенесите свою историю"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "นำประวัติของคุณมา"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Geçmişinizi getirin"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перенесіть свою історію"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mang theo lịch sử của bạn"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "带入你的历史记录"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "帶入你的歷史記錄"
-          }
-        }
-      }
-    },
-    "action.chief.importMemories.undo" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Undo Last Memory Import"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "التراجع عن آخر استيراد للذكريات"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Poništi posljednji uvoz sjećanja"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fortryd seneste import af minder"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Letzten Erinnerungsimport rückgängig machen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Deshacer la última importación de recuerdos"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Annuler le dernier import de souvenirs"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Annulla l’ultima importazione di ricordi"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "直前のメモリ読み込みを取り消す"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ត្រឡប់ការនាំចូលការចងចាំចុងក្រោយវិញ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "마지막 기억 가져오기 취소"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Angre siste import av minner"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cofnij ostatni import wspomnień"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Desfazer a última importação de memórias"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Отменить последний импорт памяти"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เลิกทำการนำเข้าความจำล่าสุด"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Son Anı İçe Aktarımını Geri Al"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скасувати останній імпорт пам’яті"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Hoàn tác lần nhập ký ức gần nhất"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "撤销上次记忆导入"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "復原上次記憶匯入"
-          }
-        }
-      }
-    },
-    "argument.chiefImportChief" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cloud Chief"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cloud Chief"
-          }
-        }
-      }
-    },
-    "argument.chiefImportSource" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Source"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "المصدر"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Izvor"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kilde"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Quelle"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fuente"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Source"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fonte"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ソース"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ប្រភព"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "소스"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kilde"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Źródło"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Fonte"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Источник"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แหล่งที่มา"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kaynak"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Джерело"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nguồn"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "来源"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "來源"
-          }
-        }
       }
     },
     "argument.apiKey": {

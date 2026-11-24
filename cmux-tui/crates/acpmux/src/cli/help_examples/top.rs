@@ -43,6 +43,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "pr-wait",
+        &[
+            (
+                "Wait for the checks at the head you pushed, at most an hour",
+                "acpmux pr-wait 1234 --repo octo/app --sha 0123abcd --timeout 3600",
+            ),
+            ("Wait until a pull request merges or closes", "acpmux pr-wait 1234 --until merged"),
+        ],
+    ),
+    (
         "who-else",
         &[
             (
@@ -368,6 +378,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),
+            ("Open the NEXT agent pane in the browser", "acpmux web --app"),
             ("Only print the dashboard URL", "acpmux web --no-open"),
         ],
     ),

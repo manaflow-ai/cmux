@@ -1,0 +1,40 @@
+{
+  "family": "codemirror",
+  "ops": {
+    "codemirror.cycle_variant": {
+      "source": "app",
+      "owner": "app:cmux/codemirror",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "767bdf109de0aafe"
+    },
+    "codemirror.open": {
+      "source": "app",
+      "owner": "app:cmux/codemirror",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "fa3ae343fad01e38"
+    },
+    "codemirror.revert": {
+      "source": "app",
+      "owner": "app:cmux/codemirror",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "660b23767373ec28"
+    },
+    "codemirror.save": {
+      "source": "app",
+      "owner": "app:cmux/codemirror",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "930255ad8b18c4fe"
+    },
+    "codemirror.toggle_read_only": {
+      "source": "app",
+      "owner": "app:cmux/codemirror",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "91a6926292abb0b6"
+    }
+  }
+}

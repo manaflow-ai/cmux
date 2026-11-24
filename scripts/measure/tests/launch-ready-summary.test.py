@@ -38,7 +38,7 @@ def row(side, label, front=None, marks=None, first=None, **extra):
 def run(rows, case="kept", seeded="", keys=False):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        result = module.summarize(rows, case, seeded, keys)
+        result = module.summarize(rows, case, seeded, keys=keys)
     return result, out.getvalue().splitlines()
 
 
@@ -351,6 +351,35 @@ class KeysTests(unittest.TestCase):
                 self.assertEqual("LR-KEYS head 1000.0 2/3" in out.getvalue().splitlines(), want)
 
 
+LAYOUT = {"main_start": 30.0, "layout.first_frame": 530.0, "layout.settle": 930.0, "layout.max_move": 32.0,
+          "layout.max_move.SidebarRowView": 32.0, "layout.last.TabStripView": 930.0, "layout.changed_frames": 3.0}
+
+
+class LayoutTests(unittest.TestCase):
+    def test_settle_after_main_start_and_after_the_first_frame(self):
+        lay = module.layout_of({"marks": LAYOUT})
+        self.assertEqual(lay["first_frame_ms"], 500.0)
+        self.assertEqual(lay["settle_ms"], 900.0)
+        self.assertEqual(lay["settle_minus_first_frame_ms"], 400.0)
+        self.assertEqual((lay["max_move_pt"], lay["moved"], lay["last"]), (32.0, "SidebarRowView", "TabStripView"))
+
+    def test_layout_line_per_side_with_missing_launches(self):
+        rows = [row("head", "prime", TAB), row("head", "run1", TAB, dict(TAB_MARKS, **LAYOUT), "tabs"),
+                row("head", "run2", TAB, TAB_MARKS, "tabs")]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            module.summarize(rows, "kept", "", "state=kept front=tab")
+        line = next(l for l in out.getvalue().splitlines() if l.startswith("LR-LAYOUT head "))
+        self.assertIn("state=kept front=tab n=1 n_missing=1 first_frame_ms=500.0 settle_ms=900.0 settle_minus_first_frame_ms=400.0", line)
+        self.assertIn("moved=SidebarRowView:1", line)
+        self.assertIn("web_n_missing=1", line)
+
+    def test_no_layout_mark_prints_none_not_zero(self):
+        _, lines = run([row("base", "prime", TAB), row("base", "run1", TAB, TAB_MARKS, "tabs")])
+        line = next(l for l in lines if l.startswith("LR-LAYOUT base "))
+        self.assertIn("n=0 n_missing=1 first_frame_ms=none settle_ms=none", line)
+
+
 def layout(window_moved, window_changes, sidebar_moved=None, sidebar_changes=0):
     def part(moved, changes):
         if moved is None:
@@ -385,6 +414,34 @@ class FramesTests(unittest.TestCase):
     def test_no_layout_no_line(self):
         _, lines = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")])
         self.assertFalse(any(l.startswith("LR-FRAMES") for l in lines))
+
+
+class PerceivedTests(unittest.TestCase):
+    """record=1: LR-PERCEIVED per side, the medians of launch_shift.py's numbers over the recorded launches."""
+
+    def test_a_recorded_side_prints_its_perceived_headline(self):
+        page = "".join(f"{(i * 7) % 200 + 20:02x}" for i in range(256))
+        with tempfile.TemporaryDirectory() as root:
+            rows = [row("head", "prime", front=HOME, marks=HOME_MARKS)]
+            for n in (1, 2, 3):
+                folder = os.path.join(root, f"record-run{n}", "window-1")
+                os.makedirs(folder)
+                frames = 40
+                with open(os.path.join(folder, "frames.json"), "w") as f:
+                    json.dump({"times": [i / 60 for i in range(frames)], "processMs": [500 + n + i * 16.7 for i in range(frames)],
+                               "cells": [page] * frames, "moved": [0] * frames, "movedRects": [[] for _ in range(frames)],
+                               "window": [[0, 0, 1000, 600]] * frames, "alpha": [1.0] * frames, "endedBy": "time"}, f)
+                rows.append(row("head", f"run{n}", front=HOME, marks=dict(HOME_MARKS), record_dir=os.path.dirname(folder)))
+            _, lines = run(rows, seeded="home")
+        line = next(l for l in lines if l.startswith("LR-PERCEIVED head "))
+        self.assertIn("settled_match_ms=502 shift_score=0 tti_ms=400 first_frame_is_final=true", line)
+        self.assertIn("tti_mark=window_usable", line)
+        self.assertIn("recorded=3/3", line)
+
+    def test_no_recording_no_line(self):
+        _, lines = run([row("head", "prime", front=HOME, marks=HOME_MARKS), row("head", "run1", front=HOME, marks=HOME_MARKS)],
+                       seeded="home")
+        self.assertFalse(any(l.startswith("LR-PERCEIVED") for l in lines))
 
 
 if __name__ == "__main__":

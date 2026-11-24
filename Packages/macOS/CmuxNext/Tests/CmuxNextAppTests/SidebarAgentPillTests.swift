@@ -86,6 +86,11 @@ struct SidebarAgentPillTests {
         #expect(SidebarAgentPill.of(finishedRead) == nil, "a finish the person has seen is idle")
         finishedRead.unread = .dot
         #expect(SidebarAgentPill.of(finishedRead) == .done)
+        var agentFinished = SidebarWorkspace(id: Self.id, title: "w", unread: .dot)
+        agentFinished.agentDone = true
+        #expect(SidebarAgentPill.of(agentFinished) == .done, "an agent chat's unseen finish")
+        agentFinished.agentWorking = true
+        #expect(SidebarAgentPill.of(agentFinished) == .running, "work wins over a finish nobody has seen")
         var lost = SidebarWorkspace(id: Self.id, title: "w")
         lost.agentChip = .lost
         #expect(SidebarAgentPill.of(lost) == nil)
