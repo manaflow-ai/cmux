@@ -4,6 +4,7 @@ import type { PageFixtureStep, PasswordsPageVariant, SettingsPageVariant } from 
 import type { SettingsClient } from "../../pages/settings/ops";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
+import { lookSettingsValues, schemeOf } from "../golden/look";
 
 async function bridge(client: SettingsClient, ops: string[], streams: string[]) {
   const host = installMockHost(
@@ -79,6 +80,9 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   installCatalog(table);
   document.documentElement.lang = context.env.locale;
   const options = structuredClone(state.options ?? {});
+  // Under a whole look (golden/look.ts), the values it puts in effect for this scheme, as the app lists them.
+  const lookScheme = schemeOf(context.env.colorScheme);
+  if (state.look) options.values = { ...lookSettingsValues(state.look, lookScheme), ...options.values };
   const themes = state.allThemes ? (await import("virtual:cmux-gallery/themes")).default : [];
   if (state.allThemes) {
     // The app publishes every bundled Ghostty theme and answers their colors.
@@ -92,7 +96,13 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   // colors in effect while appearance.theme is unset.
   if (mock.provider.host.theme) {
     const config = { ...context.theme, name: "" };
-    mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
+    // A look names its theme file's theme app-wide (none: the app's default), not the mock's workspace pick.
+    const named = state.look?.schemes[lookScheme].theme;
+    const current = state.look ? { room: named ?? null, workspace: null, terminal: null } : undefined;
+    mock.provider.host = {
+      ...mock.provider.host,
+      theme: { ...mock.provider.host.theme, config, ...(current && { current }) },
+    };
   }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   if (state.environments) mock.provider.environments = structuredClone(state.environments);
