@@ -3210,8 +3210,8 @@ button.menu-disclosure {
 /* A tab whose key holds an override carries the page's edited dot (Settings > Menus' marker). */
 .row-layout-tabs .ui-tabs-trigger[data-customized]::after {
   content: "";
-  width: 5px;
-  height: 5px;
+  width: var(--page-size-5);
+  height: var(--page-size-5);
   margin-inline-start: var(--ds-space-1);
   border-radius: 50%;
   background: var(--cmux-accent, var(--ds-color-accent));
@@ -3308,8 +3308,8 @@ button.menu-disclosure {
 
 .row-layout-preview-working {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: var(--page-size-6);
+  height: var(--page-size-6);
   margin-inline-start: auto;
   border-radius: 50%;
   background: var(--cmux-accent, var(--ds-color-accent));
@@ -3320,7 +3320,7 @@ button.menu-disclosure {
   inset-inline-start: 0;
   bottom: 0;
   width: 60%;
-  height: 2px;
+  height: var(--page-size-2);
   background: var(--cmux-accent, var(--ds-color-accent));
 }
 
@@ -3452,8 +3452,8 @@ button.menu-disclosure {
 /* Where the dragged chip lands. */
 .row-layout-caret {
   position: absolute;
-  width: 2px;
-  border-radius: 1px;
+  width: var(--page-size-2);
+  border-radius: var(--page-size-1);
   background: var(--ds-color-focus);
   pointer-events: none;
 }

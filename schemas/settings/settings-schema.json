@@ -82775,7 +82775,7 @@
         "tokens"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -82873,13 +82873,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.lines"
         },
         "socket" : {
           "aliases" : [
@@ -82973,7 +82973,7 @@
         "browser"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -83082,13 +83082,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.linesByKind"
         },
         "socket" : {
           "aliases" : [
@@ -83177,7 +83177,7 @@
         "codex"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -83284,13 +83284,13 @@
           "app_operations" : [
 
           ],
-          "editor" : null,
-          "offered" : false,
+          "editor" : "options",
+          "offered" : true,
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
-          "row" : null
+          "reason" : null,
+          "row" : "setting:sidebar.workspaceRow.linesByAgent"
         },
         "socket" : {
           "aliases" : [
