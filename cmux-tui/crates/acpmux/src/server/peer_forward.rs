@@ -68,6 +68,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_GITHUB_ACTION,
     // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
     method::MUX_GITHUB_APP_LEASE,
+    // So are the app's own GitHub calls with it (`github_rest_op.rs`).
+    method::MUX_GITHUB_REST,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -108,6 +110,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
     method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
