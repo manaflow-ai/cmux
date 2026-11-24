@@ -6,7 +6,7 @@ export const L = {
   surge: "surge.title",
   surgeDuration: "surge.duration",
   surgeMinutes: "surge.minutes",
-  surgeEstimate: "surge.estimate",
+  surgeMachineMinutes: "surge.machineMinutes",
   surgePlacement: "surge.placement",
   surgeSlot: "surge.slot",
   surgeCreated: "surge.created",

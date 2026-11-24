@@ -564,17 +564,7 @@ export class CloudStore {
 
   async submitSurge(): Promise<void> {
     const draft = this.state.surge;
-    const cost = draft?.preview?.estimated_cost_usd;
-    if (
-      !draft?.preview?.available ||
-      cost == null ||
-      !Number.isFinite(cost) ||
-      cost < 0 ||
-      draft.pending ||
-      draft.result ||
-      !this.canChange()
-    )
-      return;
+    if (!draft?.preview?.available || draft.pending || draft.result || !this.canChange()) return;
     const request: SurgeDraft = { ...draft, pending: "create", sent: true, error: undefined };
     this.set({ surge: request });
     try {

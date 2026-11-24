@@ -223,7 +223,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "surge-estimate": {
-      note: "A Cloud Surge estimate shows the selected placement and the expected compute cost.",
+      note: "A Cloud Surge estimate shows the selected placement and the requested machine-minutes.",
       action: "surge-preview",
       surge: "available",
       machines,

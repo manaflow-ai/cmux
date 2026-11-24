@@ -397,134 +397,14 @@
         }
       }
     },
-    "surge.estimate": {
-      "comment": "Cloud Surge",
+    "surge.machineMinutes": {
+      "comment": "Cloud Surge: machines times minutes requested",
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التكلفة التقديرية {cost}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Procijenjeni trošak {cost}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anslået pris {cost}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geschätzte Kosten {cost}"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Estimated cost {cost}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Coste estimado {cost}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Coût estimé {cost}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Costo stimato {cost}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "見積もり料金 {cost}"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តម្លៃប៉ាន់ស្មាន {cost}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "예상 비용 {cost}"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anslått kostnad {cost}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Szacowany koszt {cost}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Custo estimado {cost}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ориентировочная стоимость {cost}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค่าใช้จ่ายโดยประมาณ {cost}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tahmini maliyet {cost}"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Орієнтовна вартість {cost}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chi phí ước tính {cost}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "预计费用 {cost}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "預估費用 {cost}"
+            "value": "{minutes} machine-minutes"
           }
         }
       }

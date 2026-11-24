@@ -9,16 +9,10 @@ const MINUTES = [5, 15, 30, 60];
 const STATUS = { created: L.surgeCreated, queued: L.surgeQueued, refused: L.surgeRefused } as const;
 
 export function SurgeSheet({ store, draft, strings }: { store: CloudStore; draft: SurgeDraft; strings: Strings }) {
-  const { t, language } = strings;
-  const cost = draft.preview?.estimated_cost_usd;
-  const ready = draft.preview?.available && cost != null && Number.isFinite(cost) && cost >= 0;
+  const { t } = strings;
+  const ready = draft.preview?.available === true;
   const waiting = draft.pending !== undefined;
-  const price = new Intl.NumberFormat(language, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  });
+  const machineMinutes = draft.preview ? (draft.preview.count * draft.preview.ttl_seconds) / 60 : 0;
   return (
     <Sheet
       open
@@ -61,7 +55,7 @@ export function SurgeSheet({ store, draft, strings }: { store: CloudStore; draft
       </label>
       {draft.preview && !draft.result && (
         <div aria-live="polite">
-          {ready && <p>{format(t(L.surgeEstimate), { cost: price.format(cost) })}</p>}
+          {ready && <p>{format(t(L.surgeMachineMinutes), { minutes: machineMinutes })}</p>}
           {draft.preview.provider && <p>{format(t(L.surgePlacement), { provider: draft.preview.provider })}</p>}
           {draft.preview.reason && <p className="cloud-muted">{draft.preview.reason}</p>}
         </div>
