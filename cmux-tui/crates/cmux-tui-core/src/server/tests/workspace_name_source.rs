@@ -59,21 +59,54 @@ fn workspace_name_source_auto_rename_over_the_wire() {
     assert_eq!(latest["name_revision"], "2");
 }
 
+/// A name given at creation is a starting name, not a pin: the automatic namer may replace it.
+/// Only an explicit rename pins, and the pin survives a daemon restart.
 #[test]
-fn workspace_name_source_named_creation_is_user_owned() {
+fn workspace_name_source_named_creation_is_automatic_until_renamed() {
     let mux = test_mux();
     let key = mux.create_empty_workspace(Some("Billing".into()), None, None).unwrap().key;
     let created = listed(&mux, &key);
-    assert_eq!(created["name_source"], "user", "{created}");
+    assert_eq!(created["name"], "Billing", "{created}");
+    assert_eq!(created["name_source"], "auto", "{created}");
     let (_, generation) = mux.registry_identity();
-    let refused = run_json_command(
-        &mux,
+    let auto = |name: &str, revision: &Value| {
         json!({
-            "cmd":"rename-workspace", "key":key, "name":"Fix Login", "source":"auto",
-            "expected_generation":generation, "expected_name_revision":created["name_revision"],
-        }),
-    );
-    assert!(refused.is_err(), "an automatic name replaced a chosen one");
+            "cmd":"rename-workspace", "key":key, "name":name, "source":"auto",
+            "expected_generation":generation, "expected_name_revision":revision,
+        })
+    };
+    run_json_command(&mux, auto("Fix Login", &created["name_revision"])).unwrap();
+    assert_eq!(listed(&mux, &key)["name"], "Fix Login");
+
+    run_json_command(&mux, json!({"cmd":"rename-workspace","key":key,"name":"Payments"})).unwrap();
+    let pinned = listed(&mux, &key);
+    assert_eq!(pinned["name_source"], "user", "{pinned}");
+    let refused = run_json_command(&mux, auto("Fix Login", &pinned["name_revision"]));
+    assert!(refused.is_err(), "an automatic name replaced an explicit rename");
+    assert_eq!(listed(&mux, &key)["name"], "Payments");
+}
+
+#[test]
+fn workspace_name_source_explicit_rename_pin_survives_restart() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-workspace-name-pin-{}",
+        crate::resource::WorkspacePublicId::random().unwrap()
+    ));
+    let session = "workspace-name-pin";
+    let mux = open_registry_mux(&root, session);
+    let key = mux.create_empty_workspace(Some("Billing".into()), None, None).unwrap().key;
+    run_json_command(&mux, json!({"cmd":"rename-workspace","key":key,"name":"Payments"})).unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let mux = open_registry_mux(&root, session);
+    let restored = listed(&mux, &key);
+    assert_eq!(restored["name"], "Payments", "{restored}");
+    assert_eq!(restored["name_source"], "user", "{restored}");
+    assert_eq!(restored["name_revision"], "1", "{restored}");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Cmd-N creates its workspace under the default name it already shows (#26680): that name is
@@ -156,6 +189,7 @@ fn workspace_name_source_v1_auto_rename_survives_restart() {
 fn workspace_name_source_v1_release_returns_a_pinned_name_to_auto() {
     let mux = test_mux();
     let key = mux.create_empty_workspace(Some("Billing".into()), None, None).unwrap().key;
+    run_json_command(&mux, json!({"cmd":"rename-workspace","key":key,"name":"Billing"})).unwrap();
     let release = |name: &str| json!({"cmd":"rename-workspace","key":key,"name":name,"source":"auto","release":true});
     let renamed = run_json_command(&mux, release("Other"));
     assert!(renamed.is_err(), "a release renamed the workspace");
