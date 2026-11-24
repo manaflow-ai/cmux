@@ -709,6 +709,9 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         const sum = (prefix: string) =>
           Object.entries(renders).reduce((total, [name, count]) => total + (name.startsWith(prefix) ? count : 0), 0);
         const per = (value: number) => Math.round((value / records) * 100) / 100;
+        console.log(
+          `  PROBEMS ${burst.kind} ${burst.rows}: script ${per((cost as any).scriptMs)} layout ${per((cost as any).layoutMs)} style ${per((cost as any).styleMs)} paint ${per((cost as any).paintMs)} layouts ${per((cost as any).layouts)} styles ${per((cost as any).styleRecalcs)}`,
+        );
         probe = {
           reads: per(cost.reads),
           forced: per(cost.forcedLayouts ?? 0),
