@@ -170,6 +170,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     // `--wait --json`: the global scan takes `--json` as `--wait`'s value.
     let words = lift_output(rest, &mut global.output);
+    // The login a start with no app runs on (headless.rs); the app path never reads it.
+    let (words, login) = headless::take_login(&words);
     let parsed = parse(&words, || {
         let mut text = String::new();
         std::io::stdin().read_to_string(&mut text).map(|_| text).map_err(|e| e.to_string())
@@ -193,7 +195,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             ));
         }
     };
-    Some(start(&global, &request))
+    Some(start_with(&global, &request, &login))
 }
 
 /// A `--from-folder` refused for what the folder is (home, a key folder, gone), printed as its
@@ -207,6 +209,11 @@ pub(super) fn folder_refused(error: &UsageError, output: OutputMode) -> Option<i
 /// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
 /// and `cmux chat --on vm:…` (chat_start.rs) are the same run.
 pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
+    start_with(global, request, &headless::Login::default())
+}
+
+/// [`start`] with the login a run with no app uses ([`headless::runner_for`]).
+fn start_with(global: &GlobalArgs, request: &Request, login: &headless::Login) -> i32 {
     // `--allow-large`: the copy of this folder sends it whole, whichever surface runs it.
     if request.allow_large
         && let Some(dir) = &request.from_folder
@@ -217,8 +224,11 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     }
     // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
     // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
-    let mut runner = SelfRunner::new(global);
-    let outcome = run(&mut runner, request);
+    let mut runner = match headless::runner_for(global, login) {
+        Ok(runner) => runner,
+        Err(error) => return super::wire::print_local_error(&error, global.output, 1),
+    };
+    let outcome = run(runner.as_mut(), request);
     if let Outcome::Done(answer) = &outcome {
         super::start_stages::print_table(request.timings, answer);
     }
@@ -254,8 +264,11 @@ pub(super) fn send_existing(
         timings: false,
         no_focus: false,
     };
-    let mut runner = SelfRunner::new(global);
-    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+    let mut runner = match headless::runner_for(global, &headless::Login::default()) {
+        Ok(runner) => runner,
+        Err(error) => return super::wire::print_local_error(&error, global.output, 1),
+    };
+    report(&send_to(runner.as_mut(), &request, machine_id, session), global.output)
 }
 
 /// The newest records `cmux chat read` reads of a chat on a Cloud VM, in one exec.
@@ -270,8 +283,11 @@ pub(super) fn read_existing(
     after: u64,
     limit: usize,
 ) -> i32 {
-    let mut runner = SelfRunner::new(global);
-    match read_on(&mut runner, machine_id, session, after, limit) {
+    let mut runner = match headless::runner_for(global, &headless::Login::default()) {
+        Ok(runner) => runner,
+        Err(error) => return super::wire::print_local_error(&error, global.output, 1),
+    };
+    match read_on(runner.as_mut(), machine_id, session, after, limit) {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
         Outcome::Failed { error, exit } => {
             super::wire::print_local_error(&error, global.output, exit)
@@ -329,8 +345,11 @@ pub(super) fn wait_existing(
     session: &str,
     timeout: Duration,
 ) -> i32 {
-    let mut runner = SelfRunner::new(global);
-    report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
+    let mut runner = match headless::runner_for(global, &headless::Login::default()) {
+        Ok(runner) => runner,
+        Err(error) => return super::wire::print_local_error(&error, global.output, 1),
+    };
+    report(&wait_on(runner.as_mut(), machine_id, session, timeout), global.output)
 }
 
 /// [`wait_existing`]'s wait: the newest turn (any seq after 0), within `timeout`.
@@ -3475,6 +3494,7 @@ mod clone_wait;
 mod fault;
 mod folder;
 mod fresh;
+pub(in crate::cli) mod headless;
 mod internal;
 use folder::local_folder;
 use internal::link_wait;
