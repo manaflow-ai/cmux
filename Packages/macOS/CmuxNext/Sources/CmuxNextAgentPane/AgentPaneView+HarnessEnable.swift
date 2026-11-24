@@ -35,64 +35,64 @@ extension AgentPaneView {
 
     /// `%@` is the profile's id.
     static var harnessEnableTitle: String {
-        String(localized: "agentPane.enableHarness.title", defaultValue: "Enable harness %@?", bundle: .module)
+        String(localized: "agentPane.enableHarness.title", defaultValue: "Enable harness %@?", bundle: .localizedModule)
     }
 
     /// `%@` is the folder.
     static var harnessEnableMessage: String {
         String(localized: "agentPane.enableHarness.message",
-               defaultValue: "A file in %@ asks to run this program with your rights in chats inside that folder. Enable it only if you trust every line below.",
-               bundle: .module)
+               defaultValue: "A file in %@ wants to run this program in chats in that folder. Enable it only if you trust every line below.",
+               bundle: .localizedModule)
     }
 
     static var harnessEnableFile: String {
-        String(localized: "agentPane.enableHarness.file", defaultValue: "File: %@", bundle: .module)
+        String(localized: "agentPane.enableHarness.file", defaultValue: "File: %@", bundle: .localizedModule)
     }
 
     static var harnessEnableCommand: String {
-        String(localized: "agentPane.enableHarness.command", defaultValue: "Command: %@", bundle: .module)
+        String(localized: "agentPane.enableHarness.command", defaultValue: "Command: %@", bundle: .localizedModule)
     }
 
     static var harnessEnableProgram: String {
-        String(localized: "agentPane.enableHarness.program", defaultValue: "Program: %@", bundle: .module)
+        String(localized: "agentPane.enableHarness.program", defaultValue: "Program: %@", bundle: .localizedModule)
     }
 
     static var harnessEnableNoProgram: String {
-        String(localized: "agentPane.enableHarness.noProgram", defaultValue: "Program: not found on PATH now", bundle: .module)
+        String(localized: "agentPane.enableHarness.noProgram", defaultValue: "Program: not found on PATH now", bundle: .localizedModule)
     }
 
     static var harnessEnableNoEnv: String {
-        String(localized: "agentPane.enableHarness.noEnv", defaultValue: "Environment: none", bundle: .module)
+        String(localized: "agentPane.enableHarness.noEnv", defaultValue: "Environment: none", bundle: .localizedModule)
     }
 
     /// `%1$@` is the env key, `%2$@` its plain value.
     static var harnessEnableEnvPlain: String {
-        String(localized: "agentPane.enableHarness.envPlain", defaultValue: "Environment %1$@ = %2$@", bundle: .module)
+        String(localized: "agentPane.enableHarness.envPlain", defaultValue: "Environment %1$@ = %2$@", bundle: .localizedModule)
     }
 
     /// `%1$@` is the env key, `%2$@` the Keychain item's name.
     static var harnessEnableEnvKeychain: String {
-        String(localized: "agentPane.enableHarness.envKeychain", defaultValue: "Environment %1$@ = Keychain item %2$@", bundle: .module)
+        String(localized: "agentPane.enableHarness.envKeychain", defaultValue: "Environment %1$@ = Keychain item %2$@", bundle: .localizedModule)
     }
 
     /// `%1$@` is the env key, `%2$@` the login variable's name.
     static var harnessEnableEnvLogin: String {
-        String(localized: "agentPane.enableHarness.envLogin", defaultValue: "Environment %1$@ = your login variable %2$@", bundle: .module)
+        String(localized: "agentPane.enableHarness.envLogin", defaultValue: "Environment %1$@ = your login variable %2$@", bundle: .localizedModule)
     }
 
     static var harnessEnableChecked: String {
-        String(localized: "agentPane.enableHarness.checked", defaultValue: "Checked file: %@ (a change asks again)", bundle: .module)
+        String(localized: "agentPane.enableHarness.checked", defaultValue: "Checked file: %@ (a change asks again)", bundle: .localizedModule)
     }
 
     static var harnessEnableWarning: String {
-        String(localized: "agentPane.enableHarness.warning", defaultValue: "Warning: %@", bundle: .module)
+        String(localized: "agentPane.enableHarness.warning", defaultValue: "Warning: %@", bundle: .localizedModule)
     }
 
     static var harnessEnableHash: String {
-        String(localized: "agentPane.enableHarness.hash", defaultValue: "SHA-256: %@", bundle: .module)
+        String(localized: "agentPane.enableHarness.hash", defaultValue: "SHA-256: %@", bundle: .localizedModule)
     }
 
     static var harnessEnableButton: String {
-        String(localized: "agentPane.enableHarness.enable", defaultValue: "Enable Harness", bundle: .module)
+        String(localized: "agentPane.enableHarness.enable", defaultValue: "Enable Harness", bundle: .localizedModule)
     }
 }

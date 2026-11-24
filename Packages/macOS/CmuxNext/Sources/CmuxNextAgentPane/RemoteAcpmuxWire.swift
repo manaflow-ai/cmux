@@ -675,7 +675,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let kinds = (params["kinds"] as? [Any])?.compactMap { $0 as? String }
         if method == "_acpmux/watch" { return watchPage }
         return AgentSessionPage(afterSeq: number("afterSeq"), beforeSeq: number("beforeSeq"),
-                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds)
+                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds,
+                                maxBytes: (params["maxBytes"] as? NSNumber)?.intValue)
     }
 
     // MARK: Pushes
@@ -846,7 +847,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// An agent's text or thinking on its way to the page: the model's first token, once the chat's first prompt went out
     /// (the person's own words echoed back are a `user_message_chunk`, never this).
     static func isFirstToken(_ frame: String) -> Bool {
-        frame.contains(#""session/update""#) && (frame.contains(#""agent_message_chunk""#) || frame.contains(#""agent_thought_chunk""#))
+        frame.utf8Contains(#""session/update""#)
+            && frame.utf8ContainsAny([#""agent_message_chunk""#, #""agent_thought_chunk""#])
     }
 
     /// A JSON-RPC id as its JSON text (number or string), so the reply carries the same id.

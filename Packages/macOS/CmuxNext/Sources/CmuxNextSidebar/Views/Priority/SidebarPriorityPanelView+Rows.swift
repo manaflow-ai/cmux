@@ -6,8 +6,8 @@ import CmuxVisibleRows
 /// below. Under the visible-rows contract (`VisibleRowsContract`): a new row, a configure and a tick's redraw count as
 /// configured on `listWork`, each row frame set as laid out, and the index of every chat a change rebuilds as walked.
 extension SidebarPriorityPanelView: VisibleRowsList {
-    /// Row views in the document: the drawn rows and the ones still closing their slot.
-    var rowViewsAlive: Int { document.subviews.count }
+    /// Chat row views in the document: the drawn rows and the ones still closing their slot (not the Archived fold).
+    var rowViewsAlive: Int { document.subviews.reduce(0) { $0 + ($1 is SidebarPriorityRowView ? 1 : 0) } }
 
     /// The row is whole at `frame` with no move in flight, so landing it there again changes nothing.
     static func landed(_ row: SidebarPriorityRowView, at frame: NSRect) -> Bool {

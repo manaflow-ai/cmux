@@ -1,7 +1,7 @@
 # acpmux CLI: machines
 
 `acpmux machine` connects this machine's daemon to the daemons on your other machines, so
-`acpmux ls` shows every session everywhere and `MACHINE/NAME` reaches a session on any of them.
+`cmux agent ls` shows every session everywhere and `MACHINE/NAME` reaches a session on any of them.
 Each `machine` command's `--help` lists every flag and ends with examples. The old spellings still
 work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the `--host` flag.
 
@@ -29,7 +29,7 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | The same, and repair what fails | `acpmux machine doctor mini-3 --fix` |
 | Which machine a new session would go to, and why | `acpmux machine pick` |
 | Which machine a build would go to | `acpmux machine pick --build` |
-| Start a session on the machine `pick` chooses | `acpmux new --machine auto -m codex "fix the flaky test"` |
+| Start a session on the machine `pick` chooses | `cmux agent new --machine auto -m codex "fix the flaky test"` |
 
 ## Keep them up to date
 
@@ -68,7 +68,7 @@ next to its pick: one info line `shadow-admission {JSON}` in the daemon's log (`
 `journalctl --user -u acpmux.service` under systemd). The JSON has `ts`, `site` (`place`, `pick`, `subsession`, `admit` or `over-cap`), `pick`, the
 pick's `would_defer`, `reason`, `inputs_digest`, `formula_version`, and `hosts`. Nothing is
 deferred on it. `daemon status --json` lists each host's last verdict as `shadowAdmission`, and
-`acpmux ls` ends with a `HOST: would-defer: REASON` line for each host whose verdict would defer.
+`cmux agent ls` ends with a `HOST: would-defer: REASON` line for each host whose verdict would defer.
 Its `host_pressure` carries the readings this machine's verdict uses beside the meter's keys
 (`cores`, `pressure`, `available_ram_fraction`, `swap_mb_per_min`): `cpus`, `pressureAgeMs` (the
 meter sample's age), `load` (the OS load averages; the verdict reads `load[0]`), `ram.totalBytes`
