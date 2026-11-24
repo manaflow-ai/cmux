@@ -45,7 +45,7 @@ impl Hub {
             let mut pids: Vec<u32> = harness.into_iter().collect();
             pids.extend(self.bg_running_pids(&s));
             if !pids.is_empty() {
-                let active = turn + running > 0 || pids.len() > usize::from(harness.is_some());
+                let active = turn > 0 || running > 0 || pids.len() > usize::from(harness.is_some());
                 roots.push(crate::hub::session_usage::Roots { id: s.id.clone(), active, pids });
             }
             let open = info.iter().flat_map(|t| t.doing.open_heavy.values().copied());

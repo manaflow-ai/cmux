@@ -83,8 +83,11 @@ pub(crate) fn walk(
         }
     }
     let mut next = 0;
-    while next < all.len() && all.len() < max {
-        for kid in children(all[next]) {
+    while let Some(parent) = all.get(next).copied() {
+        if all.len() >= max {
+            break;
+        }
+        for kid in children(parent) {
             if all.len() == max {
                 break;
             }
@@ -92,7 +95,7 @@ pub(crate) fn walk(
                 all.push(kid);
             }
         }
-        next += 1;
+        next = next.saturating_add(1);
     }
     all
 }
@@ -121,7 +124,7 @@ pub(crate) fn cores(before_ns: u64, now_ns: u64, elapsed: Duration) -> f64 {
     if secs <= 0.0 {
         return 0.0;
     }
-    now_ns.saturating_sub(before_ns) as f64 / 1e9 / secs
+    Duration::from_nanos(now_ns.saturating_sub(before_ns)).as_secs_f64() / secs
 }
 
 /// The average after a reading `dt` after the last, with time constant `tau`; the first reading
@@ -143,15 +146,17 @@ pub(crate) fn ewma(prev: Option<f64>, reading: f64, dt: Duration, tau: Duration)
 pub(crate) fn parse_stat(pid: u32, text: &str, tick_ns: u64, page: u64) -> Option<Proc> {
     let (_, rest) = text.rsplit_once(')')?;
     let f: Vec<&str> = rest.split_whitespace().collect();
-    let num = |i: usize| f.get(i).and_then(|v| v.parse::<i64>().ok());
+    // A field that is missing or negative (rss of a kernel thread) reads 0.
+    let num = |i: usize| f.get(i).and_then(|v| v.parse::<u64>().ok());
     let ppid = u32::try_from(num(1)?).ok()?;
-    let ticks: i64 = [11, 12, 13, 14].iter().map(|&i| num(i).unwrap_or(0).max(0)).sum();
-    let rss_pages = num(21).unwrap_or(0).max(0);
+    let ticks =
+        [11, 12, 13, 14].iter().fold(0u64, |sum, &i| sum.saturating_add(num(i).unwrap_or(0)));
+    let rss_pages = num(21).unwrap_or(0);
     Some(Proc {
         pid,
         ppid,
-        cpu_ns: (ticks as u64).saturating_mul(tick_ns),
-        rss_bytes: (rss_pages as u64).saturating_mul(page),
+        cpu_ns: ticks.saturating_mul(tick_ns),
+        rss_bytes: rss_pages.saturating_mul(page),
     })
 }
 
@@ -273,7 +278,11 @@ mod imp {
                 .and_then(|mut d| d.next())
                 .and_then(|e| e.ok())
                 .is_some_and(|e| e.path().join("children").exists());
-            let mut reader = Self { tick_ns: 1_000_000_000 / hz, page, scanned: None };
+            let mut reader = Self {
+                tick_ns: 1_000_000_000u64.checked_div(hz).unwrap_or(10_000_000),
+                page,
+                scanned: None,
+            };
             if !has_children {
                 reader.scanned = Some(children_of(&reader.scan()));
             }
@@ -344,18 +353,18 @@ mod imp {
         }
 
         fn ns(&self, abs: u64) -> u64 {
-            u64::try_from(u128::from(abs).saturating_mul(self.numer) / self.denom)
-                .unwrap_or(u64::MAX)
+            let ns = u128::from(abs).saturating_mul(self.numer).checked_div(self.denom);
+            ns.and_then(|ns| u64::try_from(ns).ok()).unwrap_or(u64::MAX)
         }
 
         fn children(pid: u32) -> Vec<u32> {
             let Ok(id) = libc::c_int::try_from(pid) else { return Vec::new() };
-            let mut kids = vec![0 as libc::c_int; TREE_MAX];
+            let mut kids: Vec<libc::c_int> = vec![0; TREE_MAX];
             let bytes = libc::c_int::try_from(std::mem::size_of_val(kids.as_slice())).unwrap_or(0);
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
             let n = unsafe { libc::proc_listchildpids(id, kids.as_mut_ptr().cast(), bytes) };
             let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
-            kids[..n].iter().filter_map(|k| u32::try_from(*k).ok()).collect()
+            kids.iter().take(n).filter_map(|k| u32::try_from(*k).ok()).collect()
         }
 
         fn read(&self, pid: u32) -> Option<Proc> {
