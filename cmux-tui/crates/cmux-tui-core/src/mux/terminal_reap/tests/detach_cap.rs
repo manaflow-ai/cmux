@@ -19,6 +19,9 @@ fn attached_unplaced_terminals(
     let surfaces: Vec<_> = (0..count)
         .map(|index| mux.new_workspace(Some(format!("agent-{index}")), Some((80, 24))).unwrap())
         .collect();
+    // The frontend is the app: it said hello with role main, which is what the reaper's
+    // relaunch hold reads (`ClientRegistry::frontend_seen`).
+    mux.control_clients.note_test_frontend();
     let mut terminals = Vec::new();
     let mut clients = Vec::new();
     for (index, surface) in surfaces.iter().enumerate() {
