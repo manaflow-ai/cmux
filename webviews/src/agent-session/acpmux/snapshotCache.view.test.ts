@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cachedSnapshot, emptySnapshot, saveSnapshot, snapshotKey } from "./snapshotCache";
+import { cachedSnapshot, emptySnapshot, saveSnapshot, snapshotKey, writeSnapshot } from "./snapshotCache";
 
 const store = new Map<string, string>();
 beforeEach(() => {
@@ -18,11 +18,11 @@ test("the page's own snapshot keeps its key; each view has its own", () => {
   expect(snapshotKey("a")).not.toBe(snapshotKey("b"));
 });
 
-test("views save and read their own snapshots", async () => {
+test("views save and read their own snapshots", () => {
   saveSnapshot({ ...emptySnapshot(), sessionId: "s-a" }, "a");
   saveSnapshot({ ...emptySnapshot(), sessionId: "s-b" }, "b");
   saveSnapshot({ ...emptySnapshot(), sessionId: "s-page" });
-  await new Promise((r) => setTimeout(r, 300));
+  writeSnapshot();
   expect(cachedSnapshot("a").sessionId).toBe("s-a");
   expect(cachedSnapshot("b").sessionId).toBe("s-b");
   expect(cachedSnapshot().sessionId).toBe("s-page");

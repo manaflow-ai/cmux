@@ -34,7 +34,8 @@ const snapshotSave: {
   timer?: ReturnType<typeof setTimeout>;
   hooked?: boolean;
 } = { next: new Map() };
-function writeSnapshot(): void {
+/// Writes every pending snapshot now (the page hiding does this; tests call it instead of waiting the debounce).
+export function writeSnapshot(): void {
   clearTimeout(snapshotSave.timer);
   snapshotSave.timer = undefined;
   const pending = [...snapshotSave.next];
