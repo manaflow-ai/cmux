@@ -20,10 +20,12 @@ use super::{fs, join};
 const RENAME_NOREPLACE: u32 = 1;
 const RENAME_EXCHANGE: u32 = 2;
 
+/// `renameat2` on Linux: the raw syscall, as `Upper::rename` makes it (musl has no `renameat2`
+/// wrapper).
+#[cfg(target_os = "linux")]
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
-    // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
     let done = unsafe {
         libc::syscall(
@@ -36,6 +38,27 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
         )
     };
     if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
+}
+
+/// `renamex_np` on macOS, Linux's flags turned into its own (`RENAME_EXCL`, `RENAME_SWAP`), as
+/// `Upper::rename` makes it.
+#[cfg(not(target_os = "linux"))]
+fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let mut own = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        own |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        own |= libc::RENAME_SWAP;
+    }
+    // SAFETY: two valid C strings (absolute paths).
+    if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), own) } < 0 {
         Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
     } else {
         Ok(())
