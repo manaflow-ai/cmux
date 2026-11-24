@@ -171,7 +171,8 @@ impl Ledger {
             Some(decode_answer(op, answer.value["machine"].clone())?)
         };
         let pending = entry.pending.take().expect("validated lifecycle intent");
-        if let Err((pending, error)) = pending.complete(answer.value, revision.clone()) {
+        if let Err(failed) = pending.complete(answer.value, revision.clone()) {
+            let (pending, error) = *failed;
             entry.pending = Some(pending);
             return Err(bad(error.to_string()));
         }

@@ -22,10 +22,13 @@ import Testing
         section.show(["OPENAI_API_KEY", "STRIPE_KEY"])
         #expect(section.summary.stringValue.contains("OPENAI_API_KEY, STRIPE_KEY"))
         #expect(section.summary.stringValue.hasPrefix("2"))
+        #expect(!section.isHidden)
         section.show([])
         #expect(section.summary.stringValue == HomeEngineStrings.vaultEmpty)
+        #expect(section.isHidden, "an empty vault is left out of the card, not explained")
         section.show(nil)
         #expect(section.summary.stringValue == HomeEngineStrings.vaultUnreadable)
+        #expect(section.isHidden)
     }
 
     /// cmux issue 38140: the vault also keeps cmux's own cached Cloud sign-ins, stored under a made-up
@@ -51,12 +54,13 @@ import Testing
         let section = HomeChiefVaultSection()
         let reads = Counter()
         section.names = { await reads.add(); return ["GITHUB_TOKEN"] }
-        #expect(!section.isHidden)
+        #expect(section.isHidden, "no section until a read finds names")
         #expect(await reads.value == 0)
         section.open()
         await section.settled()
         #expect(await reads.value == 1)
         #expect(section.summary.stringValue.contains("GITHUB_TOKEN"))
+        #expect(!section.isHidden)
     }
 
     @Test func rowsFollowTheModelAndOfferOnlyTheGestureThatApplies() async {
@@ -82,6 +86,21 @@ import Testing
         #expect(HomeChiefConnection(provider: .gmail, state: .notConnected, canDisconnect: false, working: true).action == nil)
         section.close()
         #expect(acts.isEmpty)
+    }
+
+    /// Lawrence 2026-11-23 ("drastically improve these UIs"): a service the account cannot use here is left
+    /// out, not listed as "Not available"; with none to offer the section is gone, and it comes back once one is.
+    @Test func servicesTheAccountCannotUseAreLeftOut() async {
+        let model = Model()
+        model.rows = HomeChiefConnection.Provider.allCases.map { HomeChiefConnection(provider: $0, state: .unavailable, canDisconnect: false, working: false) }
+        let section = HomeChiefConnectionsSection()
+        section.source = .init(rows: { (model.rows, model.failed) }, refresh: {}, act: { _, _ in })
+        section.open()
+        #expect(section.isHidden)
+        model.rows[0] = HomeChiefConnection(provider: .gmail, state: .notConnected, canDisconnect: false, working: false)
+        await section.settledOn { !$0.isHidden }
+        #expect(!section.isHidden)
+        section.close()
     }
 
     @Observable @MainActor final class Model {

@@ -397,11 +397,10 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 
-/* The card's corner. A question in the stack over it (the folder trust bar) takes the same token,
-   so the two always match. */
-.acpmux-composer-box,
+/* The stack of asks (the folder trust bar) where no composer follows it in the dock (the quick panel): a
+   theme's corner (--cmux-composer-radius); unset, 18 px. Over the dock's composer it takes the box's corner
+   (below). */
 .acpmux-asks-stack {
-  /* A theme's corner (--cmux-composer-radius); unset, 18 px. */
   --acpmux-composer-radius: var(--cmux-composer-radius, 18px);
 }
 /* The card's material is the liquid glass (.ui-glass, ui/glass/glass.css) with the composer's own
@@ -881,10 +880,10 @@
    Its fill and blur are the glass's (.ui-glass, composerStates.css's tokens); this sheet loads after
    glass.css, so the card's own ring and shadow stand in for the glass's box-shadow. */
 .acpmux-composer-box {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-box[data-focused] {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 /* A running/background tray is already a glass surface immediately above the card. Its join owns
    one hairline (the card ring); remove the material's second top-lit line and keep only the quiet
@@ -1004,7 +1003,7 @@
      ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
 :root[data-top-strip] .acpmux-composer:is([data-strip], [data-queue]) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 :root[data-top-strip] .acpmux-composer:is([data-strip], [data-queue]) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
@@ -1677,8 +1676,11 @@
 :where(:root[data-composer-round="pill"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
   --grid-composer-radius: calc(var(--grid-composer-box) / 2);
 }
-/* The box's corner, which the trust bar in the stack over it shares. */
-.acpmux-composer-box[data-composer-grid],
+/* The composer's corner, its one definition (RFD 0116 strict fix 10): the grid's, 16 at Default (above),
+   in every placement. styles.css draws it on the box; the trust bar in the stack over the dock's composer
+   shares it. Every composer box carries data-composer-grid (Composer.tsx, ComposerBox.tsx); the bare class
+   is for a gallery's stand-in box, at the same specificity, so a look's rule over the box wins as before. */
+:is(.acpmux-composer-box[data-composer-grid], .acpmux-composer-box),
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid]) {
   --acpmux-composer-radius: var(--grid-composer-radius);
 }
