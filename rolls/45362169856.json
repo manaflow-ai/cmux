@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45362169856",
+  "recorded_at": "2026-11-24T10:26:53Z",
+  "reason": "cmux-tui 17f349f3c98d changes the image's cmux-tui (pinned 67d01201b152)",
+  "dry_run": false,
+  "cmux_tui": "17f349f3c98dea6869e0b12105718e90ca40712d",
+  "fixes": [
+    {
+      "sha": "c1528c088feb34b4d9c24eb5078edcc1b547381f",
+      "mergedAt": "2026-11-24T07:58:07Z",
+      "subject": "acpmux: refuse a Codex start where Codex is not signed in (hq#21792 event 12) (#53307)"
+    },
+    {
+      "sha": "073fff007fa7a16d49268be07c852cf099b8f428",
+      "mergedAt": "2026-11-24T07:57:13Z",
+      "subject": "acpmux: install chat harnesses during SSH enrollment (#44547)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-24T10:26:53Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
