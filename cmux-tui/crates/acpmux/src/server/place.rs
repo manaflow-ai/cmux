@@ -19,6 +19,19 @@ use serde_json::{Value, json};
 #[path = "place_hub_health.rs"]
 mod hub_health;
 
+/// Asks the machines only the hub reaches for their health without waiting for an answer
+/// (`hub_health::refresh_with`): a create that spills (`hub/admission_spill.rs`) found none
+/// with a reading, and the next one weighs what comes back.
+pub(crate) async fn hub_health_soon(hub: &Hub) {
+    let Some(mesh) = hub.mesh.get() else { return };
+    let hosts = hub.hub_only_hosts();
+    if hosts.is_empty() {
+        return;
+    }
+    let cache = hub.hub_health.clone();
+    hub_health::refresh_with(&hub.scope, mesh, cache, hosts, std::time::Duration::ZERO).await;
+}
+
 /// `{"work": "agent"|"build", "offInteractive": bool, "outdatedOk": bool}` →
 /// `placement::place`'s verdict. With `offInteractive` (a command-line `new` on a machine a
 /// person works at, `cli/place.rs`), the machines the registry marks interactive

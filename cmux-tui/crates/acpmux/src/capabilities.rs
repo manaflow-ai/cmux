@@ -243,6 +243,11 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_meta.acpmux.placedOn` (`hub/admission_redirect.rs`). Older daemons ignore the opt-in and
     // start it here, warned; a client that sends none gets that from this one too.
     Capability { id: crate::hub::admission_redirect::CAPABILITY, wire: &[method::SESSION_NEW] },
+    // `session/new` with `_meta.acpmux.placeSpill: {"v": 1, "waitMs": N}` beside placeRedirect:
+    // a create no host has room for waits up to N for the host the fleet adds and starts there,
+    // with `_acpmux/new_progress` while it waits (`hub/admission_spill.rs`). Older daemons
+    // ignore it; a client that sends none gets the redirect or the warned start.
+    Capability { id: crate::hub::admission_spill::CAPABILITY, wire: &[method::SESSION_NEW] },
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],

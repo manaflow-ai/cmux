@@ -25,6 +25,8 @@ pub(crate) mod admission;
 pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
+// A create no host has room for waits for the host the fleet adds and starts there.
+pub(crate) mod admission_spill;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;

@@ -121,7 +121,19 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let peers = conn.origin != Origin::Peer;
     // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
     let redirect = crate::hub::admission_redirect::movable(params);
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name, redirect }
+    // Only a create that may move waits for a host the fleet adds (`hub/admission_spill.rs`).
+    let spill = crate::hub::admission_spill::asked(params).filter(|_| redirect);
+    crate::hub::admission::Ask {
+        force,
+        can_force,
+        person,
+        who,
+        local: !web,
+        peers,
+        name,
+        redirect,
+        spill,
+    }
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
@@ -930,6 +942,54 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
         *slot = Value::String(route);
     }
     Ok(())
+}
+
+/// A spilled create (`hub/admission_spill.rs`): the host the fleet adds, once it joined, and
+/// the create started there. Err: the host it waited for, if any, and why it starts here.
+async fn spill_create(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    spill: &crate::hub::admission_spill::Spill,
+) -> Result<Value, (Option<String>, String)> {
+    use crate::hub::admission_redirect as redirect;
+    use crate::hub::admission_scale_up::{ScaleUp, SpillHost};
+    use crate::hub::admission_spill as s;
+    let started = std::time::Instant::now();
+    let tell = |state: &str, host: Option<&str>| {
+        let note = s::progress(state, host, spill.wait);
+        let _ = conn.send(&Message::notification(s::PROGRESS, note));
+    };
+    let Some(plan) = spill.plan.clone() else {
+        return Err((None, "the fleet declares no lane_overflow providers here".into()));
+    };
+    tell("waiting", None);
+    let got = ScaleUp::daemon().host_for_spill(&hub.scope, plan, spill.per_host, spill.wait).await;
+    let (host, fresh) = match got {
+        SpillHost::Host { name, fresh } => (name, fresh),
+        SpillHost::None(why) => return Err((None, why)),
+    };
+    tell("joining", Some(&host));
+    let left = spill.wait.saturating_sub(started.elapsed());
+    if !s::wait_joined(&host, left, s::JOIN_POLL, || hub.peers()).await {
+        let why = format!("{host} did not join within {}s", spill.wait.as_secs());
+        return Err((Some(host), why));
+    }
+    let placed = redirect::Placed {
+        host: host.clone(),
+        why: format!("placed on {host}: no host had room, so the fleet added it"),
+        reason: spill.reason,
+        live: spill.live,
+        max: spill.max,
+    };
+    let p = redirect::forwarded(params, &placed);
+    let result = Box::pin(new_on_peer(hub, conn, &p, &host)).await.map_err(|e| {
+        (Some(host.clone()), format!("starting it on {host} failed: {}", e.message))
+    })?;
+    let waited = started.elapsed();
+    let detail = format!("waitedMs={} fresh={fresh}", waited.as_millis());
+    redirect::log("spilled", spill.reason, Some(&host), Some(&detail));
+    Ok(s::with_note(redirect::answer(result, &placed), s::note(&host, fresh, waited)))
 }
 
 /// `session/new` on the peer `peer_name` (`_meta.acpmux.peer`), for a caller's
@@ -1926,6 +1986,37 @@ async fn dispatch_request_with_identity(
                             };
                             w.set("warning", json!(text));
                             w.set("placeFailed", json!(placed.host));
+                            a.warning = Some(w);
+                        }
+                    }
+                }
+            }
+            // No host had room it was known to have: it waits for the one the fleet adds and
+            // starts there (`hub/admission_spill.rs`); with none in time it starts here, warned.
+            if let Some(spill) = admitted
+                .as_mut()
+                .filter(|_| fixed_id.is_none() && !adopting && succ.is_none())
+                .and_then(|a| a.spill.take())
+            {
+                match Box::pin(spill_create(hub, conn, &params, &spill)).await {
+                    Ok(result) => return Ok(result),
+                    Err((host, why)) => {
+                        let reason = spill.reason;
+                        crate::hub::admission_redirect::log(
+                            "spill_failed",
+                            reason,
+                            host.as_deref(),
+                            Some(&why),
+                        );
+                        if let Some(a) = admitted.as_mut() {
+                            let failed = crate::hub::admission_spill::failed(&why);
+                            let mut w = a.warning.take().unwrap_or_else(|| json!({}));
+                            let text = match w.get("warning").and_then(Value::as_str) {
+                                Some(cap) => format!("{cap} {failed}"),
+                                None => failed,
+                            };
+                            w.set("warning", json!(text));
+                            w.set("spillFailed", json!(why));
                             a.warning = Some(w);
                         }
                     }

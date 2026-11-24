@@ -70,6 +70,7 @@ const MOVABLE_META: &[&str] = &[
     "promptFileText",
     "tags",
     FIELD,
+    super::admission_spill::FIELD,
 ];
 
 /// Why a create moved.
@@ -239,6 +240,8 @@ pub(crate) fn forwarded(params: &Value, placed: &Placed) -> Value {
     }
     if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         m.remove(FIELD);
+        // A peer never spills again (`admission_spill.rs`).
+        m.remove(super::admission_spill::FIELD);
         m.insert("peer".into(), json!(placed.host));
         if m.contains_key("name") {
             m.insert("ifNameTaken".into(), json!(super::SUFFIX_TAKEN_NAME));
@@ -294,6 +297,7 @@ mod tests {
             local,
             peers,
             redirect,
+            spill: None,
         }
     }
 
@@ -357,10 +361,14 @@ mod tests {
             live: 13,
             max: Some(12),
         };
-        let p =
-            json!({"cwd": "/here", "mcpServers": [], "_meta": {"acpmux": {"name": "r", FIELD: 1}}});
+        let spill = super::super::admission_spill::FIELD;
+        let p = json!({"cwd": "/here", "mcpServers": [],
+            "_meta": {"acpmux": {"name": "r", FIELD: 1, spill: {"v": 1, "waitMs": 1000}}}});
+        // A create that asked to spill may still move: the ask ties it to no machine.
+        assert!(movable(&p));
         let f = forwarded(&p, &placed);
         assert_eq!(f.get("cwd"), None);
+        assert_eq!(f.pointer(&format!("/_meta/acpmux/{spill}")), None, "a peer never spills again");
         assert_eq!(f.pointer("/_meta/acpmux/peer"), Some(&json!("far")));
         assert_eq!(f.pointer(&format!("/_meta/acpmux/{FIELD}")), None);
         assert_eq!(

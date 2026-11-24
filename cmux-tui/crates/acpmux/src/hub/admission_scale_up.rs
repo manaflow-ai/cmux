@@ -17,7 +17,10 @@
 //! asks once. No registry, no `lane_overflow.providers`, or no leo-workspace
 //! checkout holding the provider: nothing runs (acpmux outside the fleet is
 //! unchanged). The new machine takes the next `--machine auto` start once it
-//! is connected; making that start wait for it is a follow-up.
+//! is connected. A create that asked to spill (`admission_spill.rs`) waits for
+//! the run's host instead ([`ScaleUp::host_for_spill`]): every waiter of one run
+//! shares its answer, and a host a run added within the cooldown takes the
+//! next spills until its lane cap.
 
 use super::*;
 use std::sync::OnceLock;
@@ -155,34 +158,73 @@ impl Trigger {
     }
 }
 
+/// A run's end: which run (`State::run`) and the host it added, if any.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Done {
+    run: u64,
+    host: Option<String>,
+}
+
 #[derive(Default)]
 struct State {
     running: bool,
     last: Option<Instant>,
+    /// Runs started so far; the one under way, or the last, is this number.
+    run: u64,
+    /// The last run's end.
+    done: Done,
+    /// Spills each host a run added took (`claim`).
+    spilled: std::collections::HashMap<String, u64>,
+}
+
+/// One daemon's run state, and the channel each run's end is told on.
+struct Shared {
+    state: StdMutex<State>,
+    done: tokio::sync::watch::Sender<Done>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self { state: StdMutex::default(), done: tokio::sync::watch::Sender::new(Done::default()) }
+    }
 }
 
 /// This daemon's scale-up: at most one run, none within the cooldown.
 pub(crate) struct ScaleUp {
-    state: Arc<StdMutex<State>>,
+    shared: Arc<Shared>,
     runner: Runner,
     cooldown: Duration,
 }
 
+/// Where a spill goes (`ScaleUp::host_for_spill`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SpillHost {
+    /// A run answered this host (`fresh`: the run this spill started or joined, else a host an
+    /// earlier run added within the cooldown, which still has room for spills).
+    Host { name: String, fresh: bool },
+    /// No host: why.
+    None(String),
+}
+
 impl ScaleUp {
     pub(crate) fn new(runner: Runner, cooldown: Duration) -> Self {
-        Self { state: Arc::default(), runner, cooldown }
+        Self { shared: Arc::default(), runner, cooldown }
     }
 
     /// The daemon's own, running real providers.
     /// Only the run state is the daemon's one copy (so every create shares the one run and
     /// its cooldown); the runner is made here, never held in a static a test could replace.
     pub(crate) fn daemon() -> ScaleUp {
-        static STATE: OnceLock<Arc<StdMutex<State>>> = OnceLock::new();
+        static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
         ScaleUp {
-            state: STATE.get_or_init(Arc::default).clone(),
+            shared: SHARED.get_or_init(Arc::default).clone(),
             runner: Arc::new(|p, bound| Box::pin(run_provider(p, bound))),
             cooldown: COOLDOWN,
         }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
+        self.shared.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Starts `plan` on `owner` (the Hub's scope: its close ends the run)
@@ -190,27 +232,112 @@ impl ScaleUp {
     /// run. Call inside a Tokio runtime.
     pub(crate) fn trigger(&self, owner: &cmux_scope::Scope, plan: Plan, now: Instant) -> Trigger {
         {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.state();
             if state.running {
                 return Trigger::InFlight;
             }
             if state.last.is_some_and(|last| now.saturating_duration_since(last) < self.cooldown) {
                 return Trigger::Cooling;
             }
-            state.running = true;
-            state.last = Some(now);
+            self.start(&mut state, owner, plan, now);
         }
-        let (state, runner) = (self.state.clone(), self.runner.clone());
+        Trigger::Started
+    }
+
+    /// Marks a run started in `state` (held) and spawns it on `owner`.
+    fn start(&self, state: &mut State, owner: &cmux_scope::Scope, plan: Plan, now: Instant) {
+        state.running = true;
+        state.last = Some(now);
+        state.run = state.run.saturating_add(1);
+        let run = state.run;
+        let (shared, runner) = (self.shared.clone(), self.runner.clone());
         owner.spawn_named("admission scale-up", async move {
             let host = run_plan(&runner, plan).await;
-            match host {
+            match &host {
                 Some(host) => tracing::info!(host, "scale-up: the fleet added a machine for lanes"),
                 None => tracing::warn!("scale-up: no provider added a machine"),
             }
-            state.lock().unwrap_or_else(|e| e.into_inner()).running = false;
+            let done = Done { run, host };
+            {
+                let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.running = false;
+                state.done = done.clone();
+            }
+            shared.done.send_replace(done);
         });
-        Trigger::Started
     }
+
+    /// The host a spill (`admission_spill.rs`) goes to, waiting up to `wait` for it: the
+    /// host of the run under way, or of one started now; within the cooldown, the host the
+    /// last run added while fewer than `cap` spills went there, else a new run (the cooldown
+    /// keeps a burst to one run, and a full host it added is no burst). A run that added
+    /// nothing within the cooldown is not asked again: the spill starts here, as before.
+    pub(crate) async fn host_for_spill(
+        &self,
+        owner: &cmux_scope::Scope,
+        plan: Plan,
+        cap: u64,
+        wait: Duration,
+    ) -> SpillHost {
+        let until = tokio::time::Instant::now() + wait;
+        loop {
+            let mut rx = self.shared.done.subscribe();
+            let run = {
+                let mut state = self.state();
+                let now = Instant::now();
+                let cooling = state
+                    .last
+                    .is_some_and(|last| now.saturating_duration_since(last) < self.cooldown);
+                if state.running {
+                    state.run
+                } else if cooling && let Some(host) = state.done.host.clone() {
+                    // A host a run added takes spills up to its cap, then a new run is asked.
+                    if claim(&mut state, &host, cap) {
+                        return SpillHost::Host { name: host, fresh: false };
+                    }
+                    self.start(&mut state, owner, plan.clone(), now);
+                    state.run
+                } else if cooling {
+                    return SpillHost::None(
+                        "the fleet's last scale-up added no machine (it is asked again after its cooldown)"
+                            .into(),
+                    );
+                } else {
+                    self.start(&mut state, owner, plan.clone(), now);
+                    state.run
+                }
+            };
+            let ended = tokio::time::timeout_at(until, rx.wait_for(|d| d.run >= run)).await;
+            let host = match ended {
+                Ok(Ok(done)) => done.host.clone(),
+                Ok(Err(_)) => return SpillHost::None("the scale-up ended with the daemon".into()),
+                Err(_) => {
+                    return SpillHost::None(format!(
+                        "no machine was added within {}s (the scale-up goes on; the next start may take it)",
+                        wait.as_secs()
+                    ));
+                }
+            };
+            let Some(name) = host else {
+                return SpillHost::None("no provider added a machine".into());
+            };
+            // Every waiter of a burst shares one run: the first `cap` take its host, and the
+            // rest ask for the next one (one run at a time) while the wait lasts.
+            if claim(&mut self.state(), &name, cap) {
+                return SpillHost::Host { name, fresh: true };
+            }
+        }
+    }
+}
+
+/// Counts one more spill on `host` when it has taken fewer than `cap`: whether it did.
+fn claim(state: &mut State, host: &str, cap: u64) -> bool {
+    let n = state.spilled.entry(host.to_owned()).or_default();
+    let room = *n < cap;
+    if room {
+        *n += 1;
+    }
+    room
 }
 
 /// Asks each provider in turn within the plan's shared bound: the first host,
@@ -326,7 +453,7 @@ mod tests {
 
     async fn settle(scale: &ScaleUp) {
         for _ in 0..200 {
-            if !scale.state.lock().unwrap().running {
+            if !scale.state().running {
                 return;
             }
             tokio::task::yield_now().await;
@@ -470,5 +597,86 @@ mod tests {
         );
         assert!(matches!(parse_answer(true, "not json"), Answer::Failed { terminal: false, .. }));
         assert!(matches!(parse_answer(false, "{\"host\": \"x\"}"), Answer::Failed { .. }));
+    }
+
+    /// A provider's answer of any shape version parses: none (today's lane_overflow.py),
+    /// `"v": 1`, and a later one with keys this daemon does not know.
+    #[test]
+    fn scale_up_answers_of_every_version_parse() {
+        for line in [
+            r#"{"host": "e1"}"#,
+            r#"{"v": 1, "host": "e1", "skipped": ["fs-lane-3 (full)"]}"#,
+            r#"{"v": 2, "host": "e1", "fresh": true, "joinBy": 123}"#,
+        ] {
+            assert!(matches!(parse_answer(true, line), Answer::Host(h) if h == "e1"), "{line}");
+        }
+        let failed =
+            parse_answer(false, r#"{"v": 2, "error": "no quota", "terminal": true, "x": 1}"#);
+        assert!(matches!(failed, Answer::Failed { terminal: true, .. }));
+    }
+
+    /// Sixteen creates no host has room for share one run, the first `cap` of them take its
+    /// host, and the rest ask for the next one: never sixteen machines, never sixteen on one.
+    #[tokio::test]
+    async fn spill_waiters_share_one_run_and_fill_its_host_to_the_cap() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let n = calls.clone();
+        let runner: Runner = Arc::new(move |_p, _b| {
+            let n = n.clone();
+            Box::pin(async move {
+                let k = n.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Answer::Host(format!("e{k}"))
+            })
+        });
+        let scale = Arc::new(ScaleUp::new(runner, COOLDOWN));
+        let owner = Arc::new(cmux_scope::Scope::new("test"));
+        let waits: Vec<_> = (0..16)
+            .map(|_| {
+                let (scale, owner) = (scale.clone(), owner.clone());
+                tokio::spawn(async move {
+                    scale.host_for_spill(&owner, one_plan(), 6, Duration::from_secs(5)).await
+                })
+            })
+            .collect();
+        let mut hosts = std::collections::BTreeMap::<String, usize>::new();
+        for w in waits {
+            match w.await.unwrap() {
+                SpillHost::Host { name, .. } => *hosts.entry(name).or_default() += 1,
+                SpillHost::None(why) => panic!("no host: {why}"),
+            }
+        }
+        assert!(hosts.values().all(|n| *n <= 6), "{hosts:?}");
+        assert_eq!(calls.load(Ordering::SeqCst), 3, "16 at 6 a host: three runs, {hosts:?}");
+        // Within the cooldown a host with room takes the next spill with no run.
+        assert!(matches!(
+            scale.host_for_spill(&owner, one_plan(), 6, Duration::from_secs(5)).await,
+            SpillHost::Host { fresh: false, .. }
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
+    }
+
+    /// A run that adds nothing, or outlasts the wait, answers no host (the create starts where
+    /// it is, warned), and a failed run is not asked again within its cooldown.
+    #[tokio::test]
+    async fn spill_without_a_host_in_time_answers_none() {
+        let (calls, release) =
+            (Arc::new(AtomicUsize::new(0)), Arc::new(tokio::sync::Notify::new()));
+        let scale = ScaleUp::new(held_runner(calls.clone(), release.clone()), COOLDOWN);
+        let owner = cmux_scope::Scope::new("test");
+        let got = scale.host_for_spill(&owner, one_plan(), 6, Duration::from_millis(50)).await;
+        assert!(matches!(got, SpillHost::None(ref why) if why.contains("no machine was added")));
+        release.notify_one();
+        settle(&scale).await;
+        let failing: Runner = Arc::new(|_p, _b| {
+            Box::pin(async { Answer::Failed { why: "no quota".into(), terminal: false } })
+        });
+        let scale = ScaleUp::new(failing, COOLDOWN);
+        let got = scale.host_for_spill(&owner, one_plan(), 6, Duration::from_secs(5)).await;
+        assert!(matches!(got, SpillHost::None(ref why) if why.contains("no provider")), "{got:?}");
+        let again = scale.host_for_spill(&owner, one_plan(), 6, Duration::from_secs(5)).await;
+        assert!(matches!(again, SpillHost::None(ref why) if why.contains("cooldown")), "{again:?}");
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
     }
 }

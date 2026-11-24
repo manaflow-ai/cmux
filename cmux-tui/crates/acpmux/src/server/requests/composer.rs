@@ -91,7 +91,11 @@ pub(super) async fn handle(
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
     let who = super::who(conn);
     // An aside starts beside its chat, never on a peer (`hub/admission_redirect.rs`).
-    let ask = crate::hub::admission::Ask { redirect: false, ..super::ask(conn, params, &who) };
+    let ask = crate::hub::admission::Ask {
+        redirect: false,
+        spill: None,
+        ..super::ask(conn, params, &who)
+    };
     let admitted = hub.admit_new(ask).await?;
     admitted.run(hub.ask_aside(&s, text, &conn.label(), opts())).await
 }

@@ -3007,6 +3007,7 @@ pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
+pub(crate) use place::hub_health_soon;
 mod processes;
 mod prompt_cancel;
 mod workflow_activity;

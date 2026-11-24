@@ -292,6 +292,9 @@ pub(crate) struct Admitted<'a> {
     /// The filler session whose room this start takes, hibernated once the create goes ahead
     /// here (`admission_redirect::free_filler`), with why there was no room.
     pub freed: Option<(String, super::admission_redirect::Reason)>,
+    /// No host has room it is known to have: the create waits for one the fleet adds and
+    /// starts there (`admission_spill.rs`); None to start here or on `placed`.
+    pub spill: Option<super::admission_spill::Spill>,
 }
 
 tokio::task_local! {
@@ -406,6 +409,7 @@ impl Hub {
                     warning: None,
                     placed: None,
                     freed: None,
+                    spill: None,
                 },
             )
         };
@@ -449,9 +453,28 @@ impl Hub {
         } else if let (Some(reason), Some(peers)) = (reason, &peers) {
             let live = verdict.over.as_ref().map_or(0, |o| o.live);
             let max = verdict.over.as_ref().map(|o| o.max);
-            admitted.placed = super::admission_redirect::pick(peers, reason, live, max);
+            admitted.spill = self.spill(
+                &ask,
+                &verdict.over,
+                peers,
+                registry.as_ref(),
+                (source.as_path(), machine.as_deref()),
+                reason,
+            );
+            if admitted.spill.is_some() {
+                // The peers only the hub reaches had no reading: ask for them now, so the
+                // next create weighs them (`server/place_hub_health.rs`), never waiting here.
+                crate::server::hub_health_soon(self).await;
+            }
+            if let Some(spill) = &admitted.spill {
+                // Its create logs `spilled` or `spill_failed` once it started.
+                let wait = format!("waitMs={}", spill.wait.as_millis());
+                super::admission_redirect::log("spill_waiting", reason, None, Some(&wait));
+            } else {
+                admitted.placed = super::admission_redirect::pick(peers, reason, live, max);
+            }
             // A placed one is logged by its create once it started there, or failed.
-            if admitted.placed.is_none() {
+            if admitted.placed.is_none() && admitted.spill.is_none() {
                 super::admission_redirect::log("local_no_room", reason, None, None);
             }
         } else if verdict.over.is_some() && verdict.uncapped.is_none() {
@@ -546,6 +569,37 @@ impl Hub {
         warning
     }
 
+    /// The spill of a create no connected peer has known room for (`admission_spill.rs`):
+    /// it asked, this host's registry turns spills on, and the fleet declares providers.
+    fn spill(
+        &self,
+        ask: &Ask<'_>,
+        over: &Option<OverCap>,
+        verdict: &Value,
+        registry: Option<&Value>,
+        (source, machine): (&Path, Option<&str>),
+        reason: super::admission_redirect::Reason,
+    ) -> Option<super::admission_spill::Spill> {
+        use super::admission_spill as spill;
+        let config = spill::config(registry);
+        let wait = spill::wait(ask.spill, config)?;
+        if spill::known_room(verdict) {
+            return None;
+        }
+        let workspace = super::admission_scale_up::workspace_of(source);
+        let plan =
+            super::admission_scale_up::plan(registry?, source, machine?, workspace.as_deref());
+        plan.as_ref()?;
+        Some(spill::Spill {
+            reason,
+            live: over.as_ref().map_or(0, |o| o.live),
+            max: over.as_ref().map(|o| o.max),
+            wait,
+            per_host: config.map_or(6, |c| c.per_host),
+            plan,
+        })
+    }
+
     /// Asks the registry's `lane_overflow` providers for a machine, detached
     /// (`admission_scale_up.rs`); None when the fleet declares none here.
     fn scale_up(
@@ -578,6 +632,9 @@ pub(crate) struct Ask<'a> {
     /// The create asked to start on a peer when this host has no room, and nothing ties
     /// it here (`admission_redirect.rs` `movable`).
     pub redirect: bool,
+    /// How long the create waits for a host the fleet adds when none has room
+    /// (`admission_spill.rs` `asked`); None when it asked for no spill or may not move.
+    pub spill: Option<std::time::Duration>,
 }
 
 #[cfg(test)]
@@ -661,6 +718,7 @@ mod tests {
             warning: None,
             placed: None,
             freed: None,
+            spill: None,
         };
         claim("outside");
         assert_eq!(made.made.get(), None, "a session inserted outside the create is not its");

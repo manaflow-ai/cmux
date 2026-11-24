@@ -449,6 +449,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             ) && client.daemon_lists(crate::hub::admission_redirect::CAPABILITY)
             {
                 meta.set(crate::hub::admission_redirect::FIELD, json!(1));
+                // No host with room at all: it waits for one the fleet adds, within what is
+                // left of --timeout (`hub/admission_spill.rs`), from a daemon that lists it.
+                if client.daemon_lists(crate::hub::admission_spill::CAPABILITY)
+                    && let Some(wait) = spill_wait(deadline, tokio::time::Instant::now())
+                {
+                    let ask = json!({"v": crate::hub::admission_spill::VERSION, "waitMs": wait});
+                    meta.set(crate::hub::admission_spill::FIELD, ask);
+                }
             }
             // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
             // gets the session the first one made, or makes it, never a second one.
@@ -1379,6 +1387,24 @@ fn keeps_name_suffixed(placed: bool, host: Option<&str>, reuse: bool) -> bool {
     !reuse && (placed || host.is_some())
 }
 
+/// How long a create waits for a host the fleet adds (`hub/admission_spill.rs`), in ms: the
+/// daemon's default bound, or what `deadline` leaves past a margin for the start itself; None
+/// when that is too short to wait for any host.
+pub(crate) fn spill_wait(
+    deadline: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+) -> Option<u64> {
+    use std::time::Duration;
+    const MARGIN: Duration = Duration::from_secs(60);
+    const SHORTEST: Duration = Duration::from_secs(30);
+    let bound = crate::hub::admission_spill::WAIT_DEFAULT;
+    let wait = match deadline {
+        Some(d) => d.saturating_duration_since(now).saturating_sub(MARGIN).min(bound),
+        None => bound,
+    };
+    (wait >= SHORTEST).then(|| wait.as_millis() as u64)
+}
+
 /// Whether `new` asks a lane host with no room to start it on a peer
 /// (`_meta.acpmux.placeRedirect`, `hub/admission_redirect.rs`): a start here with no
 /// machine, folder or worktree named, no `--reuse` (which finds the session by name here),
@@ -1826,6 +1852,18 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    /// A new client asks to spill only for as long as its --timeout leaves, and an old
+    /// daemon (no `place-spill-v1`) is never sent the field (the caller checks the list).
+    #[test]
+    fn a_spill_waits_within_the_callers_timeout() {
+        let now = tokio::time::Instant::now();
+        let s = std::time::Duration::from_secs;
+        assert_eq!(super::spill_wait(None, now), Some(300_000));
+        assert_eq!(super::spill_wait(Some(now + s(3600)), now), Some(300_000));
+        assert_eq!(super::spill_wait(Some(now + s(150)), now), Some(90_000));
+        assert_eq!(super::spill_wait(Some(now + s(80)), now), None, "too short to wait");
+    }
+
     #[test]
     fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
         // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.

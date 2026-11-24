@@ -133,6 +133,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "personStop",
     "personVerified",
     "placeRedirect",
+    "placeSpill",
     "policy",
     "pr",
     "preset",

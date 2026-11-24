@@ -182,6 +182,17 @@ pub(crate) fn print_new_warnings(created: &Value) {
             None => eprintln!("acpmux: {here}, so it was placed on {on}"),
         }
     }
+    // Started on a host the fleet added for it (`hub/admission_spill.rs`).
+    if let Some(spill) = created.pointer("/_meta/acpmux/placement/spill") {
+        let host = spill.get("host").and_then(Value::as_str).unwrap_or("a new host");
+        let secs = spill.get("waitedMs").and_then(Value::as_u64).unwrap_or(0) / 1000;
+        let how = if spill.get("fresh").and_then(Value::as_bool) == Some(true) {
+            "the fleet added it"
+        } else {
+            "the fleet had just added it"
+        };
+        eprintln!("acpmux: no host had room, so it started on a new host, {host} ({how}, {secs}s)");
+    }
     for at in ["/_meta/acpmux/admission/warning", "/_meta/acpmux/successor/warning"] {
         if let Some(w) = created.pointer(at).and_then(Value::as_str) {
             eprintln!("acpmux: warning: {w}");
