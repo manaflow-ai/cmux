@@ -777,3 +777,8 @@ async fn a_new_phone_against_a_worker_without_the_ticket_request_still_rides_the
     assert!(timed.up < Duration::from_secs(1), "link up after {:?}", timed.up);
     assert_eq!(timed.phone_joins.len(), 1, "{:?}", timed.phone_joins);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tmp_trace_one() {
+    timed_relay_dial(Duration::from_millis(25), true, true, true, false).await;
+}

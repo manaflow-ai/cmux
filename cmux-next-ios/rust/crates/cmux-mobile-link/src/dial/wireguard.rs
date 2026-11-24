@@ -1361,6 +1361,13 @@ impl HybridUnderlay {
                     self.replay_recent(true);
                 }
             }
+            Control::RelayPeerUp => {
+                if let Some((datagram, class)) =
+                    self.handshake_repeat.as_ref().map(|repeat| (repeat.datagram.clone(), repeat.class))
+                {
+                    self.send_relay(&datagram, class);
+                }
+            }
             Control::KillRelay => {
                 if let Some(relay) = &self.relay {
                     relay.kill();

@@ -98,6 +98,9 @@ pub(super) enum Control {
     Relay { carrier: super::RelayCarrier, pending: bool },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
+    /// The relay says the peer's socket joined: the pending handshake initiation goes
+    /// again at once (the first one met an empty seat and was dropped).
+    RelayPeerUp,
 }
 
 /// This session's relay, when both sides offered it.
@@ -1448,11 +1451,27 @@ async fn run_relay_watch(session: Weak<Session>) {
                 if lock(&shared.state).left.is_some_and(|left| left.elapsed() < RELAY_STICKY_WITHIN) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
-                *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
+                let peer_online = carrier.peer_online_watch();
+                *lock(&shared.peer_online) = Some(peer_online.clone());
                 if session.control.send(Control::Relay { carrier, pending: plan.first }).is_err() {
                     return;
                 }
                 shared.set_held(true);
+                if plan.first {
+                    // The initiation sent on the join finds an empty seat when the peer
+                    // joins later: send it again the moment the relay reports the peer,
+                    // not at the next repeat (250 ms).
+                    let mut online = peer_online;
+                    let control = session.control.clone();
+                    tokio::spawn(async move {
+                        while !*online.borrow_and_update() {
+                            if online.changed().await.is_err() {
+                                return;
+                            }
+                        }
+                        let _ = control.send(Control::RelayPeerUp);
+                    });
+                }
                 // Wake the tunnel so its handshake rides the relay: the dialer at once,
                 // the answerer a random moment later and only if the dialer's did not
                 // arrive meanwhile. Both sides often join in the same instant (their

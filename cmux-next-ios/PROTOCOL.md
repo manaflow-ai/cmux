@@ -529,6 +529,20 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   other party's socket is joined), then `{"type":"peer","online":bool}` when
   it joins or leaves, or at most every 5 s while frames find it absent. A
   client's `ping` is answered `pong` without waking the object.
+- **Relay ticket request (`relay_ticket`):** a signaling frame
+  `{"type":"relay_ticket","sessionId":S,"to":MAC}`, sent by a phone that offered
+  `relay: "first"` as its dial starts, before `wg-init`. The service binds the
+  session like a first signal and answers `{"type":"relay_ticket","sessionId":S,
+  "relayTicket":T}`: the phone's own ticket, the one it otherwise gets stamped on
+  the Mac's `wg-resp`. The phone joins the relay with it at once, two round trips
+  sooner. The Mac is unchanged (its ticket still comes on `wg-init`). Versioning:
+  an older Worker refuses the frame with `bad_request "unknown frame type"`; the
+  phone swallows that refusal, never asks again on that connection, and takes the
+  ticket from `wg-resp` as before. An older phone never sends it; an older Mac
+  (no `first`) does not join early, and a phone dialing it keeps the 3 s rule and
+  drops its early join. The pending handshake initiation sent on a join that finds
+  the Mac absent goes again the moment the relay reports the peer (`joined`
+  `peer:true`), not at the 250 ms repeat.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
   path (`relay: "now"`); as the dial starts when both said `"first"` (the

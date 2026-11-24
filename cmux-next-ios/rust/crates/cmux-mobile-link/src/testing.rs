@@ -531,11 +531,6 @@ async fn serve_relay(
         }
         let _ = sink.close().await;
     });
-    let leg = options.signal_leg * 2;
-    let peer_socket = |state: &Arc<Mutex<State>>| {
-        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
-    };
     while let Some(Ok(message)) = source.next().await {
         match message {
             Message::Binary(bytes) => {
@@ -546,24 +541,35 @@ async fn serve_relay(
                 }
                 frame.peer = PeerId(device_bytes);
                 let Ok(encoded) = frame.encode() else { continue };
-                match peer_socket(&state) {
-                    Some(target) => {
-                        tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
-                        state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
-                        if leg.is_zero() {
+                // One leg to the service, which then looks the peer up, and one on to it.
+                let one_leg = options.signal_leg;
+                let (state, session, device, peer, out_tx) =
+                    (Arc::clone(&state), session.clone(), device.clone(), peer.clone(), out_tx.clone());
+                let forward = async move {
+                    tokio::time::sleep(one_leg).await;
+                    let target = {
+                        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+                        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
+                    };
+                    match target {
+                        Some(target) => {
+                            tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
+                            state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
+                            tokio::time::sleep(one_leg).await;
                             let _ = target.send(Message::Binary(encoded.into()));
-                        } else {
-                            tokio::spawn(async move {
-                                tokio::time::sleep(leg).await;
-                                let _ = target.send(Message::Binary(encoded.into()));
-                            });
+                        }
+                        None => {
+                            tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
+                            let _ = out_tx.send(Message::Text(
+                                json!({"type":"peer","online": false}).to_string().into(),
+                            ));
                         }
                     }
-                    None => {
-                        tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
-                        let _ = out_tx
-                            .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
-                    }
+                };
+                if one_leg.is_zero() {
+                    forward.await;
+                } else {
+                    tokio::spawn(forward);
                 }
             }
             Message::Text(text) if text.as_str() == "ping" => {
