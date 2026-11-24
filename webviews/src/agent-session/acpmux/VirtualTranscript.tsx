@@ -7147,6 +7147,10 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
+    // A followed view's offset is not where its rows draw until the placement pass runs: none is
+    // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
+    viewTop: shownTop,
+    viewHeight: renderFollowing ? 0 : height,
     frameKey,
     registry,
     setSizeRef,
@@ -7259,6 +7263,7 @@ function TranscriptView({
     sinceKey,
     onJumpToSince,
     sinceRow,
+    sinceHasNews,
     clearTop,
     sinceIndex,
     jumpUp,
