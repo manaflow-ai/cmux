@@ -116,7 +116,6 @@ import {
   openOutputFile,
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
-import { intl } from "../../../ui/intl";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -380,7 +379,6 @@ export function SessionInfo({
   onSaveEnvironment,
   onReconnectMcp,
   onCompact,
-  onViewPrompt,
   onOpenFolder,
   edits,
   onOpenChanges,
@@ -477,7 +475,7 @@ export function SessionInfo({
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
-  /// Context's View Prompt (useSessionInfo's).
+  /// Context's View Prompt (useSessionInfo's): no longer drawn (Lucas, 2026-11-23: "remove this button").
   onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
@@ -692,33 +690,14 @@ export function SessionInfo({
       />
     </SessionInfoSection>
   );
-  // Context is one line, the window's share on a meter and its tokens used of its size; a click unfolds
-  // its breakdown from Messages down (Lucas, 2026-11-06: "clicking on context should no longer open the
-  // context modal. instead it will just expand"). The composer's context card's Details opens Session
+  // Context's head is its title alone; a click unfolds the share used with its tokens, the bar and the
+  // breakdown, as Claude Code desktop's card (Lucas, 2026-11-23: "move the tokens and percentage to the
+  // context bar"; 2026-11-06: "clicking on context should no longer open the context modal. instead it
+  // will just expand"). The composer's context card's Details opens Session
   // Info on it, unfolded and lit (App.tsx `onOpenContext`, as main has it).
-  const contextTokens = intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
   const context = known ? (
-    <SessionInfoSection
-      id="context"
-      title={t("rail.context")}
-      open={state.context}
-      onOpenChange={fold("context")}
-      meta={
-        <>
-          <span className="acpmux-session-info-meter" aria-hidden="true">
-            <span style={{ width: `${percent}%` }} />
-          </span>
-          {value(`${contextTokens.format(usage.used)} / ${contextTokens.format(usage.size)}`)}
-        </>
-      }
-    >
-      <ContextSection
-        usage={usage}
-        percent={percent}
-        breakdown={summary?.contextBreakdown}
-        rowsOnly
-        onViewPrompt={onViewPrompt}
-      />
+    <SessionInfoSection id="context" title={t("rail.context")} open={state.context} onOpenChange={fold("context")}>
+      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (
