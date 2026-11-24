@@ -1671,8 +1671,20 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         r = subprocess.run(simctl + ["spawn", a.udid, "defaults", "write", a.bundle_id,
                                      "cmuxMobile.workspaces.macFilter." + team_id, "-string", mac_id],
                            capture_output=True, text=True)
-        log("scope", ok=r.returncode == 0, err=(r.stderr or "")[:200])
-        return r.returncode == 0
+        # A sandboxed app reads its container's plist: write the filter there too (the app is not running).
+        c = subprocess.run(simctl + ["get_app_container", a.udid, a.bundle_id, "data"], capture_output=True, text=True)
+        plist = os.path.join((c.stdout or "").strip(), "Library", "Preferences", a.bundle_id + ".plist")
+        p_ok = False
+        if c.returncode == 0 and os.path.exists(plist):
+            with open(plist, "rb") as f:
+                prefs = plistlib.load(f)
+            prefs["cmuxMobile.workspaces.macFilter." + team_id] = mac_id
+            with open(plist, "wb") as f:
+                plistlib.dump(prefs, f, fmt=plistlib.FMT_BINARY)
+            p_ok = True
+        log("scope", ok=r.returncode == 0 or p_ok, defaults_ok=r.returncode == 0, plist_ok=p_ok,
+            err=(r.stderr or "")[:200])
+        return r.returncode == 0 or p_ok
 
     def make_workspace():
         """One workspace on the target Mac, so step 4 has something to keep."""
