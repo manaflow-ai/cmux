@@ -3,7 +3,10 @@
 # clone read by `cmux migrate plan DIR` (devcontainer, compose or Nix), then `cmux migrate apply DIR --headless`,
 # which runs `cloud journey --repo` on staging with the model stub: create the machine, clone the repo, apply
 # the machine config, start an agent in the checkout, reply. The create-to-reply time is the project's time
-# to its first working chat; CMUX_MIGRATE_JOURNEY_DELETE=1 deletes each machine after it is measured.
+# to its first working chat. CMUX_MIGRATE_JOURNEY_DELETE=1 drops `--keep`, so the journey deletes each machine
+# after it is measured, pass or fail: CI leaves no machines behind. Debugging a red needs no live machine: the
+# journey's own journey.json and the apply logs below are the record (set CMUX_MIGRATE_JOURNEY_DELETE=0 on a
+# manual run to keep the machines, then `cmux migrate undo SOURCE_ID --yes` or `cmux vm rm ID`).
 # A failed apply runs once more (the ledger resumes it: nothing made twice). Writes a table of
 # repo, source, result and ms to the job summary and $out/results.json.
 #
@@ -22,7 +25,7 @@ if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD
   exit 1
 fi
 export CMUX_MIGRATE_MODEL_STUB="$here/../../tests/fixtures/model-stub/model_stub.py"
-export CMUX_MIGRATE_JOURNEY_DELETE=1
+export CMUX_MIGRATE_JOURNEY_DELETE="${CMUX_MIGRATE_JOURNEY_DELETE:-1}"
 # Small public repos, one per reader. Override with MIGRATE_REPOS="url url".
 repos=(${MIGRATE_REPOS:-https://github.com/microsoft/vscode-remote-try-node https://github.com/docker/getting-started-app https://github.com/microsoft/vscode-remote-try-python})
 status=0
