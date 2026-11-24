@@ -91,9 +91,17 @@ impl Daemon {
         for sub in ["home", "acpmux", "work"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
+        // acpmux refuses a group-writable ancestor of its home; a 002 umask makes this dir 775.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
+            // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+            std::fs::set_permissions(
+                dir.join("acpmux/config.json"),
+                <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+            )
+            .unwrap();
         }
         let cloud_etc = vm_kind.map(|kind| {
             let etc = dir.join("etc-cmux");

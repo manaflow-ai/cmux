@@ -29,6 +29,7 @@ import argparse, glob, http.server, json, os, plistlib, signal, socket, subproce
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -69,6 +70,7 @@ a{display:block;margin:12px;font-size:20px} #sel{position:fixed;left:20px;bottom
 SIZE = "<!doctype html><html><head><title>rb size</title></head><body><script>document.title='rb size '+innerWidth+'x'+innerHeight+' @'+devicePixelRatio</script></body></html>"
 LIST = """<!doctype html><html><head><title>rb list</title></head><body style="margin:0;font:16px sans-serif">
 <input id="dl" list="fruits" autocomplete="off" style="position:fixed;left:40px;top:200px;width:240px;font-size:16px"
+ onfocus="if(!this.value)document.title='rb list focused'"
  oninput="document.title='rb list '+this.value" onchange="document.title='rb list '+this.value">
 <datalist id="fruits"><option value="Apple"><option value="Apricot"><option value="Avocado"></datalist>
 </body></html>"""
@@ -210,7 +212,11 @@ def edge(opened):
 
     rb("click", tab=tab, x=dx, y=dy, button="left")
     info = wait(picker, 15)
-    time.sleep(1.0)  # the picker's first frames, and Chromium ignores clicks in its first 500 ms
+    shown_at = time.monotonic()
+    # The picker's first frames: its surface info (panel, frame) stops changing.
+    info = wait_stable(picker, "the date picker's surface", timeout=10, interval=0.1, raise_on_timeout=False) or info
+    # sleep-ok: Chromium ignores clicks on a popup in its first 500 ms (a fixed Chromium rule, not a state)
+    time.sleep(max(0.0, 0.6 - (time.monotonic() - shown_at)))
     info = picker() or info
     state = session_where(lambda s: s["tab"] == tab)
     shot("edge-date")
@@ -333,18 +339,23 @@ def stats(opened):
     # An animated page: the capture runs at the page's frame rate, capped at 60.
     rb("navigate", tab=tab, url=BASE + "/motion")
     wait(on_tab("rb motion"), 30)
-    time.sleep(2)
+    # The capture streams: the host logged a stats window with frames since the page loaded.
+    loaded_at = mark()
+    wait_until(lambda: any(w["frames"] for w in lines_since(loaded_at)), "the host's first motion stats window",
+               timeout=15, interval=0.1, raise_on_timeout=False)
     start = mark()
-    time.sleep(8)
+    time.sleep(8)  # sleep-ok: the measured motion window
     shot("stats-motion")
     numbers["motion"] = summary(lines_since(start))
     # A still page sends nothing once it has painted.
     rb("navigate", tab=tab, url=BASE + "/tap")
     wait(on_tab("rb tap 0"), 30)
-    # The host flushes a window at most 1 s after its last frame (a timer), so after 3 s the
-    # paint of the page is logged; frames in the next 3 s show up by the read 1.5 s later.
-    time.sleep(3)
+    # The host flushes a window at most 1 s after its last frame (a timer): once the log has not grown for
+    # 1.5 s the paint of the page is logged.
+    wait_stable(mark, "the host's stats log after the still page's paint", timeout=15, interval=0.5, reads=4,
+                raise_on_timeout=False)
     start = mark()
+    # sleep-ok: the measured still window (3 s), plus 1.5 s for the host's 1 s flush timer to log its frames
     time.sleep(4.5)
     numbers["still"] = summary(lines_since(start))
     # Clicks that repaint the page: input to the frame that answers it.
@@ -354,7 +365,8 @@ def stats(opened):
         rb("click", tab=tab, x=400 + (i % 5) * 40, y=300, button="left")
         time.sleep(0.4)
     tapped = wait(on_tab(f"rb tap {clicks}"), 15)
-    time.sleep(1.5)  # the next window flushes the last samples
+    # The next window flushes the last samples (the host's 1 s timer): the log stops growing for 1.5 s.
+    wait_stable(mark, "the host's stats log after the taps", timeout=15, interval=0.5, reads=4, raise_on_timeout=False)
     shot("stats-tap")
     numbers["tap"] = summary(lines_since(start))
     numbers["tap"]["title"] = (tapped or session_where(lambda s: s["tab"] == tab) or {}).get("title")
@@ -540,7 +552,8 @@ try:
         rb("navigate", tab=tab1, url=BASE + "/list")
         wait(title_is("rb list"), 30)
         rb("click", tab=tab1, x=120, y=210, button="left")
-        time.sleep(0.5)
+        # The click focused the field (its onfocus sets the title) before the key goes in.
+        wait(title_is("rb list focused"), 10, step=0.1)
         rb("type", tab=tab1, text="a")
 
         def autofill():

@@ -47,6 +47,7 @@ import {
 } from "./checksModel";
 import type { GitHubStore } from "./store";
 import type { DashboardChecks, DashboardJob, RerunState } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Past this many items (titles and lines) the dashboard mounts only those near the viewport. */
 export const WINDOW_ITEMS = 40;
@@ -296,9 +297,13 @@ const CiRow = memo(function CiRow({
       <div className="gh-ci-line">
         <span className="gh-dot" aria-hidden="true" />
         {first.url ? (
-          <button type="button" className="gh-row-link" title={first.name} onClick={() => open(first.url!)}>
-            {row.name}
-          </button>
+          <WithFacts facts={[{ value: first.name }]}>
+            {(facts) => (
+              <button {...facts} type="button" className="gh-row-link" onClick={() => open(first.url!)}>
+                {row.name}
+              </button>
+            )}
+          </WithFacts>
         ) : (
           <span className="gh-row-name">{row.name}</span>
         )}
