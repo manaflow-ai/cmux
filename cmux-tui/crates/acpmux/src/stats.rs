@@ -32,6 +32,7 @@
 mod attention;
 mod branches;
 
+pub(crate) use branches::turn_usage;
 pub use branches::{BranchStats, MAX_BRANCHES};
 
 use crate::store::{EventRecord, SessionMeta, SessionStatus, Store, TurnUsage};
