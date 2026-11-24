@@ -40,7 +40,7 @@ if [ -z "$bin" ]; then
 fi
 [ -x "$bin" ] || { echo "ghostty-e2e: no cmux-tui at $bin" >&2; exit 2; }
 
-(cd "$root/cmux-tui/bindings/typescript" && npm ci --no-audit --no-fund)
+(cd "$root/cmux-tui/bindings/typescript" && npm ci --no-audit --no-fund && npm run build)
 (cd "$web" && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --no-audit --no-fund)
 work=$(mktemp -d "${TMPDIR:-/tmp}/ghostty-e2e.XXXXXX")
 trap 'rm -rf "$work"' EXIT
