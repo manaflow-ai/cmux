@@ -113,8 +113,21 @@ impl Translator {
         };
         let decision = result.and_then(|r| r.get("decision")).and_then(Value::as_str);
         let reason = result.and_then(|r| r.get("reason")).and_then(Value::as_str);
+        // A hybrid start's call routed to its Cloud machine (`hub/hybrid_hold.rs`): the same
+        // call with its input rewritten, allowed, so Claude Code runs it once and the agent sees
+        // only its own call.
+        let updated = result.and_then(|r| r.get("updatedInput")).filter(|v| v.is_object());
         let output = match (error, decision) {
             (false, Some("none")) => json!({}),
+            (false, Some("allow")) if updated.is_some() => {
+                let mut output = pre_tool("allow", reason.unwrap_or("acpmux policy"));
+                if let (Some(hook), Some(input)) =
+                    (output.get_mut("hookSpecificOutput").and_then(Value::as_object_mut), updated)
+                {
+                    hook.insert("updatedInput".to_owned(), input.clone());
+                }
+                output
+            }
             (false, Some(d @ ("allow" | "ask"))) => pre_tool(d, reason.unwrap_or("acpmux policy")),
             (false, Some("deny")) => {
                 pre_tool("deny", reason.unwrap_or("acpmux denied this tool call"))
