@@ -364,7 +364,9 @@ async fn a_mac_without_the_relay_is_named_as_the_reason() {
     let DialError::Blocked(failures) = error else { panic!("not blocked: {error}") };
     assert_eq!(failures.relay.as_deref(), Some("peer_cannot"));
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert_eq!(rig.server.relay_joins(), 0);
+    // The phone's early join (before the Mac's `wg-resp` says it has no relay) is the one
+    // join this dial may make; nothing joins after that answer.
+    assert!(rig.server.relay_joins() <= 1, "joins: {}", rig.server.relay_joins());
 }
 
 /// Plain UDP is lost on both sides (this test's switch); `drop_udp_to`
@@ -673,4 +675,108 @@ async fn an_older_phone_against_a_new_mac_keeps_the_three_second_relay_rule() {
     );
     assert!(phone_joined >= Duration::from_secs(3), "the phone joined at {phone_joined:?}");
     assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
+}
+
+/// What one relay-only dial measured: when the link was up, each side's first and
+/// last relay join (since the dial started), and the path each side labels.
+struct Timed {
+    up: Duration,
+    phone_joins: Vec<Duration>,
+    mac_joins: Vec<Duration>,
+}
+
+/// Direct UDP and TURN both fail, over a network of `leg` per one-way leg (zero: the
+/// in-process loopback). Each side's build is chosen: `phone` and `mac` (its
+/// `relay_first`, and for the phone `relay_ticket_early`); `old_worker` has the
+/// service refuse `relay_ticket` frames as a Worker before them does.
+async fn timed_relay_dial(
+    leg: Duration,
+    phone_first: bool,
+    phone_early: bool,
+    mac_first: bool,
+    old_worker: bool,
+) -> Timed {
+    let fake = FakeOptions { signal_leg: leg, no_relay_ticket_frames: old_worker, ..FakeOptions::default() };
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
+    let rig = rig(fake, mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_to_the_peer_lost),
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_first: phone_first,
+        relay_ticket_early: phone_early,
+        ..options()
+    };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay");
+    let up = started.elapsed();
+    echo(&connected.link, 2).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    assert_eq!(rig.mac_path(), Some(LinkPath::HttpsRelay));
+    let joins = |device: &str| {
+        rig.server.relay_joins_of(device).into_iter().map(|at| at.duration_since(started)).collect::<Vec<_>>()
+    };
+    let timed = Timed { up, phone_joins: joins(&rig.phone_id), mac_joins: joins(&rig.mac_id) };
+    connected.link.close("done");
+    timed
+}
+
+fn median(mut times: Vec<Duration>) -> Duration {
+    times.sort();
+    times[times.len() / 2]
+}
+
+/// Relay-only dial, one network leg 25 ms: asking for the relay ticket at the dial's
+/// start puts the phone's join (ticket 2 legs, join 4) beside the Mac's (wg-init 2, join
+/// 4) instead of after the Mac's `wg-resp` (2 + 2 + 4). Eight dials each, the median.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_relay_ticket_at_the_dials_start_does_not_slow_a_relay_only_dial() {
+    let leg = Duration::from_millis(25);
+    let (mut off, mut on) = (Vec::new(), Vec::new());
+    for _ in 0..8 {
+        off.push(timed_relay_dial(leg, true, false, true, false).await.up);
+        on.push(timed_relay_dial(leg, true, true, true, false).await.up);
+    }
+    let (off, on) = (median(off), median(on));
+    eprintln!(
+        "ticket on the answer: {off:?} ({:.1} legs); ticket at the dial's start: {on:?} ({:.1} legs)",
+        off.as_secs_f64() / leg.as_secs_f64(),
+        on.as_secs_f64() / leg.as_secs_f64()
+    );
+    // The Mac's join (its ticket rides `wg-init`: 2 legs + 4 to join) is the longer way
+    // and runs beside the phone's, so the early ticket saves up to two legs here, within
+    // the noise of a loaded runner: it must not cost one.
+    assert!(on <= off + leg, "{on:?} against {off:?}");
+}
+
+/// An older phone (no ticket request) against a new Mac: the Mac's ticket comes on the
+/// phone's `wg-init` as always, both dial the relay first, and the link rides it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_phone_without_the_ticket_request_against_a_new_mac_still_rides_the_relay() {
+    let timed = timed_relay_dial(Duration::ZERO, true, false, true, false).await;
+    assert!(timed.up < Duration::from_secs(1), "link up after {:?}", timed.up);
+    assert_eq!(timed.phone_joins.len(), 1, "{:?}", timed.phone_joins);
+    assert!(timed.mac_joins[0] < Duration::from_millis(500), "{:?}", timed.mac_joins);
+}
+
+/// A new phone against an older Mac (it offers `relay: "ready"`): the phone's early join
+/// is let go unused, and the 3 s rule holds on both sides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_phone_against_an_older_mac_keeps_the_three_second_rule_and_drops_its_early_join() {
+    let timed = timed_relay_dial(Duration::ZERO, true, true, false, false).await;
+    assert!(timed.mac_joins[0] >= Duration::from_secs(3), "{:?}", timed.mac_joins);
+    let last = *timed.phone_joins.last().expect("the phone joined");
+    assert!(last >= Duration::from_secs(3), "{:?}", timed.phone_joins);
+}
+
+/// A new phone against a Worker before `relay_ticket` (it refuses the frame): the
+/// refusal fails no dial, and the ticket comes on the Mac's answer as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_phone_against_a_worker_without_the_ticket_request_still_rides_the_relay() {
+    let timed = timed_relay_dial(Duration::ZERO, true, true, true, true).await;
+    assert!(timed.up < Duration::from_secs(1), "link up after {:?}", timed.up);
+    assert_eq!(timed.phone_joins.len(), 1, "{:?}", timed.phone_joins);
 }
