@@ -202,7 +202,6 @@ export const RowFrame = React.memo(function RowFrame({
   const countMount = useEffectEvent(() => {
     // Mounts and same-commit remounts, counted only while measuring (loadDebug.ts `loadTick`).
     const id = row.id;
-    acpmuxPerf.span("diag.mount", 1);
     acpmuxPerf.rowMounted(id);
     // Always on: a remount in place goes to the flicker detector's ring file (flickerLog.ts).
     noteMounted(`row:${id}`, "row", row.kind);
