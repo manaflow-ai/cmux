@@ -8617,11 +8617,14 @@ export class AcpmuxDirectClient {
     // words carry another one ("-", hub/stream.rs), so they start their own row, and a prompt's
     // reply a record split goes on in its row, never as a second row the background turn owns.
     // A background turn's own row never goes on past its end (it stayed streaming, which held its
-    // footer back until the next prompt).
-    const stamped =
-      this.streamingAssistant !== undefined &&
-      this.streamingSegment?.row === this.streamingAssistant &&
-      this.rows.get(this.streamingAssistant)?.inBackground === undefined;
+    // footer back until the next prompt). Unless that prompt is what ended it (reason "prompt"): it
+    // lands next, and a message the agent is still writing goes on in its row above it, streaming,
+    // never settled mid-sentence with its markdown open (Leo, 2026-11-22 08:25Z: "ok, well. this
+    // happened again. you need to help decide what goes on in this case and perfect it.").
+    const streamingRow = this.streamingAssistant;
+    const stampedRow = streamingRow !== undefined && this.streamingSegment?.row === streamingRow;
+    const promptCut = state === "ended" && turn.reason === "prompt" && this.streamingAssistantMessageId !== undefined;
+    const stamped = stampedRow && (promptCut || this.rows.get(streamingRow)?.inBackground === undefined);
     if (!stamped) this.pauseAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
@@ -9565,8 +9568,11 @@ export class AcpmuxDirectClient {
         // row until its next step, since the agent reads the steer only there: a reply cut in two
         // reads worse than a steer's answer run on (Leo, 2026-11-05: "If your text is streaming, I
         // shouldn't be able to interrupt it"). A prompt that opens a turn is answered from its
-        // first word, so without message ids the text after it is that answer.
-        if (msg.steer === true || this.streamingAssistantMessageId) this.holdAssistantSegment();
+        // first word, so without message ids the text after it is that answer. A reply its background
+        // turn's end paused (that end came for this prompt) is held the same way: the rest of its
+        // message goes on in its row above the prompt (Leo, 2026-11-22 08:25Z: "ok, well. this
+        // happened again. you need to help decide what goes on in this case and perfect it.").
+        if (msg.steer === true || this.streamingAssistantMessageId || this.pausedReply) this.holdAssistantSegment();
         else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
@@ -10749,9 +10755,16 @@ export class AcpmuxDirectClient {
   /// Something not the agent's own lands mid-turn (a prompt, a steer, another agent's message, a
   /// notice): a reply still streaming keeps its row for the rest of its text, which stays one
   /// message above what landed; anything else the agent writes next starts below it.
+  /// A reply already paused (its background turn ended under it, then the person's prompt came) stays
+  /// paused: the rest of the same message still goes on in its row, one message one bubble.
   private holdAssistantSegment(): void {
-    if (this.streamingAssistant) this.assistantCut = true;
-    else this.endAssistantSegment();
+    if (this.streamingAssistant) {
+      this.assistantCut = true;
+      return;
+    }
+    const paused = this.pausedReply;
+    this.endAssistantSegment();
+    this.pausedReply = paused;
   }
 
   /// The streaming reply's row ends as `endAssistantSegment` ends it, at something that is no step of

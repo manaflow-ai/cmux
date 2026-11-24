@@ -80,6 +80,13 @@ export function checkIntegrity({ rows, turnEnded, messageOf }: IntegrityInput): 
     const seen = new Map<string, string>();
     for (const row of turn) {
       if (!isReply(row)) {
+        // A Stop hook's line (sender "hook") sent the agent back: what it writes next answers the hook, so a
+        // paragraph it says again reads as that answer, not as one paragraph drawn twice (SE-18).
+        if (
+          (row.incoming as { message?: { notice?: { sender?: string } } } | undefined)?.message?.notice?.sender ===
+          "hook"
+        )
+          seen.clear();
         if (previous && BETWEEN.has(row.kind)) between.push(row);
         else previous = undefined;
         if (ended && row.kind === "typing")

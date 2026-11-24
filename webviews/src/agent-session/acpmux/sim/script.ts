@@ -257,7 +257,7 @@ export class SimBuilder {
   }
 
   /** A steer: the person's prompt sent into the running turn (no new turn); `read` lands it `readMs` later. */
-  steer(value: string, { after = 300, read = true, readMs = 1_500 } = {}): this {
+  steerPrompt(value: string, { after = 300, read = true, readMs = 1_500 } = {}): this {
     this.steers += 1;
     const promptId = `steer-${this.steers}`;
     this.record(
@@ -280,7 +280,7 @@ export class SimBuilder {
   private steers = 0;
 
   /** A plan (todo list) update. */
-  plan(entries: { content: string; status?: string }[], after = 300): this {
+  planUpdate(entries: { content: string; status?: string }[], after = 300): this {
     return this.record(
       "in",
       "plan",
@@ -291,7 +291,7 @@ export class SimBuilder {
   }
 
   /** A permission card for a call, answered `answerMs` later (`answer: false` leaves it open). */
-  permission(title: string, { after = 300, answerMs = 3_000, answer = true, optionId = "allow_once" } = {}): this {
+  permissionCard(title: string, { after = 300, answerMs = 3_000, answer = true, optionId = "allow_once" } = {}): this {
     this.asks += 1;
     const permissionId = `perm-${this.asks}`;
     const toolCallId = this.nextCallId();
@@ -530,6 +530,11 @@ export class SimBuilder {
   compaction({ ms = 2_000, after = 300 } = {}): this {
     this.record("in", "compaction", update("compaction", { state: "started" }), after, "compaction started");
     return this.record("in", "compaction", update("compaction", { state: "completed" }), ms, "compaction completed");
+  }
+
+  /** A Stop hook sent the agent back (acpmux claude_stdio `stop_hook_feedback`), with the hook's reason. */
+  stopHook(reason: string, after = 300): this {
+    return this.record("in", "stop_hook_feedback", update("stop_hook_feedback", { text: reason }), after, "stop hook");
   }
 
   /** acpmux's turn end: `turn_end`, `turn_result`, and the session ready again. */

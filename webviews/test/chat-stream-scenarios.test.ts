@@ -23,9 +23,12 @@ import { STREAM_SCENARIOS, type LiveStep, type StreamScenario } from "../src/age
 /// Scenarios red today, each with its owner (streamScenarios.ts `owner`). Filled from the first CI run; a scenario
 /// here that passes fails its test, so the list only shrinks as owners land fixes.
 const KNOWN_RED: Record<string, string> = {
-  // A Stop hook inside the harness: the repeated paragraph draws twice with nothing between (images/1157.png). The
-  // agent did write it twice; acpmux records no hook prompt, so the pane has nothing to draw between (taste call 1).
-  "SE-18": "helper ae03a5b84e9c36fd5 (duplicate reply)",
+  // A Stop hook inside the harness (images/1157.png): live, the hook's line now draws between the two replies
+  // (acpmux stop_hook_feedback). Once the turn ends, the default fold arm folds that line into Worked for with
+  // the work, so the settled turn shows the two replies side by side again: the fold's own call (turns.ts).
+  "SE-18": "turn-end fold keeps the hook line in sight (turns.ts foldSegments)",
+  // feat-cmux-next's own chat-sim "incoming-notice-turn: rule b" is red on the base too: the same turn-end fold.
+  "SE-22": "base: chat-sim incoming-notice-turn rule b (turn-end fold owner)",
 };
 
 let clock: VirtualClock | undefined;
