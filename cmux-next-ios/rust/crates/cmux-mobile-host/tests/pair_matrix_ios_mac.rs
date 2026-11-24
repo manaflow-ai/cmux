@@ -774,7 +774,9 @@ impl Phone {
                 reached = latest.wait_for(|(last, _)| target.is_some_and(|t| *last >= t)) => {
                     return reached.ok().map(|seen| seen.1);
                 }
-                _ = closed.wait_for(Option::is_some) => {
+                closed_now = closed.wait_for(Option::is_some) => {
+                    // The guard of the old link's watch must go before the redial closes it.
+                    drop(closed_now);
                     if let Err(error) = self.redial(rig, deadline).await {
                         self.redial_errors.push(error);
                         if Instant::now() >= deadline {
