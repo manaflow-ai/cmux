@@ -71,4 +71,4 @@ Where the time goes:
   Noise again in parallel (3 to 4). That is about 420 to 450 ms on a clean path.
 - The rest, up to p95 about 1.1 s, is loss: a lost packet on a 50 ms path costs a retransmit timeout
   (about 200 ms or more), and the connect has about 20 packets in flight sequences.
-- So the 1 s target is met at p50 and p95 now; what remains is round-trip count, not the race.
+- So the 1 s target is met at p50 (666 ms) but not p95 (1090 ms); what remains is round-trip count and loss, not the race.
