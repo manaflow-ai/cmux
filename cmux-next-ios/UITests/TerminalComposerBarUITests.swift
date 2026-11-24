@@ -16,10 +16,6 @@ final class TerminalComposerBarUITests: XCTestCase {
         continueAfterFailure = true
     }
 
-    override func tearDown() {
-        XCUIDevice.shared.appearance = .dark
-    }
-
     @MainActor
     func testComposerBarDark() throws {
         try walk(look: "dark", appearance: .dark)
@@ -41,6 +37,7 @@ final class TerminalComposerBarUITests: XCTestCase {
     @MainActor
     private func walk(look: String, appearance: XCUIDevice.Appearance) throws {
         XCUIDevice.shared.appearance = appearance
+        defer { XCUIDevice.shared.appearance = .dark }
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
@@ -85,7 +82,7 @@ final class TerminalComposerBarUITests: XCTestCase {
             let origin = app.coordinate(withNormalizedOffset: .zero)
             origin.withOffset(CGVector(dx: fromX, dy: keyRowY))
                 .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: toX, dy: keyRowY)),
-                       withVelocity: .default, thenHoldFor: 0.3)
+                       withVelocity: .default, thenHoldForDuration: 0.3)
         }
         func record() {
             for key in Self.scrollerKeys {
