@@ -593,6 +593,39 @@ mod tests {
         );
     }
 
+    /// An attached person's client is reported on its own beside the open sessions, so the
+    /// Cloud's input-only policy can tell an idle attached app from work: the count stays in
+    /// `active_sessions` (every other policy reads it as before), `attached_clients` names how
+    /// much of it is attached clients, and the person's last input rides along.
+    #[test]
+    fn an_attached_client_is_reported_apart_from_agents_and_turns() {
+        let mut s = session();
+        let start = s.start(0);
+        s.answered(&start[0], &ok(), 0, 0.5);
+        let input = 1_790_000_000_000u64;
+        let attached =
+            json!({"attached_clients": 1, "live_agents": 0, "last_user_input_at_ms": input});
+        s.daemon_activity(&attached, 100);
+        let r = s.fire(20_000);
+        assert_eq!(r[0].params["activity"]["active_sessions"], 1);
+        assert_eq!(r[0].params["activity"]["attached_clients"], 1);
+        assert_eq!(r[0].params["activity"]["last_user_input_at"], input);
+        s.answered(&r[0], &ok(), 20_000, 0.5);
+
+        // A live agent and a running turn are in use under every policy: not attached clients.
+        s.daemon_activity(&json!({"attached_clients": 1, "live_agents": 1}), 40_000);
+        s.line(&acp(1, None), 40_000);
+        let a = s.reporter.activity().to_json();
+        assert_eq!(a["active_sessions"], 3);
+        assert_eq!(a["attached_clients"], 1);
+
+        // A socket activity line names no attached clients: its whole count is in use.
+        s.line(&json!({"activity": {"active_sessions": 2}}).to_string(), 50_000);
+        let a = s.reporter.activity().to_json();
+        assert_eq!(a["active_sessions"], 3);
+        assert_eq!(a["attached_clients"], 0);
+    }
+
     /// acpmux that stops renewing mid-turn (it died) stops counting after the TTL, so the
     /// machine can go idle again.
     #[test]
