@@ -150,6 +150,9 @@ parser.add_argument("--rounds", type=int, default=3, help="every phase this many
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--sample-idle", action="store_true", help="with --sample: the idle phases too")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--cef-switches", default="",
+                    help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; DEBUG and bench "
+                         "builds), e.g. disable-component-update: a fresh home's updater runs in the first minutes")
 parser.add_argument("--chat-agent", choices=("mock", "real"), default="mock",
                     help="mock: in-page debug stream; real: ACP fake agent through AgentPaneTransport")
 parser.add_argument("--stream", default="6 10 24", help="real agent stream: SECONDS CHUNK_MS CHARS")
@@ -1395,6 +1398,8 @@ def run_session(session, phases=None, backdrop="default"):
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.cef_switches:
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = opts.cef_switches
     if opts.chat_agent == "real":
         env.update(CMUX_NEXT_AGENT_PANE_MOCK=None, ACPMUX_AGENT_LAUNCH=None)
     config = {"browser": {"defaultEngine": "chromium"}}
