@@ -59,6 +59,7 @@ public final class MainWorkScheduler {
     public static func app(budget: MainFrameBudget) -> MainWorkScheduler {
         let scheduler = MainWorkScheduler(budget: budget)
         scheduler.runsObservationEvaluations()
+        Interactivity.installEventMonitor()
         return scheduler
     }
 

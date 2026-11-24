@@ -5,7 +5,6 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemonRecovery
 import CmuxNextHistory
-import CmuxNextWakeups
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -131,7 +130,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
-        Interactivity.installEventMonitor()
         installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
@@ -404,7 +402,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
     /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
     func windowDidResize(_ notification: Notification) {
-        if window?.inLiveResize == true { Interactivity.note(.drag) }
         guard window?.inLiveResize != true else { return }
         services.windows.recordSaver.geometryDidChange(state)
     }
