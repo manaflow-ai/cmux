@@ -176,6 +176,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return pan
     }()
     private var tuiPanStartX: CGFloat = 0
+    /// Until when output still pans to the cursor's column: input pans before
+    /// its echo arrives, so the echo (a typed character, Enter's new line, a
+    /// paste) pans again when it is drawn (Wide, task: pan follows typing).
+    private var followColumnUntil: CFTimeInterval = 0
+    /// How long after input its echo still pans to the cursor.
+    static let followColumnWindow: CFTimeInterval = 1.0
     /// The Mac's columns as of the bytes fed so far (``TerminalSessionEvent/hostGrid(columns:rows:)``,
     /// taken in feed order); nil until the first, then the session's value.
     var appliedHostColumns: Int?
@@ -2430,6 +2436,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             surface.scrollToActiveArea()
         }
         if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
+        // The echo of what was just typed: show the cursor's new column, unless
+        // a finger is panning the page sideways.
+        if CACurrentMediaTime() < followColumnUntil, !sidewaysPanActive { followCursorColumn() }
         updateDocument()
         continueAfterBatch()
     }
@@ -2937,6 +2946,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// the output again and jump to the prompt if the user scrolled away.
     /// (Output alone never moves someone who scrolled up; typing does.)
     private func revealCursorForInput() {
+        followColumnUntil = CACurrentMediaTime() + Self.followColumnWindow
         followCursorColumn()
         guard cell.height > 0, !model.isTUI else { return }
         fling?.stop()
@@ -4728,7 +4738,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         let layout = hostLayout
         let x = model.isTUI ? tuiPanX : scrollView.contentOffset.x
         let last = cell.width > 0 ? Int(floor((x + layout.viewportWidth) / cell.width)) : 0
-        return "cols=\(surface.grid.columns) phone=\(layout.phoneColumns) panX=\(Int(x)) maxPanX=\(Int(layout.maxPanX)) lastCol=\(last) tui=\(model.isTUI)"
+        let first = cell.width > 0 ? Int(floor(x / cell.width)) : 0
+        let cursor = cell.width > 0 ? surface.visibleCursorCell.map { Int(floor(($0.minX - surface.gridPadding.x) / cell.width)) } : nil
+        return "cols=\(surface.grid.columns) phone=\(layout.phoneColumns) panX=\(Int(x)) maxPanX=\(Int(layout.maxPanX)) firstCol=\(first) lastCol=\(last) cursorCol=\(cursor ?? -1) tui=\(model.isTUI)"
     }
     #endif
 
@@ -4765,6 +4777,15 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             view.setNeedsLayout()
             view.layoutIfNeeded()
         }
+    }
+
+    /// A finger is moving the page sideways (the full-screen app's pan, or the
+    /// primary screen's horizontal drag): output does not pan under it.
+    private var sidewaysPanActive: Bool {
+        if model.isTUI {
+            return [.began, .changed].contains(tuiHorizontalPan.state)
+        }
+        return scrollView.isDragging || scrollView.isDecelerating
     }
 
     /// Typing pans just far enough to show the cursor's column.

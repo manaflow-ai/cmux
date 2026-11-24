@@ -77,6 +77,35 @@ final class TerminalWideOutputUITests: XCTestCase {
                                  "a vertical drag kept the sideways pan: before \(panned["panX"] ?? -1), after \(demo)")
     }
 
+    /// Typing in Wide follows the cursor sideways: a paste of 120 columns at
+    /// the prompt carries the cursor far right of a page that fits about 50,
+    /// and the page pans so its column is on screen. The pan runs again when
+    /// the echo is drawn: the input alone (before its echo) still had the
+    /// cursor at the prompt's start, so only following the echo shows it.
+    @MainActor
+    func testTypingInWidePansToTheCursor() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                "-CmuxMobileTerminalDemoPhases", "wide", "-CmuxMobileTerminalDemoWideType"]
+        app.launch()
+        defer { app.terminate() }
+
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
+        let demo = wait(probe, timeout: 90) { $0.hasPrefix("wide typed") }
+        attach(app, "wide-typed-pans-to-the-cursor")
+        XCTAssertTrue(demo.hasPrefix("wide typed"), "the paste was typed: \(demo)")
+        let typed = Self.values(demo)
+        let cursor = typed["cursorCol"] ?? -1
+        XCTAssertGreaterThan(typed["maxPanX"] ?? 0, 0, "Wide is on and the page pans: \(demo)")
+        XCTAssertGreaterThan(cursor, typed["phone"] ?? Int.max, "the cursor went past the phone's width: \(demo)")
+        XCTAssertGreaterThan(typed["panX"] ?? 0, 0, "the page panned after the echo: \(demo)")
+        XCTAssertTrue((typed["firstCol"] ?? Int.max) <= cursor && cursor < (typed["lastCol"] ?? 0),
+                      "the cursor's column is on screen: \(demo)")
+    }
+
     /// The gallery's other variants, as screenshots: (b) Wide View, the
     /// dedicated view (the page menu's Wide View: Wide on, the key row and
     /// composer away), at its left edge and panned to the right end; (c) the
