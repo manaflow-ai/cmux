@@ -306,7 +306,9 @@ pub fn spawn(
                 Some(&timeline),
                 None,
                 cellular(),
-                (reporter.path == LinkPath::Hop).then(|| crate::dial::wireguard::hop_stats(&session_id, true)).flatten(),
+                (reporter.path == LinkPath::Hop)
+                    .then(|| crate::dial::wireguard::hop_stats(&session_id, true))
+                    .flatten(),
             );
             if let Some(stat) = stat
                 && !send(&signaling, &stat).await
@@ -342,7 +344,9 @@ pub fn spawn(
                 first.then_some(&timeline),
                 end.as_deref(),
                 cellular(),
-                (reporter.path == LinkPath::Hop).then(|| crate::dial::wireguard::hop_stats(&session_id, true)).flatten(),
+                (reporter.path == LinkPath::Hop)
+                    .then(|| crate::dial::wireguard::hop_stats(&session_id, true))
+                    .flatten(),
             );
             let Some(stat) = stat else { return };
             if !send(&signaling, &stat).await || reason == Reason::End {
@@ -420,8 +424,9 @@ mod tests {
         let a = reporter.build(Reason::First, up, &pings(4, 2, 1, &[]), None, None, false, None).unwrap();
         assert_eq!((a.pings, a.lost), (4, 1));
         // The waiting one was lost too; nothing counted twice.
-        let b =
-            reporter.build(Reason::Periodic, up + PERIOD, &pings(6, 4, 0, &[]), None, None, false, None).unwrap();
+        let b = reporter
+            .build(Reason::Periodic, up + PERIOD, &pings(6, 4, 0, &[]), None, None, false, None)
+            .unwrap();
         assert_eq!((b.pings, b.lost), (2, 1));
         // A late pong (answered grows past what was counted) never takes loss below zero.
         let c = reporter
@@ -477,8 +482,9 @@ mod tests {
         assert!(!reporter.path_changed(LinkPath::Turn, first + Duration::from_secs(20)));
         assert!(!reporter.path_changed(LinkPath::Direct, first + PATH_GAP - Duration::from_millis(1)));
         assert!(reporter.path_changed(LinkPath::Turn, first + PATH_GAP));
-        let stat =
-            reporter.build(Reason::Path, first + PATH_GAP, &PingStats::default(), None, None, false, None).unwrap();
+        let stat = reporter
+            .build(Reason::Path, first + PATH_GAP, &PingStats::default(), None, None, false, None)
+            .unwrap();
         assert_eq!((stat.path, stat.switches), ("turn", 3));
         assert_eq!(reporter.next_periodic(), first + PATH_GAP + PERIOD);
     }
