@@ -38,7 +38,7 @@
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against the app in config= (below); with ui= and no only=, the kit run is skipped.
-#               A suite named *ColdUITests runs each of its test*Cold methods
+#               A suite named *ColdUITests or *ColdLiveUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
 #               LaunchColdLiveUITests also accepts repeatable net=lte|lossy-3|off
@@ -365,9 +365,10 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         for item in "${items[@]}"; do
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
-          # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
-          # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
-          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
+          # A suite named *ColdUITests or *ColdLiveUITests (SUITE or SUITE/test) runs each of its
+          # test*Cold methods on a freshly booted simulator, CMUX_LAUNCH_COLD_RUNS times (default 10):
+          # one cold launch per run.
+          if [[ "${item%%/*}" == *ColdUITests || "${item%%/*}" == *ColdLiveUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       duress=?*)
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
@@ -1353,7 +1354,7 @@ ui_profile_finish() {
   rm -rf "$profile_trace"
 }
 
-# Cold suites (ui=*ColdUITests): each test*Cold method of the suite, once per fresh boot of the
+# Cold suites (ui=*ColdUITests, ui=*ColdLiveUITests): each test*Cold method of the suite, once per fresh boot of the
 # UI tests' iPhone (shut down, booted, then the one test), CMUX_LAUNCH_COLD_RUNS times (default 10,
 # at most 30). The app's LAUNCHTTI lines from every run go to launch-tti.jsonl; each run's console
 # and per-test results to ui-cold/.
