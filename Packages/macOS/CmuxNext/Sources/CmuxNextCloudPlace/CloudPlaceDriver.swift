@@ -128,19 +128,15 @@ public final class CloudPlaceDriver {
         let queue = plan.moves.compactMap { session in all.first { $0.session == session } }
         guard !queue.isEmpty else { return }
         place.beginEvacuation(direction: request.direction, chats: queue.map { ($0.session, $0.title) })
-        // task-owner: one-shot; ends when the last move ends.
         // `parallel` main-actor workers take the next queued chat until the queue is empty or Cancel stops it.
         let pending = CloudPlaceQueue(queue)
-        Task {
-            await withTaskGroup(of: Void.self) { group in
-                for _ in 0..<max(1, plan.parallel) {
-                    group.addTask { @MainActor in
-                        while !self.place.evacuationStopped, let chat = pending.next() {
-                            self.place.evacuationPhase(chat.session, .running)
-                            await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
-                            self.place.evacuationPhase(chat.session, .ended)
-                        }
-                    }
+        for _ in 0..<max(1, plan.parallel) {
+            // task-owner: one Evacuate worker; ends when the queue is empty or Cancel stops the run.
+            Task {
+                while !self.place.evacuationStopped, let chat = pending.next() {
+                    self.place.evacuationPhase(chat.session, .running)
+                    await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
+                    self.place.evacuationPhase(chat.session, .ended)
                 }
             }
         }
