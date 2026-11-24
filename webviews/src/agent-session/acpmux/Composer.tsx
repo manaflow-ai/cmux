@@ -706,21 +706,14 @@ function useRelayProps(props: Props): Props {
 /// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
-export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props), EVENT_CALLBACKS)} />;
-}
+/// Function props the composer calls only from a send, never while drawing: held like its `on*` handlers. The
+/// pane passes `holdsSend` inline, so each pane render (every streamed tool-output chunk under a running tool
+/// call) handed the composer a new one and drew the composer and its box again, in the frames a typed key waits on.
+const CALL_TIME_PROPS = ["holdsSend"] as const;
 
-/// The callbacks the composer calls only from an event, not named `on*`, held stable with its handlers. The
-/// pane builds `holdsSend` inline, so each streamed chunk's pane render handed the composer a new one and
-/// drew it again: 50 composer renders in 100 keys of the composer-typing bench's L1, none after.
-const EVENT_CALLBACKS = [
-  "holdsSend",
-  "transcriptFollowing",
-  "queueImage",
-  "capture",
-  "upload",
-  "localPaths",
-] as const satisfies readonly (keyof Props)[];
+export function Composer(props: Props) {
+  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
+}
 
 /// The prompt box with the agent's `/` command menu:
 /// the prompt over a bar with + at the left, the mode and model chips, and a

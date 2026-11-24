@@ -10,16 +10,17 @@ type Handler = (...args: unknown[]) => unknown;
 /// An event prop: `on` and a capital, as React names them.
 const isHandlerKey = (key: string) => /^on[A-Z]/.test(key);
 
-/// `props` with each `on*` function, and each function `callbacks` names, replaced by a stable one that
-/// calls the latest `props[key]`. The handlers are for events: they read the props of the parent's last
-/// render. `callbacks` names the props a component calls only from an event that are not named `on*`.
-export function useStableHandlers<P extends object>(props: P, callbacks: readonly (keyof P)[] = []): P {
+/// `props` with each `on*` function replaced by a stable one that calls the latest `props[key]`.
+/// The handlers are for events: they read the props of the parent's last render. `callTime` names
+/// other function props that are only called from an event (a send's `holdsSend`), held the same way;
+/// a prop read while drawing must not be named there, or the memo would draw with its stale result.
+export function useStableHandlers<P extends object>(props: P, callTime: readonly (keyof P & string)[] = []): P {
   const latest = useRef(props);
   latest.current = props;
   const handlers = useRef(new Map<string, Handler>());
   const stable = { ...props } as Record<string, unknown>;
   for (const [key, value] of Object.entries(props)) {
-    if (typeof value !== "function" || !(isHandlerKey(key) || callbacks.includes(key as keyof P))) continue;
+    if (typeof value !== "function" || !(isHandlerKey(key) || (callTime as readonly string[]).includes(key))) continue;
     let handler = handlers.current.get(key);
     if (!handler) {
       handler = (...args: unknown[]) =>

@@ -12,6 +12,10 @@ type LoadReceipt = {
   elapsedMs: number;
   maxGapMs: number;
   maxScheduleOffsetMs: number;
+  /// The maxima since the `mark` taken when the typing window opened (see runComposerLoad).
+  windowMaxGapMs: number;
+  windowMaxScheduleOffsetMs: number;
+  windowMaxGapEndMs: number;
   error?: string;
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -140,13 +144,20 @@ export async function runComposerLoad(
     if (receipt.error) throw new Error(receipt.error);
   }
   await page.waitForTimeout(500);
-  const readLoads = () =>
+  const readLoads = (mark = false) =>
     Promise.all(
       loads.map(
-        (surface) => surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad()) as Promise<LoadReceipt>,
+        (surface) =>
+          surface.evaluate(
+            (mark) => (window as any).cmuxAcpmuxDebug.typingLoad(mark ? { mark: true } : undefined),
+            mark,
+          ) as Promise<LoadReceipt>,
       ),
     );
-  const before = await readLoads();
+  // The rate and continuity checks below cover the window from here to the last key's paint: the
+  // stream's first second (its tool row mounting, the page settling) is before any key is timed, so
+  // a stall there says nothing about whether the keys were typed under the requested load.
+  const before = await readLoads(true);
   await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     debug.resetTyping();
@@ -209,6 +220,9 @@ export async function runComposerLoad(
       chunks_per_second: (1000 * (receipt.deltas - before[i]!.deltas)) / ms,
       tool_lines_per_second: (1000 * (receipt.toolLines - before[i]!.toolLines)) / ms,
       max_schedule_offset_ms: receipt.maxScheduleOffsetMs,
+      window_max_gap_ms: receipt.windowMaxGapMs,
+      window_max_schedule_offset_ms: receipt.windowMaxScheduleOffsetMs,
+      window_max_gap_end_ms: receipt.windowMaxGapEndMs,
     };
   });
   const samples = result.typing.samples as {
@@ -254,8 +268,8 @@ export async function runComposerLoad(
         !Number.isFinite(r.chunks_per_second) ||
         r.chunks_per_second < rate * 0.9 ||
         r.tool_lines_per_second < lines * 0.9 ||
-        r.maxGapMs > 250 ||
-        r.maxScheduleOffsetMs > 250 ||
+        r.windowMaxGapMs > 250 ||
+        r.windowMaxScheduleOffsetMs > 250 ||
         streamEndOnPageClock(r, clocksAfter.surfaces[i]) < lastPaint - 250,
     )
   )
@@ -313,6 +327,8 @@ export async function runComposerLoad(
     task_observation_threshold_ms: result.watch.task_observation_threshold_ms,
     keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
     driver_late_p95_ms: quantile(late, 0.95),
+    driver_late_max_ms: Math.max(0, ...late),
+    driver_late_max_key: late.indexOf(Math.max(0, ...late)),
     load_rates: loadRates,
     budget_p95_ms: 16,
     budget_p99_ms: 33,
