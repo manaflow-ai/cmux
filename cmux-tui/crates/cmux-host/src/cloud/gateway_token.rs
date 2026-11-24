@@ -14,7 +14,7 @@
 use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
@@ -23,20 +23,13 @@ use super::client::{CloudClient, Http};
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
 use crate::linux::spawn::lookup_user;
 
-/// Straight under root's `/run`, never under `/run/cmux` (the work user's): no path above the file is one the work
-/// user can replace.
-pub const TOKEN_DIR: &str = "/run/cmux-inference-gateway";
-pub const TOKEN_FILE: &str = "/run/cmux-inference-gateway/token";
+pub use super::gateway_token_paths::{TOKEN_DIR, TOKEN_FILE, marker};
+
 /// How often the thread looks at the marker and renews the token (the token cache renews a minute before expiry).
 const EVERY: Duration = Duration::from_secs(60);
 
 /// The newest thread's generation: a thread replaced on a rebind never removes the file its successor keeps.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-
-/// The marker the person's setup makes in the work user's home.
-pub fn marker(home: &Path) -> PathBuf {
-    home.join(".config/cmux/inference-gateway/enabled")
-}
 
 /// Stops the thread when dropped (a rebind replaces it).
 pub struct GatewayToken {
