@@ -3,10 +3,11 @@
 // A slow acpmux after a drop, end to end: the pane's own chip above the composer while it waits
 // (HostError.tsx). The stand-in daemon holds its answers to the reconnect's watch and attach
 // (support/papercutChat.ts `stall`) and the connection drops, as a restarted, busy acpmux does. Then:
-// - Nothing shows for the first 10 s, then only the quiet "Reconnecting…" chip, for as long as the wait
-//   lasts: no hand-over at 25 s to a line with a clock and a Restart button (Leo, 2026-11-22, on
-//   "Waiting for the agent service (0:46)  Restart agent service": "this is unactionable").
-// - No painted frame once the chip shows is without it.
+// - Nothing shows for as long as the wait lasts: the chip follows the connection's state, not a clock,
+//   and a reconnect still waiting on acpmux has not failed, so it draws nothing (only a failed attempt
+//   shows the chip, hostRecoveryChip.test.tsx). No line with a clock or a Restart button at any time
+//   (Leo, 2026-11-22, on "Waiting for the agent service (0:46)  Restart agent service": "this is
+//   unactionable"; and "surely we can think of better fixes than random timing which can shift").
 // - No transcript row in view moves through any of it.
 // Real Chromium against the pane's dev entry; CI fails the file when it cannot launch it
 // (requireBrowserLane). Locally:
@@ -33,7 +34,7 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
     await browser?.close();
   });
 
-  test("a slow reconnect shows only the Reconnecting chip from 10 s on, never a clock or a button, and no row moves", async () => {
+  test("a slow reconnect draws nothing at any duration, never a clock or a button, and no row moves", async () => {
     const page = await pane.open({ width: 900, height: 700 });
     const frames = process.env.CMUX_FRAMES_DIR;
     try {
@@ -83,27 +84,21 @@ await requireBrowserLane("agent-pane-reconnect-wait-line.test.ts", async () => {
         await page.screenshot({ path: path.join(frames, "reconnect-chip-25.8s.png") });
       }
       const seen = await sampling;
-      const shownAt = seen.findIndex((frame) => frame.line);
-      const after = seen.slice(shownAt);
-      const blank = after.filter((frame) => !frame.line);
+      const lines = [...new Set(seen.map((frame) => frame.line))];
       console.log(
         `RECONNECT-WAIT ${JSON.stringify({
-          reconnectingAt: seen[shownAt]?.t,
-          lines: [...new Set(after.map((frame) => frame.line))],
-          blankFrames: blank.length,
+          frames: seen.length,
+          lines,
           movedPx: Math.max(...seen.map((frame) => frame.moved)),
         })}`,
       );
-      expect(shownAt).toBeGreaterThanOrEqual(0);
-      // Nothing under 10 s (a frame's slack for the drop's own paint).
-      expect(seen[shownAt]!.t).toBeGreaterThanOrEqual(9_500);
-      expect([...new Set(after.map((frame) => frame.line))]).toEqual(["Reconnecting…"]);
+      expect(seen.length).toBeGreaterThan(0);
+      // No clock decides anything: a wait still in progress draws nothing, however long it lasts.
+      expect(lines).toEqual([""]);
       for (const frame of seen) {
-        expect(frame.line).not.toMatch(/Waiting for|Restart agent service|\d:\d\d/);
         expect(frame.buttons).toBe(0);
         expect(frame.moved).toBeLessThanOrEqual(0.5);
       }
-      expect(blank.map((frame) => frame.t)).toEqual([]);
     } finally {
       pane.stall([]);
       await page.close();
