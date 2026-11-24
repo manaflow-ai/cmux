@@ -199,7 +199,7 @@ async fn a_chat_starts_claude_with_its_limits_lifted_unless_the_profile_sets_one
             // A helper (Agent tool) waits out a capacity outage in the chat's own process;
             // a spend or plan limit still fails fast.
             "CLAUDE_CODE_RETRY_WATCHDOG": "1",
-            "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE": "capacity",
+            "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE": null,
             "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS": "0",
         })
     );
