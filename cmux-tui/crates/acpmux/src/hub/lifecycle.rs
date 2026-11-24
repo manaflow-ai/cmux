@@ -1823,12 +1823,26 @@ impl Hub {
             .and_then(|m| m.get("currentModelId"))
             .and_then(Value::as_str)
             .map(str::to_owned);
-        if let Some(model) = legacy_model.as_deref()
-            && let Err(e) = child
+        if let Some(model) = legacy_model.as_deref() {
+            match child
                 .request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model}))
                 .await
-        {
-            tracing::warn!(session = %session.id, "replay model {model}: {}", e.message);
+            {
+                Ok(res) => {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(reported) = res.get("models").filter(|v| !v.is_null()) {
+                        meta.models = Some(reported.clone());
+                    }
+                    if let Some(models) = meta.models.as_mut().and_then(Value::as_object_mut) {
+                        models.insert("currentModelId".into(), json!(model));
+                    } else {
+                        meta.models = Some(json!({"currentModelId": model}));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "replay model {model}: {}", e.message)
+                }
+            }
         }
         let ordered: Vec<(String, Value)> =
             opts.iter().filter(|(k, _)| legacy_model.is_none() || k != "model").cloned().collect();
