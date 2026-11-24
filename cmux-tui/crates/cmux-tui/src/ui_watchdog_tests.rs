@@ -185,7 +185,8 @@ fn a_hang_is_written_to_a_hang_file_and_the_telemetry_log() {
 fn restarts_stop_after_three_in_ten_minutes() {
     let now = 100_000_000;
     assert_eq!(restart::next_restarts(None, now), Some((1, now)));
-    assert_eq!(restart::next_restarts(Some("1:99000000"), now), Some((2, 99_000_000)));
+    // 100 s ago: inside the 10-minute window, so the count goes on.
+    assert_eq!(restart::next_restarts(Some("1:99900000"), now), Some((2, 99_900_000)));
     assert_eq!(restart::next_restarts(Some("3:99900000"), now), None);
     // Past the window the count starts over.
     assert_eq!(restart::next_restarts(Some("3:1000"), now), Some((1, now)));
