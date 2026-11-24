@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LASTING_MS, setLastingGrace } from "../../ui/lasting";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
@@ -71,12 +72,22 @@ describe("agents", () => {
 
 describe("offline", () => {
   const line = "This Mac is offline. Sign-ins and installs work once it’s back.";
-  test("one line under the title on every scaffold step while offline", () => {
-    for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
-      const html = render(state, undefined, false);
-      expect(html.split('class="onb-offline"').length - 1).toBe(1);
-      expect(text(html)).toContain(line);
+  test("one line under the title on every scaffold step once offline has lasted", () => {
+    // A static render has no time to pass: a zero grace stands for an outage past the quiet bound
+    // (offline.test.tsx checks the bound itself).
+    setLastingGrace(0);
+    try {
+      for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
+        const html = render(state, undefined, false);
+        expect(html.split('class="onb-offline"').length - 1).toBe(1);
+        expect(text(html)).toContain(line);
+      }
+    } finally {
+      setLastingGrace(LASTING_MS);
     }
+  });
+  test("a blip (offline under the quiet bound) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, false)).not.toContain("onb-offline");
   });
   test("online (and server markup with no window) draws no offline line", () => {
     expect(render(agentsState("mixed"), undefined, true)).not.toContain("onb-offline");
@@ -169,6 +180,45 @@ describe("computer use", () => {
   });
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
+  });
+  const footnote =
+    "Computer Use runs in its own helper app. You can quit or reopen it without closing cmux or your terminals.";
+  test("the footnote under the grants says the helper runs on its own", () => {
+    expect(text(render(computerUseState("fresh")))).toContain(footnote);
+    expect(text(render(computerUseState("allGranted")))).toContain(footnote);
+  });
+  test("a note on why Allow cannot help takes the footnote's place", () => {
+    const words = text(render(computerUseState("helperFailed")));
+    expect(words).toContain("The cmux Computer Use helper did not respond.");
+    expect(words).not.toContain(footnote);
+  });
+  test("finished: the done view replaces the head and rows", () => {
+    const html = render(computerUseState("finished"));
+    const words = text(html);
+    expect(words).toContain("Computer Use Is Ready");
+    expect(words).toContain("Setup is complete. You can now ask agents to use apps on your Mac.");
+    expect(words).not.toContain("Turn On Computer Use");
+    expect(html).not.toContain('class="onb-grant"');
+    expect(words).not.toContain(footnote);
+    expect(words).toContain("Done");
+  });
+  test("opened with every grant on: the rows and the ready line, no done view", () => {
+    const words = text(render(computerUseState("allGranted")));
+    expect(words).toContain("Turn On Computer Use");
+    expect(words).not.toContain("Computer Use Is Ready");
+  });
+  test("screenshots just allowed: its row asks to allow screen capture, the bypass warning expected", () => {
+    const html = render(computerUseState("confirmingCapture"));
+    const words = text(html);
+    expect(words).toContain("macOS asks for confirmation. Allow screen capture.");
+    expect(words).toContain("The system “bypass” warning is expected here.");
+    expect(words).not.toContain("Lets agents see the window they work in");
+    expect(words).toContain("Lets agents click and type in your apps");
+  });
+  test("no capture note before Screenshots was allowed here", () => {
+    const words = text(render(computerUseState("oneGranted")));
+    expect(words).not.toContain("macOS asks for confirmation.");
+    expect(words).toContain("Lets agents see the window they work in");
   });
 });
 
