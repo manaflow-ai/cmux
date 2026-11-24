@@ -97,7 +97,7 @@ impl Ledger {
             // projection may predate a backend switch or an accepted mutation.
             let answer = match ctx
                 .fenced_wire("cloud.machine.get", json!({"machine": id}), &scope, None)
-                .map_err(|failure| failure.error)
+                .map_err(|failure| *failure.error)
             {
                 Ok(answer) => answer,
                 Err(error)
@@ -159,7 +159,7 @@ impl Ledger {
                 if first_attempt && failure.not_sent {
                     self.entries.remove(&key);
                 }
-                return Err(failure.error);
+                return Err(*failure.error);
             }
         };
         let revision = answer.revision.ok_or_else(|| bad("lifecycle mutation omitted revision"))?;
@@ -171,7 +171,8 @@ impl Ledger {
             Some(decode_answer(op, answer.value["machine"].clone())?)
         };
         let pending = entry.pending.take().expect("validated lifecycle intent");
-        if let Err((pending, error)) = pending.complete(answer.value, revision.clone()) {
+        if let Err(failed) = pending.complete(answer.value, revision.clone()) {
+            let (pending, error) = *failed;
             entry.pending = Some(pending);
             return Err(bad(error.to_string()));
         }
