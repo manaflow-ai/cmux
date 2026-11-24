@@ -290,6 +290,15 @@ impl Hub {
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
         let quiet = self.recover_log(session, None, point.as_ref());
+        // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
+        // the journal are left to that prompt's read, which reads them too.
+        if !Self::keeps_unstored(session) {
+            self.seed_prompt_stops(
+                session,
+                point.as_ref().map_or(0, |p| p.seq),
+                point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
+            );
+        }
         // Quiet: every fold read through `read_to` and ended with nothing waiting, nothing was
         // appended meanwhile, and nothing is kept apart from the journal. The next load begins
         // there.
@@ -308,6 +317,7 @@ impl Hub {
                     ownership_epoch,
                     transfer_authority,
                     queue,
+                    prompt_stops: self.prompt_stops_carry(session),
                     ..Default::default()
                 },
             );
