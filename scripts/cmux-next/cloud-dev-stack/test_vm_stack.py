@@ -177,6 +177,17 @@ class StackWorkersTests(unittest.TestCase):
             self.assertIn('export { Hub } from "./src/index.ts"', wrapper)
             self.assertNotIn("X_Y", wrapper)
 
+    def test_a_custom_build_runs_in_its_own_project(self):
+        """wrangler passes build.cwd through as is, so with none a build runs in wrangler's working directory (the
+        stack's): the API's `bun scripts/gen-chief-vm-source.ts` then failed with Module not found and no stack
+        started (live 2026-11-23, feat-cmux-next's API config)."""
+        project = Path("/srv/x/stacks/t/src/backend/apps/api")
+        api = v.render_api_config(v.load_jsonc(ROOT / "backend/apps/api/wrangler.jsonc"), "t", "https://h:4799", with_platform=False)
+        self.assertEqual(v.pin_build_cwd(api, project)["build"]["cwd"], str(project))
+        self.assertEqual(v.pin_build_cwd({"build": {"command": "x", "cwd": "gen"}}, project)["build"]["cwd"], str(project / "gen"))
+        self.assertEqual(v.pin_build_cwd({"build": {"command": "x", "cwd": "/abs"}}, project)["build"]["cwd"], "/abs")
+        self.assertEqual(v.pin_build_cwd({"main": "m"}, project), {"main": "m"})
+
     def test_run_sh_runs_every_config_with_no_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
@@ -867,6 +878,253 @@ class PublicSlotTests(unittest.TestCase):
         text = (d / "public-jwks.json").read_text()
         self.assertNotIn("SECRET", text)
         self.assertEqual([k["x"] for k in json.loads(text)["keys"]], ["X1", "X2", "X3"])
+
+
+TURN_ID = "0123456789abcdef0123456789abcdef"
+TURN_TOKEN = "cf-turn-token-SECRET-0123456789abcdef"
+STACK_KEY = "ssk_stack-server-SECRET-0123456789"
+DEV_PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+
+
+class HostKeyTests(unittest.TestCase):
+    """The team credentials a stack's Workers need beside their own keys (live 2026-11-21, tag gcp-default-1121):
+    the mobile Worker's Cloudflare TURN key (without it /v1/ice is STUN only and a phone on another network never
+    links), and the API's Stack server key (without it a team-scoped /v1/auth/token is refused: the stack's TeamDO
+    never hears of the team, and the Stack heal needs the key; 78 Mac mints got 403)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        names = ("BASE", "CLASSIC_BASE", "turn_probe")
+        self.saved = {n: getattr(v, n) for n in names}
+        v.BASE = Path(self.tmp.name) / "wrangler"
+        v.CLASSIC_BASE = Path(self.tmp.name)
+        v.BASE.mkdir()
+        self.probes = []
+        self.status = 201
+        v.turn_probe = lambda key_id, token: self.probes.append((key_id, token)) or self.status
+
+    def tearDown(self):
+        for n, f in self.saved.items():
+            setattr(v, n, f)
+        self.tmp.cleanup()
+
+    def put_turn(self, text):
+        stdin, out = sys.stdin, io.StringIO()
+        try:
+            sys.stdin = io.StringIO(text)
+            with contextlib.redirect_stdout(out):
+                result = v.cmd_put_turn(types.SimpleNamespace())
+        finally:
+            sys.stdin = stdin
+        return json.dumps(result) + out.getvalue()
+
+    def stack(self, tag="t"):
+        """A started stack's files: its keys, and the API config start rendered (its Stack project)."""
+        d = v.stack_dir(tag)
+        for svc, (rel, _) in v.PROJECTS.items():
+            (d / rel).mkdir(parents=True)
+        (d / "secrets").mkdir(mode=0o700)
+        (d / "secrets/jwt.jwk").write_text('{"kty":"EC","d":"JWK-SECRET"}')
+        (d / "secrets/hub.vars").write_text("SESSION_KEY='{}'\nTICKET_KEY='{}'\n")
+        (d / v.PROJECTS["api"][0] / "wrangler.wdev.generated.json").write_text(json.dumps({"vars": {"STACK_PROJECT_ID": DEV_PROJECT}}))
+        return d
+
+    def classic_runtime(self, project=DEV_PROJECT, key=STACK_KEY):
+        (v.CLASSIC_BASE / "secrets").mkdir(exist_ok=True)
+        (v.CLASSIC_BASE / "secrets/runtime.json").write_text(json.dumps({"NEXT_PUBLIC_STACK_PROJECT_ID": project, "STACK_SECRET_SERVER_KEY": key, "OTHER": "x"}))
+
+    def dev_vars(self, d, svc):
+        return (d / v.PROJECTS[svc][0] / ".dev.vars").read_text()
+
+    def test_put_turn_stores_the_key_private_and_prints_no_part_of_it(self):
+        out = self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        path = v.BASE / "secrets/turn.json"
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((v.BASE / "secrets").stat().st_mode & 0o777, 0o700)
+        self.assertEqual({k: json.loads(path.read_text())[k] for k in ("key_id", "api_token")}, {"key_id": TURN_ID, "api_token": TURN_TOKEN})
+        self.assertEqual(self.probes, [(TURN_ID, TURN_TOKEN)], "checked with Cloudflare before it is kept")
+        for secret in (TURN_ID, TURN_TOKEN, TURN_TOKEN[:12]):
+            self.assertNotIn(secret, out)
+
+    def test_put_turn_refuses_an_empty_or_malformed_value_and_keeps_the_key_it_has(self):
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        before = (v.BASE / "secrets/turn.json").read_text()
+        # A failed `op` pipes nothing (or only the id); a wrong field pipes something else.
+        for text in ("", "\n", f"{TURN_ID}\n", f"{TURN_ID}\n\n", f"not-an-id\n{TURN_TOKEN}\n", f"{TURN_ID}\nhas space token value\n",
+                     f"{TURN_ID}\n{TURN_TOKEN}'\n", f"{TURN_ID}\n{TURN_TOKEN}\nextra-line\n"):
+            with self.assertRaises(v.Refused) as cm:
+                self.put_turn(text)
+            for secret in (TURN_TOKEN, "has space token value"):
+                self.assertNotIn(secret, str(cm.exception))
+        self.assertEqual((v.BASE / "secrets/turn.json").read_text(), before)
+
+    def test_put_turn_refuses_a_key_cloudflare_refuses_and_keeps_one_it_cannot_check(self):
+        self.status = 401
+        with self.assertRaises(v.Refused) as cm:
+            self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        self.assertIn("401", str(cm.exception))
+        self.assertFalse((v.BASE / "secrets/turn.json").exists())
+        self.status = None  # Cloudflare unreachable from the VM: kept, marked unverified
+        self.assertIn('"verified": false', self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n"))
+        self.assertTrue((v.BASE / "secrets/turn.json").exists())
+
+    def test_turn_status_says_when_an_up_must_send_the_key_again(self):
+        self.assertEqual(v.cmd_turn_status(None)["state"], "missing")
+        self.assertEqual(self.probes, [])
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        self.assertEqual(v.cmd_turn_status(None)["state"], "ok")
+        for status, state in ((401, "refused"), (403, "refused"), (404, "refused"), (None, "unverified"), (503, "unverified"), (429, "unverified")):
+            self.status = status
+            self.assertEqual(v.cmd_turn_status(None)["state"], state, status)
+        (v.BASE / "secrets/turn.json").write_text("{not json")
+        self.assertEqual(v.cmd_turn_status(None)["state"], "missing")
+        self.assertNotIn(TURN_TOKEN, json.dumps(v.cmd_turn_status(None)))
+
+    def test_each_worker_gets_its_keys_in_a_private_dev_vars(self):
+        d = self.stack()
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        self.classic_runtime()
+        got = v.write_dev_vars(d, with_platform=False)
+        self.assertEqual(got, {"turn": True, "stack_teams": True})
+        mobile, api, hub = (self.dev_vars(d, s) for s in ("mobile", "api", "hub"))
+        self.assertIn(f"TURN_KEY_ID='{TURN_ID}'\n", mobile)
+        self.assertIn(f"TURN_KEY_API_TOKEN='{TURN_TOKEN}'\n", mobile)
+        self.assertIn("JWT_PRIVATE_JWK='{\"kty\":\"EC\",\"d\":\"JWK-SECRET\"}'\n", api)
+        self.assertIn(f"STACK_SECRET_SERVER_KEY='{STACK_KEY}'\n", api)
+        self.assertNotIn("TURN", api)
+        self.assertNotIn("STACK_SECRET", mobile)
+        self.assertIn("SESSION_KEY=", hub)
+        for svc in ("mobile", "api", "hub"):
+            self.assertEqual((d / v.PROJECTS[svc][0] / ".dev.vars").stat().st_mode & 0o777, 0o600, svc)
+
+    def test_no_host_key_leaves_no_stale_one_behind(self):
+        d = self.stack()
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        self.classic_runtime()
+        v.write_dev_vars(d, with_platform=False)
+        (v.BASE / "secrets/turn.json").unlink()
+        self.classic_runtime(project="9790718f-14cd-4f7e-824d-eaf527a82b82")  # another project's key is never used
+        self.assertEqual(v.write_dev_vars(d, with_platform=False), {"turn": False, "stack_teams": False})
+        self.assertNotIn("TURN", self.dev_vars(d, "mobile"))
+        self.assertNotIn("STACK_SECRET", self.dev_vars(d, "api"))
+        self.assertIn("JWT_PRIVATE_JWK=", self.dev_vars(d, "api"))
+        for bad in ("", "has 'quote", "short"):
+            self.classic_runtime(key=bad)
+            self.assertFalse(v.write_dev_vars(d, with_platform=False)["stack_teams"], bad)
+
+    def test_a_wake_gives_the_workers_the_keys_the_host_has_now(self):
+        d = self.stack("w")
+        (d / "run.sh").write_text("#!/bin/bash\n")
+        (d / "logs").mkdir()
+        v.write_entry({"tag": "w", "state": "stopped", "host": "vm.ts.net", "port": 4710, "ports": [4710, 4711, 4712], "local_port": 23810,
+                       "last_up_at": 100, "started_at": 100, "last_request_at": 100})
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")  # sent by another tag's up while this stack was stopped
+        names = ("unit_active", "systemctl", "wait_healthy", "serve_config", "classic_ports", "mem_available_gib", "disk_free_gib")
+        saved = {n: getattr(v, n) for n in names}
+        try:
+            v.unit_active = lambda tag: False
+            v.systemctl = lambda *a, check=True: types.SimpleNamespace(returncode=0, stdout="")
+            v.wait_healthy = lambda *a, **kw: (True, "")
+            v.serve_config = router_serve
+            v.classic_ports = lambda: set()
+            v.mem_available_gib = lambda: 60.0
+            v.disk_free_gib = lambda path=None: 300.0
+            self.assertTrue(v.cmd_wake(types.SimpleNamespace(tag="w", wait=5))["woke"])
+        finally:
+            for n, f in saved.items():
+                setattr(v, n, f)
+        self.assertIn(f"TURN_KEY_API_TOKEN='{TURN_TOKEN}'\n", self.dev_vars(d, "mobile"))
+
+    def test_a_log_tail_never_carries_a_host_key(self):
+        d = self.stack()
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        self.classic_runtime()
+        out = v.redact(f"Bearer {TURN_TOKEN} x-stack-secret-server-key: {STACK_KEY}", d)
+        self.assertNotIn(TURN_TOKEN, out)
+        self.assertNotIn(STACK_KEY, out)
+
+    def test_the_probe_names_itself_to_cloudflare(self):
+        """Live 2026-11-23: Cloudflare answers urllib's default User-Agent with error 1010 (403), which read as a
+        refused key, so put-turn refused the real one."""
+        seen = []
+
+        class Answer:
+            status = 201
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        real = v.urllib.request.urlopen
+        v.urllib.request.urlopen = lambda req, timeout=None: seen.append(req) or Answer()
+        try:
+            self.assertEqual(self.saved["turn_probe"](TURN_ID, TURN_TOKEN), 201)
+        finally:
+            v.urllib.request.urlopen = real
+        ua = seen[0].get_header("User-agent") or ""
+        self.assertTrue(ua and not ua.startswith("Python-urllib"), ua)
+        self.assertEqual(seen[0].full_url, v.TURN_API.format(TURN_ID))
+
+    def test_status_says_whether_the_vm_holds_a_turn_key(self):
+        self.assertFalse(v.cmd_capacity(None)["turn_key"])
+        self.put_turn(f"{TURN_ID}\n{TURN_TOKEN}\n")
+        self.assertTrue(v.cmd_capacity(None)["turn_key"])
+        self.assertEqual(len(self.probes), 1, "status never calls Cloudflare")
+
+
+class GiveTurnTests(unittest.TestCase):
+    """give_turn from cloud-dev-stack.sh, with stub op and vm: the key goes from 1Password to the VM over stdin only when
+    the VM has none or Cloudflare refuses the one it has, is never printed, and its absence never fails an up."""
+
+    def run_give_turn(self, state, op_ok=True, have_op=True, put_rc=0):
+        script = (ROOT / "scripts/cmux-next/cloud-dev-stack.sh").read_text()
+        fn = re.search(r"^give_turn\(\) \{.*?^\}", script, re.S | re.M).group(0)
+        item = re.search(r'^TURN_ITEM="\$\{CMUX_DEV_STACK_TURN_ITEM:-([a-z0-9]+)\}"', script, re.M)
+        self.assertIsNotNone(item, "the 1Password item is named in the script")
+        tmp = tempfile.mkdtemp()
+        log = Path(tmp) / "calls"
+        op = (f'op() {{ echo "op $*" >> {log}; ' + (
+            'case "$*" in *notesPlain*) printf "Turn Token ID: %s\\nother text\\n" "' + TURN_ID + '" ;; *credential*) printf "%s\\n" "' + TURN_TOKEN + '" ;; esac; }'
+            if op_ok else 'echo "[ERROR] not signed in" >&2; return 1; }'))
+        prog = "\n".join([
+            "set -euo pipefail",
+            f'TURN_ITEM="{item.group(1)}"',
+            'json() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }',
+            f'vm() {{ echo "vm $*" >> {log}; case "$1" in turn-status) echo \'{{"state": "{state}", "why": "w"}}\' ;;'
+            f' put-turn) cat > {tmp}/put; return {put_rc} ;; esac; }}',
+            op if have_op else "",
+            f'command() {{ if [ "$2" = op ]; then {"return 0" if have_op else "return 1"}; fi; builtin command "$@"; }}',
+            fn, "give_turn", "echo GIVE_TURN_RC=$?"])
+        out = subprocess.run(["bash", "-c", prog], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        calls = log.read_text() if log.exists() else ""
+        put = (Path(tmp) / "put").read_text() if (Path(tmp) / "put").exists() else None
+        return out, calls, put
+
+    def test_a_vm_with_a_working_key_is_not_sent_it_again(self):
+        for state in ("ok", "unverified"):
+            out, calls, put = self.run_give_turn(state)
+            self.assertIn("GIVE_TURN_RC=0", out.stdout)
+            self.assertNotIn("op ", calls, state)
+            self.assertIsNone(put)
+
+    def test_a_missing_or_refused_key_goes_from_1password_to_the_vm_over_stdin(self):
+        for state in ("missing", "refused"):
+            out, calls, put = self.run_give_turn(state)
+            self.assertIn("GIVE_TURN_RC=0", out.stdout)
+            self.assertEqual(put.split(), [TURN_ID, TURN_TOKEN], state)
+            self.assertIn("lqvg75d4awzbveq7ny5gyfeyd4", calls)
+            for secret in (TURN_ID, TURN_TOKEN):
+                self.assertNotIn(secret, out.stdout + out.stderr)
+                self.assertNotIn(secret, calls, "never on a command line")
+
+    def test_no_1password_or_a_refused_put_never_fails_the_up(self):
+        for kw in ({"op_ok": False, "put_rc": 3}, {"have_op": False}, {"put_rc": 3}):
+            out, calls, put = self.run_give_turn("missing", **kw)
+            self.assertIn("GIVE_TURN_RC=0", out.stdout, kw)
+            self.assertIn("STUN only", out.stdout, kw)
+            self.assertNotIn(TURN_TOKEN, out.stdout + out.stderr)
 
 
 @contextlib.contextmanager
