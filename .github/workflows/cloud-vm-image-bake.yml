@@ -169,7 +169,7 @@ jobs:
     needs: prod-gate
     # Every mode but prod-copy skips prod-gate and runs as before; prod-copy runs only after it passed.
     if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.mode != 'prod-copy' && needs.prod-gate.result == 'skipped')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
     # prod-copy alone bakes on the production account, in its own environment.
     # Both environments allow only feat-cmux-next.
