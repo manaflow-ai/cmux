@@ -32,7 +32,7 @@ fn cmux_next_machine_catalog_sdk_preserves_legacy_defaults_and_refuses_bad_metad
         assert!(serde_json::from_value::<MachineSnapshot>(malformed).is_err());
     }
     // A field a newer daemon adds is ignored, not refused.
-    let mut newer = value.clone();
+    let mut newer = value;
     newer["platform"] = json!({"os":"linux","path":"/private"});
     let machine: MachineSnapshot = serde_json::from_value(newer).unwrap();
     assert_eq!(machine.platform.unwrap().os.as_deref(), Some("linux"));
