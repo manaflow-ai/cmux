@@ -114,6 +114,38 @@ nonisolated enum GlyphMask {
         return CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1)
     }
 
+    /// Draws one smoothed line in each system face the window chrome draws, into a small bitmap, so
+    /// Core Graphics has read each face's stem metadata before the first window's commit needs it.
+    ///
+    /// The first smoothed glyph of a face reads that metadata (`FPFontGetStems`, `MetadataFromFont`):
+    /// 45 to 50 ms on the main thread inside the first window frame's commit, in three profiled NIGHTLY
+    /// relaunches (an M4 Pro Mac mini, `ChromeLabel.updateLayer` under `CA::Transaction::commit`).
+    /// Only smoothed stems read it, so with smoothing off this draws nothing. `main` writes the smoothing
+    /// default before the launch warm-up starts, so ``ProcessFontSmoothing/chrome`` (what chrome text draws
+    /// in) is already this process's value. Plain `NSFont` faces, not `Typography`'s cached ones, so it
+    /// runs on any thread.
+    static func warmStems() {
+        let smoothing = ProcessFontSmoothing.chrome
+        guard smoothing.smoothsStems else { return }
+        let faces = [NSFont.Weight.regular, .medium, .semibold].flatMap { weight in
+            [NSFont.systemFont(ofSize: TypeScale.Base.body, weight: weight),
+             NSFont.monospacedDigitSystemFont(ofSize: TypeScale.Base.body, weight: weight)]
+        }
+        for face in faces {
+            guard let ctx = CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            ctx.scaleBy(x: 2, y: 2)
+            ctx.setAllowsFontSmoothing(true)
+            ctx.setShouldSmoothFonts(smoothing.smoothsStems)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "Hlm1", attributes: [
+                .font: face, NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+            ]))
+            ctx.textPosition = CGPoint(x: 2, y: 5)
+            CTLineDraw(line, ctx)
+        }
+    }
+
     /// The alpha sum of a reference string drawn in `rgb`, smoothed as `smoothing` says.
     private static func measure(_ rgb: [CGFloat], smoothing: ProcessFontSmoothing) -> Int {
         let width = 96, height = 40

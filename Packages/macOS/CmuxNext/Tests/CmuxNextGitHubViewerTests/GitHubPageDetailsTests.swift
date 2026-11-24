@@ -19,6 +19,7 @@ struct GitHubPageDetailsTests {
     private final class Calls: @unchecked Sendable { // crash-allow: test log touched only on the main actor
         var reads = 0
         var merges: [(String, String)] = []
+        var writes: [[String: String]] = []
     }
 
     private static func cache() -> AgentReplyPullRequests {
@@ -108,7 +109,7 @@ struct GitHubPageDetailsTests {
     /// The conversation's filters: "Mine" needs the signed-in login, "Unresolved" each review comment's thread.
     @Test func theReadCarriesTheViewerAndEachThreadsState() throws {
         #expect(GitHubPullRequestDetails.query.contains("viewer { login }"))
-        #expect(GitHubPullRequestDetails.query.contains("reviewThreads(last: 100) { nodes { isResolved"))
+        #expect(GitHubPullRequestDetails.query.contains("reviewThreads(last: 100) { nodes { id isResolved"))
         let open = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r1"
         let done = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r2"
         let answer = #"""
@@ -119,13 +120,14 @@ struct GitHubPageDetailsTests {
                   {"path": "a.yml", "line": 9, "body": "done", "url": "\#(done)"},
                   {"path": "b.yml", "line": 1, "body": "unknown", "url": null}]}}]},
               "reviewThreads": {"nodes": [
-                {"isResolved": false, "comments": {"nodes": [{"url": "\#(open)"}]}},
-                {"isResolved": true, "comments": {"nodes": [{"url": "\#(done)"}]}}]}
+                {"id": "PRRT_open", "isResolved": false, "comments": {"nodes": [{"url": "\#(open)"}]}},
+                {"id": "PRRT_done", "isResolved": true, "comments": {"nodes": [{"url": "\#(done)"}]}}]}
             }}}}
             """#
         let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
         #expect(details.viewer == "teamleaderleo")
         #expect(details.conversation.first?.comments.map(\.resolved) == [false, true, nil])
+        #expect(details.conversation.first?.comments.map(\.thread) == ["PRRT_open", "PRRT_done", nil])
         #expect(details.json["viewer"]?.stringValue == "teamleaderleo")
     }
 
@@ -282,5 +284,99 @@ struct GitHubPageDetailsTests {
         #expect(none["patch"]?.isNull == true)
         // One diff read for every file the page expands.
         #expect(calls.reads == 1)
+    }
+
+    /// A pull request whose one review comment sits on thread `PRRT_one`.
+    nonisolated private static let threaded = #"""
+        {"data": {"repository": {"pullRequest": {"body": "", "headRefOid": "\#(head)",
+          "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "austin"}, "state": "COMMENTED", "body": "",
+            "submittedAt": "2026-11-07T02:00:00Z", "comments": {"nodes": [
+              {"path": "a.swift", "line": 3, "body": "Why?", "url": "https://github.com/manaflow-ai/cmux/pull/36002#discussion_r1"}]}}]},
+          "reviewThreads": {"nodes": [{"id": "PRRT_one", "isResolved": false,
+            "comments": {"nodes": [{"url": "https://github.com/manaflow-ai/cmux/pull/36002#discussion_r1"}]}}]}
+        }}}}
+        """#
+
+    private static func writing(_ calls: Calls, ok: Bool = true, reason: String? = nil) -> GitHubPageProvider {
+        GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, detailsReader: { _ in
+            GitHubPullRequestDetails.parse(Data(Self.threaded.utf8))
+        }, writer: { params in
+            let flat = params.mapValues { "\($0)" }
+            await MainActor.run { calls.writes.append(flat) }
+            return ok ? AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data("{}".utf8), source: "keyring")
+                : AgentPaneGitHubREST.Answer(ok: false, status: reason == nil ? 422 : nil,
+                                             message: "Can not approve your own pull request", reason: reason)
+        }, openWeb: { _, _ in false }, openDiff: { _, _, _, _ in false })
+    }
+
+    /// A review is the person's: it needs their click, a verdict GitHub knows and words unless it
+    /// approves, and goes to the host op as `review.submit` on this pull request.
+    @Test func aReviewNeedsAClickAVerdictAndWords() async throws {
+        let calls = Calls()
+        let provider = Self.writing(calls)
+        let url = JSONValue.string(Self.pull.absoluteString)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "COMMENT", "body": "ok"], context: Self.page)
+        }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "MERGE", "body": "ok"], context: Self.click)
+        }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "REQUEST_CHANGES", "body": " "],
+                                        context: Self.click)
+        }
+        #expect(calls.writes.isEmpty)
+        let reply = try await provider.call("cmux.github.review.submit",
+                                            params: ["url": url, "event": "APPROVE", "body": "", "head": .string(Self.head)], context: Self.click)
+        #expect(reply["submitted"]?.boolValue == true)
+        #expect(calls.writes.count == 1)
+        #expect(calls.writes.first?["op"] == "review.submit")
+        #expect(calls.writes.first?["repo"] == "manaflow-ai/cmux")
+        #expect(calls.writes.first?["number"] == "36002")
+        #expect(calls.writes.first?["event"] == "APPROVE")
+        #expect(calls.writes.first?["head"] == Self.head)
+    }
+
+    /// A reply or a resolve names only a thread the page was shown; GitHub's refusal comes back in its words.
+    @Test func aThreadWriteNamesOnlyAShownThread() async throws {
+        let calls = Calls()
+        let provider = Self.writing(calls)
+        let url = JSONValue.string(Self.pull.absoluteString)
+        _ = try await provider.call("cmux.github.pr.details", params: ["url": url], context: Self.page)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.thread.reply", params: ["url": url, "thread": "PRRT_other", "body": "hi"],
+                                        context: Self.click)
+        }
+        #expect(calls.writes.isEmpty)
+        _ = try await provider.call("cmux.github.thread.reply", params: ["url": url, "thread": "PRRT_one", "body": "Because."],
+                                    context: Self.click)
+        _ = try await provider.call("cmux.github.pr.details", params: ["url": url], context: Self.page)
+        _ = try await provider.call("cmux.github.thread.resolve", params: ["url": url, "thread": "PRRT_one", "resolved": true],
+                                    context: PageCallContext(page: "cmux.github", userGesture: true, gestureEvent: 2))
+        #expect(calls.writes.map { $0["op"] } == ["thread.reply", "thread.resolve"])
+        #expect(calls.writes.first?["body"] == "Because.")
+        #expect(calls.writes.last?["resolved"] == "true")
+
+        let refusing = Self.writing(Calls(), ok: false)
+        do {
+            _ = try await refusing.call("cmux.github.review.submit", params: ["url": url, "event": "APPROVE"], context: Self.click)
+            Issue.record("a refused review answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.github.review_refused")
+            #expect(error.message == "Can not approve your own pull request")
+        }
+    }
+
+    /// An approval the daemon would only send as the person, with no gh login: the page hears
+    /// `person_only`, its own sentence to sign in, never a generic refusal.
+    @Test func anApprovalWithNoLoginSaysSignIn() async throws {
+        let provider = Self.writing(Calls(), ok: false, reason: "github.person_only")
+        let url = JSONValue.string(Self.pull.absoluteString)
+        do {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "APPROVE"], context: Self.click)
+            Issue.record("a person-only refusal answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.github.person_only")
+        }
     }
 }
