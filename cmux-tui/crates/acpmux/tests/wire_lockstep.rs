@@ -398,6 +398,8 @@ async fn serve_old_client(head: &Manifest, old: &OldPeer, tap: &Tap) {
         {
             let name = format!("method:{m}");
             if served(&name) {
+                // The daemon's own words travel with the refusal, so a red names its cause.
+                eprintln!("{name} refused: {message}");
                 tap.refused(Dir::Received, name);
             }
         }
