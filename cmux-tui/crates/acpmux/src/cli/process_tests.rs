@@ -366,6 +366,10 @@ fn process_start_answers_with_the_id_and_how_to_read_it() {
     assert!(text.contains("background task t7"), "{text}");
     assert!(text.contains("keeps running while this chat's agent hibernates"), "{text}");
     assert!(text.contains(r#"cmux.acpmux_bg_output({"id":"t7"})"#), "{text}");
+    // And a route this caller can take whatever its MCP server is doing: this same line answers
+    // a plain `Bash run_in_background` (the hook rewrites it into `process start`), whose caller
+    // may have no MCP server, or a stale port to one after a daemon restart.
+    assert!(text.contains("`acpmux bg output t7 --tail 40`"), "{text}");
     assert!(!text.contains("# fg-ok"), "{text}");
     let text = started_text(&start(Some("a follow that never ends on its own")), &view);
     assert!(text.contains("This is a follow that never ends on its own"), "{text}");

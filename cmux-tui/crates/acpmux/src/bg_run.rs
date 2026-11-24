@@ -347,6 +347,89 @@ pub fn label(description: Option<&str>, command: &str) -> String {
     cut
 }
 
+/// How many lines of a task's output `acpmux bg output` shows when no `--tail` is given.
+/// Bounded on purpose: a background task's output can be a whole subagent transcript, and an
+/// unbounded dump into an agent's context is itself a bug. Reading more is a bigger `--tail`,
+/// or `--from-byte`/`--max-bytes` to walk the output by byte.
+pub const OUTPUT_TAIL_LINES: u64 = 40;
+
+/// The one rendering of a `_acpmux/bg/output` reply, shared by every surface that shows it: the
+/// MCP `bg_output` tool (`acpmux_mcp_bg.rs`, which passes `tail: None` and so renders it whole,
+/// exactly as it always has) and `acpmux bg output` (`cli/bg.rs`, which passes its `--tail`).
+/// Both surfaces take this one judged value; neither reads the task's spool a second time
+/// (docs/handbook/one-result-two-sources.md).
+pub fn output_text(view: &serde_json::Value, tail: Option<u64>) -> String {
+    use serde_json::Value;
+    let field = |k: &str| view.get(k).unwrap_or(&Value::Null);
+    let whole = field("text").as_str().unwrap_or_default();
+    let (body, dropped) = match tail {
+        None => (whole.to_owned(), 0),
+        Some(n) => tail_lines(whole, n),
+    };
+    let mut text = format!(
+        "{}\n[{} bytes {}..{} of {}; next fromByte {}]",
+        body,
+        field("id").as_str().unwrap_or_default(),
+        field("fromByte"),
+        field("nextByte"),
+        field("totalBytes"),
+        field("nextByte")
+    );
+    if dropped > 0 {
+        let kept = body.lines().count();
+        text.push_str(&format!(
+            "\n[showed the last {kept} of {} lines read; --tail N shows more, --from-byte and --max-bytes read by byte]",
+            dropped + kept
+        ));
+    }
+    text
+}
+
+/// The last `n` lines of `text`, and how many lines before them were left out.
+fn tail_lines(text: &str, n: u64) -> (String, usize) {
+    let lines: Vec<&str> = text.lines().collect();
+    let n = usize::try_from(n).unwrap_or(usize::MAX);
+    let dropped = lines.len().saturating_sub(n);
+    (lines[dropped..].join("\n"), dropped)
+}
+
+#[cfg(test)]
+mod output_text_tests {
+    use super::{OUTPUT_TAIL_LINES, output_text};
+    use serde_json::json;
+
+    fn view(text: &str) -> serde_json::Value {
+        json!({"id": "bg-1", "text": text, "fromByte": 0,
+               "nextByte": text.len(), "totalBytes": text.len()})
+    }
+
+    /// `tail: None` renders the whole read with the byte footer: what the MCP `bg_output` tool
+    /// has always printed, unchanged by this renderer being shared.
+    #[test]
+    fn no_bound_renders_every_line_with_the_byte_footer() {
+        let said = output_text(&view("one\ntwo\nthree"), None);
+        assert_eq!(said, "one\ntwo\nthree\n[bg-1 bytes 0..13 of 13; next fromByte 13]");
+        assert!(!said.contains("showed the last"));
+    }
+
+    /// A bound keeps the last lines, and says how many it left out and how to see more: a task
+    /// whose output is a subagent transcript must never dump it all into a caller's context.
+    #[test]
+    fn a_bound_keeps_the_last_lines_and_says_what_it_left_out() {
+        let whole = (1..=100).map(|n| n.to_string()).collect::<Vec<_>>().join("\n");
+        let said = output_text(&view(&whole), Some(3));
+        assert!(said.starts_with("98\n99\n100\n["), "{said}");
+        assert!(said.contains("showed the last 3 of 100 lines read"), "{said}");
+        assert!(said.contains("--tail N shows more"), "{said}");
+        // A bound past the output shows all of it and claims nothing was left out.
+        let short = output_text(&view("one\ntwo"), Some(OUTPUT_TAIL_LINES));
+        assert!(short.starts_with("one\ntwo\n["), "{short}");
+        assert!(!short.contains("showed the last"), "{short}");
+        // No output is no panic.
+        assert!(output_text(&view(""), Some(5)).starts_with("\n[bg-1 bytes"));
+    }
+}
+
 /// A task's view (`hub/bg_tasks.rs` `bg_view`) as one summary line and a status: `running`,
 /// `ok` (exit 0) or `failed` (any other end). The condensed-tool contract: the line is the first
 /// line of every `bg_*` result and its `summary`, the status its `status`.

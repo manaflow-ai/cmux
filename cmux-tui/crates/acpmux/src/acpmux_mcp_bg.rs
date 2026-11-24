@@ -424,17 +424,10 @@ fn task_line(t: &Value) -> String {
 }
 
 fn summary(name: &str, r: &Value) -> String {
-    let field = |k: &str| r.get(k).unwrap_or(&Value::Null);
     match name {
-        "bg_output" => format!(
-            "{}\n[{} bytes {}..{} of {}; next fromByte {}]",
-            field("text").as_str().unwrap_or_default(),
-            field("id").as_str().unwrap_or_default(),
-            field("fromByte"),
-            field("nextByte"),
-            field("totalBytes"),
-            field("nextByte")
-        ),
+        // The whole read, as `bg_output` has always rendered it: one renderer, shared with
+        // `acpmux bg output`, which is the same read with a line bound (`bg_run::output_text`).
+        "bg_output" => crate::bg_run::output_text(r, None),
         _ => task_line(r),
     }
 }

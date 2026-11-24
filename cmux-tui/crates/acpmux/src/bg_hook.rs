@@ -282,16 +282,35 @@ pub fn route_of_word(word: &str) -> Option<Route> {
     }
 }
 
-/// The call that reads task `id`'s output through the chat's own route to acpmux's MCP server.
+/// The command that reads task `id`'s output with no MCP server in the way: the route any
+/// caller holding the `acpmux` binary can take, which is every caller, since the CLI is what
+/// started the task. [`read_call`] names it beside the chat's MCP route, never instead of it.
+pub fn cli_read_call(id: &str) -> String {
+    format!("`acpmux bg output {id} --tail {}`", crate::bg_run::OUTPUT_TAIL_LINES)
+}
+
+/// The call that reads task `id`'s output. Every answer names at least one route its caller can
+/// actually take: the chat's own route to acpmux's MCP server when it has one, and always the
+/// CLI's `acpmux bg output`, which needs no MCP server.
+///
+/// Both, not one: a chat with the MCP server configured can still fail to reach it. The MCP port
+/// is per session and a daemon restart leaves it stale for the rest of that session, so the MCP
+/// spelling alone is a dead end exactly when a task's output is wanted most (2026-11-21:
+/// `acpmux (ECONNREFUSED)` all session while the CLI worked throughout, with `bg output` not yet
+/// a subcommand at all). See `docs/handbook/guard-next-step-must-run.md`: a printed next step
+/// must name a route available to the caller it is answering, a surface no less than a flag.
 pub fn read_call(route: Option<&Route>, id: &str) -> String {
     let args = json!({"id": id});
+    let cli = cli_read_call(id);
     match route {
-        Some(Route::Direct) => format!("mcp__acpmux__bg_output {args}"),
-        Some(Route::Listed) => format!("mcp__cmux__acpmux_bg_output {args}"),
-        Some(Route::CodeMode) => {
-            format!("cmux_exec with: return await cmux.acpmux_bg_output({args});")
+        Some(Route::Direct) => format!("mcp__acpmux__bg_output {args}, or {cli} in a shell"),
+        Some(Route::Listed) => {
+            format!("mcp__cmux__acpmux_bg_output {args}, or {cli} in a shell")
         }
-        None => format!("bg_output {args}"),
+        Some(Route::CodeMode) => format!(
+            "cmux_exec with: return await cmux.acpmux_bg_output({args}); or {cli} in a shell"
+        ),
+        None => cli,
     }
 }
 
@@ -924,15 +943,35 @@ mod tests {
 
     #[test]
     fn the_read_call_follows_the_chats_route() {
-        assert_eq!(read_call(Some(&Route::Direct), "t1"), r#"mcp__acpmux__bg_output {"id":"t1"}"#);
+        assert!(
+            read_call(Some(&Route::Direct), "t1")
+                .starts_with(r#"mcp__acpmux__bg_output {"id":"t1"}"#),
+            "{}",
+            read_call(Some(&Route::Direct), "t1")
+        );
         assert_eq!(
-            read_call(Some(&Route::Listed), "t1"),
+            read_call(Some(&Route::Listed), "t1").split(", or ").next().unwrap(),
             r#"mcp__cmux__acpmux_bg_output {"id":"t1"}"#
         );
         assert!(read_call(Some(&Route::CodeMode), "t1").contains("cmux.acpmux_bg_output("));
         for route in [Route::Direct, Route::Listed, Route::CodeMode] {
             assert_eq!(route_of_word(route_word(&route)), Some(route));
         }
+    }
+
+    /// Every next-step line names a route its caller can take. A chat's MCP route may be
+    /// unreachable (a daemon restart leaves the session's MCP port stale), so each answer also
+    /// names the CLI's `acpmux bg output`, and the answer for a chat with no MCP route at all is
+    /// that command alone, not a bare tool name nothing runs.
+    #[test]
+    fn every_read_call_names_a_route_the_caller_can_take() {
+        let cli = r#"`acpmux bg output t1 --tail 40`"#;
+        for route in [Some(Route::Direct), Some(Route::Listed), Some(Route::CodeMode), None] {
+            let said = read_call(route.as_ref(), "t1");
+            assert!(said.contains(cli), "{route:?} named no CLI route: {said}");
+        }
+        assert_eq!(read_call(None, "t1"), cli);
+        assert_eq!(cli_read_call("t1"), cli);
     }
 
     /// The route is the one the chat's cmux server really offers: code mode, every tool, or a
