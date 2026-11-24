@@ -122,7 +122,13 @@ import UIKit
         let saved = store.items
         let ask = FeedStore.stressItem(index: 2, now: Date())
         guard case .permission = ask.kind else { Issue.record("stress-2 is not a permission card"); return }
-        let answers = (0..<60).map { FeedStoreChurnTests.item("a\($0)", "an answer, long enough to wrap onto a second line of the Feed row", ago: Double($0) + 1) }
+        // Each answer from its own workspace: one chat's events in a row fold under its newest
+        // (FeedStacks, #51642), and 60 answers of one chat were three rows that never needed a new
+        // cell (green-30 0c84a63a: the scroll did not take the spare).
+        let answers = (0..<60).map {
+            FeedStoreChurnTests.item("a\($0)", "an answer, long enough to wrap onto a second line of the Feed row",
+                                     ago: Double($0) + 1, workspace: "w\($0)")
+        }
         store.replaceAll([ask] + answers)
         defer { store.replaceAll(saved) }
         let screen = FeedScreen(path: .constant([])) { ToolbarItem { EmptyView() } }
