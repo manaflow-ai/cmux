@@ -17,9 +17,61 @@ covers your change:
 
 | Route | Edit to visible | Use it for |
 |---|---|---|
-| Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | about 15 min (queue median about 8 min) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
-| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), draft) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
-| Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | `build` from a few minutes to about 40 min, mostly queue (measured below) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
+| Always-on simulator, `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435), 2026-11-23): your checkout's diff, warm-rebuilt and relaunched | about 16 s | Any change, from any checkout, no fleet step. One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Swift live code, `ios-live swift` / `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `ios-sim.sh` not on `feat-cmux-next` yet; check `ls scripts/live-code/ios-sim.sh`) | about 1.9 s once it lands | DEBUG simulator builds only. Until `ios-sim.sh` is on the branch, `ios-live swift` and `undo` refuse ("not a live code build") and `swap` is the live route. A patch that changes a `some View` type is refused; use `swap` for those |
+
+### From a lane VM (Linux, no Mac)
+
+A lane VM has no Xcode, but every step below runs from it through the fleet. Push your branch
+first: each command takes the exact pushed SHA.
+
+```bash
+SHA=$(git rev-parse HEAD)   # pushed
+
+# 1. Compile a Swift package the kit links (Packages/iOS/*, Packages/Shared/*): bare name, repeatable.
+cmux-ci compile-check --ref "$SHA" --package CmuxMobileShellModel
+
+# 2. Run one kit test suite on a fleet iPhone simulator (TARGET/SUITE or TARGET/SUITE/test).
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" \
+  --arg test --arg only=CmuxMobileLiveTests/LinkRecoveryTests --artifact artifacts/ios-sim/evidence.zip
+
+# 3. One simulator screenshot of the app at launch.
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" \
+  --arg build --artifact artifacts/ios-sim/evidence.zip
+cmux-ci artifact STEP_ID /tmp/ev/evidence.zip   # STEP_ID is printed when the step ends
+cd /tmp/ev && unzip -q evidence.zip              # screens/launch.png, SUMMARY.md, build.log, app-log.txt
+```
+
+Measured from a lane VM on 2026-11-22: step 1 took 4 min 2 s end to end (36 s of compiling, the rest
+queue; job `7b91777edac21acc8f892f3a`); step 3 took 39 min 41 s end to end on a fleet simulator Mac (the
+Rust FFI xcframework missed its cache and took 308 s; FFI plus app build 581 s; the rest was queue,
+boot and install). The FFI is cached by its inputs, so a Swift-only change skips those 308 s.
+What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 2026-11-23):
+
+- Kit tests (`cmux-next-ios-kit.yml`, about 17 min): run with no label on a PR touching `cmux-next-ios/**` or
+  a package CmuxMobileKit links. `scripts/ci/ios_runner_pool.py` picks one of our Macs (a fork PR gets a
+  Blacksmith Mac). A tree that already passed is skipped (same-tree reuse). The instant-list bench steps are
+  advisory: they warn, never fail the job.
+- App Review gate (`ios-review-gate.yml`): skipped on the PR unless it is labeled `full-ci`; the
+  `feat-cmux-next` push after the merge runs it.
+- `ios-e2e.yml`: its tailnet jobs skip on PRs while the repo variable `IOS_E2E_PR_TAILNET` isn't `true`; a
+  dispatch runs them.
+- `billing.yml`: its StoreKit lane runs on a Mac when the PR touches `Packages/iOS/CmuxMobileBilling/**` or
+  billing files in the app.
+- Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
+  `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
+
+## Try a PR on the person's phone: cmux Dev
+
+`cmux-next-ios/scripts/try.sh <PR|branch|sha|.>`, from the Mac the phone is attached to, puts that commit on every
+connected iPhone as **cmux Dev** (`dev.cmux.mobile.dev`): the iPhone twin of `cmux app try PR`. One app that
+every try replaces in place, so its sign-in and its pairing with the person's NIGHTLY Mac stay; it has no dev tag,
+so it shows their real data (the Demo build's rule). The fleet builds only the unsigned device app
+(`cmux-next-ios-sim.sh try`, keyed by the commit, cached on the Mac); the Mac signs, installs and launches it.
+`--sign-in` signs it in with the `personal` profile (first install), `--backend ORIGIN` points it at another
+Cloud backend, `try.sh status` lists the last tries and their times. Design and phases (built ahead, the in-app
+Try PR picker, Swift hot patches on the device): cmuxterm-hq `docs/design/ios-dev-channels.md`.
 
 ## Hand-off command
 
@@ -44,7 +96,7 @@ flags are for checking the other paths, and are never the hand-off:
 | --- | --- | --- | --- |
 | (none) | signed in, paired with the tagged Mac (its dev auto-approve; the launch names the Mac to focus) | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
 | `--manual-pairing` | signed in; no Mac named, so the person picks and pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
-| `--approve-first` | signed in; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” to connect?" | waits for the person's Allow on the Mac (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s), then paired, linked, listed by the Mac, and again after a credential-free relaunch; no Mac restart | `installed, signed in (auto_login), paired and linked with <Mac> (allowed on the Mac, --approve-first); ...`, or `waiting for Allow on the Mac: not paired in time (...)` |
+| `--approve-first` | signed in; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” (<key>) to connect to this Mac?" | the phone picks the tagged Mac; the Mac itself shows the request and the prompt (`review_mac.py allow-state`), said before the wait with the Mac's name and app; the person's Allow pairs it (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s); then a credential-free relaunch is linked and the Mac lists it paired and connected; no Mac restart. A phone that Mac paired before is reported "not asked" | `installed, signed in (auto_login), asked the tagged Mac “<Mac>” (cmux DEV <tag>), which showed “Allow …”; allowed on the Mac (--approve-first); credential-free relaunch: ...`, or unattended `waiting for Allow on the Mac: nobody pressed Allow in 600 s. The tagged Mac “<Mac>” (cmux DEV <tag>) shows “Allow …”, and the phone is signed in and waiting for it, not linked yet. Next: ...` |
 | `--no-auth` | no credentials, no Mac named; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
 
 A tagged dev Mac (DEBUG `com.cmuxterm.app.debug.<tag>`) pairs its own tag's iPhone app
@@ -52,8 +104,10 @@ A tagged dev Mac (DEBUG `com.cmuxterm.app.debug.<tag>`) pairs its own tag's iPho
 hand or through the Tag Opener link pairs at once too; a machine, another account or another tag's
 phone still asks, and another build's dev iPhone app asks NIGHTLY, release and other tags only
 quietly (Settings > Mobile, no prompt). `--approve-first` turns it off for the run, to check the
-Allow prompt itself; a phone already paired with that Mac is not asked again (forget it in Settings
-> Mobile first). The rules and their safety argument: [SECURITY.md](SECURITY.md) "Dev auto-approve".
+Allow prompt itself; a phone already paired with that Mac is not asked again (remove it in Settings
+> Mobile first). The readiness receipt's `paired_macs` is the phone's focused Mac (picked from the
+account's Mac list), not a Mac that let it in: only `linked: true` means paired, and the hand-off never
+calls a Mac it merely picked "paired". The rules and their safety argument: [SECURITY.md](SECURITY.md) "Dev auto-approve".
 
 `--no-auth` implies no pairing; given both, `--no-auth` wins.
 
@@ -113,10 +167,12 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Terminal on iPhone
 
-- **Projection** ([#42219](https://github.com/manaflow-ai/cmux/pull/42219), open): the
+- **Projection** ([#49901](https://github.com/manaflow-ai/cmux/pull/49901), the default): the
   phone re-wraps the Mac's terminal text at its own width, and the Mac pane keeps its grid. The phone
   claims a size only for the exception, a full-screen app on the alternate screen, and releases it
-  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize. The logic
+  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize, and the
+  terminal page's menu toggles it per program. It is the default because its cell-by-cell parity
+  harness is green in CI ("cargo test (terminal projection parity)", `cmux-next-terminal.yml`). The logic
   is Rust (the `cmux-terminal-projection` crate); Swift is glue. Size claims:
   [PROTOCOL.md](PROTOCOL.md), "Terminal size claims".
 - **Lean agent-CLI view** ([#44052](https://github.com/manaflow-ai/cmux/pull/44052), off by default,

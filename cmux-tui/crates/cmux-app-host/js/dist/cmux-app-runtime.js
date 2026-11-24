@@ -55,6 +55,7 @@
     Icon: () => Icon,
     Image: () => Image,
     LazyVStack: () => LazyVStack,
+    Line: () => Line,
     Menu: () => Menu,
     Panel: () => Panel,
     ProgressView: () => ProgressView,
@@ -242,6 +243,7 @@
     timers: new Map,
     app: { id: "", version: "" },
     context: null,
+    mount: null,
     apiVersion: "0.0.0",
     allowedOps: null,
     knownOps: null,
@@ -627,6 +629,9 @@
     monospaced() {
       return this.set("monospaced", true);
     }
+    fontDesign(v) {
+      return this.set("fontDesign", v);
+    }
     color(v) {
       return this.set("color", v);
     }
@@ -675,6 +680,9 @@
     hoverBackground(v) {
       return this.set("hoverBackground", v);
     }
+    glass(level = "popover") {
+      return this.set("glass", level);
+    }
     cornerRadius(v) {
       return this.set("cornerRadius", v);
     }
@@ -701,6 +709,15 @@
     }
     rotation(degrees) {
       return this.set("rotation", degrees);
+    }
+    rotationEffect(degrees) {
+      return this.set("rotation", degrees);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    position(v) {
+      return this.set("position", v);
     }
     cursor(v) {
       return this.set("cursor", v);
@@ -781,6 +798,15 @@
   var LazyVStack = container("LazyVStack");
   var Group = container("Group");
   function Text(text) {
+    if (text !== null && typeof text === "object") {
+      const node = new ViewNode("Text");
+      node.props.text = "";
+      node.props.date = text.date;
+      node.props.dateStyle = text.style ?? "time";
+      if (text.timeZone !== undefined)
+        node.props.timeZone = text.timeZone;
+      return node;
+    }
     const node = new ViewNode("Text");
     node.props.text = typeof text === "function" ? () => String(text() ?? "") : String(text ?? "");
     return node;
@@ -816,6 +842,7 @@
   var Circle = (props = {}) => new ViewNode("Circle").withProps(props);
   var Capsule = (props = {}) => new ViewNode("Capsule").withProps(props);
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
+  var Line = (props = {}) => new ViewNode("Line").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
@@ -1083,7 +1110,12 @@
           } else {
             const owner = createOwner();
             const [read, write] = signal(item, { equals: () => false });
-            const nodeId = runWithOwner(owner, () => build(m, template(read, key), depth + 1));
+            const nodeId = runWithOwner(owner, () => {
+              const child = template(read, key);
+              if (view.type === "Reorderable" && spec.onMove)
+                child.props.reorderKey = key;
+              return build(m, child, depth + 1);
+            });
             next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId });
           }
           nextOrder.push(key);
@@ -2429,6 +2461,190 @@
         pollFloorSeconds: 60,
         staleAfterSeconds: 300
       },
+      "media.now_playing": {
+        docs: "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
+        scopes: [
+          "media:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {}
+        },
+        value: {
+          type: "object",
+          required: [
+            "track"
+          ],
+          properties: {
+            track: {
+              description: "What plays, or null while nothing does.",
+              oneOf: [
+                {
+                  type: "null"
+                },
+                {
+                  type: "object",
+                  required: [
+                    "title",
+                    "artist",
+                    "playing",
+                    "rate",
+                    "position_ms",
+                    "can_previous",
+                    "can_next"
+                  ],
+                  properties: {
+                    title: {
+                      type: "string"
+                    },
+                    artist: {
+                      type: "string",
+                      description: "The artist, or the site a browser tab plays from; may be empty."
+                    },
+                    artwork: {
+                      type: "string",
+                      description: "The artwork as a small data:image/png;base64 URL, for Image(); absent without artwork."
+                    },
+                    playing: {
+                      type: "boolean"
+                    },
+                    position: {
+                      type: "number",
+                      description: "Seconds in at position_ms; absent for a live stream."
+                    },
+                    duration: {
+                      type: "number",
+                      description: "The length in seconds; absent when unknown or endless."
+                    },
+                    rate: {
+                      type: "number",
+                      description: "How fast the position moves while playing (1 is normal speed)."
+                    },
+                    position_ms: {
+                      type: "number",
+                      description: "When position was read, in Unix milliseconds."
+                    },
+                    can_previous: {
+                      type: "boolean"
+                    },
+                    can_next: {
+                      type: "boolean"
+                    },
+                    source: {
+                      type: "string",
+                      description: "The name of the other app that plays; absent for cmux's own player and tabs."
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        read: {
+          op: "media.get"
+        },
+        push: [
+          "media.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
+      "system_calendar.events": {
+        docs: "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+        scopes: [
+          "system_calendar:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            days: {
+              type: "integer",
+              minimum: 1,
+              maximum: 31
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 50
+            }
+          }
+        },
+        value: {
+          type: "object",
+          required: [
+            "access",
+            "events"
+          ],
+          properties: {
+            access: {
+              enum: [
+                "granted",
+                "denied",
+                "restricted",
+                "notDetermined",
+                "unavailable"
+              ]
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "id",
+                  "title",
+                  "start",
+                  "end",
+                  "allDay",
+                  "calendar"
+                ],
+                properties: {
+                  id: {
+                    type: "string"
+                  },
+                  title: {
+                    type: "string"
+                  },
+                  start: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  end: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  allDay: {
+                    type: "boolean"
+                  },
+                  calendar: {
+                    type: "string",
+                    description: "The calendar's title"
+                  },
+                  color: {
+                    type: "string",
+                    description: "The calendar's color, #rrggbb"
+                  },
+                  location: {
+                    type: "string"
+                  },
+                  url: {
+                    type: "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        read: {
+          op: "system_calendar.events"
+        },
+        push: [
+          "system_calendar.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 300
+      },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
         scopes: [
@@ -2469,6 +2685,8 @@
   var FINAL = new Set(["scope.missing", "operation.unsupported", "signal.unknown", "signal.params", "validation.invalid"]);
   var watchStats = { reads: 0, entries: () => entries.size };
   var entries = new Map;
+  var watches = new Map;
+  var served = (e) => !e.local && ("op" in e.def.read) && typeof state.native?.watch === "function";
   var nextReader = 1;
   var validators = new Map;
   function canonical(v) {
@@ -2558,7 +2776,11 @@
       failures: 0,
       lastUse: Date.now(),
       pushLive: false,
-      liveHeard: false
+      liveHeard: false,
+      readerMounts: new Map,
+      remote: new Map,
+      local: false,
+      waiters: []
     };
     entries.set(key, e);
     return e;
@@ -2621,6 +2843,13 @@
     return reader(e.params, call);
   }
   function read2(e) {
+    if (served(e) && e.remote.size) {
+      const id = e.remote.values().next().value;
+      return new Promise((resolve) => {
+        e.waiters.push(resolve);
+        state.native.unwatch(id, true);
+      });
+    }
     if (e.inFlight) {
       e.again = true;
       return e.inFlight;
@@ -2693,7 +2922,62 @@
         read2(e);
     });
   }
+  function watchRemote(e, mount) {
+    if (e.remote.has(mount))
+      return;
+    let every = 0;
+    for (const [id, m] of e.readerMounts) {
+      const s = e.readers.get(id);
+      if (m === mount && typeof s === "number" && s > 0)
+        every = every ? Math.min(every, s) : s;
+    }
+    const id = state.native.watch(e.name, JSON.stringify(e.params), mount, every);
+    e.remote.set(mount, id);
+    watches.set(id, e);
+  }
+  function unwatchRemote(e, mount) {
+    const id = e.remote.get(mount);
+    if (id === undefined)
+      return;
+    e.remote.delete(mount);
+    watches.delete(id);
+    state.native?.unwatch?.(id, false);
+  }
+  function deliverWatch(id, json) {
+    const e = watches.get(id);
+    if (!e)
+      return;
+    const s = JSON.parse(json || "{}");
+    if (s.fallback) {
+      for (const mount of [...e.remote.keys()])
+        unwatchRemote(e, mount);
+      e.local = true;
+      for (const done of e.waiters.splice(0))
+        done();
+      if (active(e))
+        activate(e);
+      return;
+    }
+    batch(() => {
+      if (s.value !== undefined && s.value !== null)
+        e.value[1](() => share(e.value[0].peek(), s.value));
+      const error = s.error ? new CmuxError(String(s.error.code ?? "operation.failed"), String(s.error.message ?? "operation failed"), s.error.details, s.error.retryable === true) : undefined;
+      if (error && !e.error[0].peek())
+        log("warn", `watch ${e.name}: ${error.code}: ${error.message}`);
+      e.error[1](error);
+      e.status[1](s.status ?? "fresh");
+      e.updatedAt[1](typeof s.updatedAt === "number" ? s.updatedAt : null);
+    });
+    if (s.status !== "stale" || s.error !== undefined)
+      for (const done of e.waiters.splice(0))
+        done();
+  }
   function activate(e) {
+    if (served(e)) {
+      for (const mount of new Set(e.readerMounts.values()))
+        watchRemote(e, mount);
+      return;
+    }
     runWithOwner(null, () => {
       for (const stream of e.def.push) {
         try {
@@ -2716,6 +3000,8 @@
       schedule(e, Math.max(e.def.pollFloorSeconds * 1000, pollMs(e) - age));
   }
   function deactivate(e) {
+    for (const mount of [...e.remote.keys()])
+      unwatchRemote(e, mount);
     for (const off of e.subs.splice(0))
       off();
     e.pushLive = false;
@@ -2732,11 +3018,14 @@
       if (!x.inFlight)
         entries.delete(x.key);
   }
-  function join(e, id, everySeconds) {
+  function join(e, id, everySeconds, mount) {
     const first = !active(e);
     e.readers.set(id, everySeconds);
+    e.readerMounts.set(id, mount);
     if (first)
       activate(e);
+    else if (served(e))
+      watchRemote(e, mount);
     else if (everySeconds && readerPaced(e) && !e.inFlight && e.timer !== null && e.failures === 0)
       schedule(e, pollMs(e));
     let released = false;
@@ -2745,8 +3034,11 @@
         return;
       released = true;
       e.readers.delete(id);
+      e.readerMounts.delete(id);
       if (!active(e))
         deactivate(e);
+      else if (served(e) && ![...e.readerMounts.values()].includes(mount))
+        unwatchRemote(e, mount);
       else if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
         schedule(e, pollMs(e));
     };
@@ -2755,13 +3047,14 @@
     const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
     let every = option;
     const id = nextReader++;
+    const mount = state.mount ?? "";
     const resolve = (p) => {
       const found = lookup(name, p);
       every = option ?? found.pace;
       return entryFor(name, found.def, found.params);
     };
     const [current, setCurrent] = signal(resolve(typeof params === "function" ? untrack(params) : params));
-    let release = untrack(() => join(current.peek(), id, every));
+    let release = untrack(() => join(current.peek(), id, every, mount));
     let disposed = false;
     const dispose = () => {
       if (disposed)
@@ -2796,7 +3089,7 @@
             return;
           }
           const old = release;
-          release = join(e, id, every);
+          release = join(e, id, every, mount);
           setCurrent(e);
           old();
         });
@@ -2907,12 +3200,15 @@
             ctx.now = now;
           }
           state.context = ctx;
+          state.mount = mountId;
           mount(mountId, () => render(ctx), ctx);
           state.context = null;
+          state.mount = null;
         });
         return "";
       } catch (e) {
         state.context = null;
+        state.mount = null;
         widgetClocks.delete(mountId);
         unmount(mountId);
         const message = describe2(e);
@@ -2939,11 +3235,13 @@
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
       state.context = record.mount.context;
+      state.mount = mountId;
       try {
         dispatchEvent(record, event, payload);
       } finally {
         state.gesture = null;
         state.context = null;
+        state.mount = null;
       }
     }, undefined);
     function dispatchEvent(record, event, payload) {
@@ -3005,6 +3303,7 @@
     g.__cmuxAppPaletteDetail = (scopeId, itemId, reqId) => entry("paletteDetail", () => paletteDetail(scopeId, itemId, reqId), undefined);
     g.__cmuxAppResolve = (cbId, ok, json) => entry("resolve", () => resolveCall(cbId, ok, json), undefined);
     g.__cmuxAppEvent = (subId, json) => entry("event", () => deliverEvent(subId, json), undefined);
+    g.__cmuxAppWatch = (watchId, json) => entry("watch", () => deliverWatch(watchId, json), undefined);
     g.__cmuxAppTimer = (timerId) => entry("timer", () => fireTimer(timerId), undefined);
     g.__cmuxAppFlush = () => entry("flush", flush, undefined);
     g.__cmuxAppRuntimeVersion = RUNTIME_VERSION;

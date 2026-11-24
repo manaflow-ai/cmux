@@ -78,6 +78,7 @@ extension IPhoneHostService {
         }
         defer {
             followWorkspaceFolders()
+            followBrowserWorkspaceSource()
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }

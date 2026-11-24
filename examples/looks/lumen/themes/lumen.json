@@ -1,0 +1,105 @@
+// Lumen, dark (the default): an app made of light. The window is system glass in one neutral tint over
+// your own wallpaper; the sidebar, tab bar and title area are that glass; the work sits on a calm,
+// near-solid plane framed by it. No painted rims, sheens or glows: depth is the only hierarchy.
+{
+  "name": "Lumen",
+  "description": "Dark: neutral window glass over your wallpaper, a calm 0.96 content plane, one soft blue.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the one neutral tint of both materials. foreground: the text. selection: the accent dimmed until the text
+  // holds 8.9:1 on it.
+  // accent: links, focus and Send. The terminal palette is quiet and neutral, each colour solved in
+  // OKLCH so 1 to 7 and 9 to 15 hold 4.5:1 or more (8, the dim gray, 3:1) over the content plane
+  // drawn at 0.96 over a pure black and a pure white backdrop (minimum 4.7:1).
+  "colors": {
+    "background": "#1b1c1f",
+    "foreground": "#f2f3f5",
+    "selection": "#5b769b",
+    "accent": "#7fb2ff",
+    "0": "#444649",
+    "1": "#c97a73",
+    "2": "#639c65",
+    "3": "#ac8b42",
+    "4": "#6491cb",
+    "5": "#ad7eb8",
+    "6": "#269ea3",
+    "7": "#acb0b5",
+    "8": "#707377",
+    "9": "#e5948d",
+    "10": "#7db77f",
+    "11": "#c6a55c",
+    "12": "#7dace7",
+    "13": "#c998d4",
+    "14": "#49b9be",
+    "15": "#f2f3f5",
+    "cursor": "#7fb2ff"
+  },
+  "appearance.accent": "theme",
+
+  // Window glass: the window and all chrome on it. System glass, your own wallpaper behind it, a
+  // neutral tint that never takes the desktop's colour cast. 0.84 is the least fill that keeps
+  // chrome text readable over light, dark and busy pictures.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.84,
+  "appearance.wallpaperTint": false,
+
+  // Layout: the content is one inset plane on the glass, no outline around a lone pane, no
+  // shade, no sidebar line: the change of material is the edge. Lines stay only between two
+  // content panes, where both sides are the same material.
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "default",
+  "appearance.sidebarSurface": "same",
+  "sidebar.border": false,
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.focusIndicator": "tabs",
+  // Two tone is material, not hue: the selected tab takes the content plane's fill and joins it.
+  "appearance.twoTone": "off",
+  "appearance.cornerFlush": "flush",
+  // A selected row spends one lever, its fill.
+  "appearance.selection": "neutral",
+
+  // Corners from one rule, inner = outer minus inset: a 16 pt window corner, an 8 pt gap, 8 pt
+  // panes.
+  "layout.cornerPadding": 8,
+  "layout.paneCornerRadius": 8,
+
+  // The sidebar and the tab bar show the window glass: the same tint at the window's own fill, so
+  // they add no second tone (a surface's opacity is its fill over the glass, in place of the
+  // window's, not on top of it).
+  "sidebar.look": "cmux",
+  "sidebar.style": "standard",
+  "sidebar.sectionLook": "quiet",
+  "appearance.surfaces.sidebar.color": "#1b1c1f",
+  "appearance.surfaces.sidebar.opacity": 0.84,
+  "appearance.surfaces.tabBar.color": "#1b1c1f",
+  "appearance.surfaces.tabBar.opacity": 0.84,
+
+  // Content: every work surface is the calm near-solid plane, fill 0.96, no blur of its own.
+  "appearance.surfaces.agentPane.color": "#1b1c1f",
+  "appearance.surfaces.agentPane.opacity": 0.96,
+  "appearance.surfaces.terminal.color": "#1b1c1f",
+  "appearance.surfaces.terminal.opacity": 0.96,
+  "appearance.surfaces.editor.color": "#1b1c1f",
+  "appearance.surfaces.editor.opacity": 0.96,
+  "appearance.surfaces.diff.color": "#1b1c1f",
+  "appearance.surfaces.diff.opacity": 0.96,
+  "appearance.surfaces.markdown.color": "#1b1c1f",
+  "appearance.surfaces.markdown.opacity": 0.96,
+  "appearance.surfaces.browserChrome.color": "#1b1c1f",
+  "appearance.surfaces.browserChrome.opacity": 0.96,
+  "appearance.surfaces.docks.color": "#1b1c1f",
+  "appearance.surfaces.docks.opacity": 0.96,
+  "appearance.surfaces.settings.color": "#1b1c1f",
+  "appearance.surfaces.settings.opacity": 0.96,
+  "appearance.surfaces.internalPage.color": "#1b1c1f",
+  "appearance.surfaces.internalPage.opacity": 0.96,
+  "appearance.surfaces.newTabPage.color": "#1b1c1f",
+  "appearance.surfaces.newTabPage.opacity": 0.96,
+  "appearance.surfaces.home.color": "#1b1c1f",
+  "appearance.surfaces.home.opacity": 0.96,
+
+  // The address field: if you turn its glass on, it takes no tint of the accent.
+  "browser.omnibar.glassTint": "none"
+}
