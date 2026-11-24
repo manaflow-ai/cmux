@@ -191,6 +191,9 @@ pub(super) async fn route(
     if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::surgery::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }

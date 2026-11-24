@@ -2736,7 +2736,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                routed(permission_pending(&ev.session_id, rec, "attach")),
+                routed(permission_pending(&ev.session_id, rec, "attach", ev.remote.is_none())),
             ));
         }
         if let Some(following) = &sub.rows
@@ -2868,7 +2868,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.send_row(
                 &Message::notification(
                     method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch"),
+                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
                 ),
                 outbound::Row::After(row_key()),
             );
@@ -2997,6 +2997,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;

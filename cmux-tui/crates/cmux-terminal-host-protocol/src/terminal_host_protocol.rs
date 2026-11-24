@@ -164,7 +164,7 @@ impl TerminalExit {
         Self { outcome, exited_at_ms }
     }
 
-    pub(crate) fn is_valid(&self) -> bool {
+    pub fn is_valid(&self) -> bool {
         match &self.outcome {
             TerminalExitOutcome::Exit { code } => *code >= 0,
             TerminalExitOutcome::Signal { signal, .. } => *signal > 0,
@@ -180,7 +180,7 @@ impl TerminalExit {
 /// Callers that retain an owning guard can use the boolean to avoid issuing a
 /// second kill against a PID that may already have been reused after a
 /// successful wait.
-pub(crate) fn wait_for_native_child_status_with_reap_result(
+pub fn wait_for_native_child_status_with_reap_result(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;
@@ -632,27 +632,27 @@ impl From<io::Error> for ProtocolError {
 /// Copy the `N` bytes at `offset` out of `bytes`, or `None` when `bytes` is
 /// too short. Every fixed-layout decoder reads through this so a short or
 /// lying payload is an error, never an out-of-bounds panic.
-pub(crate) fn wire_array<const N: usize>(bytes: &[u8], offset: usize) -> Option<[u8; N]> {
+pub fn wire_array<const N: usize>(bytes: &[u8], offset: usize) -> Option<[u8; N]> {
     bytes.get(offset..offset.checked_add(N)?)?.try_into().ok()
 }
 
-pub(crate) fn wire_u8(bytes: &[u8], offset: usize) -> Option<u8> {
+pub fn wire_u8(bytes: &[u8], offset: usize) -> Option<u8> {
     bytes.get(offset).copied()
 }
 
-pub(crate) fn wire_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+pub fn wire_u16(bytes: &[u8], offset: usize) -> Option<u16> {
     wire_array(bytes, offset).map(u16::from_le_bytes)
 }
 
-pub(crate) fn wire_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+pub fn wire_u32(bytes: &[u8], offset: usize) -> Option<u32> {
     wire_array(bytes, offset).map(u32::from_le_bytes)
 }
 
-pub(crate) fn wire_u64(bytes: &[u8], offset: usize) -> Option<u64> {
+pub fn wire_u64(bytes: &[u8], offset: usize) -> Option<u64> {
     wire_array(bytes, offset).map(u64::from_le_bytes)
 }
 
-pub(crate) fn wire_i32(bytes: &[u8], offset: usize) -> Option<i32> {
+pub fn wire_i32(bytes: &[u8], offset: usize) -> Option<i32> {
     wire_array(bytes, offset).map(i32::from_le_bytes)
 }
 
@@ -730,11 +730,7 @@ fn encode_header(frame: &Frame, max_payload: usize) -> Result<[u8; HEADER_LEN], 
 /// The header of a frame with no flags, request id or sequence (an `Input` key), as [`write_frame`] writes it,
 /// built on the stack: the inline key write sends it and the payload in one call, with no copy of the payload.
 /// `version` is the connection's (never 0) and `payload_len` at most [`MAX_FRAME_PAYLOAD`].
-pub(crate) fn input_frame_header(
-    version: u16,
-    kind: MessageKind,
-    payload_len: u32,
-) -> [u8; HEADER_LEN] {
+pub fn input_frame_header(version: u16, kind: MessageKind, payload_len: u32) -> [u8; HEADER_LEN] {
     let [m0, m1, m2, m3] = MAGIC;
     let [v0, v1] = version.to_le_bytes();
     let [k0, k1] = (kind as u16).to_le_bytes();
@@ -915,7 +911,7 @@ impl FrameDecoder {
 }
 
 mod frame_batch;
-pub(crate) use frame_batch::{MAX_BATCH_BYTES, MAX_BATCH_FRAMES, write_frames};
+pub use frame_batch::{MAX_BATCH_BYTES, MAX_BATCH_FRAMES, write_frames};
 
 #[cfg(test)]
 mod tests;
