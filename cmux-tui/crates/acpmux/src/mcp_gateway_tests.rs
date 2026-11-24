@@ -338,6 +338,7 @@ async fn a_gateway_waits_for_a_live_predecessor_of_its_own_home() {
 /// which keeps the port. The copy's start takes a free port at once instead of waiting
 /// HANDOVER_WAIT, which made `daemon start` miss its readiness budget (own-machines-e2e
 /// clone-own-identity, 2026-11-22).
+#[cfg(unix)] // a holder needs the process start time (`process_identity`, Unix only)
 #[tokio::test]
 async fn a_copied_home_does_not_wait_for_the_port_its_original_holds() {
     let original = tempfile::tempdir().unwrap();
@@ -354,6 +355,7 @@ async fn a_copied_home_does_not_wait_for_the_port_its_original_holds() {
 
 /// A holder that is gone (its pid now another process, or none) never lets the port go: whatever
 /// holds it is another program, so the gateway moves at once.
+#[cfg(unix)] // a holder needs the process start time (`process_identity`, Unix only)
 #[tokio::test]
 async fn a_port_its_gone_holder_left_to_another_program_is_not_waited_for() {
     let home = tempfile::tempdir().unwrap();

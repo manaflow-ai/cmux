@@ -5384,6 +5384,20 @@ class TerminalEventsRequest:
 
 
 @dataclass(frozen=True)
+class TerminalFindRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-find/request'
+    surface: Id
+    query: str
+    before: Union[int, None, MissingType] = field(default=MISSING)
+    case_sensitive: Union[bool, MissingType] = field(default=MISSING)
+    epoch: Union[int, None, MissingType] = field(default=MISSING)
+    max_matches: Union[int, None, MissingType] = field(default=MISSING)
+    page_rows: Union[int, None, MissingType] = field(default=MISSING)
+    regex: Union[bool, MissingType] = field(default=MISSING)
+    whole_word: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class TerminalHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-history/request'
     surface: Id
@@ -7335,6 +7349,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalCommandContextRequest',
     'TerminalEventsRequest',
+    'TerminalFindRequest',
     'TerminalHistoryRequest',
     'TerminalLastCommandRequest',
     'TerminalPortsRequest',

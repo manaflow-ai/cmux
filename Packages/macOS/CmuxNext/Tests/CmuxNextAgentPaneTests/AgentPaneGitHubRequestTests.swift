@@ -203,4 +203,10 @@ struct AgentPaneGitHubRequestTests {
     func aGitHubFolderNamesOneRepository(folder: String, repository: String?) {
         #expect(AgentPaneGitHubFolder.repository(folder) == repository)
     }
+    @Test func cloneRequiresTheURLAndIdempotencyKey() {
+        let url = "https://git.example.test/acme/api"
+        #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url, "idempotency_key": "k1"]])
+                == .gitHub(.cloneURL(url: url, key: "k1")))
+        #expect(AgentPaneRequest(body: ["method": "repo.clone", "params": ["url": url]]) == .unsupported("repo.clone"))
+    }
 }
