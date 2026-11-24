@@ -580,3 +580,58 @@ async fn a_relay_join_the_proxy_policy_refuses_is_tried_again() {
     assert!(!failure.is_final());
     assert_eq!(server.relay_joins(), 0);
 }
+
+/// The Mac's network drops UDP, so its trickled answer takes its own TURN
+/// allocation after the tunnel starts, and that allocation is slow (its TLS
+/// connection takes 3.2 s, past the relay's 3 s). The relay waits for it: the
+/// Mac joins neither on its own clock nor on the phone's ask while its TURN
+/// allocation is still under way, and once that allocation works the link
+/// rides it, with the Mac never on the relay. (A UDP allocation capped at
+/// 3 s by #52961, after 250 ms of STUN silence, overruns the relay's 3 s the
+/// same way.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    turn.delay_streams(Duration::from_millis(3200));
+    // Nothing answers STUN on the discard port: the Mac's UDP looks blocked.
+    let silent_stun =
+        cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
+    let mac_options = DialOptions {
+        ice_servers: vec![turn.ice.clone(), silent_stun],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        drop_udp_to: Some(|addr| !cmux_mobile_link::testing::is_test_relay(addr)),
+        ..options()
+    };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let leave = Some(Duration::from_secs(2));
+    let phone =
+        DialOptions { relay: relay(&rig.server, &rig.phone_id), relay_leave_after: leave, ..options() };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the Mac's TURN allocation");
+    echo(&connected.link, 2).await;
+    assert_eq!(turn.stream_connections(), 1, "the Mac's allocation over TLS");
+    // Past the relay's window after that allocation: still no Mac on it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        echo(&connected.link, 1).await;
+        let path = *connected.path.borrow();
+        let phone_left =
+            cmux_mobile_link::dial::wireguard::relay_held(&connected.session_id, true) != Some(true);
+        if matches!(path, LinkPath::Turn | LinkPath::TurnTls) && phone_left {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "path {path:?}, phone left the relay: {phone_left}");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    echo(&connected.link, 1).await;
+    assert!(
+        rig.server.relay_joins_of(&rig.mac_id).is_empty(),
+        "the Mac joined the relay while its TURN allocation was under way"
+    );
+    assert!(matches!(rig.mac_path(), Some(LinkPath::Turn | LinkPath::TurnTls)), "{:?}", rig.mac_path());
+    connected.link.close("done");
+}
