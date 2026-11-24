@@ -2627,6 +2627,21 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(self.names("regressions"), [])
         self.assertIn(name, self.state["pending"])
 
+    def test_an_open_regression_keeps_its_newest_reading(self):
+        # The probe and NOW read last_p95 and last_at: a later run's value, not the one the regression was detected at.
+        for v in (19.5, 20.0, 21.0):
+            self.measured(v)
+        self.measured(45.0)
+        self.assertEqual(self.measured(46.0), "regressed")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (46.0, self.state["history"][-1]["at"]))
+        self.assertEqual(self.measured(52.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (52.0, self.state["history"][-1]["at"]), "still worse")
+        self.assertEqual(self.measured(20.0), "still")
+        reg = self.state["regressions"][0]
+        self.assertEqual((reg["last_p95"], reg["last_at"]), (20.0, self.state["history"][-1]["at"]), "recovering")
+
     def test_a_candidate_never_moves_row_ok_or_the_baseline(self):
         # Review 1, finding 4: row_ok moved with every unconfirmed value, so a later confirmation blamed a newer commit.
         for v in (20.0, 21.0, 30.0, 31.0):
