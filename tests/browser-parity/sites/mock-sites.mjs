@@ -727,7 +727,44 @@ function atlassianHome(req, url) {
   return { status: 404, json: { status: 404 } };
 }
 
+// A Meet call page: captions off until "Turn on captions" is clicked, then
+// a caption panel shaped like Meet's (role=region, entries "speaker\ntext")
+// whose last line grows word by word the way Meet's live captions do.
+function meet(req, url) {
+  if (url.pathname !== "/abc-defg-hij") return { html: html("<p>Meet home</p>", "Google Meet") };
+  return {
+    html: html(`<button aria-label="Leave call">Leave</button>
+      <button id="cc" aria-label="Turn on captions (c)">CC</button>
+      <script>
+        const script = [["Ada", "Can the agent look at the flaky test"], ["Grace", "Sure I will open the PR"]];
+        document.getElementById("cc").addEventListener("click", (e) => {
+          e.currentTarget.setAttribute("aria-label", "Turn off captions (c)");
+          const panel = document.createElement("div");
+          panel.setAttribute("role", "region");
+          panel.setAttribute("aria-label", "Captions");
+          const list = document.createElement("div");
+          panel.appendChild(list);
+          document.body.appendChild(panel);
+          let line = 0, word = 0, entry = null;
+          const tick = setInterval(() => {
+            if (line >= script.length) return clearInterval(tick);
+            const [who, said] = script[line];
+            const words = said.split(" ");
+            if (!entry) {
+              entry = document.createElement("div");
+              entry.innerHTML = "<img alt=''><div>" + who + "</div><div class='t'></div>";
+              list.appendChild(entry);
+            }
+            entry.querySelector(".t").textContent = words.slice(0, ++word).join(" ");
+            if (word >= words.length) (line++, (word = 0), (entry = null));
+          }, 60);
+        });
+      </script>`, "Meet - abc-defg-hij"),
+  };
+}
+
 const HOSTS = {
+  "meet.google.com": meet,
   "accounts.google.com": accounts,
   "docs.google.com": docs,
   "drive.usercontent.google.com": driveContent,
