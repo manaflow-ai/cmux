@@ -91,8 +91,13 @@ public final class InPlaceTextSelection: NSObject {
         overlay.removeFromSuperview()
         outsideTap.view?.removeGestureRecognizer(outsideTap)
         heldLabel?.alpha = 1
+        let shown = heldLabel
         heldLabel = nil
         if Self.current === self { Self.current = nil }
+        // A table cell keeps its accessibility children until told its layout changed: without
+        // this, VoiceOver (and UI tests) still found the removed stand-in after the selection
+        // ended (Feed rows, 2026-11-24). Focus goes to the text that shows again.
+        UIAccessibility.post(notification: .layoutChanged, argument: shown)
         onChange?(false)
     }
 
