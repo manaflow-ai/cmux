@@ -113,6 +113,33 @@ class ChangedPathsTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_mac_uses_the_exact_base_scripts_without_a_history_fetch(self):
+        repo = self.fx.repo
+        write(repo, "scripts/cmux-next/export.sh", "base exporter\n")
+        git(repo, "add", "scripts")
+        git(repo, "commit", "-qm", "base exporter")
+        base = git(repo, "rev-parse", "HEAD")
+        tree = git(repo, "rev-parse", "HEAD:scripts/cmux-next")
+        git(repo, "remote", "add", "origin", str(repo))
+        script = step("action-exports", "Autofix scripts from the base")["run"]
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                if changed:
+                    write(repo, "scripts/cmux-next/export.sh", "PR exporter\n")
+                    git(repo, "commit", "-qam", "change the exporter")
+                target = self.root / str(changed)
+                trace = target / "git-trace"
+                result, _ = self.fx.run(script, cwd=repo, temp=target, BASE_SCRIPTS_TREE=tree,
+                                        BASE_SHA=base, GIT_TRACE=str(trace))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                restored = target / "autofix/scripts/cmux-next/export.sh"
+                self.assertEqual(restored.read_text(), "base exporter\n")
+                self.assertEqual("git fetch" in trace.read_text(), changed)
+        mac = WORKFLOW["jobs"]["action-exports"]
+        self.assertIn("needs.action-areas.result == 'success'", mac["if"])
+        self.assertIsNotNone(step("action-areas", "Refuse stale generator inputs"))
+        self.assertNotIn("Refuse stale generator inputs", [s.get("name") for s in mac["steps"]])
+
     def test_git_lists_the_files_api_set_in_both_jobs(self):
         for job in ("action-areas", "repair"):
             temp = self.root / job

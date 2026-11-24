@@ -136,6 +136,7 @@ jobs:
       actions: ${{ steps.areas.outputs.actions }}
       settings: ${{ steps.areas.outputs.settings }}
       changed: ${{ steps.changed.outputs.changed }}
+      base_scripts_tree: ${{ steps.base-scripts.outputs.tree }}
       # Whether the repair job has anything to repair (any autofix-areas.sh key on).
       repairs: ${{ steps.areas.outputs.repairs }}
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
@@ -197,6 +198,7 @@ jobs:
           fi
 
       - name: Autofix scripts from the base
+        id: base-scripts
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -211,6 +213,7 @@ jobs:
             git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
+          echo "tree=$(git rev-parse "$BASE_SHA:scripts/cmux-next")" >> "$GITHUB_OUTPUT"
 
       - name: Refuse stale generator inputs
         env:
@@ -477,12 +480,7 @@ jobs:
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
-      # The generator check needs the merge base, not historical blobs: with every
-      # blob this fetch put 5.3 GiB of all-branch history into the mini's reused
-      # workspace, which every later job on that runner kept (cmux14, 2026-10-21).
-      # Depth 1, then only the base's and the head's commits (next step): fetch-depth 0 fetched every
-      # branch's commits and trees (about 33,000 refs, 0.6 GB) into a workspace the last step wipes, so each
-      # run paid 2.3 to 15 min of checkout (median 4.8 of 40 runs, 2026-11-22 00:15-02:15Z) inside its 40-minute limit.
+      # action-areas validated the immutable merge tree against its base before this job could run.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
@@ -495,25 +493,23 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      # The generator check needs the merge base of the base and the head: their commit graphs, no trees
-      # or blobs (tree:0). The few trees and blobs the check, the base scripts and the exporters read are
-      # fetched on use, as blob:none already fetched blobs. 6 s and 66 MB against 79 s and 595 MB for
-      # the all-branch fetch, from one host on cmux#49695's merge commit.
-      - name: Fetch the base and head commit graphs
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA"
-
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
       - name: Autofix scripts from the base
         env:
+          BASE_SCRIPTS_TREE: ${{ needs.action-areas.outputs.base_scripts_tree }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
+          # An identical Git tree includes the base's helpers and executable bits.
+          # Restore it to the separate scripts directory before running any builds.
+          if [[ -n "$BASE_SCRIPTS_TREE" && "$(git rev-parse HEAD:scripts/cmux-next)" == "$BASE_SCRIPTS_TREE" ]]; then
+            git --work-tree="$RUNNER_TEMP/autofix" restore --source=HEAD --worktree -- scripts/cmux-next
+            exit 0
+          fi
+          git fetch --no-tags --no-recurse-submodules --depth=1 --filter=blob:none origin "$BASE_SHA"
           # restore, not git archive: archive fetched every blob one request at a time.
           # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
           # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
@@ -523,15 +519,6 @@ jobs:
             git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
-
-      - name: Refuse stale generator inputs
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          checker="$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh"
-          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
-          "$checker" --base-ref "$BASE_SHA" --merge-ref HEAD
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
