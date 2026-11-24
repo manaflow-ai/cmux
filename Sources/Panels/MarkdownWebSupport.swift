@@ -460,6 +460,10 @@ final class MarkdownRendererSession {
         ownedCoordinator.close()
     }
 
+    func reloadLocalImages() {
+        ownedCoordinator.reloadLocalImages()
+    }
+
     func renderedHTML(markdown: String? = nil) async -> String? {
         await ownedCoordinator.renderedHTML(markdown: markdown)
     }
