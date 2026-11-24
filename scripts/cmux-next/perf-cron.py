@@ -3449,7 +3449,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         streak = [v for v in prev.get("recovering") or [] if isinstance(v, dict)]
         streak.append({"sha": cur["sha"], "p95": p95, "at": iso(t), "run_url": run_url})
         if len(streak) < RECOVER_RUNS:
-            regressions.append({**prev, "recovering": streak})
+            # Its newest reading, so the probe and NOW read this run's value, not the one it was detected at.
+            regressions.append({**prev, "recovering": streak, "last_p95": p95, "last_at": iso(t)})
         else:
             closing[name] = streak[:-1]
     for r in [r for r in regs if r["name"] in old] + confirmed:
@@ -3464,6 +3465,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             r["range"] = {"good": start, "bad": first, "skip": [], "steps": 0}
             r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
         r["confirmed"] = True
+        # The newest reading of an open regression (this run's value), as a recovering one keeps above.
+        r["last_p95"], r["last_at"] = r["p95"], iso(t)
         regressions.append(r)
     now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
@@ -4138,6 +4141,14 @@ def prepare_ghostty(root, env, run=run_capped, timeout=900):
     return env, tail
 
 
+WAKEUP_LINE_RE = re.compile(r"(left alone for|at rest for) [0-9.]+ s: [0-9]+ wakeups \(")
+
+
+def webui_wakeup_lines(stdout, limit=40):
+    """The web UI suite's bench lines that count and name an idle page's wakeups (pure), at most LIMIT."""
+    return [line.strip()[:1200] for line in (stdout or "").splitlines() if WAKEUP_LINE_RE.search(line)][:limit]
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -4167,6 +4178,11 @@ def cmd_run_linux_part(o):
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":
+            # The benches' own lines naming what woke an idle page (chat-switch's "left alone for 10 s: N wakeups
+            # (...); <sources>"): the report keeps only the counts, so the job log carries the callbacks behind a
+            # nonzero rest_wakeups (goal idle-wakeups) instead of a rerun to find them.
+            for line in webui_wakeup_lines(stdout):
+                print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 report = value
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
