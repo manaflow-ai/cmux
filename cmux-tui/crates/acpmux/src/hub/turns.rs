@@ -1727,6 +1727,9 @@ impl Hub {
         self.forum_turn_end(session, &told, result.is_ok());
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
         let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
+        // A cut `/compact` is resent as itself, not continued (`auto_resume::resent_command`).
+        let cut_text = super::session::prompt_text(&run.blocks);
+        let slash = super::auto_resume::resent_command(&cut_text);
         let cut = match (&result, detached) {
             (Err(e), false) if carried.is_none() && goes_on => Some(super::auto_resume::CutTurn {
                 // A family message's continuation speaks for its sender (`is_family`).
@@ -1744,6 +1747,7 @@ impl Hub {
                     e.data.as_ref(),
                     now_ms(),
                 ),
+                slash,
             }),
             _ => None,
         };
@@ -2726,10 +2730,12 @@ impl Hub {
         self.release_former_names(session, &name, &old);
         let (old, titled) = {
             let mut m = session.meta.lock().unwrap();
+            let prev_source = m.title_source.clone();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
             let titled = match naming {
                 Naming::Hand => super::task_names::name_in_words(&name).inspect(|title| {
+                    super::title_log::renamed(session, &m.harness, prev_source.as_deref());
                     m.title = Some(title.clone());
                     m.title_source = Some(super::titles::NAMED.to_owned());
                     m.title_prompt = None;
