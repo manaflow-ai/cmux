@@ -111,6 +111,32 @@ export function opensUp(y: number, rows: number, viewportHeight = window.innerHe
   return viewportHeight - y < need && y > viewportHeight - y;
 }
 
+/**
+ * Where a page-drawn menu of `size` sits for a pointer at `point`: below it, above it when there is no
+ * room below and more above (the same call `opensUp` makes), and capped at the larger space, scrolling,
+ * when neither side holds it.
+ */
+export function placeMenu(
+  point: { x: number; y: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number; maxHeight: number | undefined } {
+  const margin = 4;
+  const below = viewport.height - point.y - margin;
+  const above = point.y - margin;
+  const up = size.height > below && above > below;
+  const room = Math.max(below, above);
+  const capped = size.height > room;
+  const height = capped ? room : size.height;
+  const left = point.x + size.width > viewport.width - margin ? point.x - size.width : point.x;
+  const top = up ? point.y - height : point.y;
+  return {
+    left: Math.max(margin, Math.min(left, viewport.width - size.width - margin)),
+    top: Math.max(margin, Math.min(top, viewport.height - height - margin)),
+    maxHeight: capped ? room : undefined,
+  };
+}
+
 /** The control a closed menu gives focus back to. */
 const RETURN_FOCUS =
   "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
@@ -243,7 +269,7 @@ export function ContextMenu({
     { side: point && opensUp(point.y, items.length) ? "top" : "bottom", align: "start", gap: 0, shell: "self" },
   );
   // Where the menu sits, measured before it paints.
-  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  const [place, setPlace] = useState<{ left: number; top: number; maxHeight: number | undefined } | null>(null);
   useLayoutEffect(() => {
     const node = menu.current;
     if (!point || !node) {
@@ -251,12 +277,7 @@ export function ContextMenu({
       return;
     }
     const { width, height } = node.getBoundingClientRect();
-    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
-    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
-    setPlace({
-      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
-      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
-    });
+    setPlace(placeMenu(point, { width, height }, { width: window.innerWidth, height: window.innerHeight }));
   }, [point]);
   // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
   useLayoutEffect(() => {
@@ -595,6 +616,7 @@ export function ContextMenu({
                   left: place?.left ?? point.x,
                   top: place?.top ?? point.y,
                   visibility: place ? undefined : "hidden",
+                  ...(place?.maxHeight ? { maxHeight: place.maxHeight, overflowY: "auto" as const } : {}),
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
