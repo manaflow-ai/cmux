@@ -114,8 +114,25 @@ const MAX_COPIES: u8 = 4;
 /// bytes of each group (its datagrams and their repair) stay within this
 /// multiple of its data bytes ([`rs_parity_datagrams`]).
 const MAX_AGREED_OVERHEAD: u32 = 4;
+/// Auto's floor under its first loss. Auto starts with repair off, so the
+/// first loss of a keystroke's echo (and any after Auto turned itself off)
+/// waits for TCP: a round trip when later segments draw a SACK, a 200 ms or
+/// longer timeout when none does. At 1 % loss that is a stall every second or
+/// two on a cellular path. While repair is off, each interactive datagram of at
+/// most [`FLOOR_MAX_DATAGRAM`] bytes (a keystroke, its echo, an ACK) is
+/// grouped with the ones sent in the same pass and followed by one
+/// Reed-Solomon parity, which rebuilds one lost member of the group a one-way
+/// delay after the loss. Bulk datagrams and anything bigger send nothing
+/// extra, so a clean download still sends the bytes it sends with repair off.
+/// The wire is unchanged: the receiver rebuilds from trusted parity
+/// whatever its own mode (a build without ultra mode refuses the parity).
+pub(crate) const FLOOR_MODE: UltraMode = UltraMode::Rs { group: FLOOR_GROUP, parity: 1 };
+const FLOOR_GROUP: u8 = 4;
+/// Longest datagram (header included) the floor protects.
+const FLOOR_MAX_DATAGRAM: usize = 256;
 /// The environment variable that turns the mode on.
 pub const ENV: &str = "CMUX_WG_ULTRA";
+
 /// `none` turns the tunnel's TCP congestion control off, so loss never
 /// shrinks a window and each stream runs at what its window and the pacer
 /// allow (Hysteria's "Brutal" idea, bounded by the 256 KiB window). For
@@ -690,6 +707,9 @@ pub(crate) struct UltraUnderlay {
     /// The network is metered (or the peer's is): repair bytes stay within
     /// `ultra_auto::METERED_OVERHEAD` times the data.
     metered: bool,
+    /// Auto's floor: while repair data is off, a tiny interactive datagram
+    /// still gets one parity ([`FLOOR_MODE`]). See [`UltraUnderlay::set_floor`].
+    floor: bool,
     /// Loss on the way in, for Auto.
     meter: LossMeter,
     group: Option<Group>,
@@ -727,6 +747,7 @@ impl UltraUnderlay {
             mode,
             configured: mode,
             metered: false,
+            floor: false,
             meter: LossMeter::default(),
             group: None,
             received: Kept::default(),
@@ -760,7 +781,15 @@ impl UltraUnderlay {
         self.forward(datagram, priority);
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
         match self.mode {
-            UltraMode::Off => {}
+            UltraMode::Off => {
+                if self.floor
+                    && priority == Some(Priority::Interactive)
+                    && datagram.len() <= FLOOR_MAX_DATAGRAM
+                    && let Some((index, counter)) = data_id(datagram)
+                {
+                    self.add_member(index, counter, datagram, priority, FLOOR_GROUP);
+                }
+            }
             UltraMode::Duplicate { copies } => {
                 for _ in 1..copies {
                     self.forward(datagram, priority);
@@ -821,7 +850,8 @@ impl UltraUnderlay {
 
     fn close_group(&mut self) {
         let Some(group) = self.group.take() else { return };
-        let parities = match self.mode {
+        let mode = if self.mode == UltraMode::Off && self.floor { FLOOR_MODE } else { self.mode };
+        let parities = match mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
             UltraMode::Rs { group: k, parity: m } => {
                 let cap = if self.metered {
@@ -871,6 +901,14 @@ impl UltraUnderlay {
         self.mode = mode;
         self.decoding |= matches!(mode, UltraMode::Fec { .. } | UltraMode::Rs { .. });
         turned_on
+    }
+
+    /// Auto's floor on or off (see [`FLOOR_MODE`]): set for a tunnel in Auto.
+    pub(crate) fn set_floor(&mut self, floor: bool) {
+        if floor != self.floor {
+            self.close_group();
+            self.floor = floor;
+        }
     }
 
     /// Keep repair bytes within the metered cap, or stop keeping them.

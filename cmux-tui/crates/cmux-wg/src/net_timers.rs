@@ -139,7 +139,8 @@ impl Driver {
         let sample = self.underlay.take_loss();
         let resent = self.pacer.take_resent();
         let was_on = auto.is_on();
-        if !auto.observe(Instant::now(), sample, resent) {
+        let changed = auto.observe(Instant::now(), sample, resent);
+        if !changed {
             return;
         }
         if !was_on && auto.is_on() {
