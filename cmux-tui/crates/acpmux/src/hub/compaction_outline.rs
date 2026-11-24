@@ -73,7 +73,9 @@ impl Hub {
         let spawned =
             std::thread::Builder::new().name("acpmux-compaction-outline".into()).spawn(move || {
                 lower_this_thread();
-                match hub.compaction_outline_record(&session, summary_seq) {
+                let t0 = std::time::Instant::now(); eprintln!("DIAG outline thread start");
+                let r = hub.compaction_outline_record(&session, summary_seq); eprintln!("DIAG outline thread done {:?} ok={}", t0.elapsed(), r.is_ok());
+                match r {
                     Ok(record) => {
                         hub.append(&session, "mux", OUTLINE_KIND, record);
                     }
