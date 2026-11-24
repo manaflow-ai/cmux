@@ -4,10 +4,12 @@
 // title 52 from the top, its sentence 8 below, the body 28 below that, and a footer 28 from the
 // bottom with Back (over the import explainers), Skip and the filled primary. Computer Use has its
 // own layout. Return presses the primary (not on a repeat, nor when a text field, a focused button
-// or an open popup owns it); Escape skips.
+// or an open popup owns it); Escape skips. While the webview is offline, one line under the title
+// says so (sign-ins and downloads work once it is back); it goes by itself when the network returns.
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
 import type { ProviderReadinessProps } from "../shared/signIn/ProviderReadiness";
@@ -15,7 +17,7 @@ import { ComputerUseStep } from "./ComputerUseStep";
 import { ImportSources, ImportStep } from "./ImportStep";
 import { DEFAULT_MAKE_IT_YOURS_LOOK, MakeItYoursStep, type MakeItYoursLook } from "./MakeItYoursStep";
 import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep } from "./ops";
-import { OnboardingContext, useOnboarding } from "./parts";
+import { OnboardingContext, useOnboarding, useOnline } from "./parts";
 import { useOnboardingReadiness } from "./signInReadiness";
 import type { OnboardingStore } from "./store";
 import { MAKE_IT_YOURS_SCREENS, walkValues, type MakeItYoursScreen, type WalkValues } from "./walk";
@@ -110,6 +112,7 @@ function Scaffold({
   walk,
   opened,
   readiness,
+  online,
 }: {
   state: OnboardingState;
   agentsLook: AgentsLook;
@@ -117,6 +120,7 @@ function Scaffold({
   walk: WalkNav;
   opened: WalkValues | null;
   readiness?: ProviderReadinessProps;
+  online: boolean;
 }) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
@@ -131,6 +135,8 @@ function Scaffold({
         body: "onboarding.makeItYours.body",
       };
   const sources = !agents && !make && state.importer != null ? <ImportSources importer={state.importer} /> : null;
+  // A network blip says nothing; only an outage past the shared quiet bound shows the line.
+  const offlineShown = useConnectionQuiet(!online);
   return (
     <div className="onb-scaffold" data-step={state.step}>
       <header className="onb-header">
@@ -143,6 +149,11 @@ function Scaffold({
         </h1>
         {agents && <p className="onb-sentence">{strings.t("onboarding.agents.body")}</p>}
         {make && <p className="onb-sentence">{strings.t(makeText.body)}</p>}
+        {offlineShown && (
+          <output className="onb-offline" aria-live="polite">
+            {strings.t("onboarding.offline")}
+          </output>
+        )}
       </header>
       <div className="onb-body">
         {agents ? (
@@ -169,6 +180,7 @@ export function OnboardingPage({
   agentsLook = DEFAULT_AGENTS_LOOK,
   makeItYoursLook = DEFAULT_MAKE_IT_YOURS_LOOK,
   makeItYoursScreen = "look",
+  online: onlineOverride,
 }: {
   store: OnboardingStore;
   strings: Strings;
@@ -176,6 +188,8 @@ export function OnboardingPage({
   makeItYoursLook?: MakeItYoursLook;
   /** The walk's screen the step opens on with experiments.introWalk on (tests and the gallery; the app opens on the look). */
   makeItYoursScreen?: MakeItYoursScreen;
+  /** The network state to draw instead of the webview's own (the gallery and tests). */
+  online?: boolean;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   // The walk's screen, local to the page: the host has one Make cmux Yours step. Read by the key handler.
@@ -191,6 +205,8 @@ export function OnboardingPage({
     // Leaving the step (Back to the step before) starts the walk over at its first screen when it comes back.
     if (step !== "makeItYours") setScreen(0);
   }, [step]);
+  const browserOnline = useOnline();
+  const online = onlineOverride ?? browserOnline;
   // The agents step's in-place sign-in, from the host's `signInReadiness` (none: as before).
   const readiness = useOnboardingReadiness(store, state);
   useEffect(() => {
@@ -241,6 +257,7 @@ export function OnboardingPage({
             walk={{ screen, go: setScreen }}
             opened={opened.current}
             readiness={readiness}
+            online={online}
           />
         )}
       </div>

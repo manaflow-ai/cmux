@@ -85,6 +85,7 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    resumes_cut_turn: false,
                 }),
             )
         } else {

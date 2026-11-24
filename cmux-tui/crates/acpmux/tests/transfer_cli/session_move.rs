@@ -2,9 +2,9 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Stand in only for the three SSH operations the CLI needs. No host SSH, credentials or
+/// Stand in only for the SSH operations the CLI and a daemon's own peer link need. No host SSH, credentials or
 /// network are used; the socket symlink reaches the other test daemon's real RPC server.
-pub(super) fn fake_ssh(home: &Path, target: &Daemon) -> String {
+pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
     let script = format!(
@@ -19,11 +19,45 @@ if '-L' in args:
     os.symlink(socket, local)
     signal.pause()
     sys.exit(0)
+if '-W' in args:
+    # A daemon's own link to its peer (`peer.rs` `tunnel_argv`): this process's stdin and
+    # stdout are the peer's WebSocket port, the one its config names whatever port was asked for.
+    import socket as net, threading
+    listen = json.loads(pathlib.Path(home, 'config.json').read_text()).get('websocket') or dict()
+    at = listen.get('listen')
+    if not at:
+        sys.exit(1)
+    host, port = at.rsplit(':', 1)
+    link = net.create_connection((host, int(port)))
+    def up():
+        while True:
+            data = os.read(0, 65536)
+            if not data:
+                break
+            link.sendall(data)
+        link.shutdown(net.SHUT_WR)
+    threading.Thread(target=up, daemon=True).start()
+    while True:
+        data = link.recv(65536)
+        if not data:
+            break
+        os.write(1, data)
+    sys.exit(0)
 command = args[-1]
 if 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
+elif 'cat ~/.acpmux/config.json' in command:
+    # A daemon's own link to its peer (`peer.rs` `read_config_argv`): the peer's config, a NUL,
+    # its peer token of this launch. A peer that serves no WebSocket has no link, as before.
+    config = pathlib.Path(home, 'config.json').read_bytes()
+    if 'websocket' not in json.loads(config):
+        sys.exit(1)
+    sys.stdout.buffer.write(config + b'\0')
+    token = pathlib.Path(home, 'run', 'peer.token')
+    if token.exists():
+        sys.stdout.buffer.write(token.read_bytes())
 elif 'mkdir -p' in command and 'read -r d' in command:
     folder = pathlib.Path(sys.stdin.readline().strip())
     assert str(folder).startswith(home + '/')
@@ -32,8 +66,8 @@ elif 'mkdir -p' in command and 'read -r d' in command:
 else:
     sys.exit(1)
 "#,
-        home = serde_json::to_string(&target.home.to_string_lossy()).unwrap(),
-        socket = serde_json::to_string(&target.socket.to_string_lossy()).unwrap(),
+        home = serde_json::to_string(&target_home.to_string_lossy()).unwrap(),
+        socket = serde_json::to_string(&target_socket.to_string_lossy()).unwrap(),
     );
     let ssh = bin.join("ssh");
     std::fs::write(&ssh, script).unwrap();
@@ -42,14 +76,14 @@ else:
 }
 
 impl Rpc {
-    async fn send_prompt(&mut self, id: &str, prompt_id: &str, text: &str) {
+    pub(super) async fn send_prompt(&mut self, id: &str, prompt_id: &str, text: &str) {
         self.next += 1;
         let request = json!({"jsonrpc": "2.0", "id": self.next, "method": "session/prompt",
             "params": prompt(id, prompt_id, text)});
         self.wr.write_all(format!("{request}\n").as_bytes()).await.unwrap();
     }
 
-    async fn notification(&mut self, method: &str, predicate: impl Fn(&Value) -> bool) {
+    pub(super) async fn notification(&mut self, method: &str, predicate: impl Fn(&Value) -> bool) {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 let line = self.lines.next_line().await.unwrap().expect("daemon connected");
@@ -63,7 +97,7 @@ impl Rpc {
         .unwrap_or_else(|_| panic!("did not receive {method}"));
     }
 
-    async fn texts(&mut self, id: &str, kind: &str) -> Vec<String> {
+    pub(super) async fn texts(&mut self, id: &str, kind: &str) -> Vec<String> {
         let page = self
             .call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
             .await;
@@ -84,7 +118,7 @@ impl Rpc {
     }
 }
 
-fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
+pub(super) fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
         "_meta": {"acpmux": {"promptId": prompt_id}}})
 }

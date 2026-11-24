@@ -195,6 +195,21 @@ def main() -> int:
             if not reads_secret_prefix(job, "CI_CACHE_R2_"):
                 continue
             writers += 1
+            # A job that calls a reusable workflow cannot enter an environment; it may pass the credentials only on
+            # feat-cmux-next, each one by name, and the called workflow's own jobs (checked as they come up in
+            # this loop) enter next-cache-writer and write only cmux-ci-cache-next (cmux-tui-artifacts.yml's builds).
+            if str(job.get("uses", "")).startswith("./.github/workflows/"):
+                passed = job.get("secrets")
+                gate = "${{ github.ref == 'refs/heads/feat-cmux-next' && secrets."
+                if isinstance(passed, dict) and all(
+                        not reads_secret_prefix(value, "CI_CACHE_R2_")
+                        or str(value) == f"{gate}{name} || '' }}}}"
+                        for name, value in passed.items()) and not reads_secret_prefix(
+                            {k: v for k, v in job.items() if k != "secrets"}, "CI_CACHE_R2_"):
+                    continue
+                failures.append(f"{path.name} {job_name}: a reusable-workflow call passes the R2 write credentials only as"
+                                f" {gate}NAME || '' }}}}, each under its own name")
+                continue
             environment = workflow_jobs.resolve(job).environment  # a string environment is {"name": it}
             if environment == {"name": writer}:
                 continue

@@ -439,6 +439,7 @@ pub(super) fn audit(
         prompt,
         permission = text("permissionId"),
         option = text("optionId"),
+        choice = text("choiceId"),
         refused = reason,
         "carrier request"
     );

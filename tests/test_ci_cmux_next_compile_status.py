@@ -72,6 +72,21 @@ fi
 [[ "$code" == 000 ]] && exit 7
 exit 0
 '''
+# A git that answers `ls-remote` with $HEAD_SHA as the branch head (exit 128 when it is unset), logging each call
+# to $READS.git: the superseded check's one read of the branch head (note-554).
+FAKE_GIT = r'''#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$READS.git"
+[[ -n "${HEAD_SHA:-}" ]] || exit 128
+printf '%s\trefs/heads/feat-cmux-next\n' "$HEAD_SHA"
+'''
+
+
+def write_fakes(bin_dir: Path) -> None:
+    for name, body in (("curl", FAKE_CURL), ("git", FAKE_GIT)):
+        (bin_dir / name).write_text(body)
+        (bin_dir / name).chmod(0o755)
+
+
 # Fast gaps for the fake: the step's probe, re-read and bad-answer bounds are 30 s, 30 s and 300 s.
 GAPS = {"PROBE_GAP": "0", "READ_GAP": "0", "POST_GAP": "0", "LIMIT_GAP": "0"}
 # autoland's and base_red_excuse.py's no-verdict line (NO_VERDICT): a red that names no compile failure.
@@ -87,6 +102,12 @@ def step_script() -> str:
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+def without_no_state(text):
+    """The step always writes `state=` (note-519: `none` when no read answered); these tests judge the handoff
+    lines, so drop the `state=none` line. Tests of a real state read it unfiltered through their own assertions."""
+    return "".join(l for l in text.splitlines(True) if l.strip() != "state=none")
+
+
 class StatusMapping(unittest.TestCase):
     def run_step(self, reply: dict | None, **env: str) -> tuple[int, list[dict], list[str]]:
         if reply is None or reply.get("state") == "running":
@@ -95,9 +116,7 @@ class StatusMapping(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp, "bin")
             bin_dir.mkdir()
-            curl = bin_dir / "curl"
-            curl.write_text(FAKE_CURL)
-            curl.chmod(0o755)
+            write_fakes(bin_dir)
             if reply is not None:
                 Path(tmp, "reply.json").write_text(json.dumps(reply))
             done = subprocess.run(
@@ -107,13 +126,14 @@ class StatusMapping(unittest.TestCase):
                      "RESULTS": "https://results/v1", "REPLY": str(Path(tmp, "reply.json")),
                      "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")),
                      "GITHUB_OUTPUT": str(Path(tmp, "output")), **env})
-            self.stdout, self.output = done.stdout, (Path(tmp, "output").read_text()
-                                                     if Path(tmp, "output").exists() else "")
+            self.stdout, self.output = done.stdout, without_no_state(Path(tmp, "output").read_text()
+                                                                     if Path(tmp, "output").exists() else "")
             self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
                 if Path(tmp, "posts.tries").exists() else []
             posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
                 if Path(tmp, "posts").exists() else []
             reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
+            self.git_reads = Path(tmp, "reads.git").read_text().splitlines() if Path(tmp, "reads.git").exists() else []
             return done.returncode, posts, reads
 
     def reply(self, state: str, **overrides) -> dict:
@@ -150,6 +170,40 @@ class StatusMapping(unittest.TestCase):
                 self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
                 self.assertIn("posts cmux-next/compile itself", self.stdout)
                 self.assertEqual(self.output.strip(), f"state={state}")
+
+    def test_a_superseded_push_whose_branch_moved_ends_at_its_first_read(self):
+        """note-554: the controller will never check a superseded push tip; once the branch head has moved on, the job
+        posts a no-verdict status at once and ends green instead of waiting 40 minutes and failing."""
+        newer = "b" * 40
+        code, posts, reads = self.run_step(self.reply("superseded", superseded_by=newer), HEAD_SHA=newer,
+                                           GITHUB_REF="refs/heads/feat-cmux-next")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(len(self.git_reads), 1)
+        self.assertIn("ls-remote https://github.com/manaflow-ai/cmux.git refs/heads/feat-cmux-next", self.git_reads[0])
+        self.assertEqual([p["state"] for p in posts], ["pending", "error"])
+        self.assertTrue(posts[-1]["description"].startswith("[no-verdict] [superseded] The controller checks bbbbbbbbbbbb"))
+        self.assertRegex(posts[-1]["description"], base_red_excuse().COMPILE_STATUS_NO_VERDICT)
+        self.assertEqual(self.output.strip(), "state=superseded")
+
+    def test_a_superseded_receipt_waits_as_before_unless_the_branch_moved(self):
+        # The head not moved, unreadable, a pull request head, or the gate off: the 40-minute wait and its red, as before.
+        for env, git_reads in (({"HEAD_SHA": SHA}, 1), ({}, 1), ({"HEAD_SHA": "b" * 40, "PR": "28059"}, 0),
+                               ({"HEAD_SHA": "b" * 40, "SUPERSEDED_GATE": "0"}, 0)):
+            with self.subTest(env=env):
+                code, posts, reads = self.run_step(self.reply("superseded"), WAIT_SECONDS="5", READ_GAP="1", **env)
+                self.assertEqual((code, posts[-1]["state"]), (1, "failure"))
+                self.assertTrue(posts[-1]["description"].startswith("[no-verdict] No compile result for this head"))
+                self.assertGreaterEqual(len(reads), 2)
+                self.assertEqual(len(self.git_reads), git_reads)
+
+    def test_the_superseded_gate_is_a_repo_variable_defaulting_on(self):
+        for name in ("compile-status", "release-compile-fast"):
+            job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][name]
+            env = next(step["env"] for step in job["steps"] if "run" in step and "SUPERSEDED_GATE" in step.get("env", {}))
+            self.assertEqual(env["SUPERSEDED_GATE"], "${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}")
+        admission = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast-admission"]
+        self.assertIn("needs.release-compile-fast.outputs.verdict != 'superseded'", admission["if"])
 
     def test_a_controller_mark_hands_nothing_off_that_this_job_would_not(self):
         # A verdict in the receipt is relayed as before, marked or not.
@@ -450,9 +504,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp, "bin")
             bin_dir.mkdir()
-            curl = bin_dir / "curl"
-            curl.write_text(FAKE_CURL)
-            curl.chmod(0o755)
+            write_fakes(bin_dir)
             if reply is not None:
                 Path(tmp, "reply.json").write_text(json.dumps(reply))
             output = Path(tmp, "output")
@@ -465,6 +517,7 @@ class FastCheckLinuxRoute(unittest.TestCase):
             verdict = dict(line.split("=", 1) for line in output.read_text().splitlines()).get("verdict", "") \
                 if output.exists() else ""
             reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
+            self.git_reads = Path(tmp, "reads.git").read_text().splitlines() if Path(tmp, "reads.git").exists() else []
             return done.returncode, verdict, reads
 
     def reply(self, state: str, **overrides) -> dict:
@@ -488,6 +541,19 @@ class FastCheckLinuxRoute(unittest.TestCase):
                 self.assertEqual((got, code == 0), (verdict, ok))
                 self.assertTrue(reads and all(read.startswith(f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=")
                                               for read in reads), reads)
+
+    def test_a_superseded_push_whose_branch_moved_skips_the_mac_fallback(self):
+        """note-554: superseded and the branch moved on is its own verdict, so neither admission nor the Mac Release
+        compile runs; anything else about a superseded receipt is unavailable, as before."""
+        newer = "b" * 40
+        code, verdict, reads = self.run_step(self.reply("superseded"), HEAD_SHA=newer, WAIT_SECONDS="400")
+        self.assertEqual((code, verdict, len(reads), len(self.git_reads)), (0, "superseded", 1, 1))
+        for env in ({"HEAD_SHA": SHA}, {}, {"HEAD_SHA": newer, "SUPERSEDED_GATE": "0"}):
+            with self.subTest(env=env):
+                code, verdict, reads = self.run_step(self.reply("superseded"), WAIT_SECONDS="400", **env)
+                self.assertEqual((code, verdict, len(reads)), (0, "unavailable", 1))
+        release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]["if"]
+        self.assertIn("needs.release-compile-fast.outputs.verdict == 'unavailable'", release)
 
     def test_a_gateway_runner_submits_its_own_check_and_never_reads_the_result(self):
         # No client on this stand-in gateway: the existing path's unavailable, with no result read.
@@ -580,7 +646,7 @@ class ResultsServiceDown(unittest.TestCase):
                 env={"PATH": os.environ["PATH"], "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output), "GH_TOKEN": "t",
                      "SHA": SHA, "REPO": REPO, "API": f"{self.server.url}/repos/{REPO}",
                      "RUN_URL": "https://github.com/run/1", "RESULTS": f"{self.server.url}/v1", **env})
-            return done.returncode, done.stdout, output.read_text() if output.exists() else ""
+            return done.returncode, done.stdout, without_no_state(output.read_text() if output.exists() else "")
 
     def compile_status(self, **env: str) -> tuple[int, str, str]:
         return self.bash(step_script(), PROBE_GAP="1", READ_GAP="1", **env)

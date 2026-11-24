@@ -1202,7 +1202,7 @@ jobs:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
   h:
-    # A placement script's label inputs become runs-on (portable_job_placement.py): a fork pull
+    # A placement script's label inputs become runs-on: a fork pull
     # request's hosted ubuntu-24.04 hid here until 2026-11-19 (Leo: "Fuck GitHub").
     env:
       SIDE_LABEL: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}

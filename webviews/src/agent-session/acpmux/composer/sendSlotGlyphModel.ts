@@ -18,6 +18,10 @@ export type SlotMemory = {
 
 /// The motion scale's structural step (foundations.md, --cmux-motion-standard).
 export const MORPH_MS = MOTION_MS.standard;
+/// What leaves the slot fades on the motion scale's leaving step (foundations.md, --cmux-motion-quick).
+export const LEAVE_MS = MOTION_MS.quick;
+/// Stop's pulse when a turn starts again while it lingers (turnPresence.ts): the structural step.
+export const PULSE_MS = MOTION_MS.standard;
 /// A change this soon after a chat switch or read is the chat's state arriving, not a change.
 export const SETTLE_MS = 300;
 /// Claude's look empties the slot on a send until the turn's Stop arrives: a Stop this soon after
@@ -56,5 +60,8 @@ export function morphFrom(
   if (memory.glyph) return side(memory.glyph) !== side(glyph) ? { from: memory.glyph } : undefined;
   if (memory.left && memory.leftAt !== undefined && side(memory.left) !== side(glyph) && at - memory.leftAt <= GAP_MS)
     return {};
+  // Stop into an empty slot (Claude's look draws nothing at rest) fades in: the turn's Stop shows
+  // only once it has held (turnPresence.ts), so its arrival is a real change, never a flicker.
+  if (side(glyph) === "stop" && (!memory.left || side(memory.left) !== "stop")) return {};
   return undefined;
 }

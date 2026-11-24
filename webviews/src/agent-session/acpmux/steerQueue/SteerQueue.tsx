@@ -216,7 +216,7 @@ export function SteerQueue({
           {focused?.running ? <Hint keys="⌘↩" label={t("steerQueue.hint.redirect")} /> : null}
           {focused?.running ? <Hint keys="⌘." label={t("steerQueue.hint.stop")} /> : null}
           {focused ? <Hint keys="⌘⇧↩" label={t("steerQueue.hint.fork")} /> : null}
-          <Hint keys="⎋" label={t("steerQueue.hint.close")} />
+          <Hint keys="esc" label={t("steerQueue.hint.close")} />
         </div>
       </div>
     </KeyboardScope>

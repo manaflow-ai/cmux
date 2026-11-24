@@ -14,6 +14,10 @@
 //! its MCP servers runs under it (`idle_census.rs`): a stop ends its group and
 //! what runs under it, the MCP servers included.
 //!
+//! One exception to "nothing is queued": a chat its account's rate limit holds or parks until
+//! further away than its idle period sleeps with its queue and its waiting continuation kept,
+//! and the hold's timer wakes it at the reset (`rate_hold.rs`, "A held chat sleeps").
+//!
 //! A wake is the next start of a hibernated session's agent: a prompt, a
 //! person typing into the chat (`_acpmux/typing`, `wake_for_typing`, so the
 //! agent is up by the time they send), or any request that needs the agent.
@@ -97,19 +101,23 @@ impl Hub {
     }
 
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
+        // A chat its rate limit holds past its idle period sleeps through the hold, its queue
+        // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
+        // `sleeps_through_hold`).
+        let sleeps_held = self.sleeps_through_hold(session);
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
             && session.turn().is_none()
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && !self.secrets.waiting_in(&session.id)
-            && session.queued() == 0
+            && (session.queued() == 0 || sleeps_held)
             && session.pending_permissions().is_empty()
             && !self.holds_work_below(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
-            && !self.continuation_pending(session)
+            && (!self.continuation_pending(session) || sleeps_held)
             // A Claude chat with turns but none stored would wake as a fresh conversation with
             // its transcript restored into the prompt (`claude_resume_refusal`): kept awake when
             // its agent did work there; one that only got agent errors loses nothing (cmux#48917).

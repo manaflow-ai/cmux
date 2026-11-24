@@ -95,7 +95,15 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var canGoForward = false
     public private(set) var isLoading = false
     public var progress: Double { isLoading ? 0.5 : 1 }
-    public private(set) var phase: Phase = .connecting
+    public private(set) var phase: Phase = .connecting {
+        didSet {
+            if case .waiting = phase { waitingSince = waitingSince ?? Date() }
+            else if phase == .live || phase == .unavailable { waitingSince = nil }
+        }
+    }
+    /// When the page last lost its link (the first `.waiting` since it was live): the link
+    /// chip's quiet wait counts from here, not from when the chip appeared.
+    public private(set) var waitingSince: Date?
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?
@@ -106,6 +114,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// A snapshot was taken (the tab's last-known picture is kept from it).
+    @ObservationIgnored public var onSnapshot: (@MainActor (CGImage) -> Void)?
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
     /// its options until the person picks or cancels, or the page closes it.
     public private(set) var selectMenu: OpenMenu?
@@ -669,7 +679,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     public func takeSnapshot() {
         decoder.lastPicture { [weak self] pixels in
             guard let pixels, let image = CGImageBox(pixels) else { return }
-            Task { @MainActor in self?.snapshot = image }
+            Task { @MainActor in
+                guard let self else { return }
+                self.snapshot = image
+                self.onSnapshot?(image.image)
+            }
         }
     }
 

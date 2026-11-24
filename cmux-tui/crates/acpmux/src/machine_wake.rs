@@ -90,7 +90,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
 /// ended with all it started (the `Child`'s drop). The command keeps its own log.
 pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Result<(), String> {
     let (program, args) = argv.split_first().ok_or("no command")?;
-    let mut child = cmux_process::Command::new(program)
+    let mut child = cmux_process::Command::new(crate::config::user_program(program))
         .args(args)
         .env(crate::peer::WAKE_ENV, "1")
         .stdin(cmux_process::Stdio::null())

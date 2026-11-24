@@ -37,6 +37,7 @@ mod call;
 mod chat_perf;
 mod classic;
 mod events;
+mod fallback_socket;
 mod group_create;
 mod join;
 mod keybinding;
@@ -915,7 +916,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Live(command) => {
             let command =
                 live::routed(command, global.socket.as_deref(), global.session.as_deref());
-            return Ran::Done(live::run(&command));
+            return Ran::Done(live::run(global, &command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
@@ -1066,7 +1067,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Live(command) => {
             let command =
                 live::routed(&command, global.socket.as_deref(), global.session.as_deref());
-            return Ran::Done(live::run(&command));
+            return Ran::Done(live::run(global, &command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
@@ -1383,8 +1384,11 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let Some(flag) = explicit_daemon_route(global) else {
+        // No app around this CLI and none in its environment (an ssh shell, a `cmux` copied onto
+        // `PATH`): the one cmux NIGHTLY that answers, when exactly one does.
         return identity
             .map(|identity| identity.control_socket(&home))
+            .or_else(|| fallback_socket::nightly(&home))
             .ok_or_else(|| messages.no_app.to_owned());
     };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);

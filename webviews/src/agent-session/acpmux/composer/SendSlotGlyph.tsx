@@ -18,7 +18,19 @@ import { ArrowUpIcon, ReturnIcon, StopIcon } from "../ComposerPickers";
 import { RETURN_GLYPH_PATH } from "../composerPickerModel";
 import { reducedMotion } from "../threadMinimap/scrollMotion";
 import { sendStopMorph, type SendStopMorphArm } from "./sendStopMorph.experiment";
-import { MORPH_MS, morphFrom, noteScope, now, type Morph, type SlotGlyph, type SlotMemory } from "./sendSlotGlyphModel";
+import { stopPresence } from "./stopPresence.experiment";
+import {
+  LEAVE_MS,
+  MORPH_MS,
+  morphFrom,
+  noteScope,
+  now,
+  PULSE_MS,
+  SETTLE_MS,
+  type Morph,
+  type SlotGlyph,
+  type SlotMemory,
+} from "./sendSlotGlyphModel";
 
 function motionAllowed(): boolean {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
@@ -258,5 +270,89 @@ function PathMorph({
     >
       <path ref={stroke} />
     </svg>
+  );
+}
+
+/// The pulse Stop draws when a turn starts again while it lingers after the last one's end
+/// (turnPresence.ts; Leo, 2026-11-22: "maybe a pulse when you for some reason start stop quick"):
+/// in place of Stop going and coming back. One run per pulse (`pulses` counts them), none on the
+/// first draw, under Reduce Motion or motion off, or on a hidden page; it removes itself at its end
+/// or its deadline. The arm (experiment stop-presence) picks its look.
+export function StopPulse({ pulses }: { pulses: number }) {
+  const [seen, setSeen] = useState(pulses);
+  const [playing, setPlaying] = useState<number | undefined>(undefined);
+  if (pulses !== seen) {
+    setSeen(pulses);
+    setPlaying(pulses > seen && motionAllowed() ? pulses : undefined);
+  }
+  useEffect(() => {
+    if (playing === undefined) return undefined;
+    const timer = setTimeout(() => setPlaying(undefined), PULSE_MS * 2);
+    return () => clearTimeout(timer);
+  }, [playing]);
+  const arm = experimentArm(stopPresence);
+  if (playing === undefined || arm === "fade") return null;
+  return (
+    <span
+      key={playing}
+      className="acpmux-stop-pulse"
+      data-stop-pulse={arm}
+      aria-hidden="true"
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) setPlaying(undefined);
+      }}
+    />
+  );
+}
+
+/// The send slot's box: one reserved cell the composer's Send, Stop or nothing stand in, so a turn's
+/// Stop coming and going never moves or refits the row around it (composerRowFit.ts counts the
+/// cell, not what is in it). What leaves the slot with nothing in its place (Stop at a turn's end in
+/// Claude's look) stays as an inert copy that fades out on the motion scale's leaving step; a Stop
+/// that arrives in an empty slot fades in (sendSlotGlyphModel.ts morphFrom). Neither plays on a
+/// chat switch, within SETTLE_MS of one, under Reduce Motion or motion off, or on a hidden page.
+export function SendSlot({
+  children,
+  memory,
+  scope,
+}: {
+  children: React.ReactNode;
+  memory?: SlotMemory | undefined;
+  scope?: string | undefined;
+}) {
+  const empty = children === null || children === undefined || children === false;
+  const [leaving, setLeaving] = useState<SlotGlyph | undefined>(undefined);
+  const [wasEmpty, setWasEmpty] = useState(empty);
+  if (wasEmpty !== empty) {
+    setWasEmpty(empty);
+    // The glyph drawn last committed is the one leaving now; another chat's never is.
+    const left = memory?.glyph;
+    setLeaving(
+      empty && left && memory?.scope === scope && now() - (memory?.since ?? 0) >= SETTLE_MS && motionAllowed()
+        ? left
+        : undefined,
+    );
+  }
+  useEffect(() => {
+    if (leaving === undefined) return undefined;
+    const timer = setTimeout(() => setLeaving(undefined), LEAVE_MS * 3);
+    return () => clearTimeout(timer);
+  }, [leaving]);
+  return (
+    <span className="acpmux-send-slot" data-send-slot={empty ? "empty" : "filled"}>
+      {children}
+      {empty && leaving && (
+        <span
+          className="acpmux-send-leaving"
+          data-send-leaving={leaving === "stop" || leaving === "stopping" ? "stop" : "send"}
+          aria-hidden="true"
+          onAnimationEnd={(event) => {
+            if (event.target === event.currentTarget) setLeaving(undefined);
+          }}
+        >
+          <GlyphIcon glyph={leaving} />
+        </span>
+      )}
+    </span>
   );
 }

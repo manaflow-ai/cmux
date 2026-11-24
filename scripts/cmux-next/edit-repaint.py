@@ -10,10 +10,12 @@ instance of an installed NIGHTLY: scripts/measure/ext-reload-nightly.sh):
   `cmux.section/1` sidebar section; the daemon's watcher reloads it and the app redraws the section.
 - `rows`: the same script saved with a new badge on every workspace row (`cmux.sidebar.rows/1`).
 - `pane`: the same script saved with a new title in its `cmux.pane/1` pane, which is open in a tab.
+- `glass`: the same script saved with the section's card on another level of the app's own glass
+  (`.glass("popover")`, then `.glass("chip")`): the native glass a view draws changes with no rebuild.
 - `command`: cmux-next.json `actions` gets a palette command whose title changes; the palette must list it.
 - `shortcut`: keybindings.json (beside cmux-next.json) binds a command to a new key; that key must resolve to it.
 
-The customize app (`extension`, `rows`, `pane`) is one `cmux-app.json` and one `main.js` with all three
+The customize app (`extension`, `rows`, `pane`, `glass`) is one `cmux-app.json` and one `main.js` with all three
 views, as a person's would be; each case changes only its own view's words.
 
 How a pixel round is timed (`--mode pixels`, the default, which needs the bench build's `debug.window_snapshot`):
@@ -34,10 +36,10 @@ How a read-back round is timed (`--mode readback`, any build, and always for `co
 change nothing on screen until the palette opens or the key is pressed): after the write the case's read-back
 is asked every `POLL_S` until it shows the change; `upper_ms` is the reply of the first answer that shows it,
 `lower_ms` the request of the last one that did not. The read-backs are control-socket reads every build
-serves: `apps.views` (the words of each open extension view, from the window's own mirror of its scene),
+serves: `apps.views` (the words and glass levels of each open extension view, from the window's own mirror of its scene),
 `palette.query` and `keybinding.resolve`.
 
-Every customize round (`extension`, `rows`, `pane`) also records what its view's mirror shows (`apps.views`)
+Every customize round (`extension`, `rows`, `pane`, `glass`) also records what its view's mirror shows (`apps.views`)
 and `cmux apps list` after the round, and keeps the round's last capture (pixel mode), so a miss says whether
 the view never mounted, the save never reloaded, or the reload drew where the snapshots do not see.
 Writes one `EDIT_REPAINT {json}` line per case and `--json` with every round.
@@ -66,9 +68,11 @@ MIN_SAMPLES = 3     # changed samples that make a block changed
 POLL_S = 0.02       # read-back interval
 
 APP_ID = "local/customize"
-CUSTOMIZE_CASES = ("extension", "rows", "pane")
+CUSTOMIZE_CASES = ("extension", "rows", "pane", "glass")
 READBACK_CASES = ("command", "shortcut")  # nothing changes on screen for these until a person acts
-INTERFACES = {"extension": "cmux.section/1", "rows": "cmux.sidebar.rows/1", "pane": "cmux.pane/1"}
+INTERFACES = {"extension": "cmux.section/1", "rows": "cmux.sidebar.rows/1", "pane": "cmux.pane/1",
+              "glass": "cmux.section/1"}
+GLASS_CASES = ("glass",)  # read back from the view's glass levels (`apps.views` `glasses`), not its words
 ALL_CASES = ("theme", "sidebar") + CUSTOMIZE_CASES + READBACK_CASES
 
 MANIFEST = {
@@ -88,6 +92,7 @@ WORDS = {
     "extension": ["WWWWWWWW 0000", "iiiiiiii 1111"],
     "rows": ["WW00", "ii11"],
     "pane": ["WWWWWWWW pane 0000", "iiiiiiii pane 1111"],
+    "glass": ["popover", "chip"],  # glass levels: a different material and radius, so the pixels differ
     "command": ["Edit repaint command WWWW", "Edit repaint command iiii"],
     "shortcut": ["cmd+ctrl+opt+shift+8", "cmd+ctrl+opt+shift+9"],
 }
@@ -95,13 +100,15 @@ SHORTCUT_COMMAND = "palette.open"
 
 
 def main_js(words):
-    """The customize script: the section's headline, the rows' badge, the pane's title (`words`). The rows
-    view carries its badge as a Text too, so `apps.views` (which reads text, title and detail) can see it."""
-    section, rows, pane = (json.dumps(words[k]) for k in CUSTOMIZE_CASES)
+    """The customize script: the section's headline, the rows' badge, the pane's title and the glass level of
+    the section's card (`words`). The rows view carries its badge as a Text too, so `apps.views` (which reads
+    text, title and detail) can see it."""
+    section, rows, pane, glass = (json.dumps(words[k]) for k in ("extension", "rows", "pane", "glass"))
     return ("// Written by scripts/cmux-next/edit-repaint.py.\n"
             "function renderSection() {\n"
             f"  return VStack({{ spacing: 2 }}, [Text({section}).font(\"headline\"),\n"
-            f"    Row({{ title: {section} + \" row\", symbol: \"bolt.horizontal\" }})])\n"
+            f"    Row({{ title: {section} + \" row\", symbol: \"bolt.horizontal\" }}),\n"
+            f"    HStack([Text(\"Glass card\"), Spacer()]).padding(8).cornerRadius(10).glass({glass})])\n"
             "}\n"
             "function renderRows() {\n"
             "  const workspaces = cmux.live(\"workspace.list\", {})\n"
@@ -264,23 +271,29 @@ def views(app, interface):
     return found, reply
 
 
-def view_shows(app, interface, word):
+def view_shows(app, interface, word, glass=False):
+    """Whether an open view shows `word` among its words or, with `glass`, draws glass at level `word`."""
     found, _ = views(app, interface)
+    if glass:
+        return any(word in (v.get("glasses") or []) for v in found)
     return any(word in (v.get("texts") or []) or any(word in t for t in (v.get("texts") or [])) for v in found)
 
 
-def view_readback(app, interface, word):
+def view_readback(app, interface, word, glass=False):
     """The customize view as the window's mirror of its scene holds it (`apps.views`): whether a view is open,
-    its status, revision and words, and whether `word` is among them."""
+    its status, revision, words and glass levels, and whether `word` is among them (among the glass levels,
+    with `glass`)."""
     found, reply = views(app, interface)
     if not found:
         return {"open": False, "reply": reply}
     view = found[0]
     texts = view.get("texts") or []
+    glasses = view.get("glasses") or []
     return {"open": True, "status": view.get("status"), "revision": view.get("revision"),
             "surface": view.get("surface"), "reason": view.get("reason"),
             "reload_failure": view.get("reload_failure"),
-            "shows": any(word in t for t in texts), "texts": texts[:20]}
+            "shows": word in glasses if glass else any(word in t for t in texts), "texts": texts[:20],
+            "glasses": glasses[:20]}
 
 
 def apps_list(app):
@@ -453,7 +466,7 @@ def main():
                     print("edit-repaint: the customize pane did not show its words in 30 s", flush=True)
                 settle(app, opts.out, "the window with the pane open")
             result["installed"] = {"apps_list": apps_list(app),
-                                   "views": {c: view_readback(app, INTERFACES[c], words[c])
+                                   "views": {c: view_readback(app, INTERFACES[c], words[c], glass=c in GLASS_CASES)
                                              for c in CUSTOMIZE_CASES if c in cases}}
             print(f"edit-repaint: installed: {json.dumps(result['installed'])[:3000]}", flush=True)
 
@@ -475,7 +488,8 @@ def main():
                     def write(case=case, word=word):
                         words[case] = word
                         write_customize()
-                    seen = lambda case=case, word=word: view_shows(app, INTERFACES[case], word)  # noqa: E731
+                    seen = lambda case=case, word=word: view_shows(app, INTERFACES[case], word,  # noqa: E731
+                                                                   glass=case in GLASS_CASES)
                 elif case == "command":
                     action = {"type": "command", "command": "true", "title": word, "target": "newTabInCurrentPane",
                               "palette": True}
@@ -498,7 +512,7 @@ def main():
                     # daemon lists: the new words there with no pixel change means the save reloaded but the
                     # change is not where the snapshots look; no view means it never mounted; no customize
                     # app in the list means the daemon never loaded the folder.
-                    row["view"] = view_readback(app, INTERFACES[case], word)
+                    row["view"] = view_readback(app, INTERFACES[case], word, glass=case in GLASS_CASES)
                     row["apps_list"] = apps_list(app)
                 rows.append(row)
                 print(f"edit-repaint: {case} round {i}: {json.dumps(row)[:2000]}", flush=True)

@@ -60,6 +60,8 @@ jobs:
             scripts/ci/gh_expressions.py
             scripts/ci/head_tier.py
             scripts/ci/ci_steps.py
+            scripts/ci/check_reusable_workflow_permissions.py
+            scripts/ci/deadline_http.py
             ci/steps.toml
           sparse-checkout-cone-mode: false
       - name: Route
@@ -76,6 +78,14 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
     uses: ./.github/workflows/cmux-next-size-budget.yml
+    permissions:
+      contents: read
+
+  screen-share-drop-gate:
+    name: screen share drop gate
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
+    uses: ./.github/workflows/screen-share-drop-gate.yml
     permissions:
       contents: read
 

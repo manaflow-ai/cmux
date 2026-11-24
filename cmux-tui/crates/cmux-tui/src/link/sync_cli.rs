@@ -452,6 +452,9 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
+    if let Some(missing) = error.downcast_ref::<SourceFolderMissing>() {
+        return (SOURCE_FOLDER_MISSING.to_string(), missing.to_string());
+    }
     if let Some(too_big) = error.downcast_ref::<TooBig>() {
         return ("folder_too_big".to_string(), too_big.to_string());
     }
@@ -1098,8 +1101,15 @@ fn push_inner(
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
     let mut stages = timings::Stages::new();
-    let local =
-        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let local = match std::fs::canonicalize(local) {
+        Ok(local) => local,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(SourceFolderMissing(local.to_owned()).into());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("cannot open {}", local.display()));
+        }
+    };
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
@@ -1518,6 +1528,25 @@ fn push_inner(
     stages.print();
     Ok(summary)
 }
+
+/// A source root disappeared before a push could list it. The remote copy is
+/// intentionally left alone so a chat can restore the folder or be re-pointed.
+const SOURCE_FOLDER_MISSING: &str = "source_folder_missing";
+
+#[derive(Debug)]
+struct SourceFolderMissing(PathBuf);
+
+impl std::fmt::Display for SourceFolderMissing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "The source folder {} is missing. Restore it locally or re-point the chat. The Cloud copy is still intact",
+            self.0.display()
+        )
+    }
+}
+
+impl std::error::Error for SourceFolderMissing {}
 
 /// Has the machine fetch the `deferred` files through the store
 /// ([`store::send`]). Answers the summary's `store` part and what the machine

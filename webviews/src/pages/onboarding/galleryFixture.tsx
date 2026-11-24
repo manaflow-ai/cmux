@@ -40,6 +40,8 @@ export type OnboardingGalleryProps = {
   /** The host's sign-in state on the agents step (shared/signIn/galleryFixtures.ts READINESS): sent
    * as `signInReadiness` and `signInAccounts`, its sign-in started through the mock's op. */
   readiness?: ReadinessFixture;
+  /** Draw the page as offline (false) or online (true) instead of the webview's own state. */
+  online?: boolean;
 };
 
 export function OnboardingGallery({
@@ -54,6 +56,7 @@ export function OnboardingGallery({
   introWalk,
   makeScreen,
   readiness,
+  online,
 }: OnboardingGalleryProps) {
   const [mock] = useState(() => {
     const base =
@@ -71,9 +74,10 @@ export function OnboardingGallery({
   const [strings] = useState(() => createStrings(table));
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!readiness) return;
-    // The page follows the mock host's changes (a finished sign-in turns the row ready).
+    // Started as the app's page is (main.tsx): the page follows the mock host's changes, so a finished sign-in
+    // turns the row ready and a pick shows (the intro walk probe, scripts/intro-walk.mjs, walks them).
     void store.start();
+    if (!readiness) return () => store.stop();
     // The sign-in the case shows, started the way a click starts it: held on its code, or refused.
     const fixture: ReadinessFixtureCase = READINESS[readiness];
     const signIn = fixture.signIn;
@@ -100,6 +104,7 @@ export function OnboardingGallery({
         agentsLook={look}
         makeItYoursLook={makeLook}
         makeItYoursScreen={makeScreen}
+        online={online}
       />
     </div>
   );

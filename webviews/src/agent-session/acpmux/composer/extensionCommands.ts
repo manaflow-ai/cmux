@@ -43,6 +43,13 @@ export function withExtensionCommands(
   return [...commands, ...extension.filter((command) => !taken.has(command.name.toLowerCase()))];
 }
 
+/// `commands` with cmux's built-in tool rows (toolMentions.ts) after them, always: a tool row writes
+/// `@computer-use `, never runs `/computer-use`, so an agent command of the same name means nothing
+/// else and both rows stay (CMUX-682).
+export function withToolCommands(commands: readonly SlashCommand[], tools: readonly SlashCommand[]): SlashCommand[] {
+  return tools.length ? [...commands, ...tools] : (commands as SlashCommand[]);
+}
+
 /// All composer places use one list and one change subscription per page client.
 export class ComposerContributions {
   private reply: unknown = null;

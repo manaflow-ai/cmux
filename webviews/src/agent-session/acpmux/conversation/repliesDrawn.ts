@@ -3,6 +3,7 @@
 // be able to detect that the messages aren't coming out from the coordinator"). The log is the
 // truth; the drawn rows are the transcript's own reducer (direct.ts) and fold (turns.ts).
 import type { EventRecord } from "../direct";
+import { replyRowKey } from "../replyRowKey";
 import type { AcpmuxRow } from "../model";
 
 /// A turn the agent ended with something to read: its final reply as the log has it.
@@ -47,7 +48,12 @@ export function turnReplies(events: readonly EventRecord[]): TurnReply[] {
       if (event.msg?.params?._meta?.acpmux?.subagent) continue;
       const update = updateOf(event);
       const text = typeof update?.content?.text === "string" ? update.content.text : "";
-      const key = String(event.msg?.params?._meta?.acpmux?.segment ?? update?.messageId ?? `seq-${event.seq}`);
+      const stamped = event.msg?.params?._meta?.acpmux?.segment;
+      const messageId = typeof update?.messageId === "string" ? update.messageId : undefined;
+      const key =
+        typeof stamped === "string" && stamped.length > 0
+          ? replyRowKey(stamped, messageId)
+          : String(messageId ?? `seq-${event.seq}`);
       const seen = open.segments.get(key);
       if (seen) {
         seen.text += text;

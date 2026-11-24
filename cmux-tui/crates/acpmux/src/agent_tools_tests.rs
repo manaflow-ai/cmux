@@ -91,10 +91,11 @@ fn agent_memory_is_off_until_the_setting_turns_it_on() {
 }
 
 /// Every session gets the Computer Use bridge, whether or not a worker runs:
-/// nothing on disk decides it, only `computerUse.mode: "off"` in cmux.json
-/// (and no acpmux binary to run it, in a test without one).
+/// nothing on disk decides it, not even `computerUse.mode: "off"` (a chat
+/// keeps its tools when the person turns Computer Use on later), only no
+/// acpmux binary to run it, in a test without one.
 #[test]
-fn every_session_gets_computer_use_unless_the_mode_is_off() {
+fn every_session_gets_computer_use_even_when_the_mode_is_off() {
     let root = std::env::temp_dir().join(format!("acpmux-cu-server-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     let exe = std::path::PathBuf::from("/usr/local/bin/acpmux");
@@ -115,11 +116,14 @@ fn every_session_gets_computer_use_unless_the_mode_is_off() {
         Some(r#"{"computerUse":{"mode":"fullAccess"}}"#),
         Some(r#"{"computerUse":{"mode":"lookOnly"}}"#),
         Some(r#"{"computerUse.mode":"askEveryTime"}"#),
+        Some(r#"{"computerUse":{"mode":"off"}}"#),
+        Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}"),
     ] {
         assert!(has(json), "{json:?}");
     }
-    assert!(!has(Some(r#"{"computerUse":{"mode":"off"}}"#)));
-    assert!(!has(Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}")));
+    // Off still lists the cmux-computer-use skill beside the server.
+    let off = super::resolve(&inputs(Some(r#"{"computerUse":{"mode":"off"}}"#)));
+    assert!(off.lists_skill("cmux-computer-use"));
     // The session's own key, this daemon and nothing inherited.
     let tools = super::resolve(&inputs(None)).for_session("s-cu");
     let cu =

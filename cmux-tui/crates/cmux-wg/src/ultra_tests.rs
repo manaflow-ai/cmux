@@ -627,3 +627,31 @@ fn set_mode_says_when_repair_turned_on() {
     assert!(!ultra.set_mode(UltraMode::Off));
     assert!(ultra.set_mode(UltraMode::SETTING), "and again after it turned off");
 }
+
+/// A liveness ping or pong leaves as one datagram in every mode: no copies,
+/// no parity, and it leaves the data group around it alone.
+#[test]
+fn a_liveness_datagram_goes_alone_and_unrepaired() {
+    let index = [3, 3, 3, 3];
+    for mode in
+        [UltraMode::SETTING, UltraMode::fec(8, 2).unwrap(), UltraMode::Duplicate { copies: 3 }]
+    {
+        let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+        let wire = Arc::clone(&script.sent);
+        let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+        ultra.send_liveness(&data(index, 0, 38, 0), false);
+        ultra.send_liveness(&data(index, 1, 38, 0), true);
+        ultra.flush();
+        assert_eq!(wire.lock().unwrap().len(), 2, "{mode:?}: one datagram each");
+        assert_eq!(ultra.counters.snapshot().parity_sent, 0, "{mode:?}");
+    }
+    // Between two data datagrams the group they form still gets its parity.
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let wire = Arc::clone(&script.sent);
+    let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::SETTING, Arc::default());
+    ultra.send(&data(index, 0, 40, 0));
+    ultra.send_liveness(&data(index, 1, 38, 0), false);
+    ultra.flush();
+    let parity = wire.lock().unwrap().iter().filter(|d| d[0] == TAG).count();
+    assert!(parity >= 1, "the data datagram keeps its repair");
+}

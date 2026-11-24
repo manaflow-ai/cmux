@@ -189,7 +189,7 @@ try {
   releases.push(() => statics.stop(true));
   const origin = `http://127.0.0.1:${statics.port}`;
   const urlFor = (index: number) =>
-    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
 
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({
@@ -405,6 +405,13 @@ try {
     );
     perfRow({ name: `chat_pages_memory.n${count}.renderer_mb`, p50: now.mb, p95: now.mb, unit: "MB" });
     perfRow({ name: `chat_pages_memory.n${count}.mb_per_chat`, p50: perChat, p95: perChat, unit: "MB" });
+    // The goal's ratio (memory-per-chat, chat_memory_vs_empty_ratio): the renderer with 10 chats open over the empty
+    // renderer, both from this same run (page-total form: 10 chats against none).
+    if (count === 10 && empty.mb > 0) {
+      const ratio = now.mb / empty.mb;
+      console.log(`chat-pages-memory: renderer MB at 10 chats / empty: ${ratio.toFixed(3)}`);
+      perfRow({ name: "chat_pages_memory.n10.ratio_vs_empty", p50: ratio, p95: ratio, unit: "ratio", floor: 0.05 });
+    }
     perfRow({ name: `chat_pages_memory.n${count}.renderers`, p50: now.renderers, p95: now.renderers, unit: "count" });
     perfRow({
       name: `chat_pages_memory.n${count}.idle_wakeups_per_s`,

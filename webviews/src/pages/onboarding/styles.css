@@ -76,6 +76,15 @@
 .onb-header .onb-sentence {
   margin-top: var(--ds-space-2);
 }
+/* Offline: one quiet line under the title; it takes no room while online. */
+.onb-offline {
+  display: block;
+  margin-top: var(--ds-space-2);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
 .onb-body {
   display: flex;
   flex: 1;
@@ -765,10 +774,18 @@
   height: var(--onb-helper-icon);
   margin-bottom: var(--ds-space-3);
 }
+.onb-cu-helper[data-tile] {
+  /* The tile fills its picture; an app icon keeps about a tenth of its square clear on each side. */
+  box-sizing: border-box;
+  padding: calc(var(--onb-helper-icon) * 0.09);
+  object-fit: contain;
+}
 .onb-cu-head .onb-sentence {
   margin-top: var(--ds-space-1);
 }
-.onb-grants {
+/* Under `.onb-cu`, so the list reset above (`.onboarding :is(h1, h2, p, ul)`, more specific than one
+   class) does not take the space below the line away (Lucas 2026-11-21). */
+.onb-cu .onb-grants {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-3);
@@ -806,6 +823,16 @@
 .onb-grant-line {
   color: var(--page-text-2);
 }
+/* The Screenshots row's capture note: the first sentence takes the line's place in the primary text
+   color (it asks for something), the detail under it stays quiet in caption size. */
+.onb-grant-line[data-confirm] {
+  color: var(--page-text);
+}
+.onb-grant-detail {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
 .onb-grant-control {
   flex: none;
 }
@@ -824,13 +851,46 @@
   margin-bottom: var(--onb-cu-bottom);
   min-height: var(--ds-control-row);
 }
+/* The footer's left side: the note on why Allow cannot help, else the line saying Computer Use runs
+   in its own helper app. */
+.onb-cu-aside {
+  flex: 1;
+  min-width: 0;
+}
 .onb-cu-note {
   display: block;
-  flex: 1;
   min-width: 0;
   color: var(--page-text-2);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+}
+.onb-cu-note:empty {
+  display: none;
+}
+.onb-cu .onb-cu-footnote {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-wrap: pretty;
+}
+/* The done view: in the head and rows' place, centered over the footer. */
+.onb-cu-finished {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  min-height: 0;
+  text-align: center;
+}
+.onb-cu-finished-mark {
+  margin-bottom: var(--ds-space-3);
+}
+.onb-cu-finished .onb-sentence {
+  max-width: 40ch;
+  margin-top: 0;
+  text-wrap: balance;
 }
 
 /* Express (docs/design/onboarding-import-express.md): the summary, centered in the body (it enters

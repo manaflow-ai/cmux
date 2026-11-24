@@ -24,8 +24,13 @@ pub struct MoveSessionsArgs {
     pub sessions: Vec<String>,
     /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
     /// (never a reserved one), one machine per checkout. `--host` still works.
-    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
-    pub host: String,
+    #[arg(
+        long = "machine",
+        alias = "host",
+        value_name = "MACHINE",
+        required_unless_present = "abort"
+    )]
+    pub host: Option<String>,
     /// Every open chat here that is between turns.
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
@@ -61,6 +66,17 @@ pub struct MoveSessionsArgs {
     /// chats. With it, `--machine local` brings them here.
     #[arg(long, value_name = "MACHINE")]
     pub from: Option<String>,
+    /// Copy however long the link takes: the chat keeps running while its history is copied,
+    /// and only the last few records move frozen. Without it a machine whose copy is estimated
+    /// at more than two hours is passed over (`auto`) or refused.
+    #[arg(long)]
+    pub slow_ok: bool,
+    /// End a move of the named chats whose client is gone (a `move` that died or lost its
+    /// daemon), now instead of after the five-minute lease: one not copied whole is given back
+    /// here, one whose target took it is committed there. One whose target cannot say stays
+    /// frozen, and this says why.
+    #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
+    pub abort: bool,
     /// Start the chats on the machine from this machine's copy of them, for a machine that does
     /// not answer: their transcript (the newest records kept here) and name, in a new chat
     /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
@@ -152,6 +168,11 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Block until a pull request's checks finish (or it merges), sharing one GitHub poller with
+    /// every other waiter on this machine. Exit 0 green or merged, 1 failing or closed, 3
+    /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
+    #[command(name = "pr-wait")]
+    PrWait(crate::cli::pr_wait::PrWaitArgs),
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -592,6 +613,11 @@ pub enum Command {
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
         rotate_token: bool,
+        /// Serve the agent pane over this machine's tailnet name with HTTPS
+        /// (`tailscale serve`), so a browser on another device of yours can open and
+        /// sign in to it. Prints that https link; implies `--app`.
+        #[arg(long)]
+        tailnet: bool,
     },
     /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
     /// The old spellings `host`, `hosts` and `peer` still work.
@@ -604,12 +630,17 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// Bridge Claude Desktop and Codex Desktop to each other and to cmux sessions: connect, send, inbox.
+    /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
+    /// connect, send, inbox.
     #[command(subcommand)]
     Bridge(crate::cli::bridge::BridgeCmd),
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
     #[command(subcommand)]
     Watch(crate::cli::watch::WatchCmd),
+    /// Cloud triggers: on a GitHub event (CI failure, PR comment) or a signed webhook, wake a
+    /// Cloud chat with a prompt: create, ls, rm.
+    #[command(subcommand)]
+    Trigger(crate::cli::trigger::TriggerCmd),
     /// Give the Claude desktop app, Claude Code and Codex the cmux tools: link, unlink, status.
     #[command(subcommand)]
     Desktop(crate::cli::desktop::DesktopCmd),
@@ -638,6 +669,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
+    /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
@@ -790,6 +825,15 @@ pub enum Command {
     #[command(hide = true)]
     WakeAgent { session: String },
     #[command(hide = true)]
+    SessionHold {
+        session: Option<String>,
+        held: bool,
+        fleet: bool,
+        allow: Vec<String>,
+        reason: Option<String>,
+        status: bool,
+    },
+    #[command(hide = true)]
     ResumeQueue {
         session: String,
         #[arg(long)]
@@ -808,7 +852,19 @@ pub enum Command {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (tab, sidebar row, lists, chat header, a
+    /// message's sender): one emoji, an SF Symbol (`leaf.fill`, `sf:NAME`), an agent mark
+    /// (`claude`), an .svg/.png/.ico file, or a URL (an image, or a site whose favicon it takes).
+    /// `none` clears it; no ICON prints it. `@` is the session this shell runs in: an agent sets
+    /// its own icon with no one's leave.
+    #[command(
+        after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
+    )]
+    Icon { session: String, icon: Option<String> },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -861,7 +917,12 @@ pub enum Command {
     #[command(hide = true)]
     Set { session: String, assignment: String },
     #[command(hide = true)]
-    Allow { session: String, option: Option<String> },
+    Allow {
+        session: String,
+        option: Option<String>,
+        #[arg(long)]
+        standing_grant: bool,
+    },
     #[command(hide = true)]
     Deny { session: String },
     #[command(hide = true)]
@@ -1267,6 +1328,35 @@ pub enum SessionCmd {
     /// Resume a paused session now: its agent starts on the same conversation, and the time it
     /// took is printed. A prompt resumes it too, without this.
     Wake { session: String },
+    /// Hold a session: it takes no turn until the person asks for it. Every other agent's
+    /// message, tool notice or background task's end waits in its inbox; its idle agent is
+    /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
+    /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
+    /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
+    /// sessions outside them.
+    Hold {
+        /// The session (not with `--fleet`).
+        session: Option<String>,
+        /// Hold this machine's whole fleet of sessions.
+        #[arg(long)]
+        fleet: bool,
+        /// With `--fleet`: names that keep running, comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
+        #[arg(long, value_delimiter = ',')]
+        allow: Vec<String>,
+        /// With `--fleet`: why, shown in each refusal.
+        #[arg(long)]
+        reason: Option<String>,
+        /// With `--fleet`: print the fleet hold, change nothing.
+        #[arg(long)]
+        status: bool,
+    },
+    /// Release a held session (`session hold`): it runs its next prompt as usual. With
+    /// `--fleet`: lift the fleet hold.
+    Release {
+        session: Option<String>,
+        #[arg(long)]
+        fleet: bool,
+    },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
     /// It then runs the installed version and gets a new caller token (after
@@ -1289,7 +1379,12 @@ pub enum SessionCmd {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (as `acpmux icon`).
+    Icon { session: String, icon: Option<String> },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1335,9 +1430,16 @@ pub enum SessionCmd {
         team_address: Option<String>,
     },
     /// Answer a pending permission request. The daemon accepts an allow
-    /// only from the cmux app (approve it on the Mac app); a deny option
-    /// works from here.
-    Allow { session: String, option: Option<String> },
+    /// only from the cmux app (approve it on the Mac app), or signed with this
+    /// machine's standing grant (--standing-grant); a deny option works from here.
+    Allow {
+        session: String,
+        option: Option<String>,
+        /// Sign the one-time allow with the standing grant
+        /// (`acpmux machine approvals grant` records it).
+        #[arg(long)]
+        standing_grant: bool,
+    },
     /// Reject a pending permission request.
     Deny { session: String },
     /// Answer a pending agent question: one --answer per question, keyed by
@@ -1765,6 +1867,12 @@ pub struct RetentionArgs {
     /// One chat only (name or id).
     #[arg(long)]
     pub only: Option<String>,
+    /// Drop only the records no reader takes back (a resume's replayed history, thinking ticks,
+    /// hook callbacks; a Codex resume answer's thread), from any chat nothing uses now, open or
+    /// closed. Each log must read back the same chat rows before it is replaced; with --archive
+    /// the old segments stay there.
+    #[arg(long)]
+    pub unread_only: bool,
 }
 
 /// `session stop`'s condition (`hub/stop_if_idle.rs`). Not with `--mesh`: the mesh hub's stop
@@ -1796,8 +1904,20 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Rename { session, new_name, handle } => {
-                Command::Rename { session, new_name, handle }
+            SessionCmd::Hold { session, fleet, allow, reason, status } => {
+                Command::SessionHold { session, held: true, fleet, allow, reason, status }
+            }
+            SessionCmd::Release { session, fleet } => Command::SessionHold {
+                session,
+                held: false,
+                fleet,
+                allow: Vec::new(),
+                reason: None,
+                status: false,
+            },
+            SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
+            SessionCmd::Rename { session, new_name, handle, icon } => {
+                Command::Rename { session, new_name, handle, icon }
             }
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
@@ -1819,7 +1939,9 @@ pub fn flatten(c: Command) -> Command {
                     .or_else(|| team_address.map(|address| format!("team-address={address}")))
                     .unwrap_or_default(),
             },
-            SessionCmd::Allow { session, option } => Command::Allow { session, option },
+            SessionCmd::Allow { session, option, standing_grant } => {
+                Command::Allow { session, option, standing_grant }
+            }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },

@@ -713,9 +713,16 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       })
       return { id, grant, bearer: (await mintAccessToken(testEnv as any, { user: a.user, team, install: id, grant, vm: true })).token }
     }
-    // cmux-platform's CloudDO (not in this Worker): cloud.vm.self.get answers only for the asking install's own live machine.
+    // cmux-platform (not in this Worker), over the PLATFORM binding as the VM install's own bearer: POST /v1/read
+    // cloud.vm.self.get answers only for the install's own live machine (the route always asks for its bound machine).
     const live = new Set([MACHINE])
-    const env = { ...testEnv, CLOUD_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async (_e: string, p: Principal, op: string, params: { machine?: string }) => (op === "cloud.vm.self.get" && params.machine === p.bound_machine && live.has(params.machine ?? "") ? { ok: true, revision: "cloud:1", value: { machine: { id: params.machine } } } : { ok: false, code: "auth.forbidden", message: "not this machine" }) }) } }
+    const PLATFORM = { fetch: async (req: Request) => {
+      const { op, params } = (await req.json()) as { op: string; params: { machine?: string } }
+      return op === "cloud.vm.self.get" && live.has(params.machine ?? "") && /^Bearer ./.test(req.headers.get("authorization") ?? "")
+        ? Response.json({ op, value: { machine: { id: params.machine } }, stream: "cloud:t", revision: "cloud:1" })
+        : Response.json({ _tag: "Forbidden", code: "auth.forbidden", message: "not this machine" }, { status: 403 })
+    } }
+    const env = { ...testEnv, PLATFORM }
     const list = async (bearer: string, query: string) => {
       const res = await handleGithubToken(new Request(`https://api.test/v1/integrations/github/repos?${query}`, { headers: { authorization: `Bearer ${bearer}` } }), env as any, "repos")
       return { status: res.status, body: (await res.json()) as any }
@@ -759,8 +766,8 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(JSON.stringify(gone.body) + JSON.stringify(elsewhere.body)).not.toContain("acme/")
   })
 
-  // A VM install's token is gated on CloudDO's vm-self read of its own machine (github-token-route.ts); CloudDO and its
-  // VM installs are cmux-platform's, which tests the gate's other half.
+  // A VM install's token is gated on cmux-platform's vm-self read of its own machine (github-token-route.ts, POST /v1/read);
+  // the platform's CloudDO and its VM installs are cmux-platform's, which tests the gate's other half.
   it("a chief-less phone install is refused", async () => {
     const phone = await signedInWithInstall("gh-token-5", "ios")
     expect((await token(phone.installToken, { team: phone.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")

@@ -111,7 +111,6 @@ webviews/test/home-chief-host-calls.test.ts	sleep-then-assert	feat-cmux-next deb
 webviews/test/markdown-highlight-refresh.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/markdown-link-bubble.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/markdown-mermaid-ondine.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
-webviews/test/mobile-pairing-page.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/model-picker-live-refresh.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/new-tab-dictation.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/new-tab-list-motion-render.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there

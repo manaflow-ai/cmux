@@ -175,6 +175,34 @@ const VIOLET_APP: &[(&str, &str)] = &[
 ];
 
 /// Every recipe, in the order a guide lists them.
+/// Plush (examples/looks/plush): six theme files (three tints, each light and
+/// dark) and its chat and Markdown stylesheets, taken from the look itself.
+const PLUSH: &[(&str, &str)] = &[
+    ("themes/plush.json", include_str!("../../../../examples/looks/plush/themes/plush.json")),
+    (
+        "themes/plush-dark.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-dark.json"),
+    ),
+    (
+        "themes/plush-dusk.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-dusk.json"),
+    ),
+    (
+        "themes/plush-dusk-dark.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-dusk-dark.json"),
+    ),
+    (
+        "themes/plush-clay.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-clay.json"),
+    ),
+    (
+        "themes/plush-clay-dark.json",
+        include_str!("../../../../examples/looks/plush/themes/plush-clay-dark.json"),
+    ),
+    ("agent-pane/theme.css", include_str!("../../../../examples/looks/plush/agent-pane/theme.css")),
+    ("markdown/theme.css", include_str!("../../../../examples/looks/plush/markdown/theme.css")),
+];
+
 pub const RECIPES: &[Recipe] = &[
     Recipe {
         name: "compact-sidebar",
@@ -255,6 +283,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make the window see-through glass",
         profile: include_str!("../recipes/glass.json"),
         includes: &[],
+    },
+    Recipe {
+        name: "plush",
+        title: "Plush: soft raised surfaces",
+        group: Group::Look,
+        ask: "make it soft and plush, raised surfaces with no borders or glass",
+        profile: include_str!("../recipes/plush.json"),
+        includes: PLUSH,
     },
     Recipe {
         name: "tonal",
@@ -441,6 +477,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "put a moving dot grid behind a black and white window",
         profile: include_str!("../recipes/dot-grid.json"),
         includes: look!("dot-grid"),
+    },
+    Recipe {
+        name: "grid",
+        title: "Grid",
+        group: Group::Look,
+        ask: "make it a strict grid: square corners, thin rules, one accent",
+        profile: include_str!("../recipes/grid.json"),
+        includes: look!("grid"),
     },
     Recipe {
         name: "aero-sky",

@@ -37,11 +37,18 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
+import { TOOL_MENTIONS, toolOfHref } from "./toolMentions";
+import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { MINIMAL_SCROLLER_ATTRIBUTE, SETTLING_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import {
+  MINIMAL_SCROLLER_ATTRIBUTE,
+  SETTLING_SCROLLER_ATTRIBUTE,
+  SHOWN_SCROLLER_ATTRIBUTE,
+  followShownScrollerFade,
+} from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -71,23 +78,33 @@ import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
-function draftLinkTitles(): DeeplinkTitles | undefined {
+function draftLinkTitles(): DeeplinkTitles {
   const look = experimentArm(cmuxLinkLook);
-  if (look === "link") return undefined;
   return {
-    known: knownCmuxLink,
+    // A built-in tool's word (`@computer-use`) is its badge in every look, `link` too (that look keeps
+    // cmux links as links): the tool's name and icon.
+    known: (href) => {
+      const tool = toolOfHref(href);
+      if (tool) return { kind: "chat", title: translate(tool.label), tool: tool.icon };
+      return look === "link" ? undefined : knownCmuxLink(href);
+    },
     // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
     subscribe: (listener) => {
       const offLinks = subscribeCmuxLinks(listener);
       const offFamily = subscribeIconFamily(listener);
+      // A tool badge's name is in the page's language: a language change draws it again.
+      const offLanguage = subscribeLanguage(listener);
       return () => {
         offLinks();
         offFamily();
+        offLanguage();
       };
     },
     label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
     // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
-    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+    icon: (info) =>
+      info.tool ? iconMaskUrl(info.tool) : look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind]),
+    image: (info) => (info.tool ? TOOL_MENTIONS.find((tool) => tool.icon === info.tool)?.image : undefined),
   };
 }
 
@@ -171,6 +188,12 @@ export type MarkdownFieldHandle = {
   /// (composer/slashTokens.ts), the text around it
   /// kept, as one undoable edit; false when there is no such word or no editor yet.
   insertCommand(name: string, insert?: string): boolean;
+  /// The `@word` the caret is in, read in the caret's own text block (any paragraph, list item or
+  /// quote): the letters typed between its `@` and the caret. Undefined: none (a selection, code).
+  mentionWord(): string | undefined;
+  /// Writes `text` over the whole `@word` the caret is in, its letters after the caret too, as one
+  /// undoable edit, the caret after it; false when there is no such word or no editor yet.
+  insertMention(text: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -722,6 +745,62 @@ function caretOf(view: EditorView): number {
   return doc.textBetween(start, selection.from, "\n", "\n").length;
 }
 
+/// How far from the caret an `@word` is read: a longer word is no mention.
+const MENTION_WORD_MAX = 256;
+
+/// The `@word` the caret is in, in the caret's own text block: its document span (the `@` to the
+/// word's end after the caret), the letters typed before the caret, and whether a space or tab
+/// follows it. An `@` inside a word (an email address) or in code is not one.
+function mentionAround(state: EditorState): { from: number; to: number; query: string; spaced: boolean } | undefined {
+  const { selection } = state;
+  if (!selection.empty) return undefined;
+  const { $from } = selection;
+  const block = $from.parent;
+  if (!block.isTextblock || block.type.spec.code) return undefined;
+  if ($from.marks().some((mark) => mark.type.spec.code)) return undefined;
+  // A leaf counts as one place, as in the document: a line break ends a word, an attachment too.
+  const leaf = (node: ProseNode) => (node.type.name === "hardbreak" ? "\n" : "\uFFFC");
+  const offset = $from.parentOffset;
+  const lo = Math.max(0, offset - MENTION_WORD_MAX);
+  const found = /(^|\s)@([^\s@\uFFFC]*)$/.exec(block.textBetween(lo, offset, undefined, leaf));
+  // Cut off mid-text, a match at the cut's start may be the end of a longer word.
+  if (!found || (lo > 0 && found.index === 0 && !found[1])) return undefined;
+  const hi = Math.min(block.content.size, offset + MENTION_WORD_MAX + 1);
+  const after = block.textBetween(offset, hi, undefined, leaf);
+  // The word ends at punctuation that ends a mention too (`@bro|, please` keeps its comma); a `.` stays
+  // part of it, as a file name's.
+  // A trailing `.` is the sentence's (`@bro|. Next`), not the word's.
+  const rest = /^[^\s@\uFFFC,;:!?)\]"'\u201D\u2019]*/.exec(after)![0].replace(/\.+$/, "");
+  const query = found[2]!;
+  return {
+    from: $from.pos - query.length - 1,
+    to: $from.pos + rest.length,
+    query,
+    spaced: /^[ \t]/.test(after.slice(rest.length)),
+  };
+}
+
+/// The edit that writes `text` over the `@word` the caret is in (mentionAround), its own undo step,
+/// the caret after it: a line break in `text` is a hard break, and a space `text` ends with takes
+/// the place of one that followed the word. Undefined with no `@word` at the caret.
+function mentionEdit(state: EditorState, text: string) {
+  const word = mentionAround(state);
+  if (!word) return undefined;
+  const to = word.to + (word.spaced && /[ \t]$/.test(text) ? 1 : 0);
+  const tr = closeHistory(state.tr);
+  const hardbreak = state.schema.nodes.hardbreak;
+  if (text.includes("\n") && hardbreak) {
+    const nodes = text
+      .split("\n")
+      .flatMap((line, index) => [...(index ? [hardbreak.create()] : []), ...(line ? [state.schema.text(line)] : [])]);
+    tr.replaceWith(word.from, to, nodes);
+    const size = nodes.reduce((sum, node) => sum + node.nodeSize, 0);
+    return tr.setSelection(TextSelection.create(tr.doc, word.from + size)).scrollIntoView();
+  }
+  tr.insertText(text, word.from, to);
+  return tr.setSelection(TextSelection.create(tr.doc, word.from + text.length)).scrollIntoView();
+}
+
 /** The text before `pos`, blocks joined by newlines. */
 const plainOffset = (doc: ProseNode, pos: number) => doc.textBetween(0, pos, "\n", "\n").length;
 
@@ -921,8 +1000,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       else dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
+  // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
+  // the first line while the caret went down the lines under it (Leo 2026-11-22: "the caret gets
+  // shot down past the composer as it goes"). More than one block hides it too.
   const showPlaceholder = (markdown: string) => {
-    const hide = markdown !== "";
+    const doc = view.current?.state.doc;
+    const hide =
+      markdown !== "" || (doc !== undefined && (doc.childCount > 1 || (doc.firstChild?.content.size ?? 0) > 0));
     if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
@@ -1622,6 +1706,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         : undefined,
     [],
   );
+  // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
+  // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
+  useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
@@ -1802,6 +1889,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           current.dispatch(closeHistory(current.state.tr));
           return true;
         },
+        mentionWord: () => (view.current ? mentionAround(view.current.state)?.query : undefined),
+        insertMention: (text) => {
+          const current = view.current;
+          const tr = current && mentionEdit(current.state, text);
+          if (!current || !tr) return false;
+          refocus.current = null;
+          current.dispatch(tr);
+          current.dispatch(closeHistory(current.state.tr));
+          return true;
+        },
         inlineIds: () => (view.current ? inlineIds(view.current.state.doc) : undefined),
         orderInline: (ids) => {
           if (view.current) orderInline(view.current, ids);
@@ -1854,9 +1951,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
-      // shown while it scrolls and while the pointer is near its edge.
-      {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // A long draft's thin scrollbar (scrollers.ts): the transcript's shown scroller, its lane always
+      // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
+      // minimal scroller's inset track and no thumb while the field settles.
+      {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;

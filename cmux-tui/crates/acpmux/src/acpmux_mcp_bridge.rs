@@ -37,7 +37,7 @@ fn tools(me: App) -> Value {
         },
         {
             "name": "inbox",
-            "description": format!("Read the messages left for {}: from the other desktop app and from cmux sessions, oldest first. Each is returned once unless peek is true.", me.name),
+            "description": format!("Read the messages left for {}: from the other desktop apps and from cmux sessions, oldest first. Each is returned once unless peek is true.", me.name),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -58,10 +58,11 @@ fn tools(me: App) -> Value {
 
 fn instructions(me: App) -> String {
     format!(
-        "This is cmux, the bridge between Claude Desktop, Codex Desktop and the cmux agent \
-sessions; you are {}. send messages the other desktop app or a session (find one with ls, read \
-its answer with last); inbox reads what they sent you. cmux cannot start a turn here, so read the \
-inbox at the start of a task and whenever the person mentions messages, cmux, Claude or Codex.",
+        "This is cmux, the bridge between Claude Desktop, Codex Desktop, ChatGPT Desktop and the \
+cmux agent sessions; you are {}. send messages another desktop app or a session (find one with \
+ls, read its answer with last); inbox reads what they sent you. cmux cannot start a turn here, so \
+read the inbox at the start of a task and whenever the person mentions messages, cmux, Claude, \
+Codex or ChatGPT.",
         me.name
     )
 }
@@ -69,7 +70,7 @@ inbox at the start of a task and whenever the person mentions messages, cmux, Cl
 /// Runs the server for `app` (`claude-desktop`, `codex-desktop`) on stdin and stdout.
 pub async fn run(app: &str) -> Result<()> {
     let me = desktop_bridge::app(app)
-        .ok_or_else(|| anyhow::anyhow!("unknown app {app:?}: claude-desktop or codex-desktop"))?;
+        .ok_or_else(|| anyhow::anyhow!("unknown app {app:?}: {}", desktop_bridge::addresses()))?;
     // A chat cmux runs is a session with the acpmux server: nothing to bridge.
     let in_session = std::env::var_os(SESSION_ENV).is_some();
     let (tools, steer) =
@@ -111,7 +112,7 @@ async fn send(me: App, args: &Value) -> Value {
     if let Some(app) = desktop_bridge::app(to) {
         if app == me {
             return error_result(format!(
-                "{} is you; send to the other app or a session",
+                "{} is you; send to another app or a session",
                 me.address
             ));
         }
@@ -168,8 +169,9 @@ mod tests {
             let names: Vec<_> =
                 tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
             assert_eq!(names, ["send", "inbox", "ls", "last"]);
-            let other = desktop_bridge::APPS.iter().find(|a| a != &me).unwrap();
-            assert!(tools[0]["description"].as_str().unwrap().contains(other.address));
+            for other in desktop_bridge::APPS.iter().filter(|a| a != &me) {
+                assert!(tools[0]["description"].as_str().unwrap().contains(other.address));
+            }
             assert!(!tools[0]["description"].as_str().unwrap().contains(me.address));
         }
     }

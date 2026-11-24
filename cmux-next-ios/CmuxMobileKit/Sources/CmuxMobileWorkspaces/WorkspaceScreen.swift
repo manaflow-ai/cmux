@@ -1,3 +1,4 @@
+import Foundation
 #if os(iOS)
 import CmuxSpinner
 import CmuxTabsKit
@@ -23,6 +24,22 @@ extension TabsKitTheme {
         tabs.colors.overviewTop = TabsKitTheme.Colors.pair(0xF2F2F7, 0x1C1C1E)
         tabs.colors.overviewBottom = TabsKitTheme.Colors.pair(0xE5E5EA, 0x000000)
         tabs.colors.accent = TabsKitTheme.Colors.pair(0x1C1C1E, 0x636366)
+        // The bar under the status bar (Leo 2026-11-23: "we keep the "safari" esque thing. but we
+        // move it to the top"): the bottom is the composer's, and Back stays one tap away with
+        // the keyboard up.
+        tabs.metrics.barEdge = .top
+        #if DEBUG
+        // Gallery variants of the top bar's placement (TopBarGalleryUITests); the shipped one is `grid`.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-cmux-mobile-topbar-variant"), args.indices.contains(i + 1) {
+            switch args[i + 1] {
+            case "edge": tabs.metrics.topBarGap = 0; tabs.metrics.topSideInset = 12
+            case "airy": tabs.metrics.topBarGap = 10; tabs.metrics.topSideInset = 24
+            case "safari": tabs.metrics.topBarGap = 2; tabs.metrics.topSideInset = tabs.metrics.sideInset
+            default: break
+            }
+        }
+        #endif
         return tabs
     }
 }
@@ -31,7 +48,7 @@ extension TabsKitTheme {
 /// `AppStore.openingTab` says (the tab left on screen when it was open before in this
 /// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
-/// screen surfaces own the bottom edge). Ways back to the list: the
+/// screen surfaces own the bottom edge). Ways back to the list: the top
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
 public struct WorkspaceScreen: View {
@@ -166,8 +183,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {

@@ -67,6 +67,10 @@ impl Request {
     }
 
     /// Accepted and completed operations remain distinct observed states.
+    /// The error hands the request back so its caller can retry.
+    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err)] // The subject comes back with the error: it is not lost.
+    #[allow(clippy::result_large_err)] // The Err hands the pending typestate back so the caller can retry it.
     pub fn complete(
         self,
         value: Value,

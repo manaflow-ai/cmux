@@ -12,7 +12,7 @@ result is fresh for the tip they merge into.
       The workflow's resolve job names HEAD and BASE without running this checkout's code;
       prepare fails unless the merge it gates is exactly BASE + HEAD. Writes merge=, web=
       (true when web lint has something to lint) and checks= (true on a dispatch, or for a
-      string catalog or protocol spec change, which ci-web's routing does not check) to --output
+      webviews/, string catalog or protocol spec change) to --output
       (GITHUB_OUTPUT).
   run --base BASE [--web true|false] [--checks true|false] [--budget-seconds N]
                                                   every gate on BASE..HEAD (the merge); independent gates run
@@ -31,8 +31,9 @@ The gates, each the same invocation as its push-time job:
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
   webviews checks scripts/ci/fast_gate_webviews_checks.py --base BASE (ci-web.yml's fail-mode webviews
-                  checks; only findings the PR adds), on a dispatch, or for a pull request that changes a string catalog or
-                  the acpmux protocol spec: otherwise ci-web runs them for a webviews/ change on this same merge. A merger
+                  checks; only findings the PR adds), on a dispatch, or for a pull request that changes webviews/, a string
+                  catalog or the acpmux protocol spec (CHECK_INPUTS: a base merge lands on this status, not on
+                  ci-web's webview suite, which runs them too). A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
 
@@ -111,18 +112,24 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     return bool(plan.script_packages or plan.eslint_files)
 
 
-# Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
-# request: check:catalog-keys reads every string catalog, typecheck the types generated from the protocol spec.
-CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
+# The webviews checks' inputs: webviews/ itself, and outside it the string catalogs (check:catalog-keys) and the
+# acpmux protocol spec (acpmux-protocol:check), which ci-web's react-apps routing does not run them for.
+# A webviews/ change runs them here too, though ci-web's react-apps-check runs them on the same merge: that run is
+# inside the webview suite's first shard (13 to 50 min), and land-judge's merged-tree carry lands a clean base merge
+# of a passed head on this status, cmux-next/compile and web/'s typecheck, carrying the suite from the older head. So a
+# base merge's webviews type check is this gate's or no one's: cmux#49052 merged at 01:27Z on 2026-11-22 (66beef47)
+# on webview checks run 12 h earlier, before #48989 moved the code its new `foldsPrompt` read sat in, and the merged
+# tree's `Cannot find name 'foldsPrompt'` failed 13 of 23 Nightly runs (cmuxterm-hq#19108). About 1-2 minutes.
+CHECK_INPUTS = re.compile(r"^webviews/|\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
 
 
 def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
     """Whether the webviews checks gate runs: on a dispatch, or a pull request that changes one of their inputs
-    outside webviews/ (on a pull request ci-web runs them for a webviews/ change, on this same merge)."""
+    (CHECK_INPUTS: webviews/, a string catalog, the acpmux protocol spec)."""
     if event == "workflow_dispatch":
         return True
     changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
-    return any(CHECK_INPUTS_OUTSIDE_WEBVIEWS.search(path) for path in changed)
+    return any(CHECK_INPUTS.search(path) for path in changed)
 
 
 # The panic ratchet's baseline and the cmux-tui inputs whose change can move every crate's count.

@@ -430,7 +430,17 @@ class PipelineTest(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        self.assertIn("ci/run run --job linux", job["steps"][-1]["run"])
+        runs = [i for i, s in enumerate(job["steps"]) if "ci/run run --job linux" in s.get("run", "")]
+        self.assertEqual(len(runs), 1)
+        # After it only the failure-only upload of a fixit-compile patch (the web-typecheck step's), for the
+        # cmuxterm-hq reconciler, which reads a run's `fixit-compile-*` artifacts.
+        after = job["steps"][runs[0] + 1:]
+        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"])
+        self.assertEqual(after[0]["if"], "${{ failure() && !cancelled() }}")
+        self.assertTrue(after[0]["uses"].startswith("actions/upload-artifact@"))
+        self.assertTrue(after[0]["with"]["name"].startswith("fixit-compile-"))
+        self.assertEqual(after[0]["with"]["path"], "${{ runner.temp }}/fixit-compile")
+        self.assertEqual(after[0]["with"]["if-no-files-found"], "ignore")
 
     def test_the_router_starts_it_only_when_a_step_is_routed(self) -> None:
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -540,17 +550,35 @@ class PipelineTest(unittest.TestCase):
         # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
         self.assertEqual(wf["jobs"]["sdk"]["if"],
-                         "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}")
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
         self.assertNotIn("if", wf["jobs"]["rust"])
         self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
         # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
-                         "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}")
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
         self.assertEqual(steps["submodule-forward-only"].job, "linux")
         gitlinks = re.findall(r"^\s*path = (\S+)$", (ROOT / ".gitmodules").read_text(), re.M)
         self.assertTrue(gitlinks)
         self.assertLessEqual({".gitmodules", *gitlinks}, set(steps["submodule-forward-only"].inputs))
+        # ci-web.yml's web-typecheck keeps its route and skips only feat-cmux-next's pull requests; what routed it
+        # (web_subareas.py's typecheck subarea) routes the step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
+        self.assertTrue(wf["jobs"]["web-typecheck"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        typecheck = steps["web-typecheck"]
+        self.assertEqual(typecheck.job, "linux")
+        self.assertIn("bun run typecheck", typecheck.run)
+        self.assertIn("fixit_compile.py run --kind tsc", typecheck.run)
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import web_subareas
+
+        for path in ("web/app/page.tsx", "web/services/x.ts", "web/next-env.d.ts", "web/scripts/a.mjs",
+                     "web/package.json", "web/tsconfig.json", "web/bun.lock", "web/messages/fr.json",
+                     ".github/workflows/ci-web.yml", "scripts/ci/web_subareas.py"):
+            with self.subTest(path=path):
+                self.assertTrue(web_subareas.classify_paths([path]).typecheck)
+                self.assertTrue(ci_steps.routed(typecheck, [path]))
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -568,7 +596,8 @@ class PipelineTest(unittest.TestCase):
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust"])
-        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity"}
+        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
+                     "web-typecheck"}
         wants_node = {"ci-artifact-worker", "coderouter", "web-complexity"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
@@ -595,7 +624,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(
             wf["jobs"]["linux"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
             "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:

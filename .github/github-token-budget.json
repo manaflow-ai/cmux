@@ -250,6 +250,7 @@
     "resume-nightly-notarization.yml: Verify trusted source workflow run": "baseline 2026-11-04",
     "risk-tier.yml: Grade the pull request": "polls (tests/test_ci_no_github_token_polling.py): retry only: a loop over the two sign-off labels; gh_run retries a failed gh call at most 3 times, 2 and 4 s apart",
     "risk-tier.yml: Set the risk label": "baseline 2026-11-04",
+    "risk-tier.yml: Add the try line to a UI pull request": "0 calls unless a UI pull request's event body has no try command; then 2 (GET the live body, PATCH it), once per pull request: the write starts no run and later events carry the line. About 56 UI pull requests merged in 8 h (2026-11-22), so under 30 calls an hour",
     "seed-derived-data.yml: Adopt the newest seed": "baseline 2026-11-04",
     "seed-derived-data.yml: Compare build inputs with the nearest seed": "baseline 2026-11-04",
     "seed-derived-data.yml: Start compile attribution": "baseline 2026-11-04",

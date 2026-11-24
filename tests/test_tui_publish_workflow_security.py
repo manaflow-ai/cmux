@@ -443,7 +443,8 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "feat-cmux-next-push" not in artifacts
     assert "cancel-in-progress: false" in artifacts
     preflight = workflow_job(artifacts, "tree-preflight")
-    assert "fetch --no-tags --depth=1" in preflight
+    # A blob:none tree fetch: the checkout is a partial clone and the key reads trees and one blob.
+    assert "fetch --no-tags --no-recurse-submodules --filter=blob:none --depth=1" in preflight
     assert "current_key" in preflight
     assert '"$current_key" == "$key"' in preflight
     assert "retaining publication for superseded tree" in preflight

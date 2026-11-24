@@ -74,6 +74,12 @@ as a set of fonts) installs the same way with `cmux snippet install`.
 `cmux theme import FILE` only copies one theme file into the themes folder; add `--use` to put it
 on, or run the `cmux theme use NAME` it prints.
 
+`cmux theme import FILE` also takes a terminal color scheme: base16 YAML, iTerm2 `.itermcolors`,
+Windows Terminal JSON, a Ghostty theme, or a VS Code color theme (the `.json` an editor theme
+extension ships; comments and trailing commas are fine). A VS Code theme's `terminal.ansi*`
+colors become the 16 terminal colors; one without them gets each from its nearest syntax color.
+It installs as a terminal theme; `cmux theme set appearance.theme "<its name>"` puts it on.
+
 ## Share a theme so people find it
 
 1. Make a repository: `cmux theme export --save NAME` writes your look as `themes/NAME.json`; add a

@@ -189,6 +189,8 @@ export function mergeToolItem(
       ...(before?.background ? { background: before.background } : {}),
       // An approval stays on its call as the call's result comes in.
       ...(before?.approved ? { approved: true as const } : {}),
+      // A call whose oldest output went with its records stays marked as later output comes in.
+      ...(before?.earlierOutput ? { earlierOutput: true as const } : {}),
       // What a background task's end left on it (`attachReaction`) stays as later updates come in.
       ...(before?.reaction ? { reaction: before.reaction } : {}),
       locations,

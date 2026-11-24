@@ -124,6 +124,13 @@ open class ComposerReturnTextView: UITextView {
         return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
     }
 
+    /// Whether the text now wants another field height than the field has: an edit gained
+    /// or lost a line (`ComposerLineMotion`). False before the field is laid out.
+    public var lineCountChangePending: Bool {
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        return abs(fittingSize(proposedWidth: bounds.width).height - bounds.height) > 0.5
+    }
+
     /// Whether the text is taller than the field (it scrolls inside).
     public var textOverflows: Bool { contentSize.height > bounds.height + 0.5 }
 

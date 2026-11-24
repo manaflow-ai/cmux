@@ -18,8 +18,8 @@
 //! A surface's name is what its client says (a label, never a right): `client` beside it is the
 //! connection the hub saw. A client opts in by naming its surface (`_meta.acpmux.surface` on
 //! `session/prompt`, and `composer_set`); one that never does sees nothing new. Drafts and the
-//! queue's labels live in memory, so a restarted or moved chat shows its queue unlabelled; the
-//! durable shared draft stays `_acpmux/draft_set`.
+//! queue's labels live in memory: a moved chat carries them in its bundle (`Composers::bundled`),
+//! a restarted one shows its queue unlabelled; the durable shared draft stays `_acpmux/draft_set`.
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -41,6 +41,15 @@ pub struct Surface {
 impl Surface {
     fn record(&self) -> Value {
         let mut v = json!({"surfaceId": self.id, "name": self.name});
+        if let Some(kind) = &self.kind {
+            v.set("kind", json!(kind));
+        }
+        v
+    }
+
+    /// It as `surface()` reads it back: `{id, name, kind?}`.
+    fn record_in(&self) -> Value {
+        let mut v = json!({"id": self.id, "name": self.name});
         if let Some(kind) = &self.kind {
             v.set("kind", json!(kind));
         }
@@ -94,7 +103,64 @@ impl Composers {
     fn sent_by(&self, prompt_id: &str) -> Option<&Surface> {
         self.sent.iter().rev().find(|(id, _)| id == prompt_id).map(|(_, s)| s)
     }
+
+    /// What a move carries (`transfer.rs`, [`BUNDLE_FILE`]): every surface's unsent text and
+    /// who sent the prompts still queued, so the chat arrives with both, not blank and
+    /// unlabelled. Leo: "moving sessions back and forth, the histories the pausing the images".
+    pub(in crate::hub) fn bundled(&self) -> Value {
+        let drafts: Vec<Value> = self
+            .drafts
+            .values()
+            .map(|d| {
+                json!({"surface": d.surface.record_in(), "text": d.text, "updatedAt": d.updated_at, "order": d.order})
+            })
+            .collect();
+        let sent: Vec<Value> = self
+            .sent
+            .iter()
+            .map(|(id, s)| json!({"promptId": id, "surface": s.record_in()}))
+            .collect();
+        json!({"drafts": drafts, "sent": sent})
+    }
+
+    /// Takes what [`Self::bundled`] wrote on the other machine. A bundle is a file another
+    /// daemon wrote: each surface is checked as `composer_set` checks one, and a bad entry is
+    /// dropped, never the move.
+    pub(in crate::hub) fn restore(&mut self, v: &Value) {
+        let list = |key: &str| v.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+        // The other machine's `order` only ranks the carried drafts among themselves: each gets
+        // this chat's next number in that rank, so a bundle naming `u64::MAX` cannot leave the
+        // counter where the next keystroke overflows it.
+        let mut carried = Vec::new();
+        for d in list("drafts") {
+            let Ok(Some(surface)) = self::surface(d.get("surface")) else { continue };
+            let Some(text) = d.get("text").and_then(Value::as_str) else { continue };
+            if text.trim().is_empty() {
+                continue;
+            }
+            let rank = d.get("order").and_then(Value::as_u64).unwrap_or(0);
+            let updated_at = d.get("updatedAt").and_then(Value::as_u64).unwrap_or_else(now_ms);
+            carried.push((rank, surface, text.to_owned(), updated_at));
+        }
+        carried.sort_by_key(|(rank, ..)| *rank);
+        for (_, surface, text, updated_at) in carried {
+            self.typed = self.typed.saturating_add(1);
+            let draft = Draft { surface: surface.clone(), text, updated_at, order: self.typed };
+            self.drafts.insert(surface.id, draft);
+        }
+        for s in list("sent") {
+            let Ok(Some(surface)) = self::surface(s.get("surface")) else { continue };
+            let Some(id) = s.get("promptId").and_then(Value::as_str) else { continue };
+            self.sent.push_back((id.to_owned(), surface));
+        }
+        while self.sent.len() > SENT_LEDGER {
+            self.sent.pop_front();
+        }
+    }
 }
+
+/// The file in a move's bundle that holds [`Composers::bundled`].
+pub(in crate::hub) const BUNDLE_FILE: &str = "composers.json";
 
 fn refusal(message: String) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": "surface.invalid"}))
@@ -151,7 +217,7 @@ impl Hub {
             let mut c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
             let before = c.drafts.get(&surface.id).map(|d| d.surface.clone());
             if composing {
-                c.typed += 1;
+                c.typed = c.typed.saturating_add(1);
                 let draft = Draft {
                     surface: surface.clone(),
                     text: text.to_owned(),
@@ -243,5 +309,59 @@ impl Hub {
             })
             .collect();
         json!({"sessionId": session.id, "composers": composers, "turn": turn, "queue": queue})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bundle_carries_every_surfaces_draft_and_drops_what_composer_set_would_refuse() {
+        let mut c = Composers::default();
+        let phone = Surface { id: "phone".into(), name: "iPhone".into(), kind: Some("ios".into()) };
+        let mac = Surface { id: "mac".into(), name: "Mac".into(), kind: None };
+        for (order, (s, text)) in [(&mac, "first"), (&phone, "second")].into_iter().enumerate() {
+            let draft = Draft {
+                surface: s.clone(),
+                text: text.into(),
+                updated_at: 7,
+                order: order as u64 + 1,
+            };
+            c.drafts.insert(s.id.clone(), draft);
+        }
+        c.sent.push_back(("p-1".into(), phone.clone()));
+        let mut bundled = c.bundled();
+        // Another daemon wrote it: a hidden character, a blank draft and a missing id are dropped.
+        bundled["drafts"].as_array_mut().unwrap().extend([
+            json!({"surface": {"id": "x\u{202E}", "name": "spoof"}, "text": "t", "order": 9}),
+            json!({"surface": {"id": "blank", "name": "Blank"}, "text": "  ", "order": 9}),
+        ]);
+        bundled["sent"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"surface": {"id": "mac", "name": "Mac"}}));
+
+        let mut back = Composers::default();
+        back.restore(&bundled);
+        let mut ids: Vec<_> = back.drafts.keys().cloned().collect();
+        ids.sort();
+        assert_eq!(ids, ["mac", "phone"]);
+        assert_eq!(back.drafts["phone"].surface, phone);
+        assert_eq!(back.drafts["mac"].text, "first");
+        assert_eq!(back.typed, 2, "the next draft typed here orders after the carried ones");
+        assert_eq!(back.sent_by("p-1"), Some(&phone));
+        assert_eq!(back.sent.len(), 1);
+    }
+
+    #[test]
+    fn a_bundles_draft_order_only_ranks_the_drafts_it_carries() {
+        let draft = |id: &str, order: u64| json!({"surface": {"id": id, "name": id}, "text": "t", "order": order});
+        let bundled = json!({"drafts": [draft("late", u64::MAX), draft("early", 3)]});
+        let mut back = Composers { typed: 5, ..Composers::default() };
+        back.restore(&bundled);
+        assert_eq!(back.drafts["early"].order, 6, "numbered on from this chat's own count");
+        assert_eq!(back.drafts["late"].order, 7, "in the order the other machine typed them");
+        assert_eq!(back.typed, 7, "the next keystroke has a number left to take");
     }
 }

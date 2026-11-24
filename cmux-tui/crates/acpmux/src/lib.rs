@@ -26,6 +26,7 @@ pub mod agent;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
+pub mod agent_home;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -69,10 +70,13 @@ pub mod cmux_tui_service;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+/// The opt-in bundled Codex app-server (Labs, off by default).
+pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
+mod codex_signed_out;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
@@ -108,6 +112,7 @@ pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
 pub mod god_fixture;
+pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -125,6 +130,7 @@ pub mod github_mcp {
 pub mod github_status;
 pub mod goal;
 pub mod hand;
+pub mod happy_dial;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_fixture;
@@ -170,8 +176,14 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+/// Calls this machine runs for the person's other machines, over the hub carrier
+/// (`machine_call_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
+/// File and command actions for another of the person's machines (`machine_call_service.rs`).
+pub mod machine_files;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
@@ -215,6 +227,9 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
+pub mod peer_dial_gate;
+pub(crate) mod peer_notice_outbox;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
@@ -237,6 +252,7 @@ pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod prompt_uploads;
+pub mod prompts;
 pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
@@ -250,6 +266,7 @@ pub mod race_records;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -275,6 +292,7 @@ pub mod sent_by;
 pub mod server;
 pub mod session_env;
 mod session_handle;
+pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
@@ -290,6 +308,10 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod single_flight;
+/// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod transfer_service;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
@@ -308,9 +330,11 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod sr2_priority;
 pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
+pub mod stash;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
@@ -319,6 +343,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;
@@ -342,6 +367,7 @@ mod test_stack;
 pub mod test_support;
 pub(crate) mod time_breakdown;
 pub(crate) mod tool_env;
+pub mod tool_mentions;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
@@ -355,10 +381,12 @@ pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
+pub(crate) mod unread_records;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
 pub mod web_modes;
+pub mod web_tailnet;
 pub mod wire_size;
 pub mod wireguard;
 pub mod workflow_journal;
@@ -371,3 +399,6 @@ pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;
+/// The per-host model-name hot patch (`$ACPMUX_HOME/model-aliases.json`), read by
+/// `model_catalog::canonical_model`.
+pub mod model_hot_patch;

@@ -7,9 +7,12 @@
 // typing before the live composer is up waits in the host's key queue (PageInputReadiness), as it does
 // with no snapshot.
 import {
+  CHROME_ONLY_RULE,
+  fitsChromeOnly,
   fitsDocument,
   PAGE_STYLE_ID,
   SNAPSHOT_BODY_TAG,
+  SNAPSHOT_CHROME_ONLY_ATTRIBUTE,
   SNAPSHOT_HOST_TAG,
   SNAPSHOT_HTML_TAG,
   SNAPSHOT_MISS_GLOBAL,
@@ -126,13 +129,16 @@ export type PaintEvents = {
 };
 
 /// Draws `snapshot` over `doc`'s live root; true when it will. Nothing when there is none, when it was
-/// written for another viewport, look or theme, or when the engine lacks what the copy needs.
+/// written in another look or theme, or when the engine lacks what the copy needs; written for another
+/// viewport, its chrome only (shared.ts `fitsChromeOnly`).
 ///
 /// The copy links the page's own sheet in its shadow root, and beside it the page's root rules
 /// rewritten for the shadow tree (its link's `data-copy`): each chat page of the renderer used to parse
 /// a constructed copy of the whole page sheet (bench/chat-pages-memory.bench.ts, CSS=inline), where the
 /// links reuse the renderer's one parse. A link finishes in a later task even when the sheet is parsed
-/// already, so the copy is laid out hidden and shows once both loaded, before the next frame.
+/// already, so the copy is laid out hidden and shows once both loaded, before the next frame. Hidden is
+/// `opacity:0` on the host, not `visibility:hidden`: visibility inherits, so showing restyled every element
+/// of the copy (11-14 ms of the 110 ms to its first paint, bench/chat-floor.bench.ts); opacity is the host's own.
 export function paintSnapshot(
   doc: Document,
   snapshot: ChatSnapshot | null | undefined,
@@ -141,11 +147,15 @@ export function paintSnapshot(
   const view = doc.defaultView;
   const live = doc.getElementById("root");
   const pageSheet = doc.getElementById(PAGE_STYLE_ID);
-  if (!view || !live || !doc.body || !snapshot || !fitsDocument(snapshot, doc)) return false;
+  if (!view || !live || !doc.body || !snapshot) return false;
+  // Written at another size in the same theme: the pane's chrome draws (the composer with its hat and
+  // pills, the header), laid out at this size; the transcript's rows do not (shared.ts `fitsChromeOnly`).
+  const chromeOnly = !fitsDocument(snapshot, doc) && fitsChromeOnly(snapshot, doc);
+  if (!chromeOnly && !fitsDocument(snapshot, doc)) return false;
   const copySheet = pageSheet instanceof view.HTMLLinkElement && pageSheet.href ? pageSheet.dataset.copy : undefined;
   if (!copySheet) return false;
   const styles = snapshot.styles.map((text) => sheetOf(view, text));
-  const still = sheetOf(view, BASE + STILL);
+  const still = sheetOf(view, BASE + STILL + (chromeOnly ? CHROME_ONLY_RULE : ""));
   if (!still || styles.some((sheet) => !sheet)) return false;
   try {
     for (const sheet of styles) rewrite(sheet!.cssRules);
@@ -156,7 +166,7 @@ export function paintSnapshot(
   host.setAttribute("inert", "");
   host.setAttribute("aria-hidden", "true");
   host.style.cssText =
-    "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0;visibility:hidden";
+    "position:fixed;inset:0;display:block;z-index:var(--layer-debug);pointer-events:none;contain:strict;margin:0;padding:0;border:0;opacity:0";
   const shadow = host.attachShadow({ mode: "open" });
   const sheets = snapshot.sheets.map((text) => sheetOf(view, text)).filter((s): s is CSSStyleSheet => !!s);
   // The shadow root's own sheets cascade before its adopted ones: the page's rules (with its root
@@ -174,6 +184,7 @@ export function paintSnapshot(
   html.classList.add(SNAPSHOT_ROOT_CLASS);
   const body = doc.createElement(SNAPSHOT_BODY_TAG);
   setAttributes(body, snapshot.body);
+  if (chromeOnly) body.setAttribute(SNAPSHOT_CHROME_ONLY_ATTRIBUTE, "");
   // Declarative shadow roots in the markup become shadow roots (setHTMLUnsafe); without it, plain markup.
   const parse = (body as Element & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
   if (parse) parse.call(body, snapshot.html);
@@ -199,10 +210,10 @@ export function paintSnapshot(
     }
     // The live root lays out under the copy, unseen until the swap (live.ts); a press on the copy ends it
     // and reaches nothing under it (live.ts `reportChatSnapshot`). Both in this task: one frame shows it.
-    host.style.removeProperty("visibility");
+    host.style.removeProperty("opacity");
     live.style.opacity = "0";
     restoreScroll(body);
-    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now() };
+    globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now(), ...(chromeOnly ? { chromeOnly: true } : {}) };
     view.performance.mark?.("cmux-chat:snapshot-paint");
     events.shown?.();
   };

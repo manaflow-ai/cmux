@@ -508,7 +508,7 @@ extension CloudHandlers {
             let values = try await keychainValues(items)
             // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
             // no value crosses the platform, a file API, a terminal or a log.
-            let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)
+            let delivered = try await cloud.machineAPI.daemon.deliverSealedSecrets(machineID, values: values)
             guard case .wrote(let count) = delivered else {
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(Self.sealedReason(delivered)))
             }
@@ -524,7 +524,7 @@ extension CloudHandlers {
 
     /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `busy`)
     /// or the step that failed. Never a value or a machine's own text.
-    static func sealedReason(_ answer: CloudAPIClient.SealedDelivery) -> String {
+    static func sealedReason(_ answer: CloudDaemon.SealedDelivery) -> String {
         switch answer {
         case .wrote: "unexpected"
         case .failed(let code, let refusal, _): refusal ?? code

@@ -714,8 +714,10 @@ def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
 
 def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
     changes = workflow_job_block("changes")
-    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
-    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    # A draft head's cheap tier (scripts/ci/head_tier.py, #48920) runs neither; every other tier takes the router's answer.
+    tier_off = "(steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false'"
+    assert f"browser: ${{{{ {tier_off} || (steps.standalone.outputs.browser) }}}}" in changes
+    assert f"remote_daemon: ${{{{ {tier_off} || (steps.standalone.outputs.remote_daemon) }}}}" in changes
     route = workflow_job_step_script("changes", "Route standalone project workflows")
     assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
     assert "daemon/remote/*|scripts/*remote_daemon*" in route
@@ -1901,7 +1903,7 @@ def ci_router_trigger_problems(workflow: str) -> list[str]:
     problems = []
     on = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]
     pull_request = on.get("pull_request") or {}
-    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled"]:
+    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled", "ready_for_review"]:
         problems.append(f"pull_request types are {pull_request.get('types')!r}")
     if set(pull_request) - {"types", "paths"}:
         problems.append(f"pull_request has other filters: {sorted(set(pull_request) - {'types', 'paths'})}")
@@ -1930,7 +1932,8 @@ def test_ci_router_trigger_check_catches_a_filtered_merge_group_or_extra_paths()
     assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n", 1))
     assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "", 1))
     assert ci_router_trigger_problems(workflow.replace("  workflow_call:\n", "  push:\n    paths: [\"x/**\"]\n  workflow_call:\n", 1))
-    assert ci_router_trigger_problems(workflow.replace(", unlabeled]", "]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", unlabeled, ready_for_review]", ", ready_for_review]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", ready_for_review]", "]", 1))
     assert ci_router_trigger_problems(workflow.replace('      - "!**/*.md"\n', "", 1))
 
 
@@ -2107,6 +2110,8 @@ def run_web_status(
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
     subareas: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -2148,6 +2153,8 @@ def run_web_status(
         **os.environ,
         "WEB_INPUTS": json.dumps(route_inputs),
         "WEB_NEEDS": json.dumps(needs),
+        "WEB_EVENT": event,
+        "WEB_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -4578,7 +4585,7 @@ def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
 
 def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]" in workflow
+    assert re.search(r"(?m)^  pull_request:\n(?:    #.*\n)*    types: \[opened, synchronize, reopened, labeled, unlabeled, ready_for_review\]$", workflow)
 
     suite = workflow_step_block("changes", "Choose the macOS suite for this run")
     assert "gh api" not in suite
@@ -5098,6 +5105,40 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_allows_the_typecheck_skip_only_on_a_feat_cmux_next_pull_request() -> None:
+    # A feat-cmux-next pull request runs web-typecheck as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+    result = run_web_status(results={"web-typecheck": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode == 0, result.stderr
+    for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+        result = run_web_status(results={"web-typecheck": "skipped"}, event=event, base_ref=base_ref)
+        assert result.returncode != 0, (event, base_ref)
+    for outcome in ("failure", "cancelled"):
+        result = run_web_status(results={"web-typecheck": outcome}, event="pull_request", base_ref="feat-cmux-next")
+        assert result.returncode != 0, outcome
+    # Only web-typecheck moved: another routed job's skip is still a red there.
+    result = run_web_status(results={"web-tests": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode != 0
+    block = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_the_web_typecheck_step_keeps_the_jobs_commands() -> None:
+    # The step a feat-cmux-next pull request runs instead (ci/steps.toml) keeps the job's install, catalog check,
+    # retry and fixit-compile wrappers and its retry of a native tsgo abort.
+    import tomllib
+
+    step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["web-typecheck"]["run"]
+    script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
+    for line in ("bun install --frozen-lockfile", "bun tools/generate-managed-iroh-relay-catalog.ts --check",
+                 "python3 -I ../scripts/ci/oops/retry.py --job web-typecheck -- \\",
+                 "python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee \"$log\"",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in step, line
+    for line in ("python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in script, line
 
 
 def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
@@ -5737,6 +5778,37 @@ def _run_named_test(name: str) -> tuple[str, str | None]:
     except BaseException:
         return name, traceback.format_exc()
     return name, None
+
+
+def test_the_helper_walk_widens_a_narrow_sparse_checkout_before_it_searches() -> None:
+    # ci.yml's `changes` job checks out fewer paths than .github/checkout-lean.json's
+    # `sparse_checkout`; the walk's `git grep` sees only checked-out files, so it widens first
+    # and finds a referrer outside the narrow set. Without the table it cannot widen and
+    # answers None ("could not search"), which routes every area.
+    env = git_fixture_env.fixture_env()
+
+    def git(repo: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True, text=True)
+
+    for keep_table in (True, False):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git_fixture_env.init_repo(Path(temp_dir) / "repo", env=env)
+            (repo / ".github").mkdir()
+            (repo / ".github" / "checkout-lean.json").write_text(
+                json.dumps({"sparse_checkout": ["/*", "!/drop/verify/"]}) if keep_table else "{}")
+            (repo / "drop").mkdir()
+            (repo / "drop" / "runner.sh").write_text("scripts/widen-probe.sh\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture")
+            git(repo, "sparse-checkout", "set", "--no-cone", "/*", "!/drop/")
+            assert not (repo / "drop" / "runner.sh").exists()
+            module._tree_is_complete.cache_clear()
+            found = module._files_naming(repo, "scripts/widen-probe.sh")
+            if keep_table:
+                assert found == ["drop/runner.sh"], found
+            else:
+                assert found is None, found
+    module._tree_is_complete.cache_clear()
 
 
 def _main() -> int:

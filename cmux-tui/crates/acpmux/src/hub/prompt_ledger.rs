@@ -258,7 +258,7 @@ impl Hub {
         let mut closed_window = false;
         let mut prompt_hash = None::<String>;
         let mut permissions = HashSet::<String>::new();
-        let scanned = self.store.scan_strict(&session.id, 0, &mut |rec| {
+        let scanned = self.scan_strict_off(&session.id, 0, &mut |rec| {
             let field = |key: &str| rec.msg.get(key).and_then(Value::as_str);
             let mux = rec.dir == "mux";
             // Only daemon-authored admission records bind a delivery. A human prompt
@@ -814,7 +814,7 @@ mod tests {
             () = tokio::task::yield_now() => {}
         }
         *session.turn.lock().unwrap() = None;
-        hub.set_status(&session, crate::store::SessionStatus::Running);
+        hub.set_status(&session, crate::hub::NotWaiting::Running);
         assert_eq!(session.status(), crate::store::SessionStatus::Running);
         tokio::select! {
             biased;
@@ -844,7 +844,7 @@ mod tests {
         hub.append(&session, "mux", "turn_started", json!({"promptId": "p", "turnId": "t"}));
         // finish_turn has taken TurnInfo and recorded lastTurn, but has not appended
         // turn_result yet. A reconnect must wait for its original code and error data.
-        hub.set_status(&session, crate::store::SessionStatus::Running);
+        hub.set_status(&session, crate::hub::NotWaiting::Running);
         assert_eq!(session.status(), crate::store::SessionStatus::Running);
         session.meta.lock().unwrap().last_turn = Some(json!({
             "promptId": "p", "turnId": "t", "status": "failed", "errorText": "summary only",
@@ -912,7 +912,7 @@ mod tests {
             "turn_started",
             json!({"promptId": "other", "turnId": "other-turn"}),
         );
-        hub.set_status(&session, crate::store::SessionStatus::Running);
+        hub.set_status(&session, crate::hub::NotWaiting::Running);
         assert_eq!(session.status(), crate::store::SessionStatus::Running);
         let orphan = tokio::time::timeout(
             std::time::Duration::from_secs(1),

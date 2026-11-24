@@ -40,6 +40,7 @@ impl Command {
             Self::TerminalClipboardReply { .. } => "terminal-clipboard-reply",
             Self::PasteImage { .. } => "paste-image",
             Self::ServerStats { .. } => "server-stats",
+            Self::ProcessCensus => "process-census",
             Self::SetTerminalCommandHistory(..) => "set-terminal-command-history",
             Self::ListTerminalCommands(..) => "list-terminal-commands",
             Self::DeleteTerminalCommands(..) => "delete-terminal-commands",

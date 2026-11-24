@@ -234,6 +234,12 @@ pub(in crate::cli) fn note_started(chat: Chat) {
     *STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat);
 }
 
+/// The chat this process last started here ([`note_started`]), whatever its id: the hybrid
+/// start (chat_start/hybrid_start.rs) hands it to the driver that moves it to Cloud.
+pub(in crate::cli) fn last_started() -> Option<Chat> {
+    STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
 /// The chat `id` names when this process started it here ([`note_started`]): its scope is
 /// known and its acpmux too, so `cmux chat --prompt … --wait` reaches it with no lookup, no
 /// app call and no session snapshot (goal local-instant-start).
@@ -857,7 +863,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-pub(super) mod acp {
+pub(in crate::cli) mod acp {
     //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
     //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
     //! the acpmux daemon.
@@ -1056,6 +1062,84 @@ pub(super) mod acp {
                            "timeoutMs": timeout_ms}),
                 )
                 .await
+        })
+    }
+
+    /// `_acpmux/wait` on `session` until it reaches one of `until` (`running`, `ready`,
+    /// `closed`, ...), at most `timeout`: the daemon answers on the chat's own events, so a
+    /// waiter learns of a turn's start or end when acpmux records it, with no polling.
+    pub(in crate::cli) fn wait_until(
+        session: &str,
+        until: &[&str],
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
+        })
+    }
+
+    /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
+    /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
+    /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
+    pub(in crate::cli) fn follow_updates(
+        session: &str,
+        socket: Option<&Path>,
+        deadline: std::time::Instant,
+        mut each: impl FnMut(&Value) -> bool,
+    ) -> Result<(), String> {
+        use acpmux::rpc::{Message, method};
+        block_on(async {
+            let client = client(socket).await?;
+            let mut notes = client
+                .notifications()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": session, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let end = tokio::time::Instant::from_std(deadline);
+            loop {
+                let Ok(Some(note)) = tokio::time::timeout_at(end, notes.recv()).await else {
+                    return Ok(());
+                };
+                let Message::Notification { method: name, params } = note else { continue };
+                if name == method::MUX_DISCONNECTED {
+                    return Ok(());
+                }
+                let params = params.unwrap_or(Value::Null);
+                let ours = params.get("sessionId").and_then(Value::as_str) == Some(session);
+                if name == method::SESSION_UPDATE && ours && !each(&params) {
+                    return Ok(());
+                }
+            }
         })
     }
 

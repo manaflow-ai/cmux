@@ -571,3 +571,135 @@ async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
     assert_eq!(started, 7, "{k:?}");
     assert!(last.contains("late report") && last.contains("rate limit"), "{last}");
 }
+
+/// A connection from inside session `sid` (its caller token): an agent's, not the person's.
+async fn agent_in(hub: &Arc<Hub>, sid: &str) -> TestClient {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    let token = acpmux::hub::person::caller_token(sid);
+    let init = json!({"protocolVersion": 1,
+        "_meta": {"acpmux": {"callerSession": {"sessionId": sid, "token": token}}}});
+    c.request(method::INITIALIZE, init).await.unwrap();
+    c
+}
+
+/// Leo, 2026-11-18: "claude-sr2-coord fell into a weird "rate limited" loop again 429 and
+/// whatever". A turn Claude Code starts itself (here for a background shell's notice) that fails
+/// on the limit is a strike and holds the chat, as a prompted turn's 429 does. Before, only a
+/// turn acpmux prompted counted: the chat stayed unheld and the queue's next turn went at once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_429_on_a_turn_claude_code_started_itself_holds_the_chat() {
+    let root = std::env::temp_dir().join(format!("acpmux-bg429-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let gate = root.join("gate");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let (hub, mut c) = super::super::fork_through::claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let said = format!("own-turn-fail: {} :: {LIMIT}", gate.display());
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]}),
+    )
+    .await
+    .unwrap();
+    assert!(of_kind(&hub, &id, "rate_limit_held").is_empty(), "{:?}", kinds(&hub, &id));
+
+    let g = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(g, b"go")).await.unwrap().unwrap();
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_held")).await;
+    let ended = of_kind(&hub, &id, "background_turn");
+    assert!(ended.iter().any(|e| e.msg["reason"] == "result"), "the own turn ran: {k:?}");
+    let held = of_kind(&hub, &id, "rate_limit_held");
+    assert_eq!(held.len(), 1, "its 429 holds the chat: {k:?}");
+    assert_eq!(held[0].msg["strikes"], 1, "and is a strike: {held:?}");
+    let session = hub.resolve(&id).unwrap();
+    let row = hub.session_summary(&session);
+    let until_ms = row["rateLimitedUntil"].as_u64().unwrap_or_else(|| panic!("{row}"));
+    assert!(until_ms > acpmux::store::now_ms(), "{row}");
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "it started no acpmux turn: {k:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A chat Stop parked is taken back at once only by the person's own retry. Another agent's
+/// `_acpmux/retry` (a watchdog's, a coordinator's) is refused with `retry.rate_limited` and the
+/// time it may retry; before, it unparked the chat and resent the continuation into the limit.
+#[tokio::test]
+async fn an_agents_retry_does_not_unpark_a_parked_chat_and_the_persons_does() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
+    let id = held_chat(&mut c, &hub, "parked-retry").await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_parked")).await;
+    let watchdog = new_session(&mut c, "watchdog").await;
+    let mut agent = agent_in(&hub, &watchdog).await;
+
+    let err = agent.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap_err();
+    assert!(err.contains("retry.rate_limited"), "{err}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(of_kind(&hub, &id, "rate_limit_unparked").is_empty(), "{:?}", kinds(&hub, &id));
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "{:?}", kinds(&hub, &id));
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row["rateLimitParked"].as_u64().is_some(), "still parked: {row}");
+
+    // The person's own retry keeps today's behaviour: it sends the continuation on at once.
+    c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
+    assert_eq!(of_kind(&hub, &id, "rate_limit_unparked").len(), 1, "{k:?}");
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 2, "{k:?}");
+}
+
+/// A sub-session whose continuation after a 429 was stopped is parked. Its parent agent's
+/// resume of the stopped turn (`_acpmux/retry`, `subsession_resume.rs`) honours the park: it is
+/// refused, and no turn starts. Before, its `auto_resume` provenance went past the hold and the
+/// resume never read it, so a stopped sub-session resumed straight into the limit.
+#[tokio::test]
+async fn a_parent_agents_resume_of_a_stopped_sub_session_honours_the_park() {
+    let env = BTreeMap::from([(
+        "FAKE_UNTIL_CANCEL_IN".to_owned(),
+        "Your previous turn was cut off".to_owned(),
+    )]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![25]);
+    let parent = new_session(&mut c, "parent").await;
+    let mut agent = agent_in(&hub, &parent).await;
+    let started = agent
+        .request(
+            "_acpmux/subsession/start",
+            json!({"prompt": format!("recover-once: {LIMIT}; Retry-After: 1")}),
+        )
+        .await
+        .unwrap();
+    let child = started["sessionId"].as_str().unwrap().to_owned();
+    // The 429 holds it; at the reset its continuation runs, and is stopped while it runs.
+    until(&hub, &child, |k| k.iter().filter(|k| *k == "turn_started").count() >= 2).await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": child})).await.unwrap();
+    let k = until(&hub, &child, |k| {
+        k.iter().any(|k| k == "rate_limit_parked")
+            && k.iter().filter(|k| *k == "turn_result").count() >= 2
+    })
+    .await;
+    let row = hub.session_summary(&hub.resolve(&child).unwrap());
+    assert_eq!(row["lastTurn"]["status"], "cancelled", "{row} {k:?}");
+    assert!(row["rateLimitParked"].as_u64().is_some(), "{row} {k:?}");
+
+    let err = agent.request("_acpmux/retry", json!({"sessionId": child})).await.unwrap_err();
+    assert!(err.contains("retry.rate_limited"), "{err}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(of_kind(&hub, &child, "turn_started").len(), 2, "{:?}", kinds(&hub, &child));
+    assert!(of_kind(&hub, &child, "rate_limit_unparked").is_empty(), "{:?}", kinds(&hub, &child));
+
+    // The person's own Resume still continues it.
+    let resumed = c.request("_acpmux/retry", json!({"sessionId": child})).await.unwrap();
+    assert!(
+        resumed["promptId"].as_str().is_some_and(|p| p.starts_with("stopped-resume-")),
+        "{resumed}"
+    );
+    assert_eq!(of_kind(&hub, &child, "turn_started").len(), 3, "{:?}", kinds(&hub, &child));
+}

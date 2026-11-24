@@ -26,6 +26,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
+import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
@@ -33,16 +34,16 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
-  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
+  turnTimeKey,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
+import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
@@ -548,6 +549,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
+            {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
           {stoppedLook === "word" && stoppedWord}

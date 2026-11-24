@@ -13,9 +13,14 @@ runs:
     # Hosted images ship rustup; a self-hosted image may not,
     # or may keep it in ~/.cargo/bin off the runner's PATH. Provision the same
     # way scripts/install-rust-ci.sh does, leaving the toolchain to the pinned
-    # install below.
+    # install below. A runner with a distro rustc and cargo in /usr/bin makes
+    # rustup-init print "error: cannot install while Rust is installed" before
+    # it goes on under -y; that line read as a failure in triage, so the PATH
+    # check is skipped (rustup's own switch for adopting a distro Rust).
     - name: Ensure rustup is available
       shell: bash
+      env:
+        RUSTUP_INIT_SKIP_PATH_CHECK: "yes"
       run: |
         set -euo pipefail
         # GITHUB_PATH goes in front of everything, so writing ~/.cargo/bin there when PATH

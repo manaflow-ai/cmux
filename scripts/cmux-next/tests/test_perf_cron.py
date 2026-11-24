@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -41,6 +41,71 @@ class OneRunRule(unittest.TestCase):
         for patcher in (mock.patch.object(cron, "confirm_regressions", confirm_all), mock.patch.object(cron, "RECOVER_RUNS", 1)):
             patcher.start()
             self.addCleanup(patcher.stop)
+
+
+_claim_spec = importlib.util.spec_from_file_location("cloud_claim_rows", os.path.join(HERE, "..", "cloud-claim-rows.py"))
+claim_mod = importlib.util.module_from_spec(_claim_spec)
+_claim_spec.loader.exec_module(claim_mod)
+
+
+class CloudClaimRowsTests(unittest.TestCase):
+    """scripts/cmux-next/cloud-claim-rows.py: production journey probe rows to the cloud-claim part's rows."""
+
+    @staticmethod
+    def probe(ready=None, spare=False, error=None, backend="prod", name="cloud-chat-replies-production"):
+        p = {"probe": name, "at": "2026-11-19T01:41:52Z", "backend": backend, "claimed_spare": spare,
+             "outcome": "fail" if error else "ok"}
+        if ready is not None:
+            p["ready_ms"] = ready
+        if error:
+            p["error"] = error
+        return p
+
+    def test_a_probe_row_is_a_ready_claim_a_claim_that_failed_before_ready_or_nothing(self):
+        self.assertEqual(claim_mod.claim_of(self.probe(46701)), {"ready_ms": 46701.0, "spare": False,
+                                                                 "at": "2026-11-19T01:41:52Z"})
+        self.assertTrue(claim_mod.claim_of(self.probe(9000, spare=True))["spare"])
+        self.assertEqual(claim_mod.claim_of(self.probe(error="create machine: failed after 34 s"))["failed"],
+                         "create machine")
+        self.assertEqual(claim_mod.claim_of(self.probe(error="start agent (claude): exit 1"))["failed"], "start agent")
+        # A failure after ready keeps its ready_ms; one that names no ready step, another backend or probe says nothing.
+        self.assertEqual(claim_mod.claim_of(self.probe(30000, error="reply: timeout"))["ready_ms"], 30000.0)
+        self.assertIsNone(claim_mod.claim_of(self.probe(error="reply: timeout")))
+        self.assertIsNone(claim_mod.claim_of(self.probe(error="no reply step ran")))
+        self.assertIsNone(claim_mod.claim_of(self.probe(9000, backend="staging")))
+        self.assertIsNone(claim_mod.claim_of(self.probe(9000, name="machine-ready-after-create")))
+
+    def test_rows_are_p50_and_p95_over_the_newest_claims_against_the_plan_targets(self):
+        claims = [{"ready_ms": float(v), "spare": v < 5000} for v in (40000, 3000, 50000, 45000, 4000, 60000)]
+        claims.insert(2, {"failed": "create machine"})
+        rows = {r["name"]: r for r in claim_mod.claim_rows(claims, samples=5)}
+        # The newest 5 ready claims (40, 3, 50, 45, 4 s) and the one failure among them; the sixth is past the sample.
+        self.assertEqual((rows["claim_to_ready"]["p50"], rows["claim_to_ready"]["p95"]), (40000.0, 50000.0))
+        self.assertEqual(rows["claim_to_ready"]["target"], 15000)
+        self.assertEqual((rows["claim_to_ready.p50"]["p95"], rows["claim_to_ready.p50"]["target"]), (40000.0, 8000))
+        self.assertEqual(rows["claim_to_ready.failed_claims"]["p95"], 1)
+        self.assertEqual((rows["claim_to_ready.spare"]["p95"], rows["claim_to_ready.spare"]["samples"],
+                          rows["claim_to_ready.spare"]["target"]), (4000.0, 2, 1000))
+        # Every row parses as a cloud-claim row.
+        parsed = cron.rows_of_part(cron.PART_BY_NAME["cloud-claim"], {"rows": list(rows.values())}, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(parsed), sorted(f"cloud.{n}" for n in rows))
+
+    def test_reading_stops_at_the_deadline_and_counts_unread_artifacts(self):
+        arts = {"artifacts": [{"id": i, "name": "cloud-journey-prod-stub", "created_at": "2026-11-19T0%d:00:00Z" % i,
+                               "expired": False} for i in range(1, 4)]}
+        ticks = iter([0, 1, 2, 999])
+        with mock.patch.object(claim_mod, "gh_json", lambda path: arts if "name=cloud-journey-prod-stub" in path else {}), \
+                mock.patch.object(claim_mod, "gh_bytes", side_effect=RuntimeError("refused")), \
+                contextlib.redirect_stderr(io.StringIO()):
+            claims, unread = claim_mod.fetch_claims("o/r", datetime.datetime(2026, 11, 18, tzinfo=datetime.timezone.utc), 24,
+                                                    deadline_s=10, clock=lambda: next(ticks))
+        self.assertEqual((claims, unread), ([], 2))  # newest first; the third waits past the deadline
+
+    def test_too_few_ready_claims_make_no_rows_and_no_spare_row_without_a_spare(self):
+        few = [{"ready_ms": 40000.0, "spare": False}] * (claim_mod.MIN_SAMPLES - 1) + [{"failed": "create machine"}]
+        self.assertEqual(claim_mod.claim_rows(few), [])
+        enough = [{"ready_ms": 40000.0, "spare": False}] * claim_mod.MIN_SAMPLES
+        self.assertNotIn("claim_to_ready.spare", [r["name"] for r in claim_mod.claim_rows(enough)])
 
 
 class DecideTests(unittest.TestCase):
@@ -1148,6 +1213,10 @@ class WebUiTests(unittest.TestCase):
 
     def test_the_chat_100k_flat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-flat"))
+        self.assertEqual(cron.part_for_row("webui.sim_ladder.ratio_max@linux"), "web-ui-ladder")
+        self.assertEqual(cron.linux_bench_runs("/r", "web-ui-ladder")["suite"][0][-1], "sim-ladder")
+        self.assertEqual(cron.part_for_row("webui.sim_fidelity.divergence_max@linux"), "web-ui-fidelity")
+        self.assertEqual(cron.linux_bench_runs("/r", "web-ui-fidelity")["suite"][0][-1], "sim-fidelity")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.ratio_max@linux"), "web-ui-flat")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.long_x20.renderer_mb@linux"), "web-ui-flat")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.ratio_max@linux"), "web-ui-flat-grown")
@@ -1192,6 +1261,29 @@ class WebUiTests(unittest.TestCase):
             {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_cloud_claim_rows_have_their_own_linux_part_judged_against_their_targets_only(self):
+        self.assertTrue(cron.is_linux_part("cloud-claim"))
+        self.assertEqual(cron.part_for_row("cloud.claim_to_ready@linux"), "cloud-claim")
+        self.assertEqual(cron.part_for_row("cloud.claim_to_ready.spare@linux"), "cloud-claim")
+        self.assertEqual(cron.linux_bench_runs("/r", "cloud-claim")["suite"][0],
+                         ["python3", "/r/scripts/cmux-next/cloud-claim-rows.py"])
+        report = {"rows": [
+            {"name": "claim_to_ready", "p50": 41000, "p95": 63000, "unit": "ms", "target": 15000, "version": 1},
+            {"name": "claim_to_ready.p50", "p50": 41000, "p95": 41000, "unit": "ms", "target": 8000, "version": 1},
+            {"name": "claim_to_ready.failed_claims", "p50": 1, "p95": 1, "unit": "claims", "target": 0, "floor": 0.5}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["cloud-claim"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["cloud.claim_to_ready", "cloud.claim_to_ready.failed_claims",
+                                        "cloud.claim_to_ready.p50"])
+        self.assertEqual((rows["cloud.claim_to_ready"]["p50"], rows["cloud.claim_to_ready"]["p95"]), (41000, 63000))
+        # The plan's targets, not the 10 ms latency default, and marked over target.
+        self.assertEqual(cron.target_of("cloud.claim_to_ready@linux", rows["cloud.claim_to_ready"], None), 15000)
+        self.assertEqual(cron.target_of("cloud.claim_to_ready.p50@linux", rows["cloud.claim_to_ready.p50"], None), 8000)
+        self.assertTrue(cron.over_target("cloud.claim_to_ready@linux", rows["cloud.claim_to_ready"], None))
+        # Report-only: the deployed Cloud's number, never a regression a cmux bisect would chase.
+        keyed = {f"{n}@linux": r for n, r in rows.items()}
+        self.assertEqual(cron.find_regressions(keyed, {}, None, None, budgets_mod), [])
+        self.assertIn("| cloud.claim_to_ready | 63000 ms | 15000 ms | 420 % |", cron.webui_summary(report, "cloud"))
 
     def test_the_terminal_scroll_rows_keep_their_names_and_are_judged_against_zero(self):
         self.assertTrue(cron.is_linux_part("terminal-scroll"))
@@ -1292,6 +1384,13 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.transcript_scroll_up.chromium.interval@linux"), "web-ui")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll-up")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_chat_pages_memory_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-memory"))
+        self.assertEqual(cron.part_for_row("webui.chat_pages_memory.n10.ratio_vs_empty@linux"), "web-ui-memory")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-memory")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -1507,6 +1606,16 @@ class WebUiTests(unittest.TestCase):
         part = cron.PART_BY_NAME["web-ui"]
         self.assertFalse(cron.report_is_incomplete(part, self.REPORT))
         self.assertTrue(cron.report_is_incomplete(part, {**self.REPORT, "incomplete": ["chat-open: exit 1"]}))
+
+    def test_the_wakeup_lines_name_what_woke_an_idle_page(self):
+        stdout = ("web-ui-suite: chat-switch\n"
+                  "  chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)\n"
+                  "  chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3\n"
+                  "PERF_ROW {\"name\": \"chat_switch.unread.rest_wakeups\"}\n")
+        self.assertEqual(cron.webui_wakeup_lines(stdout), [
+            "chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)",
+            "chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3"])
+        self.assertEqual(cron.webui_wakeup_lines(None), [])
 
     def test_the_summary_is_slowest_first_relative_to_target(self):
         lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
@@ -4232,6 +4341,52 @@ class StalePartFirstTests(unittest.TestCase):
         self.assertEqual(d["part"], "build")
 
 
+def typing_run(mode, p50, p95, p99, **more):
+    """One typing-frame-bench.py --modes run, in the shape step 3b72dd7b stored on cmux20-bench (2026-11-20)."""
+    return {"mode": mode, "surface": "agentpane", "phase": "idle" if mode == "L0" else "load", "complete": True,
+            "text_exact": True, "key_order_ok": True, "expected_keys": 200, "observed_keys": 200, "mode_missing": [],
+            "dispatch_to_after_frame_p50_ms": p50, "dispatch_to_after_frame_p95_ms": p95,
+            "dispatch_to_after_frame_p99_ms": p99, **more}
+
+
+class TypingLoadPartTests(unittest.TestCase):
+    REPORT = {"runs": [
+        typing_run("L0", 10.43, 16.17, 18.25),
+        typing_run("L2", 10.98, 18.33, 24.37, complete=False),
+        typing_run("L3", 3.12, 10.98, 13.59, mode_missing=["the 100k-row chat transcript"]),
+        typing_run("L4", 10.66, 24.89, 29.43),
+        typing_run("L4", 9.0, 30.6, 35.8),
+        typing_run("L1", 3.26, 9.96, 13.19, text_exact=False, observed_keys=199),
+    ]}
+
+    def test_a_complete_fully_loaded_mode_is_a_row_set_and_its_worst_round_wins(self):
+        rows = cron.rows_of_part(cron.PART_BY_NAME["typing-load"], self.REPORT, None, {})
+        self.assertEqual(rows["typing.agentpane.L0.after_frame"],
+                         {"p50": 10.43, "p95": 16.17, "unit": "ms", "budget": 16.0, "floor": 2.0})
+        self.assertEqual(rows["typing.agentpane.L0.after_frame_p99"]["p95"], 18.25)
+        self.assertEqual(rows["typing.agentpane.L0.after_frame_p99"]["budget"], 33.0)
+        self.assertEqual(rows["typing.agentpane.L0.lost_keys"]["p95"], 0)
+        self.assertEqual(rows["typing.agentpane.L4.after_frame"]["p95"], 30.6)
+        self.assertEqual(rows["typing.agentpane.L4.after_frame_p99"]["p95"], 35.8)
+        self.assertEqual(rows["typing.agentpane.L1.lost_keys"]["p95"], 1, "a key lost or out of order is a count")
+
+    def test_an_incomplete_or_partly_loaded_mode_gives_no_row(self):
+        rows = cron.rows_of_part(cron.PART_BY_NAME["typing-load"], self.REPORT, None, {})
+        self.assertFalse([n for n in rows if ".L2." in n or ".L3." in n])
+
+    def test_its_rows_route_to_the_part(self):
+        self.assertEqual(cron.part_for_row("typing.agentpane.L4.after_frame"), "typing-load")
+
+    def test_the_part_runs_only_where_the_bench_has_the_load_modes(self):
+        def git(args, **_kw):
+            if args[3] == "show" and args[4].endswith("typing-frame-bench.py"):
+                return mock.Mock(returncode=0, stdout="--modes agentpane" if args[4].startswith("new") else "--phases")
+            return mock.Mock(returncode=0, stdout="--suite=launch --suite=wake \"--activation\"")
+        with mock.patch.object(cron.subprocess, "run", git):
+            self.assertIn("typing-load", cron.supported_parts_at("new"))
+            self.assertNotIn("typing-load", cron.supported_parts_at("old"))
+
+
 class BoundedPathCheckTests(unittest.TestCase):
     """A plan's path checks end: a git that never answers (a lazy fetch in the partial clone) counts as absent after
     PATH_CHECK_TIMEOUT_S instead of holding the plan to its job cap (run 44731310755, 74 minutes with no output)."""
@@ -4383,6 +4538,37 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertEqual(routes[cron.LINUX_REQUESTS_MAX], "runner", "Blacksmith only after the controller did not answer")
         self.assertEqual(routes[cron.LINUX_REQUESTS_MAX + 1], "request", "the runner is a fallback, not the new route")
 
+    def test_a_waiting_part_holds_back_only_itself(self):
+        cur = self.cur()
+        cron.linux_route(cur, "web-ui-god", T0, True, True)
+        runner, request, waiting = cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], at(0.5), True, True)
+        self.assertEqual((runner, request, waiting), ("", "diff-viewer", ["web-ui-god"]),
+                         "coord-sim's wait held every Linux part back for hours (2026-11-23)")
+        self.assertIn("diff-viewer", cur["linux_requests"], "the part picked is asked")
+        self.assertEqual(cur["linux_requests"]["web-ui-god"]["asked_at"], cron.iso(T0), "the waiting one untouched")
+
+    def test_one_tick_runs_a_fallen_back_part_and_asks_for_another(self):
+        cur = self.cur()
+        cur["linux_requests"] = {"web-ui-god": {"asked_at": cron.iso(T0), "unanswered": cron.LINUX_REQUESTS_MAX - 1}}
+        t = T0 + self.window()
+        runner, request, waiting = cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], t, True, True)
+        self.assertEqual((runner, request, waiting), ("web-ui-god", "diff-viewer", []))
+        self.assertTrue(cur["linux_requests"]["web-ui-god"].get("fell_back_at"))
+
+    def test_every_part_waiting_picks_none_and_changes_nothing(self):
+        cur = self.cur()
+        for part in ("web-ui-god", "diff-viewer"):
+            cron.linux_route(cur, part, T0, True, True)
+        before = json.dumps(cur, sort_keys=True)
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], at(0.5), True, True),
+                         ("", "", ["web-ui-god", "diff-viewer"]))
+        self.assertEqual(json.dumps(cur, sort_keys=True), before, "the plan then yields (linux_wait_yield)")
+
+    def test_without_the_controller_the_first_part_runs(self):
+        cur = self.cur()
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], T0, False, True), ("web-ui-god", "", []))
+        self.assertNotIn("linux_requests", cur)
+
     def test_no_controller_or_an_older_commit_runs_on_the_runner(self):
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, False, True), "runner")
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, True, False), "runner",
@@ -4512,7 +4698,7 @@ class LinuxControllerRouteTests(unittest.TestCase):
     def test_plan_requests_waits_and_falls_back_to_the_runner(self):
         d = tempfile.mkdtemp()
         state = cron.empty_state(T0)
-        state["current"] = self.cur()
+        state["current"] = cron.new_measurement(self.SHA, "tip", ["web-ui-god"], T0)  # one part: nothing else runs while it waits
         state.pop("dirty", None)
         with open(os.path.join(d, "state.json"), "w") as f:
             json.dump(state, f)

@@ -202,6 +202,10 @@ final class SidebarListView: NSView {
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
+    /// The selected row's frame in the window as last reported to the window's chrome (`flush-goo`,
+    /// `reportGooeySelection`), and whether a chrome took the report.
+    var reportedGooeyRow: CGRect?
+    var reportedGooeyLanded = false
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.

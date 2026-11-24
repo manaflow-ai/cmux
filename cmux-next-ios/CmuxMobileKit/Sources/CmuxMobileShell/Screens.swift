@@ -124,7 +124,7 @@ struct WorkspacesScreen: View {
         WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
                 reconnect: shell.live.map { live in
-                    { macID in live.retry(macID: macID) }
+                    { macID in live.recover(macID: macID) }
                 },
                 linking: shell.live.map { live in
                     MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },

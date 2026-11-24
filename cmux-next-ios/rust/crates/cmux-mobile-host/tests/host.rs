@@ -1070,7 +1070,8 @@ async fn auth(
     auth_presenting(link, fixture, keys, signer, action, None).await
 }
 
-/// `auth`, with the pairing code's pre-approval sent beside the signature when `pair_token` is set.
+/// `auth`, with an older phone's `pairToken` (the retired Mac pairing code's pre-approval) sent
+/// beside the signature when `pair_token` is set.
 async fn auth_presenting(
     link: &cmux_mobile_link::Link,
     fixture: &Fixture,
@@ -1119,22 +1120,17 @@ async fn auth_as(
     channel
 }
 
-/// A pairing code's pre-approval rides with the signature to the app, which decides; hostd only
-/// checks its shape, and a phone without one is asked exactly as before.
+/// The Mac's pairing code is retired: an older phone that still sends a `pairToken` (well formed
+/// or not) beside its signature is asked as every phone is, and the token never reaches the app.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
+async fn an_older_phones_pairing_code_token_is_ignored() {
     let fixture = fixture_with(FakeOptions::default(), true).await;
     let keys = phone_keys();
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let token = "Zm9vYmFyLWJhel9xdXV4";
-
-    let mut bad =
-        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
-            .await;
-    assert_eq!(drain(&mut bad).await.1, "bad_request");
 
     let mut channel =
-        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
+            .await;
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
     let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
     assert_eq!(
@@ -1145,12 +1141,11 @@ async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
-            pair_token: Some(token.into()),
             bundle_id: Some("dev.cmux.mobile.test-tag".into()),
             kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
-    // The app allowed it (as it does for a live token): the phone is served.
+    // The person allowed it on the Mac: the phone is served.
     fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
     assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
 }
@@ -1184,7 +1179,6 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
-            pair_token: None,
             bundle_id: Some("dev.cmux.mobile.test-tag".into()),
             kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
@@ -1276,8 +1270,7 @@ async fn a_mac_opens_only_what_this_mac_granted_it() {
             identity_key: keys.identity_hex.clone(),
             approval_key: String::new(),
             registered_at_ms: None,
-            // A pairing code never pre-approves a machine, and a machine's bundle id is dropped.
-            pair_token: None,
+            // A machine's bundle id is dropped.
             bundle_id: None,
             kind: PeerKind::Mac,
         }

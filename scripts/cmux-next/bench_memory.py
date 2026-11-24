@@ -19,6 +19,11 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
+--settled-at SECONDS adds a second sample of the empty app and of each count, SECONDS after the launch
+and after the count's last open (`settled-launch`, `settled-N`, the same --measure window): what is
+left once the app's idle work is done. With 150, that is past the 60 s release of hidden chat pages
+and the 120 s hibernate of idle harnesses, which the --settle sample (20 s in the cron) comes before.
+
 --axis page-hidden|page-visible (perf-10x-idle.sh axes=) opens Chromium pages that ask for every animation
 frame, each on its own site (a renderer each), hidden (a workspace each, the launch workspace shown) or visible
 (a pane each). Each sample then has `page_frames` (the frames per second the pages got, by visibility: a hidden
@@ -2042,6 +2047,9 @@ def main():
     parser.add_argument("--workspaces", default="1,10,30")
     parser.add_argument("--mix", default="terminal+chat,terminal+browser,terminal")
     parser.add_argument("--settle", type=float, default=30)
+    parser.add_argument("--settled-at", type=float, default=0, metavar="SECONDS",
+                        help="also sample the empty app and each count SECONDS after the launch and the count's "
+                             "last open (settled-launch, settled-N; 0: no such sample)")
     parser.add_argument("--measure", type=float, default=0,
                         help="seconds of idle CPU and wakeup measurement after each settle (0: memory only)")
     parser.add_argument("--churn-minutes", type=float, default=0)
@@ -2215,10 +2223,10 @@ def main():
     if gpu_no_app is not None:
         report["gpu_no_app"] = gpu_no_app
 
-    def settle_and_sample(label, diff_tab=None):
+    def settle_and_sample(label, diff_tab=None, settle=None):
         # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
-        # same age, so the duration is the measured condition, not a stand-in for an event.
-        time.sleep(args.settle)
+        # same age, so the duration is the measured condition, not a stand-in for an event. --settled-at passes its own.
+        time.sleep(args.settle if settle is None else settle)
         measure, scroller = args.measure, None
         if diff_tab is not None:
             # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
@@ -2293,14 +2301,22 @@ def main():
         print_vmmap(result, args.vmmap_kinds)
         return result
 
+    def settled_sample(label, since):
+        """The --settled-at sample: `label`, --settled-at seconds after `since` (time.monotonic())."""
+        if args.settled_at <= 0:
+            return None
+        return settle_and_sample(label, settle=max(0.0, since + args.settled_at - time.monotonic()))
+
     global PAGES
     if args.axis and args.axis.startswith("page-"):
         PAGES = PageFrames()
     try:
+        launched_at = time.monotonic()
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
         launch_workspaces = sorted(workspace_ids(app)) if args.axis else []
         settle_and_sample("idle-launch")["items"] = 0
+        settled_sample("settled-launch", launched_at)
         if args.axis:
             report["axis"] = args.axis
             report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
@@ -2337,6 +2353,7 @@ def main():
                 if workspace is None:
                     break
                 opened.append(workspace)
+            last_open = time.monotonic()
             diff_tab = None
             if args.diff_tab:
                 # In the launch's scratch; an attached app has none, so in a folder of its own. Both are removed at the end.
@@ -2345,6 +2362,7 @@ def main():
                 diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
                 diff_tab["open"] = cells.open_tab(app, repository)
             result = settle_and_sample(f"idle-{count}", diff_tab)
+            settled_sample(f"settled-{count}", last_open)
             if chat_renderer_crash.enabled() and chats:
                 result["chat_renderers"] = chat_renderer_crash.renderers(app)
                 print(f"CHAT-RENDERERS phase=open agents={count} {json.dumps(result['chat_renderers'])}", flush=True)

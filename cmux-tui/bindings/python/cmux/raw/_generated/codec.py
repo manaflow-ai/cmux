@@ -474,6 +474,7 @@ MODEL_BY_PATH = {
     'commands/paste-image/result': models.PasteImageResult,
     'commands/pin-workspace/request': models.PinWorkspaceRequest,
     'commands/ping/request': models.PingRequest,
+    'commands/process-census/request': models.ProcessCensusRequest,
     'commands/process-info/request': models.ProcessInfoRequest,
     'commands/put-blob/request': models.PutBlobRequest,
     'commands/put-frontend-projection/request': models.PutFrontendProjectionRequest,
