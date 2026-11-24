@@ -1920,6 +1920,8 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    // acpmux is headless; its interactive commands open the terminal UI this binary links.
+    acpmux_tui::install();
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.

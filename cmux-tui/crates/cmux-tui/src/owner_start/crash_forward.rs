@@ -388,7 +388,7 @@ fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> 
         .enable_all()
         .build()
         .map_err(|error| format!("runtime: {error}"))?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::owner_start::crash_forward")
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()
