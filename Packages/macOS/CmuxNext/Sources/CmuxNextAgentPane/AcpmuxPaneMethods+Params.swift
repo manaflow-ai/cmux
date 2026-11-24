@@ -177,8 +177,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_groups": (["sessionId"], []),
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
-        // No `value` declines the card.
-        "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // No `value` declines the card. `keepAs`: the card's "keep as key NAME", which acpmux stores in the key store.
+        "_acpmux/secret_submit": (["sessionId", "secretId", "value", "keepAs"], []),
         // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
         "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
