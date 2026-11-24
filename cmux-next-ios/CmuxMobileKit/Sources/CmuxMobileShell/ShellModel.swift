@@ -504,12 +504,18 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.tabRenamed = { NativeBrowserTabs.shared.rename(tab: $0, to: $1) }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
+            // An agent on the Mac drives a tab shown on this iPhone (`tab_…@phone`, RFD 0089).
+            PhonePageChannel.answer = { method, params, macID in
+                await NativeBrowserTabs.shared.answerPageVerb(method: method, params: params, macID: macID)
+                    .mapError { PhonePageChannel.PageError(code: $0.code, message: $0.message) }
+            }
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
             }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            PhonePageChannel.answer = nil
             ChiefComputer.shared.source = nil
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.markAllNotificationsRead = nil
