@@ -65,7 +65,15 @@ private final class TerminalHistoryBridge: PageProvider {
         switch op {
         case Self.namespace + "page":
             method = .terminalTranscriptPage
-            if let row = params["turn"] {
+            if let field = params["rawStart"] {
+                guard let start = field.intValue, start >= 0,
+                      let end = params["rawEnd"]?.intValue, end > start,
+                      let offset = params["rawOffset"]?.intValue, (start..<end).contains(offset),
+                      let before = params["before"]?.intValue, end <= before else { throw PageError.invalidParams("raw range") }
+                request["rawStart"] = start
+                request["rawEnd"] = end
+                request["rawOffset"] = offset
+            } else if let row = params["turn"] {
                 guard let turn = row.intValue, turn >= 0,
                       let role = params["role"]?.stringValue, ["user", "assistant"].contains(role),
                       let offset = params["offset"]?.intValue, offset >= 0,
