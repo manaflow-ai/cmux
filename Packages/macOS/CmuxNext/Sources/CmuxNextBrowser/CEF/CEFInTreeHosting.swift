@@ -201,7 +201,10 @@ final class CEFInTreeHosting {
             return attach(retry: true)
         }
         guard let container, page != nil else { return }
-        if let content = calls.contentView(browser), !content.isDescendant(of: container) { attach(retry: true) }
+        let content = calls.contentView(browser)
+        if let content, !content.isDescendant(of: container) { return attach(retry: true) }
+        // A new renderer brings a new view with a new drawing layer.
+        CEFInTreeLayerFit.shared.fit(content)
     }
 
     /// The page window's tabs changed; a live one names the window from now on.
@@ -239,6 +242,7 @@ final class CEFInTreeHosting {
         if let page = calls.setInTreeHosting(browser, container) {
             let was = self.page
             self.page = page
+            CEFInTreeLayerFit.shared.fit(calls.contentView(browser))
             CEFHostView.trackerStats.inTreeAttaches += 1
             if was == nil { onAttached?() }
             return
@@ -307,7 +311,10 @@ final class CEFInTreeHosting {
     /// every page's frame (the user's recording: the window at about 28 of 60 frames a second, defects.md 8), and the
     /// full screen transitions held theirs (defects.md 5, 6).
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each in-tree page, each motion frame)
-        guard page != nil, let browser, let fence = calls?.resizeFence, let view, let window = view.window,
+        guard page != nil, let browser else { return }
+        // The page's drawing layer follows its view exactly (CEFInTreeLayerFit), never by Core Animation's autoresizing.
+        CEFInTreeLayerFit.shared.fit(calls?.contentView(browser))
+        guard let fence = calls?.resizeFence, let view, let window = view.window,
               let layer = view.layer else { return }
         let windowSize = window.frame.size
         let windowResized = windowSizeAtLastResize.map { $0 != windowSize } ?? false
