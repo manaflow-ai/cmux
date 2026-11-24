@@ -290,6 +290,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_egress_gate.py
 
+      # Every egress gate site has a test that sends planted secrets through the real client to cmux-egress's
+      # capture server and finds them in no request (tests/egress_seeded.json; its todo count may only go down).
+      - name: Validate every egress gate site has a seeded-secret test
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_seeded.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
