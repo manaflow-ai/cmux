@@ -88,9 +88,10 @@ await requireBrowserLane("subagent-tray-one-row.test.ts", async () => {
           // Two running and one finished; the failed one left the hat.
           expect(geometry.lines).toHaveLength(3);
           expect(geometry.lines.some((line) => line.status === "failed")).toBe(false);
-          // Every line is one row, the header's height, and every line is inside the list's box.
+          // Every line is one 28px row (the header alone grew to the `roomy` 34px in ec1f23e06ae,
+          // #48542), and every line is inside the list's box.
           for (const line of geometry.lines) {
-            expect(Math.abs(line.line.height - geometry.head.height)).toBeLessThanOrEqual(0.5);
+            expect(Math.abs(line.line.height - 28)).toBeLessThanOrEqual(0.5);
             expect(line.line.bottom).toBeLessThanOrEqual(geometry.list.bottom + 0.5);
             expect(line.below).toBe(false);
           }

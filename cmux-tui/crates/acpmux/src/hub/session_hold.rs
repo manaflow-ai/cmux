@@ -48,7 +48,8 @@ pub(crate) const FEATURE: &str = "sessionHold";
 #[serde(rename_all = "camelCase")]
 pub struct FleetHold {
     pub on: bool,
-    /// Chat names (or ids) it lets run; a trailing `*` matches a prefix.
+    /// Chat names (or ids) it lets run: `NAME` exactly, `PREFIX*` a prefix, `*TERM*` any name
+    /// containing TERM, in any case (the coordinators' KEEP list is such terms).
     #[serde(default)]
     pub allow: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,8 +61,12 @@ pub struct FleetHold {
 impl FleetHold {
     /// Whether the allowlist lets chat `name` (id `id`) run.
     pub fn allows(&self, name: &str, id: &str) -> bool {
+        let lower = name.to_lowercase();
         self.allow.iter().any(|a| match a.strip_suffix('*') {
-            Some(prefix) => name.starts_with(prefix) || id.starts_with(prefix),
+            Some(rest) => match rest.strip_prefix('*') {
+                Some(term) => !term.is_empty() && lower.contains(&term.to_lowercase()),
+                None => name.starts_with(rest) || id.starts_with(rest),
+            },
             None => a == name || a == id,
         })
     }
@@ -111,6 +116,20 @@ impl FleetHoldCache {
         self.read = None;
         Ok(())
     }
+}
+
+/// The allowlist `session hold --fleet` sets: `current` plus `add`, in order, each entry once,
+/// or `set` (`--set-allow`) plus `add` when it is given. `--allow` only ever adds, so admitting
+/// one more session never drops the ones already allowed.
+pub fn next_allow(current: &[String], set: Option<&[String]>, add: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for a in set.unwrap_or(current).iter().chain(add) {
+        let a = a.trim();
+        if !a.is_empty() && !out.iter().any(|o| o == a) {
+            out.push(a.to_owned());
+        }
+    }
+    out
 }
 
 fn tag_of(session: &Session) -> Option<String> {
@@ -231,7 +250,7 @@ impl Hub {
         }
         Some(
             RpcError::invalid_params(format!(
-                "fleet_hold: this machine's sessions are held{}; `{}` is not on the allowlist. `acpmux session release --fleet` lifts the hold, or `acpmux session hold --fleet --allow NAME` adds it",
+                "fleet_hold: this machine's sessions are held{}; `{}` is not on the allowlist. `acpmux session release --fleet` lifts the hold, or `acpmux session hold --fleet --allow NAME` adds it to the allowlist",
                 fleet.reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default(),
                 if name.is_empty() { "a session with no name" } else { name },
             ))

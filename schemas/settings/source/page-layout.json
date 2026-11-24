@@ -315,7 +315,11 @@
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
-              "agentPane.display.environment.placement"
+              "agentPane.display.environment.placement",
+              "agentPane.display.layout.messages",
+              "agentPane.display.layout.composer",
+              "agentPane.display.layout.header",
+               "agentPane.display.environmentCard", "agentPane.display.changesPill"
             ]},
             {"title": {"key": "settings.pageGroup.chatText", "text": "Chat Text"}, "keys": [
               "agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily",
