@@ -212,6 +212,11 @@ import UniformTypeIdentifiers
             let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
             CGImageDestinationAddImage(dest, image, nil)
             #expect(CGImageDestinationFinalize(dest))
+            let b64 = try Data(contentsOf: url).base64EncodedString()
+            print("CHIEFPNG-BEGIN-\(i + 1)")
+            var idx = b64.startIndex
+            while idx < b64.endIndex { let e = b64.index(idx, offsetBy: 4000, limitedBy: b64.endIndex) ?? b64.endIndex; print("CHIEFPNG:\(i + 1):" + b64[idx..<e]); idx = e }
+            print("CHIEFPNG-END-\(i + 1)")
         }
     }
 }
