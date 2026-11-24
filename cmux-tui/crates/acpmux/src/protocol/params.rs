@@ -88,6 +88,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "callerProtocol",
     "callerSession",
     "cancelToken",
+    "chunkDeltas",
     "class",
     "cliHost",
     "compression",
@@ -201,6 +202,10 @@ keyed! {
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/memory_resolve`.
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/agent_home`.
+    AgentHomeParams: ["sessionId"];
+    /// `_acpmux/agent_home_resolve`.
+    AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.

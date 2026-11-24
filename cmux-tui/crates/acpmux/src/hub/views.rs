@@ -816,6 +816,8 @@ impl Hub {
             // prompt's start that waits to be tried again (`start_retry.rs`).
             starting: session.spawn_lock.try_lock().is_err()
                 || session.start_retry_waits.load(Ordering::SeqCst),
+            // A launch credential only this daemon's memory holds (`credentials.rs`).
+            credential_only_here: self.credential_only_here(session, &m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -1059,6 +1061,11 @@ impl Hub {
             v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
+        // A fork of a subagent: the chat and the subagent whose conversation it holds
+        // (`fork_subagent.rs`), the pane's "subagent of" line.
+        if let Some(of) = &m.fork_of_subagent {
+            v.set("forkOf", json!(of));
+        }
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
