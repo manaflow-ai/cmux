@@ -100,6 +100,10 @@ extension ChiefConversationOwner {
     func pendingTurn(_ parts: [MessagePart], threadRoot: MessageID?, in state: ChiefConversationState) throws -> ChiefPendingTurn {
         var images: [URL] = []
         var notes: [String] = []
+        // A link card's URL must reach the agent as text, or the turn cannot see it.
+        for case .linkPreview(let link) in parts {
+            notes.append(link.title.map { "\(link.url) (\($0))" } ?? link.url)
+        }
         for case .attachment(let ref) in parts {
             guard let file = blobs.file(ref.hash) else { throw HomeRejection.invalid("unknown_attachment") }
             if ref.mimeType.lowercased().hasPrefix("image/") {
