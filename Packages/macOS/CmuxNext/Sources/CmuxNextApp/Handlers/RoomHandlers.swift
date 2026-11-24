@@ -145,13 +145,12 @@ enum RoomHandlers {
             }
         }
         // The only space (the Default space, which the daemon keeps) is refused with its reason before any question.
-        context.setTargetReason("space.delete") { (try? context.room($0)).flatMap { RefusalStrings.spaceDelete($0.id, in: context.services.machines.local.store) } }
-        // The palette has no target chooser for Delete Space…, so reflect the active window's space there too.
-        ActionTargetTitles.setPaletteReason("space.delete", in: registry) { [weak services = context.services] in
-            guard let services else { return nil }
-            let active = services.windows.active?.state.profileID ?? .defaultProfile
-            return RefusalStrings.spaceDelete(active, in: services.machines.local.store)
+        func deleteReason(_ invocation: ActionInvocation) -> String? {
+            (try? context.room(invocation)).flatMap { RefusalStrings.spaceDelete($0.id, in: context.roomStore) }
         }
+        context.setTargetReason("space.delete", deleteReason)
+        // Without an explicit target, the palette acts on the active window’s Space.
+        ActionTargetTitles.setPaletteReason("space.delete", in: registry) { deleteReason(ActionInvocation()) }
         bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
         bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
         bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }

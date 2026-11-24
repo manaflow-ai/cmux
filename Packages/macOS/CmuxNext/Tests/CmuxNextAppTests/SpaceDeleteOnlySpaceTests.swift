@@ -97,9 +97,19 @@ import Testing
         #expect((workRow.target as? any NSMenuItemValidation)?.validateMenuItem(workRow) == true,
                 "Delete Space… is disabled on a deletable non-Default space")
 
-        let paletteRow = try #require(RegistryPaletteProvider(registry: registry).makeItems().first { $0.actionID == "space.delete" },
+        let palette = RegistryPaletteProvider(registry: registry)
+        let paletteRow = try #require(palette.makeItems().first { $0.actionID == "space.delete" },
                                       "the palette has no Delete Space… row")
         #expect(!paletteRow.isEnabled, "Delete Space… is enabled for the active Default space")
         #expect(paletteRow.subtitle == RefusalStrings.defaultSpaceCannotBeDeleted)
+
+        let state = services.windows.state(for: "work-window")
+        let controller = WindowController(state: state, services: services, frame: nil)
+        defer { controller.window?.close() }
+        state.enterProfile("work")
+        services.windows.didActivate(controller)
+        let workPaletteRow = try #require(palette.makeItems().first { $0.actionID == "space.delete" })
+        #expect(workPaletteRow.isEnabled)
+        #expect(workPaletteRow.subtitle != RefusalStrings.defaultSpaceCannotBeDeleted)
     }
 }
