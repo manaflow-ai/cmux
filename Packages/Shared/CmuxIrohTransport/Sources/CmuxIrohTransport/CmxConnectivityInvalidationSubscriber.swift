@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 import CMUXMobileCore
 public import Foundation
 

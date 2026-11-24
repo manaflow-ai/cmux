@@ -1,5 +1,5 @@
 public import Foundation
-import CmuxEgress
+public import CmuxEgress
 import OSLog
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")

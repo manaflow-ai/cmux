@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 public import Foundation
 
 /// ``VoiceRoomPosting`` over HTTP: `POST <room>/api/transcript` with the line as JSON.

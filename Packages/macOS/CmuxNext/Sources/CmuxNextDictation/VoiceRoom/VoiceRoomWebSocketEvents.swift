@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 public import Foundation
 
 /// ``VoiceRoomEventSource`` from the room's WebSocket, joined as an observer, so this Mac's

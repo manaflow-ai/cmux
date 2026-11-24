@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 public import Foundation
 public import CmuxNextCloud
 

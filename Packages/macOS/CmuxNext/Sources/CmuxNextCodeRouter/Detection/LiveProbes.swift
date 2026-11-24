@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 import CmuxNextCloud
 public import Foundation
 import LocalAuthentication
