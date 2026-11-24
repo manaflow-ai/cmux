@@ -1321,3 +1321,140 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
         assert_eq!(held_spans.map(Vec::len), Some(spans.len()), "timeBreakdown spans");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// A cold open on a busy chat
+
+/// The busy chat's agent: a ~1 KB turn every `BUSY_TURN_EVERY` (about one record a second),
+/// as cmux#54478's time-away bench drives it.
+const BUSY_TURN_EVERY: Duration = Duration::from_secs(2);
+/// How long after the tap a busy open's bytes are counted: the page plus the stream behind it.
+const BUSY_WINDOW: Duration = Duration::from_secs(10);
+
+/// One cold open of `session` while its agent works, in the phone's old order (`seq`:
+/// `initialize` and the watch answered, then the attach) or the new one (`early`: the attach
+/// written with them). Emits `first_content_ms` and the bytes to it, then `bytes_down_10s` and
+/// `events_10s`: everything the link carried in the first `BUSY_WINDOW`.
+async fn busy_open(shaper: &Shaper, token: &str, session: &str, k: &Key<'_>, early: bool) {
+    shaper.reset_counters();
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let opened = if early {
+        Link::open_attached(shaper.addr(), token, deadline, session).await
+    } else {
+        match Link::open(shaper.addr(), token, deadline).await {
+            Ok(mut link) => match link.attach(session, None, deadline).await {
+                Ok((at, reply)) => Ok((link, at, reply)),
+                Err(e) => Err(e),
+            },
+            Err(e) => Err(e),
+        }
+    };
+    let (mut link, at, reply) = match opened {
+        Ok(opened) => opened,
+        Err(e) => {
+            emit(k, "first_content_ms", None);
+            emit_error(k, "first_content_ms", &e);
+            return;
+        }
+    };
+    if rows(&reply).is_empty() {
+        emit(k, "first_content_ms", None);
+        emit_error(k, "first_content_ms", "the attach reply carried no rows");
+        return;
+    }
+    emit(k, "first_content_ms", Some(ms(at - start)));
+    emit_bytes(k, shaper);
+    let mut events = link
+        .pending
+        .iter()
+        .filter(|(_, v)| v.get("method").and_then(Value::as_str) == Some("_acpmux/event"))
+        .count();
+    let end = start + BUSY_WINDOW;
+    while let Next::Frame(_, v) = link.frame(end).await {
+        if v.get("method").and_then(Value::as_str) == Some("_acpmux/event") {
+            events += 1;
+        }
+    }
+    emit(k, "bytes_down_10s", Some(shaper.counters().down_bytes as f64));
+    emit(k, "events_10s", Some(events as f64));
+}
+
+/// The cold open of a chat whose agent is working (cmuxterm-hq optimum-ledger rows 95 and 105;
+/// the busy rows asked for on cmux#54388): for each profile in `NETCOND_PROFILES` (good-wifi,
+/// lte, lossy-3), scale and run, one open in the old order (phase `busy_seq`) and one in the new
+/// (`busy_early`), alternating which goes first, against the same daemon. The old order against
+/// this daemon is the old phone against the new Mac: acpmux reads it as before (`also_kinds.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the busy open bench: run with --ignored --nocapture"]
+async fn chat_cold_open_while_the_agent_works() {
+    let scratch = daemon_env::Scratch::new("netcond-busy");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = ProfileFile::builtin();
+    let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", &["good-wifi", "lte", "lossy-3"])
+        .iter()
+        .map(|n| file.get(n).unwrap_or_else(|| panic!("no link profile {n}")).clone())
+        .collect();
+    let scales = env_list("NETCOND_SCALES", &["1x", "10x"]);
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-busy"}}}),
+        )
+        .await;
+    let session =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let trace = Trace::new();
+    eprintln!(
+        "NETCOND-FIXTURE busy chat: a ~1 KB turn every {BUSY_TURN_EVERY:?}; bytes counted for \
+         {BUSY_WINDOW:?} from the tap"
+    );
+    let mut turns = 0;
+    for scale in &scales {
+        let x: u64 =
+            scale.trim_end_matches('x').parse().unwrap_or_else(|_| panic!("scale {scale}"));
+        control.seed(&session, turns, BASE_TURNS * x).await;
+        turns = turns.max(BASE_TURNS * x);
+        // The agent works through every open of this scale.
+        let mut agent = Control::new(&hub);
+        let busy_session = session.clone();
+        let busy = tokio::spawn(async move {
+            let pad = "busy busy busy ".repeat(64);
+            for n in 0u64.. {
+                agent.prompt(&busy_session, &format!("busy {n}: {pad}")).await;
+                let next = Instant::now() + BUSY_TURN_EVERY;
+                while let Ok(Some(_)) = tokio::time::timeout_at(next, agent.rx.recv()).await {}
+            }
+        });
+        tokio::time::sleep(BUSY_TURN_EVERY * 3).await;
+        for profile in &profiles {
+            let name = profile.label(None);
+            for run in 0..runs {
+                let seed = run + seed_base;
+                let order = if run % 2 == 0 { [false, true] } else { [true, false] };
+                for early in order {
+                    let phase = if early { "busy_early" } else { "busy_seq" };
+                    let k = Key { profile: &name, phase, scale, run, seed };
+                    let started =
+                        Shaper::start_through(upstream, profile.clone(), None, seed, &trace);
+                    match started.await {
+                        Ok((shaper, _hop)) => {
+                            busy_open(&shaper, &listener.token, &session, &k, early).await
+                        }
+                        Err(e) => emit_error(&k, "first_content_ms", &format!("shaper: {e}")),
+                    }
+                }
+            }
+        }
+        busy.abort();
+    }
+}
