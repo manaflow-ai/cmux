@@ -153,9 +153,28 @@ async fn an_allow_with_updated_input_rewrites_the_call_once() {
         Outbound::Reply(_) => Vec::new(),
     };
     assert!(!again.iter().any(|line| line["response"]["request_id"] == "h1"), "{again:?}");
-    // An updatedInput beside anything but allow changes nothing.
+    // Beside ask, the person is asked about the command as it will run.
     let (id, _) = asked(&t, &hook("h2", "Bash", json!({"command": "ls"}))).await.unwrap();
     let lines =
         answered(&t, id, Ok(json!({"decision": "ask", "updatedInput": {"command": "x"}}))).await;
+    assert_eq!(decision(&lines[0]), Some("ask"));
+    assert_eq!(
+        lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"),
+        Some(&json!({"command": "x"}))
+    );
+    // Beside no decision, the rewrite goes on with no decision: it never approves the call.
+    let (id, _) = asked(&t, &hook("h3", "Bash", json!({"command": "ls"}))).await.unwrap();
+    let lines =
+        answered(&t, id, Ok(json!({"decision": "none", "updatedInput": {"command": "x"}}))).await;
+    assert_eq!(decision(&lines[0]), None);
+    assert_eq!(
+        lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"),
+        Some(&json!({"command": "x"}))
+    );
+    // Beside a deny, nothing is rewritten.
+    let (id, _) = asked(&t, &hook("h4", "Bash", json!({"command": "ls"}))).await.unwrap();
+    let lines =
+        answered(&t, id, Ok(json!({"decision": "deny", "updatedInput": {"command": "x"}}))).await;
+    assert_eq!(decision(&lines[0]), Some("deny"));
     assert_eq!(lines[0].pointer("/response/response/hookSpecificOutput/updatedInput"), None);
 }

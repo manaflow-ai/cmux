@@ -200,7 +200,10 @@ impl Hub {
         };
         let default = self.config.read().await.permission_policy;
         let Some(policy) = gate_policy(&session.meta(), default) else {
-            return on_machine.unwrap_or_else(|| json!({"decision": GateDecision::None.as_str()}));
+            return super::hybrid_hold::with_machine(
+                json!({"decision": GateDecision::None.as_str()}),
+                on_machine,
+            );
         };
         let rule = session
             .meta()
@@ -232,17 +235,13 @@ impl Hub {
             });
             self.append(session, "mux", "permission_auto", record);
         }
-        if matches!(decision, GateDecision::None | GateDecision::Allow)
-            && let Some(answer) = on_machine
-        {
-            return answer;
-        }
         let mut answer = json!({"decision": decision.as_str()});
         if decision == GateDecision::Deny {
             answer.set("reason", json!(deny_reason(policy, by_rule)));
             tracing::info!(session = %session.id, %policy, "the policy gate denied a tool call");
+            return answer;
         }
-        answer
+        super::hybrid_hold::with_machine(answer, on_machine)
     }
 }
 

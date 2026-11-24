@@ -83,7 +83,7 @@ fn a_bash_call_on_the_machine_keeps_its_input_with_the_command_run_there() {
         "rawInput": {"command": "ls -la", "description": "list", "timeout": 5000},
         "_meta": {"claude": {"tool": "Bash"}}}});
     let answer = on_machine_answer(&request, "vm-1").expect("a Bash call routes");
-    assert_eq!(answer["decision"], "allow");
+    assert!(answer.get("decision").is_none(), "routing a call never decides it: {answer}");
     assert_eq!(answer["updatedInput"]["command"], "cmux vm exec 'vm-1' -- bash -lc 'ls -la'");
     assert_eq!(answer["updatedInput"]["description"], "list");
     assert_eq!(answer["updatedInput"]["timeout"], 5000);
@@ -113,6 +113,19 @@ async fn the_gate_answers_a_held_bash_call_once_with_the_machine_command() {
     assert!(!gate.is_finished(), "answered while the machine boots");
     tag(&hub, &session, json!({STAGE_TAG: "ready", MACHINE_TAG: "vm-1"}));
     let answer = tokio::time::timeout(Duration::from_secs(5), gate).await.unwrap().unwrap();
-    assert_eq!(answer["decision"], "allow", "{answer}");
+    // Routed, the call keeps the decision the same call gets in a chat that is not a hybrid
+    // start: a person who would be asked is still asked.
+    assert_eq!(answer["decision"], before["decision"], "{answer}");
     assert_eq!(answer["updatedInput"]["command"], "cmux vm exec 'vm-1' -- bash -lc 'cargo test'");
+}
+
+#[test]
+fn a_routed_call_keeps_the_gates_decision() {
+    let routed = || Some(json!({"reason": "on the machine", "updatedInput": {"command": "x"}}));
+    for decision in ["none", "allow", "ask"] {
+        let answer = with_machine(json!({"decision": decision}), routed());
+        assert_eq!(answer["decision"], decision);
+        assert_eq!(answer["updatedInput"]["command"], "x");
+    }
+    assert_eq!(with_machine(json!({"decision": "ask"}), None), json!({"decision": "ask"}));
 }

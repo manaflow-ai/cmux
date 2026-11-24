@@ -12,7 +12,8 @@
 //! longer call: none added, none run twice.
 //!
 //! Routed to the machine, a Bash call keeps its own input with its command run by `cmux vm exec`
-//! there (`hybrid_tools::on_machine_command`), allowed by the gate; the driver moves the chat at
+//! there (`hybrid_tools::on_machine_command`), under the gate's own decision (routing a call
+//! never approves it: [`with_machine`]); the driver moves the chat at
 //! that call's end, a tool boundary. A call the machine has no route for yet (a file read or
 //! edit) runs here and says so.
 
@@ -41,8 +42,24 @@ pub(super) fn boot_tags(meta: &SessionMeta) -> (Option<String>, Option<String>) 
     (live(hybrid_tools::STAGE_TAG), live(hybrid_tools::MACHINE_TAG))
 }
 
-/// The gate's answer for a call routed to `machine`: `request`'s own input with its command run
-/// there. None when the call is not a Bash command (it then runs here).
+/// `answer`, the gate's own decision for a call, with the call's input as it runs on its machine
+/// (`on_machine`, from [`on_machine_answer`]). The decision stays the gate's: routing a call
+/// never approves it, so a call the person would be asked about is still asked about, with the
+/// command as it will run.
+pub(super) fn with_machine(mut answer: Value, on_machine: Option<Value>) -> Value {
+    let Some(routed) = on_machine else { return answer };
+    if let (Some(answer), Some(routed)) = (answer.as_object_mut(), routed.as_object()) {
+        for key in ["reason", "updatedInput"] {
+            if let Some(value) = routed.get(key) {
+                answer.insert(key.to_owned(), value.clone());
+            }
+        }
+    }
+    answer
+}
+
+/// A call routed to `machine`: `request`'s own input with its command run there, and why. None
+/// when the call is not a Bash command (it then runs here).
 pub(super) fn on_machine_answer(request: &Value, machine: &str) -> Option<Value> {
     let tool = request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str);
     let input = request.pointer("/toolCall/rawInput").and_then(Value::as_object)?;
@@ -53,7 +70,6 @@ pub(super) fn on_machine_answer(request: &Value, machine: &str) -> Option<Value>
         Value::String(hybrid_tools::on_machine_command(machine, command)),
     );
     Some(json!({
-        "decision": "allow",
         "reason": format!("this call runs on the chat's Cloud machine {machine}"),
         "updatedInput": updated,
     }))
