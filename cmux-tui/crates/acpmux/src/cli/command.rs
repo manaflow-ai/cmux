@@ -248,6 +248,10 @@ pub enum Command {
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
     Ledger(crate::cli::ledger::LedgerArgs),
+    /// The harness-magic scorecard of this machine's turns: tokens and leo-units per settled pull
+    /// request, steering rate, time to the first useful result, firstModelMs, requests per turn,
+    /// cache-hit ratio and every harnessMagic counter, by the features the turns ran with.
+    Scorecard(crate::cli::scorecard::ScorecardArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
