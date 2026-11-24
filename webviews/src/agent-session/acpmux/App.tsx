@@ -3939,6 +3939,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [turnFramesCache, latestSummary, snapshot.sessionId]);
   const latestFrame = useCallback(
     (since: number) => directClient.current?.latestFrame(since) ?? Promise.resolve({ seq: since }),
+    // A new identity per session restarts the preview's poll on the new chat's client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [snapshot.sessionId],
   );
   // A wrap-up card's Try it on, Keep and Revert run through the chat's acpmux.
