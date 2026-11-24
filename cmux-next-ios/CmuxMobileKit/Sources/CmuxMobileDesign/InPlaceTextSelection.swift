@@ -32,6 +32,9 @@ public final class InPlaceTextSelection: NSObject {
     public var extraMenu: ((UILabel) -> [UIMenuElement])?
     /// Called when a selection starts and ends (a row can stop its own taps meanwhile).
     public var onChange: ((Bool) -> Void)?
+    /// Whether a hold at a point (in `host`) on a label may select: false leaves the hold to
+    /// another interaction there (a link's menu). nil: every label may.
+    public var shouldBegin: ((CGPoint) -> Bool)?
 
     private var overlay: StandInTextView?
     private weak var heldLabel: UILabel?
@@ -187,7 +190,9 @@ extension InPlaceTextSelection: UIGestureRecognizerDelegate {
         guard recognizer === press, let host else { return true }
         // A hold inside the live selection is the text view's own (it moves a handle or the range).
         if let overlay, overlay.bounds.contains(recognizer.location(in: overlay)) { return false }
-        return label(at: recognizer.location(in: host)) != nil
+        let point = recognizer.location(in: host)
+        guard label(at: point) != nil else { return false }
+        return shouldBegin?(point) ?? true
     }
 
     public func gestureRecognizer(_ recognizer: UIGestureRecognizer,
