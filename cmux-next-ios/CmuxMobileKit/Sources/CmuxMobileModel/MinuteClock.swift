@@ -14,11 +14,37 @@ public final class MinuteClock {
     /// rounded: a Mac seen 3 days before launch reads "3d", not "2d".
     public private(set) var now: Date
     @ObservationIgnored private var ticker: Task<Void, Never>?
+    /// False for a held clock (tests): `setActive` never starts it.
+    @ObservationIgnored private let ticks: Bool
 
     /// `ticking: false` holds `now` (tests).
     public init(now: Date = Date(), ticking: Bool = true) {
         self.now = now
+        ticks = ticking
         if ticking { start() }
+    }
+
+    /// The clock is waiting for its next minute mark.
+    public var isTicking: Bool { ticker != nil }
+
+    /// False while the app is in the background (`setActive(false)`). Observable:
+    /// a view's own clock that reads it (a working row's elapsed time) stops while
+    /// nobody can see it and is current at once on return.
+    public private(set) var isActive = true
+
+    /// Follows the app's state: the background pauses the ticks (no wake each
+    /// minute for times nobody sees); the foreground reads the time at once, so
+    /// every relative time is current on return, then ticks on the minute marks.
+    public func setActive(_ active: Bool) {
+        if isActive != active { isActive = active }
+        guard ticks else { return }
+        if !active {
+            ticker?.cancel()
+            ticker = nil
+        } else if ticker == nil {
+            now = Date()
+            start()
+        }
     }
 
     /// The minute mark at or before `date`.

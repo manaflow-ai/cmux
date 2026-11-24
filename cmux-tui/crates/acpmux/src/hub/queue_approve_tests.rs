@@ -119,6 +119,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         no_queue: false,
         admitted: false,
         after_turn: false,
+        steer_on_start: false,
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
     let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
@@ -447,7 +448,7 @@ async fn a_child_with_only_an_owner_held_prompt_takes_no_width_slot() {
         offered: false,
     };
     let child = hub.new_session(new(Some(link))).await.unwrap();
-    hub.set_status(&child, SessionStatus::Idle);
+    hub.set_status(&child, NotWaiting::Idle);
     assert_eq!(hub.width_used(&parent.id), 0, "a hibernated child frees its slot");
     insert(&hub, &child, "g-1", Some(&held_guest()));
     assert!(child.queue()[0].awaiting_owner);
@@ -694,4 +695,110 @@ async fn a_restart_keeps_control_prompts_the_person_rewrote() {
     assert!(kept.get(crate::prompt_provenance::EDITED_BY).is_some(), "{kept}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A Cloud team member's prompt (an author `user_<id>` with no `approval`, stamped by the
+/// machine's daemon from the member's signed dial) steers into the owner's running turn like the
+/// owner's own, keeps its author, and is never held; a link guest's steer beside it is held
+/// (cloud multiplayer lane C: members steer, guests wait for the owner).
+#[tokio::test]
+async fn a_team_members_steer_goes_in_and_a_guests_waits_for_the_owner() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "env": {"FAKE_CLAUDE_STEER": "1"}}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    let local = crate::server::Origin::Local;
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), rx, out_tx, local));
+    let send = |id: i64, m: &str, params: Value| Message::request(id, m, params).to_line();
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(send(1, method::SESSION_NEW, new)).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    let prompt = |id: &str, text: &str, author: Value| {
+        json!({"sessionId": session.id, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": id, "author": author, "steer": true}}})
+    };
+    let mut run = prompt("p-run", "until-cancel", Value::Null);
+    run["_meta"]["acpmux"].as_object_mut().unwrap().remove("steer");
+    tx.send(send(2, method::SESSION_PROMPT, run)).await.unwrap();
+    until(&mut out, |v| v.pointer("/params/update/content/text") == Some(&json!("running"))).await;
+
+    let member = json!({"id": "user_0123456789abcdef0123", "name": "Ana"});
+    tx.send(send(3, method::SESSION_PROMPT, prompt("m-1", "also the tests", member.clone())))
+        .await
+        .unwrap();
+    let accepted = until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "m-1"
+    })
+    .await;
+    assert_eq!(accepted["params"]["state"], "steered", "{accepted}");
+    assert!(accepted["params"].get("awaitingOwner").is_none(), "{accepted}");
+
+    let guest = json!({"id": "guest:k3x9", "name": "Cy", "approval": "owner"});
+    tx.send(send(4, method::SESSION_PROMPT, prompt("g-1", "guest words", guest))).await.unwrap();
+    let held = until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "g-1"
+    })
+    .await;
+    assert_eq!(held["params"]["awaitingOwner"], true, "{held}");
+    assert!(session.queue().iter().any(|q| q.prompt_id == "g-1" && q.awaiting_owner));
+    assert!(
+        user_messages(&hub, &session.id, "g-1").is_empty(),
+        "a guest's steer reached the agent"
+    );
+
+    // The member's words reached the agent with the member as their author.
+    let steered = user_messages(&hub, &session.id, "m-1");
+    assert_eq!(steered.len(), 1, "{steered:?}");
+    let provenance = &steered[0]["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "person_message", "{steered:?}");
+    assert_eq!(provenance["from"], member["id"], "{steered:?}");
+    assert_eq!(provenance["fromName"], "Ana", "{steered:?}");
+    hub.cancel(&session).await.unwrap();
+}
+
+/// An edit of a waiting prompt keeps no client context, but the tools note follows its words
+/// (`tool_mentions.rs`): an edit that writes `@browser-use` gets it, one that drops it loses it,
+/// and the queue's preview never shows it.
+#[tokio::test]
+async fn tool_mention_note_follows_a_queue_edits_words() {
+    let hub = memory_hub();
+    let req = crate::hub::NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() };
+    let session = hub.new_session(req).await.unwrap();
+    insert(&hub, &session, "q-1", None);
+    let edit = |text: &str| json!({"sessionId": session.id, "promptId": "q-1", "op": "update", "text": text});
+    let notes = || {
+        let queue = session.queue();
+        let blocks = &queue[0].run.blocks;
+        let notes: Vec<Value> =
+            blocks.iter().filter(|b| crate::prompt_context::is_context(b)).cloned().collect();
+        (notes, queue[0].preview.clone())
+    };
+
+    hub.queue_edit(&session, &edit("open it with @browser-use"), Control::Local, false, None)
+        .await
+        .unwrap();
+    let (found, preview) = notes();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0]["text"].as_str(),
+        crate::tool_mentions::note(&["browser-use"]).as_deref(),
+        "{found:?}"
+    );
+    assert_eq!(preview, "open it with @browser-use");
+
+    hub.queue_edit(&session, &edit("open it in Safari"), Control::Local, false, None)
+        .await
+        .unwrap();
+    let (found, preview) = notes();
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(preview, "open it in Safari");
+    hub.shutdown_all().await;
 }

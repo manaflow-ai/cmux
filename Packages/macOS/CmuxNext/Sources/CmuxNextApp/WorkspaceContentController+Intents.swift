@@ -6,8 +6,9 @@ import CmuxNextDaemonService
 import CmuxNextLayout
 
 // Layout intents -> daemon commands. A divider or column drag is local until
-// it ends: its one command (the final value, one daemon `transaction`)
-// settles or rejects the gesture's LayoutTransactionID (no snapshot counting).
+// it ends: its one command (the final value, or the final values of a change
+// of several as one `set-layout-sizes`; one daemon `transaction`) settles or
+// rejects the gesture's LayoutTransactionID (no snapshot counting).
 extension WorkspaceContentController {
     func handle(_ intent: LayoutIntent) {
         switch intent {
@@ -16,18 +17,14 @@ extension WorkspaceContentController {
             // (`sidebar.multiView`) focuses it first: a parked content's pane is not in the window's topology.
             if isParked, state.isOnScreenBeside(workspace.id) { services.windows.show(workspaceID: workspace.id, in: state) }
             focus.send(.focusPane(pane.rawValue, source: .intent))
-        case .setSplitRatio(let split, let ratio, let transaction, _):
-            guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = gestureTransactions.number(for: transaction)
-            sendGesture(transaction, label: "set-split-ratio") { connection in
-                try await connection.setSplitRatio(handle, ratio: ratio, transaction: daemonTransaction)
-            }
-        case .setColumnWidth(_, let anyPane, let width, let transaction, _):
-            guard let handle = handles.panes[anyPane] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = gestureTransactions.number(for: transaction)
-            sendGesture(transaction, label: "set-viewport-pane-width") { connection in
-                try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
-            }
+        case .setSplitRatio, .setColumnWidth, .setLayoutSizes:
+            // A gesture's ended sizes. One value goes as its own command; more go as one commit on a daemon with
+            // `layout-sizes-batch-v1`, else as each value's own command, in order (`LayoutSizeCommands`).
+            guard let sizes = intent.sizes else { return }
+            guard let wire = handles.gestureSizeValues(sizes.values, noticeOn: daemon) else { return layoutModel.rejectTransaction(sizes.transaction) }
+            let commands = LayoutSizeCommands(wire, transaction: gestureTransactions.number(for: sizes.transaction),
+                                              batch: daemon.supports(DaemonCapability.layoutSizesBatch.rawValue))
+            sendGesture(sizes.transaction, label: commands.label) { try await commands.send(on: $0) }
         case .setColumnDock(_, let anyPane, let dock, let transaction):
             // Hidden until the daemon serves it; a stale intent rolls back.
             guard daemon.supports(DaemonCapability.dockColumns.rawValue), let handle = handles.panes[anyPane] else {
@@ -69,6 +66,8 @@ extension WorkspaceContentController {
         case .cancelGesture:
             // No `.ended` will come for this gesture (its target went away); nothing of it was sent.
             return
+        case .setFloatingFrame(let pane, _), .raiseFloatingPane(let pane):
+            if let handle = handles.panes[pane] { daemon.bringFloatingPaneToFront(handle, frame: intent.floatingFrame) }
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, _):
@@ -258,9 +257,7 @@ extension WorkspaceContentController: DividerWorkspace {
         case .newTabPage: NewTabPage.split(pane, edge: horizontal ? .right : .bottom, insertion: insertion)
         case .agentChat: // the sizing shows with its pane, goes with a refusal (as a New Tab page split's)
             let sizing = layoutModel.showSplitSizing(insertion.sizing), model = layoutModel
-            let started = pane.services.agentTabs.openTab(in: pane, split: horizontal ? .right : .down, around: insertion.around) { _ in
-                model.commitSplitSizing(sizing)
-            } failed: { model.cancelSplitSizing(sizing) }
+            let started = pane.services.agentTabs.openTab(in: pane, split: horizontal ? .right : .down, around: insertion.around) { _ in model.commitSplitSizing(sizing) } failed: { model.cancelSplitSizing(sizing) }
             if started { applyCurrent() } else { model.cancelSplitSizing(sizing) }
         }
         return nil

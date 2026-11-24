@@ -71,13 +71,21 @@ pub(crate) fn find_high(data: &[u8], from: usize) -> usize {
     find(data, from, |word| word & HIGH != 0, |byte| byte >= 0x80)
 }
 
-/// CSI finals no tracker acts on (cursor motion, erase, insert/delete,
-/// scroll, SGR, ...). Excluded on purpose: modes (h l), save/restore (s r),
+/// Whether `byte` is a CSI final no tracker acts on (cursor motion, erase,
+/// insert/delete, scroll, SGR, ...): `@ABCDEFGHIJKLMPSTXZ` and
+/// `` `abdefgm ``. Excluded on purpose: modes (h l), save/restore (s r),
 /// soft reset and DECRQM (p), DECSCUSR (q), reports and queries (c n t u x).
-const INERT_CSI_FINALS: &[u8] = b"@ABCDEFGHIJKLMPSTXZ`abdefgm";
+/// One range test per CSI; a test holds it equal to that list.
+#[inline(always)]
+fn is_inert_csi_final(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'@'..=b'M' | b'P' | b'S' | b'T' | b'X' | b'Z' | b'`' | b'a' | b'b' | b'd'..=b'g' | b'm'
+    )
+}
 
 /// Length of the complete inert CSI sequence at `data[at..]` (`ESC [`,
-/// parameters from `0-9 ; :` only, then a final in [`INERT_CSI_FINALS`]),
+/// parameters from `0-9 ; :` only, then a final [`is_inert_csi_final`] accepts),
 /// or 0 when the bytes there are not one.
 #[inline]
 fn inert_csi_len(data: &[u8], at: usize) -> usize {
@@ -89,7 +97,7 @@ fn inert_csi_len(data: &[u8], at: usize) -> usize {
         end += 1;
     }
     match data.get(end) {
-        Some(fin) if INERT_CSI_FINALS.contains(fin) => end + 1 - at,
+        Some(&fin) if is_inert_csi_final(fin) => end + 1 - at,
         _ => 0,
     }
 }
@@ -122,6 +130,9 @@ fn utf8_len(data: &[u8], at: usize) -> usize {
 /// than LF, VT, FF unless `line_ends_neutral`), complete valid UTF-8 code
 /// points, and complete inert CSI sequences.
 pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool) -> usize {
+    if line_ends_neutral {
+        return neutral_run_end_by_escape(data, from);
+    }
     let mut at = from;
     loop {
         at = if line_ends_neutral {
@@ -148,3 +159,32 @@ pub(crate) fn neutral_run_end(data: &[u8], from: usize, line_ends_neutral: bool)
         at += step;
     }
 }
+
+/// [`neutral_run_end`] with line ends neutral, from ESC to ESC: the bytes
+/// between two ESCs are neutral exactly when they are valid UTF-8 (ASCII
+/// other than ESC is neutral, and `str::from_utf8` accepts the same code
+/// points as [`utf8_len`]: no overlong forms, surrogates or values past
+/// U+10FFFF), and its `valid_up_to` stops before an invalid or incomplete
+/// code point, where the byte walk stops too. Each byte is validated once.
+fn neutral_run_end_by_escape(data: &[u8], from: usize) -> usize {
+    let mut at = from;
+    loop {
+        let rest = data.get(at..).unwrap_or_default();
+        let esc = memchr::memchr(0x1b, rest).map_or(data.len(), |offset| at + offset);
+        if let Err(error) = std::str::from_utf8(data.get(at..esc).unwrap_or_default()) {
+            return at + error.valid_up_to();
+        }
+        if esc == data.len() {
+            return esc;
+        }
+        let csi = inert_csi_len(data, esc);
+        if csi == 0 {
+            return esc;
+        }
+        at = esc + csi;
+    }
+}
+
+#[cfg(test)]
+#[path = "byte_scan_tests.rs"]
+mod tests;

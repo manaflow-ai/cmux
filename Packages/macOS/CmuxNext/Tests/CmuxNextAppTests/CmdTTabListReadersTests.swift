@@ -11,7 +11,7 @@ import Testing
 /// CMD-T BUDGET (2026-11-10): Cmd-T puts one tab in one pane's tab list (`PaneModel.insertTab`). With 60 workspaces
 /// that write cost 3 ms of the key's turn, all of it in `ObservationTracking.cancel`: an observer that had read the
 /// tab list of every pane of the session was cancelled (one registration per pane and per tab it read) and then read
-/// the whole session again to re-arm. The cost of one key grew with the session (Lawrence's has 826 workspaces).
+/// the whole session again to re-arm. The cost of one key grew with the session (a large one has 826 workspaces).
 ///
 /// Three observers that live as long as the app read the session that way: the keep-awake service (one stream over
 /// every tab) and the terminal clipboard-read service (one tracking over every terminal), which no test fixture
@@ -80,7 +80,7 @@ struct CmdTTabListReadersTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let keepAwake = KeepAwakeService()

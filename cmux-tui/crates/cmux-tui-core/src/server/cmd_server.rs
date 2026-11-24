@@ -34,6 +34,23 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
+pub(super) fn process_census(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        anyhow::bail!("process census requires a trusted local connection");
+    }
+    #[cfg(any(unix, windows))]
+    {
+        let view = mux.process_census_view();
+        let state_root = view
+            .as_ref()
+            .and_then(|view| view.record_root.parent().map(std::path::Path::to_path_buf))
+            .ok_or_else(|| anyhow::anyhow!("this session keeps no terminal host records"))?;
+        Ok(serde_json::to_value(crate::mux::process_census::census(&state_root, view.as_ref()))?)
+    }
+    #[cfg(not(any(unix, windows)))]
+    anyhow::bail!("process census is not available on this platform")
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
     machine_metadata: bool,
@@ -95,7 +112,19 @@ pub(super) fn identify(
         identity.insert("machine_id", json!(mux.machine_public_id));
         identity.insert("session_resource_id", json!(mux.session_public_id));
         identity.insert("machine_platform", crate::resource_api::machine_platform());
+        // What kind of device this machine is and the SF Symbol that kind draws
+        // (`cmux-device-kind`): the sidebar's machine header, hover card and remote headers
+        // draw the symbol by this name.
+        let device = cmux_device_kind::this_device().kind;
+        identity.insert("machine_device", json!(device.as_str()));
+        identity.insert("machine_symbol", json!(device.symbol()));
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
+        // The worker's independently generated screen UUID is intentionally
+        // separate from the daemon machine ID. It is read only from the
+        // authenticated local supervisor cache and omitted from legacy
+        // identify replies.
+        identity
+            .insert("screen_device_id", json!(mux.control_clients.remote_host.screen_device_id()));
     }
     Ok(identity)
 }
@@ -110,6 +139,7 @@ pub(super) fn shutdown_daemon(
     end_terminals: bool,
     keep_layout: bool,
     restart: Option<bool>,
+    if_idle: bool,
 ) -> anyhow::Result<Value> {
     anyhow::ensure!(
         end_terminals || !keep_layout,
@@ -117,6 +147,12 @@ pub(super) fn shutdown_daemon(
     );
     let actual_identity =
         mux.begin_daemon_handoff(client, DaemonHandoffRequest::fenced(pid, generation, force))?;
+    // The reservation refuses every new client from here on, so what the
+    // check sees stays true until the stop (stop_if_idle.rs).
+    if if_idle && let Err(busy) = super::stop_if_idle::check(mux, client) {
+        mux.cancel_daemon_handoff(client);
+        return Err(busy);
+    }
     mux.control_clients.set_daemon_handoff_restart(client, restart);
     // The fenced handoff reservation is held, so no second shutdown
     // can start while the hosts end. A failure releases it and keeps

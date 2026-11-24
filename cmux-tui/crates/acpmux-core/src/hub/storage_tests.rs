@@ -1,7 +1,9 @@
 use super::*;
 use acpmux_book::index::{HOT_WINDOW_MS, SortedSnapshot};
+use std::fs;
+use std::path::Path;
 
-fn fixture(path: &std::path::Path, count: u64) {
+fn fixture(path: &Path, count: u64) {
     let mut index = SummaryIndex::new();
     for n in 0..count {
         let mut row = Summary::new(format!("row-{n:05}"));
@@ -70,12 +72,12 @@ async fn hydration_skips_a_corrupt_middle_snapshot_row_and_counts_it() {
 
     // Snapshot records are [length, crc, body, trailing length]. Preserve
     // both frame lengths while invalidating only the middle record's CRC.
-    let mut bytes = std::fs::read(&path).unwrap();
+    let mut bytes = fs::read(&path).unwrap();
     let first_len =
         u32::from_le_bytes(bytes.get(4096..4100).unwrap().try_into().unwrap()) as usize + 12;
     let middle = 4096 + first_len;
     *bytes.get_mut(middle + 8).unwrap() ^= 0x01;
-    std::fs::write(&path, bytes).unwrap();
+    fs::write(&path, bytes).unwrap();
 
     let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
     writer.start_hydration();
@@ -173,7 +175,7 @@ fn open_recovers_when_initial_log_was_renamed_before_the_next_generation_exists(
     log.append(Summary::new("before-rename")).unwrap();
     log.sync().unwrap();
     drop(log);
-    std::fs::rename(&log_path, dir.path().join("index.log.1")).unwrap();
+    fs::rename(&log_path, dir.path().join("index.log.1")).unwrap();
     assert!(!log_path.exists());
     assert!(!dir.path().join("index.log.2").exists());
 

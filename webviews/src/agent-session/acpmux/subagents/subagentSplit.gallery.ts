@@ -12,6 +12,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, row, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { SESSION_INFO_TOGGLE, SESSION_INFO_TOGGLE_OFF } from "../session-info/sessionInfoSelectors";
 
 export const SPLIT_ENTRY = "agent-pane.subagent-split";
 const REVIEW = "agent-review-october";
@@ -70,8 +71,8 @@ async function parent(ctx: PlayContext) {
   // A pane too narrow for a readable chat beside the panel (the left half of the pair,
   // subagentSplitPair.gallery.tsx) keeps a saved open state closed until the toggle opens it
   // (session-info/SessionInfoNarrowPane.gallery.tsx); a wide one has it open already.
-  const closed = 'button.acpmux-session-info-toggle[aria-pressed="false"]';
-  await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-session-info-toggle"));
+  const closed = SESSION_INFO_TOGGLE_OFF;
+  await ctx.waitFor(() => ctx.document.querySelector(SESSION_INFO_TOGGLE));
   if (!ctx.document.querySelector(shownPanel) && ctx.document.querySelector(closed))
     await ctx.click({ selector: closed });
   await ctx.waitFor(() => ctx.document.querySelector(shownPanel));
@@ -100,10 +101,7 @@ export default agentPaneEntry({
   title: "Subagent opened in the right split",
   area: "Agent pane",
   height: 640,
-  covers: [
-    "agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow",
-    "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
-  ],
+  covers: ["agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow"],
   keywords: ["subagent", "split", "right", "task", "session info"],
   variants: {
     parent: {

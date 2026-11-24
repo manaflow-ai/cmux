@@ -15,8 +15,6 @@ import { measureNewTabChips, type ChipMeasure } from "./support/newTabChipScale"
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
-  /** How far the tray's location chips draw their leading glyph under the label's line box (newtab/screen.css). */
-  const LOCATION_GLYPH_DROP = 1;
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.new-tab-icon-column";
   const STATES = ["no-project", "project", "machine"];
@@ -60,9 +58,13 @@ await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
             await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
             const chips: ChipMeasure[] = await page.evaluate(measureNewTabChips);
             const where = `${state} ${width}px ${look}: ${JSON.stringify(chips)}`;
+            // A project's picture drops 0.08 of its name's font size under the line box, where a lowercase name's ink
+            // sits (newtab/screen.css --acpmux-location-mark-drop, Lucas 2026-11-14); every other mark centers on it.
+            const pictureDrop = (chip: ChipMeasure) =>
+              state === "project" && chip.chip === "location 1" ? (chip.label?.size ?? 0) * 0.08 : 0;
             const locationCenters = chips
               .filter((chip) => chip.chip === "location 1" || chip.chip === "location 2")
-              .map((chip) => chip.glyphCenterY);
+              .map((chip) => (chip.glyphCenterY === null ? null : chip.glyphCenterY - pictureDrop(chip)));
             expect(locationCenters, where).toHaveLength(2);
             expect(
               locationCenters.every((center) => typeof center === "number"),
@@ -99,11 +101,9 @@ await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
                 expect(chip.glyph, `${chip.chip} glyph; ${where}`).toBe(GLYPH);
               if (chip.label) expect(chip.label, `${chip.chip} label; ${where}`).toEqual(LABEL);
               if (chip.chevron !== null) expect(chip.chevron, `${chip.chip} chevron; ${where}`).toBe(CHEVRON);
-              // The tray's location chips draw their leading glyph or picture 1 pt under the label's line box, where a
-              // lowercase name's ink sits (newtab/screen.css, Lucas 2026-11-14); the chips under the box center on it.
               if (chip.glyphOffset !== null)
                 expect(
-                  Math.abs(chip.glyphOffset + (chip.chip.startsWith("location") ? LOCATION_GLYPH_DROP : 0)),
+                  Math.abs(chip.glyphOffset + pictureDrop(chip)),
                   `${chip.chip} label off its glyph's line; ${where}`,
                 ).toBeLessThanOrEqual(0.5);
             }

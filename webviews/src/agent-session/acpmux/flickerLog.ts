@@ -15,11 +15,27 @@
 //   followed a DOM change, their intervals' `p50`, `p95` and `max` in ms, `miss120` and `miss60`
 //   (intervals that missed a 120 Hz or a 60 Hz frame), `over50`, and `ms` the span covered (Leo,
 //   2026-11-07: "find, like, where we're dropping frames"). `cmux perf record` reads them.
+// - `remount`: a transcript row or a tool call's row unmounted and mounted again in one commit
+//   (`what`: row or tool, `kind`): it draws again from nothing, a flash where nothing changed.
 // - `reply-unpainted`: a turn ended with a reply the chat holds, and once the page settled the
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
+// - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
+//   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
+// - `layout-undeclared`: in a dev build, a box moved on no event the layout-motion contract declares for
+//   its surface (layout/motionAudit.ts): `surface`, `px` (its largest change) and `during` (what was open).
+// - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
+//   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
+//   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
-// second after the last one, never a loop that runs while the page is still.
+// second after the last one, never a loop that runs while the page is still. That watch (the
+// document-wide MutationObserver and its display frames: the `frames` event and, where the engine has
+// no `long-animation-frame` entries, `long-frame`) runs only while its debug flag is on:
+// `localStorage["cmux.diag.frameWatch"] = "on"` in any page of the origin, or `setFrameWatch(true)`.
+// Off, a page asks for no frame for it at all (CMUX-672: a chat renderer at 96 to 157% CPU with its
+// chats mostly still, where each minute label or presence row that changed armed frames). The other
+// events record things that happened, with no loop, and stay on. Pages follow the flag as it changes
+// (the `storage` event) and read it again when they are shown.
 //
 // No text of the chat goes out: kinds, numbers and short words. Events are sent in batches at
 // most once a second, fire and forget: on the shared page host as the `cmux.agent.diag.flicker` op
@@ -27,7 +43,11 @@
 // handler, and tests that hand it no sender, send nothing. Before the page host sent them (Leo's
 // NIGHTLY, 2026-11-11), the ring file held no page line at all, only the app's own.
 
+import { watchFirstLoad } from "./firstLoadWatch";
+import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
+import { acpmuxPerf } from "./perf";
+import { perfReporter } from "./perfReporter";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
 /// Hands one batch to the app; it may return the host's (ignored) answer.
@@ -45,6 +65,10 @@ export class FlickerLog {
   private held: FlickerEvent[] = [];
   private dropped = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /// A flush waits for the end of the recording task (`soon`).
+  private queued = false;
+  /// When the last batch went out (`now`'s clock).
+  private sentAt = -Infinity;
   private mounts = 0;
 
   constructor(
@@ -53,6 +77,7 @@ export class FlickerLog {
     // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
     private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
       setTimeout(run, ms),
+    private readonly soon: (run: () => void) => void = (run) => queueMicrotask(run),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -60,8 +85,23 @@ export class FlickerLog {
       this.held.shift();
       this.dropped += 1;
     }
-    this.held.push({ ...fields, kind, at: this.now() });
-    this.timer ??= this.schedule(() => this.flush(), FLUSH_MS);
+    const at = this.now();
+    this.held.push({ ...fields, kind, at });
+    if (this.timer !== undefined || this.queued) return;
+    // A batch a second at most, sent at the end of the task that recorded it when the last one went out over a
+    // second ago: a page at rest arms no timer for the records a change left (a chat switch's mount and frames
+    // records woke the pane at rest a second later, bench/chat-switch.bench.ts idle_wakeups). Only a record
+    // within a second of the last batch waits, for the rest of that second.
+    const wait = this.sentAt + FLUSH_MS - at;
+    if (wait > 0) {
+      this.timer = this.schedule(() => this.flush(), wait);
+      return;
+    }
+    this.queued = true;
+    this.soon(() => {
+      this.queued = false;
+      this.flush();
+    });
   }
 
   /// The transcript's root mounted: the first is the page's own, any later one a remount.
@@ -78,6 +118,7 @@ export class FlickerLog {
     if (this.dropped) events[0] = { ...events[0]!, dropped: this.dropped };
     this.held = [];
     this.dropped = 0;
+    this.sentAt = this.now();
     this.send(events);
   }
 }
@@ -134,18 +175,24 @@ export class FrameWatch {
   private windowStart: number | undefined;
   private windowEnd = 0;
 
+  /// `stopWhenStill`: the engine reports long frames itself (`long-animation-frame`), so a frame that drew no
+  /// change has nothing to time: the watch stops at the first such frame, not WATCH_MS after the change. A page at
+  /// rest then asks for no frame at all; before, each change at rest (a minute label, a presence row) cost a second
+  /// of frames, 43 to 60 wakeups (bench chat_switch.*.idle_wakeups).
   constructor(
     private readonly report: (ms: number) => void,
     private readonly visible: () => boolean,
     private readonly frame: (run: (time: number) => void) => void,
     private readonly now: () => number,
     private readonly summary: (stats: FrameStats) => void = () => undefined,
+    private readonly stopWhenStill = false,
   ) {}
 
   arm(): void {
     this.until = this.now() + WATCH_MS;
     this.pending = true;
     if (this.running) return;
+    if (this.windowStart !== undefined && this.now() - this.windowStart >= WINDOW_MS) this.endWindow();
     this.running = true;
     // From the change itself: a frame that the change made long is the first one timed.
     this.last = this.visible() ? this.now() : undefined;
@@ -178,6 +225,12 @@ export class FrameWatch {
     this.drew = visible && this.pending;
     this.pending = false;
     this.last = visible ? time : undefined;
+    if (this.stopWhenStill && !this.drew && this.now() < this.until) {
+      // Still: no frame until the next change. The window stays open, so changes a few frames apart still make
+      // one summary a second; the next change closes a window that is a second old (`arm`).
+      this.running = false;
+      return;
+    }
     if (this.now() >= this.until) {
       this.running = false;
       this.endWindow();
@@ -196,20 +249,71 @@ export class FrameWatch {
 
 let log: FlickerLog | undefined;
 
+/// The debug flag that turns the frame watch on (the top of this file); any other value is off.
+export const FRAME_WATCH_KEY = "cmux.diag.frameWatch";
+
+/// Whether the frame watch's flag is on in `win`'s storage (off where storage is missing or refused).
+export function frameWatchFlag(win: Window = window): boolean {
+  try {
+    return win.localStorage?.getItem(FRAME_WATCH_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+/// The installed detector's switch for its frame watch; none before startFlickerLog.
+let applyFrameWatch: ((on: boolean) => void) | undefined;
+
+/// Turns the frame watch on or off: in this page at once, in the origin's other pages through their
+/// `storage` event, and in pages loaded later.
+export function setFrameWatch(on: boolean, win: Window = window): void {
+  try {
+    if (on) win.localStorage?.setItem(FRAME_WATCH_KEY, "on");
+    else win.localStorage?.removeItem(FRAME_WATCH_KEY);
+  } catch {
+    // No storage: this page still follows the call.
+  }
+  applyFrameWatch?.(on);
+}
+
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+  // The perf watch's page-load span (perfReporter.ts): the first mount, once per page.
+  acpmuxPerf.markLaunch("transcriptMount");
 }
 
 /// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
+  perfReporter.transcriptReplaced();
 }
 
 /// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
 /// `why` names what hides it, `h` the row's height; nothing before startFlickerLog.
 export function noteReplyUnpainted(why: string, h: number): void {
   log?.record("reply-unpainted", { why, h });
+}
+
+/// Ids of drawn things (`row:<id>`, `tool:<call id>`) unmounted in the commit now running: one that
+/// mounts again in the same commit was remounted in place (its key, its type or a parent's changed),
+/// which draws it again from nothing and replays its entrance: the flicker Leo sees on a settled tool
+/// call (2026-11-14: "im also seeing more flickers/rerenders of tool calls recently").
+const unmountedNow = new Set<string>();
+
+/// A transcript row or a tool call's row unmounted; `noteMounted` in the same commit is a remount.
+export function noteUnmounted(id: string): void {
+  if (!log) return;
+  if (unmountedNow.size === 0) queueMicrotask(() => unmountedNow.clear());
+  unmountedNow.add(id);
+}
+
+/// A transcript row or a tool call's row mounted: in the commit that unmounted it, a `remount`
+/// (`what`: row or tool, `kind`: the row's or the call's kind). Nothing before startFlickerLog.
+export function noteMounted(id: string, what: "row" | "tool", kind: string | undefined): void {
+  if (!log || !unmountedNow.has(id)) return;
+  unmountedNow.delete(id);
+  log.record("remount", { what, kind: kind ?? "" });
 }
 
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses
@@ -250,6 +354,8 @@ export function startFlickerLog(win: Window = window, send?: FlickerSend): void 
 
 /// Tests: the page starts again with no detector.
 export function resetFlickerLogForTests(): void {
+  applyFrameWatch?.(false);
+  applyFrameWatch = undefined;
   log?.flush();
   log = undefined;
 }
@@ -284,8 +390,12 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   const doc = win.document;
   const navigation = win.performance?.getEntriesByType?.("navigation")[0] as PerformanceNavigationTiming | undefined;
   flicker.record("page-load", { type: navigation?.type ?? "unknown" });
+  watchFirstLoad(win, (fields) => flicker.record("first-load", fields));
 
-  const longFrame = (ms: number) => flicker.record("long-frame", { ms });
+  const longFrame = (ms: number) => {
+    flicker.record("long-frame", { ms });
+    perfReporter.longFrame(ms);
+  };
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
     ?.supportedEntryTypes;
   // With the engine's long frames, the watch's own would be the same frames twice.
@@ -296,17 +406,45 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
     (run) => win.requestAnimationFrame(run),
     () => win.performance.now(),
     (stats) => flicker.record("frames", stats),
+    engineLongFrames,
   );
-  new (win as Window & typeof globalThis).MutationObserver(() => watch.arm()).observe(doc.documentElement, {
-    childList: true,
-    subtree: true,
-    characterData: true,
+  // The frame watch's DOM observer, only while the debug flag is on. Stop condition: the flag going off
+  // disconnects it; a watch already running stops by itself WATCH_MS after the last change.
+  let observer: MutationObserver | undefined;
+  const follow = (on: boolean) => {
+    if (on === (observer !== undefined)) return;
+    if (!on) {
+      observer!.disconnect();
+      observer = undefined;
+      watch.reset();
+      return;
+    }
+    observer = new (win as Window & typeof globalThis).MutationObserver(() => watch.arm());
+    observer.observe(doc.documentElement, { childList: true, subtree: true, characterData: true });
+  };
+  applyFrameWatch = follow;
+  follow(frameWatchFlag(win));
+  win.addEventListener("storage", (event) => {
+    if (event.key === FRAME_WATCH_KEY || event.key === null) follow(frameWatchFlag(win));
   });
 
   doc.addEventListener("visibilitychange", () => {
     flicker.record("visibility", { state: doc.visibilityState });
+    // The perf watch times a switch back to this page to its settled transcript (perfReporter.ts).
+    perfReporter.visibilityChanged(doc.visibilityState === "visible");
     watch.reset();
-    if (doc.visibilityState === "visible") watch.arm();
+    if (doc.visibilityState !== "visible") return;
+    // A flag set in this page's own console fires no `storage` event here: it is read again on show.
+    follow(frameWatchFlag(win));
+    if (observer) watch.arm();
   });
   win.addEventListener("pagehide", () => flicker.flush());
+  // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
+  watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
+}
+
+/// A layout move the layout-motion contract does not declare (layout/motionAudit.ts, dev builds): the surface,
+/// how far the box went (`px`, its largest change) and the events open then. No chat text, no row id.
+export function noteUndeclaredMove(surface: string, px: number, during: string): void {
+  log?.record("layout-undeclared", { surface, px, during });
 }

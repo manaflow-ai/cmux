@@ -58,7 +58,7 @@ extension ConversationViewController {
         if commit, case let .message(model)? = row(for: rowID) {
             enterReplyMode(for: model.message, dragOffset: releasedAt)
         }
-        UIView.animate(withDuration: ConversationReplyMotion.bubbleResetDuration, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animateUnlessReduceMotion(withDuration: ConversationReplyMotion.bubbleResetDuration, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
             cell?.replyDrag = 0
         }
     }

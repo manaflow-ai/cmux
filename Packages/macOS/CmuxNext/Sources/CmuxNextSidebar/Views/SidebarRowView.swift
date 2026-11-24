@@ -14,6 +14,8 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            // A row that is no longer selected stops running into the card at once (`flush-goo`).
+            if !isSelected { runsIntoCard = false }
             updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
@@ -33,11 +35,47 @@ class SidebarRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the tabs (`TabCornerCurve`)
-        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        layer?.cornerRadius = fillCornerRadius
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The fill's corner is the tab's at the density now, read on every layout: set once at `init`, a row made at a
+    /// roomier density kept that density's corner after a switch, nearly a pill on Compact's 20 pt row beside its 5 pt
+    /// tabs (Lucas 2026-11-14: "the left sidebar tab becomes too circular ... match the sidebar item roundness to the
+    /// tab roundness"). A density change lays every row out again (its height changes).
+    /// `appearance.tabShape` rounded makes the fill a capsule, as the tabs are (``TabShape/fillCornerRadius(_:height:tabHeight:)``);
+    /// a selected row that runs into the card (`flush-goo`) keeps its corners only on the side away from the content.
+    override func layout() {
+        super.layout()
+        let radius = DesignSettings.shared.tabShape.fillCornerRadius(fillCornerRadius, height: bounds.height, tabHeight: Metrics.tabHeight)
+        if layer?.cornerRadius != radius { layer?.cornerRadius = radius }
+        let corners = shownCorners
+        if layer?.maskedCorners != corners { layer?.maskedCorners = corners }
+    }
+
+    /// The fill's corner: the tab's at the density now. A row that draws no rounded fill (a section block) answers 0.
+    var fillCornerRadius: CGFloat { SidebarStyle.rowCornerRadius }
+
+    /// The selected row runs into the content card (`appearance.cornerFlush` flush-goo; the window's chrome decides,
+    /// `SidebarListView.setSelectionRunsIntoCard`): it paints the content's fill (``Palette/folderTabFill``) square on
+    /// the card's side, and the window's shade leaves out its shape out to the card, with the fillets that meet it.
+    var runsIntoCard = false {
+        didSet {
+            guard runsIntoCard != oldValue else { return }
+            fadesNextFill = false
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
+
+    /// The fill's rounded corners: all four, or under ``runsIntoCard`` the two away from the card (the sidebar's outer side).
+    private var shownCorners: CACornerMask {
+        guard runsIntoCard else { return [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner] }
+        return DesignSettings.shared.sidebarSide == .right ? [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+    }
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
@@ -169,7 +207,9 @@ class SidebarRowView: NSView {
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
+        // A selected row that runs into the card shows the content's own fill, as the folder tab does.
+        let shown = runsIntoCard && isSelected && color != nil ? Palette.folderTabFill ?? color : color
+        ChromeHover.paint(layer, shown, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
     }
 
@@ -200,6 +240,10 @@ class SidebarRowView: NSView {
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
+    /// The frame as drawn now, where a new group line starts (`groupLines(current:)`): mid-move the presentation (a
+    /// render-server move sets the model frame to its end at once, `SidebarDragSpring`), else the model frame (a
+    /// recycled layer's presentation can still show its last row's).
+    var drawnFrame: CGRect { layer?.animationKeys()?.isEmpty == false ? shownFrame : frame }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.
@@ -241,38 +285,7 @@ class SidebarRowView: NSView {
 
 // MARK: - Workspace
 
-/// An empty section's row. Pinned's says "Drop here to pin"; any other empty list draws
-/// nothing, as classic draws nothing there (https://github.com/manaflow-ai/cmux/issues/32728),
-/// and stays only as the list's drop target.
-final class EmptySectionRowView: SidebarRowView {
-    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-
-    required init(key: SidebarRowKey) {
-        super.init(key: key)
-        // Left-aligned where a workspace's title would start, so the drop
-        // zone reads as the list's first line.
-        label.alignment = .natural
-        addSubview(label)
-    }
-
-    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
-        label.setString(pinned ? Strings.pinnedEmpty : "")
-        label.setFont(SidebarStyle.subtitleFont)
-        label.isHidden = !pinned
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let b = layoutBounds
-        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
-        let width = max(0, b.width - x - Metrics.space2)
-        let height = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: height)
-        needsDisplay = true
-    }
-
-    override func updateLayer() {
-        performWithTheme { label.setColor(Palette.textTertiary) }
-    }
-}
+/// An empty section's row: it draws nothing, as classic draws nothing there
+/// (https://github.com/manaflow-ai/cmux/issues/32728), and stays only as the list's drop target. Pinned's drop zone says
+/// nothing either (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"): the gap a drag opens there is the cue.
+final class EmptySectionRowView: SidebarRowView {}

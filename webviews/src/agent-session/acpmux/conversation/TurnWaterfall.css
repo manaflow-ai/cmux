@@ -74,7 +74,7 @@
 
 .cv-waterfall__span.is-link:hover,
 .cv-waterfall__span.is-link:focus-visible {
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-surface-hover);
   color: var(--cv-text);
 }
 
@@ -109,7 +109,7 @@
   /* An 8px bar: the track is its padding, on the spacing scale. */
   padding-block: 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-fg) 5%, transparent);
+  background: var(--ds-surface-card);
 }
 
 .cv-waterfall__bar {
@@ -169,7 +169,7 @@
   left: var(--wf-from);
   width: var(--wf-width);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-fg) 9%, transparent);
+  background: var(--ds-surface-inset);
 }
 
 .cv-waterfall .is-failed {
@@ -197,6 +197,50 @@
 }
 
 .cv-waterfall-toggle.is-open {
+  color: var(--cv-text);
+}
+
+/* Plain (a turn not worth a chart: one call, or mostly the model): each line its name and its
+   time, no axis and no bars. The head has no axis to share, so it is one column. */
+.cv-waterfall.is-plain .cv-waterfall__head {
+  grid-template-columns: minmax(0, 1fr);
+  padding-bottom: 4px;
+}
+
+.cv-waterfall__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cv-waterfall__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--wf-row);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.cv-waterfall__line .cv-waterfall__name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.cv-waterfall__line .cv-waterfall__time {
+  margin-left: auto;
+  flex: none;
+}
+
+.cv-waterfall__line.is-link:hover,
+.cv-waterfall__line.is-link:focus-visible {
+  background: var(--ds-surface-hover);
   color: var(--cv-text);
 }
 

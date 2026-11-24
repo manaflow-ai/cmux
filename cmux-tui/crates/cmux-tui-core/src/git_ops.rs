@@ -1,9 +1,10 @@
-//! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
+//! `git.diff`, `git.fingerprint`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; a connection's request runs git on the daemon's git lane
 //! (`server/git_lane.rs`), never on the connection's reader thread,
 //! bounded by a deadline and output limits. `git.status` reads the refs only
-//! (`cmux_git::head`), not the work tree. `git.checkpoint.*` captures
+//! (`cmux_git::head`), not the work tree. `git.fingerprint` says if a diff is
+//! still current without making it (`fingerprint`). `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -11,9 +12,12 @@
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
 //! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
-//! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
+//! recipe and a worktree's setup run (`worktree_setup`). `project.actions.list`
+//! reads a project's `.cmux/actions.json` with the global actions (`project_actions`). `diff.comments.*`
 //! keeps the diff page's review comments per worktree root until they are
-//! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
+//! sent (`diff_comments`). `git.review.*` reviews a GitHub pull request
+//! from its link in a worktree of its own, with those comments as its
+//! drafts (`pr_review`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -26,9 +30,14 @@ mod diff;
 mod diff_comments;
 mod diff_pages;
 mod files;
+#[cfg(all(test, unix))]
+mod files_stress_tests;
+mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
+mod pr_review;
+mod project_actions;
 mod push;
 mod target;
 mod user_run;
@@ -39,6 +48,8 @@ mod worktree_include;
 mod worktree_recipe;
 mod worktree_remove;
 mod worktree_setup;
+
+pub(crate) use pr_review::POST as REVIEW_POST_OPERATION;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -67,9 +78,16 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 
+/// Advertised in identify: the session host answers `git.fingerprint`.
+pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
+
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
+/// Advertised in identify: the session host owns `git.review.start`,
+/// `comment` and `post`.
+pub(crate) const REVIEW_CAPABILITY: &str = pr_review::CAPABILITY;
 
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
@@ -96,6 +114,10 @@ pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 /// recipe, and the session host answers `git.worktree.setup`.
 pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
 
+/// Advertised in identify: a repository recipe's setup waits for the
+/// person's approval, and the session host answers `git.worktree.setup.run`.
+pub(crate) const WORKTREE_SETUP_RUN_CAPABILITY: &str = "git-worktree-setup-run-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -104,14 +126,18 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitBranches
             | ResourceOperation::GitFilesSearch
             | ResourceOperation::GitFilesList
+            | ResourceOperation::GitFingerprint
             | ResourceOperation::GitCommit
             | ResourceOperation::GitPush
             | ResourceOperation::GitWorktreeCreate
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
             | ResourceOperation::GitWorktreeSetup
+            | ResourceOperation::GitWorktreeSetupRun
+            | ResourceOperation::ProjectActionsList
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
+        || pr_review::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -125,6 +151,9 @@ pub(crate) fn dispatch(
     if diff_comments::handles(request.envelope.operation) {
         return diff_comments::dispatch(mux, &request);
     }
+    if pr_review::handles(request.envelope.operation) {
+        return pr_review::dispatch(mux, &request);
+    }
     match request.envelope.operation {
         ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
         ResourceOperation::GitPush => return push::dispatch(mux, &request),
@@ -132,6 +161,10 @@ pub(crate) fn dispatch(
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
         ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
         ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeSetupRun => {
+            return worktree_setup::dispatch_run(mux, &request);
+        }
+        ResourceOperation::ProjectActionsList => return project_actions::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {
@@ -140,18 +173,30 @@ pub(crate) fn dispatch(
         ResourceOperation::GitBranches => "git.branches",
         ResourceOperation::GitFilesSearch => "git.files.search",
         ResourceOperation::GitFilesList => "git.files.list",
+        ResourceOperation::GitFingerprint => "git.fingerprint",
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
-        return status(&directory);
+        let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
+        return status(&directory, github);
+    }
+    if operation == "git.fingerprint" {
+        return fingerprint::read(&directory, &request.fields);
+    }
+    if operation == "git.files.list" {
+        // A folder in no repository still lists, from the disk: git only adds to a file tree.
+        return match Repository::open(&directory) {
+            Ok(repository) => list::list(&repository, &directory, &request.fields),
+            Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
+            Err(error) => Err(open_failed(operation, &directory, error)),
+        };
     }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.branches" => branches(&repository, &request.fields),
-        "git.files.search" => files::search(&repository, &directory, &request.fields),
-        _ => list::list(&repository, &directory, &request.fields),
+        _ => files::search(&repository, &directory, &request.fields),
     }
 }
 
@@ -170,8 +215,10 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
 /// branch asks this often and a person waits for it, so it comes from the
 /// refs (`cmux_git::head`): no run looks at the work tree's files, whose
-/// count would set the cost.
-fn status(directory: &Path) -> Result<Value, ResourceError> {
+/// count would set the cost. `github` adds `github_repo`, the `owner/name`
+/// of the upstream's remote (else `origin`) on github.com: one more git run,
+/// so only a caller that asks pays it.
+fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.status";
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
@@ -187,6 +234,16 @@ fn status(directory: &Path) -> Result<Value, ResourceError> {
     }
     if let Some(head) = headers.head {
         value.set("head", json!(head));
+    }
+    if github {
+        let remote = headers
+            .upstream
+            .as_deref()
+            .and_then(|upstream| upstream.split_once('/'))
+            .map_or("origin", |(remote, _)| remote);
+        if let Some(repo) = repository.github_repo(remote) {
+            value.set("github_repo", json!(repo));
+        }
     }
     if let Some(upstream) = headers.upstream {
         value.set("upstream", json!(upstream));

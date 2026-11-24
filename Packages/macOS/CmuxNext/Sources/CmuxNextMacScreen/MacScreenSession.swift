@@ -34,14 +34,45 @@ public final class MacScreenSession {
         public var framesReceived: Double = 0
         public var framesDecoded: Double = 0
         public var framesDropped: Double = 0
+        /// The host's own once-a-second counters (cmux.rd/1 `stats`), nil until the first one or from a host that
+        /// sends none: the rate it streams at, the share of packets it resent or lost, its median encode time.
+        public var hostKbps: Double?
+        public var lossPercent: Double?
+        public var encodeMsP50: Double?
+        /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
+        /// labels Ultra only from this, never from the quality it asked for.
+        public var encodeProfile: String?
+    }
+
+    /// Why the last session failed, in the words of the side that knew. The failed card says
+    /// it (``MacScreenPaneModel/failedDetail``); nil when nobody said, and the card falls back.
+    public enum FailureCause: Equatable, Sendable {
+        /// The host could not serve the session: its own cmux.rd/1 `ended` (`failed: <reason>`;
+        /// capture, encoder or helper trouble on that Mac). `reason` may be empty.
+        case host(String)
+        /// This Mac's link to the host failed (`cmux rd connect`'s words: no route, a timeout).
+        case link(String)
     }
 
     public private(set) var phase: Phase = .ended
+    /// Set with a failed phase when a side said why; cleared by the next connect.
+    public private(set) var failureCause: FailureCause?
+    /// The secure link to the host came up in this session (`cmux rd connect` said `connected`).
+    public private(set) var linkConnected = false
     public private(set) var stats = LiveStats()
-    /// The streamed display's size in pixels (zero until the first frame).
+    /// The decoded picture's size in pixels (zero until the first frame). Under `video.scaled`
+    /// it may be smaller than `streamSize` (the host's resolution ladder).
     public private(set) var frameSize: CGSize = .zero
+    /// The stream's size in pixels from the host's welcome (`width`/`height`): pointer input and
+    /// the cursor are in these pixels (the pane's `RemoteViewGeometry(streamPixels:...)` falls
+    /// back to `frameSize` while it is zero). Zero until the welcome.
+    public private(set) var streamSize: CGSize = .zero
     /// `Direct`, `Tailnet` or `Relayed`, from the link's measured path.
     public private(set) var streamPath = "-"
+    /// The carrier the rd/1 stream rides, for `debug.mac_screen`'s benchmark attestation:
+    /// `link` once the link bridge's socket carries it (the only carrier this session has),
+    /// nil before that and after it ends. `streamPath` is a display label, never a carrier.
+    @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
     /// This approach never reconnects on its own: Try Again asks the hub again.
@@ -52,14 +83,40 @@ public final class MacScreenSession {
     /// The pane's screen area in pixels, for Auto's stream width (read when a session offers).
     @ObservationIgnored public var paneWidthPixels: Int?
     @ObservationIgnored public var relayOnly = false
+    /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
+    /// asks the host for its ultra encode profile in the next offer; nil (Balanced) asks for nothing.
+    @ObservationIgnored public var encodeProfile: String?
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the next offer asks
+    /// for at most this many frames per second; nil asks for the quality's rate.
+    @ObservationIgnored public var maxFpsCap: Int?
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
     public var relayErrors: [ICECandidateError] { [] }
     /// A transport exists while the session runs.
     public var stream: AnyObject? { transport }
 
+    /// The stage a connect whose deadline passed was in (the failed card names it); nil otherwise.
+    public private(set) var timedOutStage: MacScreenConnectStage?
+    /// What this connect waits for next (`mac_screen.state`'s `connect_stage`).
+    @ObservationIgnored private(set) var connectStage: MacScreenConnectStage = .answer
+    /// How long a connect may take to show its first picture.
+    @ObservationIgnored var connectTimeout: Duration = .seconds(15)
+    /// The pending connect deadline, from `connect()` to the first picture; tests give it a manual clock.
+    @ObservationIgnored var connectDeadline = DemandTimer(owner: "mac-screen.connect-deadline")
+
     /// The display to show in the next session (nil: the host's main display).
     @ObservationIgnored var wantedDisplay: Int?
+    /// The display a run's screen link names (a CGDirectDisplayID): every session asks for it
+    /// until the person picks a display.
+    @ObservationIgnored public var linkedDisplay: UInt32?
+    /// Set when the host's answer lists its display ids and `linkedDisplay` is not one (the run is over): the host
+    /// shows its main display. An older host lists no ids, so nothing is said.
+    public private(set) var linkedDisplayGone = false
+    /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
+    /// not observed: nothing on screen follows them).
+    @ObservationIgnored var timings = MacScreenConnectTimings()
+    /// The current transport's frame counter (the pane's decoder sets it), for its frame timings.
+    @ObservationIgnored var frameCounter: MacScreenFrameCounter?
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -94,17 +151,33 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        failureCause = nil
+        linkConnected = false
+        timedOutStage = nil
+        connectStage = .answer
+        // The first decoder session in a process is the slow one: make it now, in parallel with
+        // signaling and the host's capture start, not on the first keyframe.
+        RemoteDecoderPrewarm.start()
         isStalled = false
         frameSize = .zero
+        streamSize = .zero
         stats = LiveStats()
+        timings.connectStarted(at: Date(), .now)
+        frameCounter = nil
         let process = MacScreenRdProcess()
         do { try process.start(.connect) } catch {
             phase = .failed(message: L.t("macScreen.rd.noBinary", "cmux could not start its screen viewer."), needsSignIn: false)
             return
         }
         self.process = process
+        // One deadline per connect: a picture cancels it, a disconnect or the next connect replaces it.
+        connectDeadline.schedule(after: connectTimeout) { @MainActor [weak self, weak process] in
+            guard let self, let process, self.process === process else { return }
+            connectTimedOut()
+        }
         signalingOpen = false
         pendingOffer = nil
+        laterCandidates = []
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
         tasks.append(Task { [weak self] in
             let servers = MacScreenRdServers((try? await signaling.iceServers()) ?? [])
@@ -115,10 +188,12 @@ public final class MacScreenSession {
 
     /// Ends the session here (the hub hears it from the tab's viewer).
     public func disconnect(silently: Bool = false) {
+        connectDeadline.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         transport?.stop()
         transport = nil
+        transportCarrier = nil
         process?.stop()
         process = nil
         if let socketDirectory {
@@ -158,10 +233,22 @@ public final class MacScreenSession {
                         continue
                     }
                     logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
+                    reach(.link)
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
+                    if let linked = linkedDisplay {
+                        let gone = answer.lacksDisplay(linked)
+                        if linkedDisplayGone != gone { linkedDisplayGone = gone }
+                    }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
-                    process.send(["candidate": candidate.candidate])
+                    // The link process reads its answer first: a candidate the host trickled
+                    // right behind its answer (which no longer waits for STUN and TURN) waits
+                    // until the answer has gone to the process.
+                    if let waiting = laterCandidates {
+                        laterCandidates = waiting + [candidate.candidate]
+                    } else {
+                        process.send(["candidate": candidate.candidate])
+                    }
                 case .bye:
                     end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     return
@@ -180,6 +267,8 @@ public final class MacScreenSession {
     @ObservationIgnored private var signalingOpen = false
     /// This side's offer, made before the socket opened.
     @ObservationIgnored private var pendingOffer: String?
+    /// The host's candidates that came before the link process had its answer (nil once it has).
+    @ObservationIgnored private var laterCandidates: [String]? = []
 
     private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
         logger.info("cmux rd: offer sent")
@@ -202,13 +291,19 @@ public final class MacScreenSession {
         var offered = false
         for await line in process.lines {
             guard isCurrent(process) else { return }
+            logger.info("cmux rd: viewer line \(line.kinds, privacy: .public)")
+            if line.connected == true { reach(.frame) }
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
-                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels)
+                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels,
+                                                    maxFps: maxFpsCap)
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
+                offer.customize(preferences)
+                offer.encodeProfile = encodeProfile
+                offer.displayID = wantedDisplay == nil ? linkedDisplay : nil
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }
                 // The signaling socket opens on its own task: the offer waits for its `hello`.
@@ -221,6 +316,7 @@ public final class MacScreenSession {
             if let candidate = line.candidate {
                 try? await signaling.send(.candidate(ScreenICECandidate(candidate: candidate, sdpMid: "cmux-rd", sdpMLineIndex: 0)))
             }
+            if line.connected == true { linkConnected = true }
             if line.listening == true {
                 logger.info("cmux rd: link listening for the pane")
                 attachTransport()
@@ -229,10 +325,11 @@ public final class MacScreenSession {
                 logger.info("cmux rd: path \(path.kind ?? "-", privacy: .public) \(path.rttMs ?? -1, privacy: .public) ms")
                 streamPath = Self.pathLabel(path.kind)
                 stats.latencyMs = path.rttMs
+                timings.sampleRtt(path.rttMs)
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
-                end(reason)
+                linkEnded(reason)
                 return
             }
         }
@@ -262,6 +359,8 @@ public final class MacScreenSession {
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
+            for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
+            laterCandidates = nil
         })
     }
 
@@ -271,13 +370,18 @@ public final class MacScreenSession {
         guard transport == nil, let socketPath else { return }
         let carrier = RemoteRdStreamCarrier(open: { try await MacScreenUnixStream.open(path: socketPath) })
         // The hub's identity is the viewer; the host does not read these claims.
-        let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil)
+        // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
+        // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
+        // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
+        let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
             return
         }
         self.transport = transport
+        transportCarrier = "link"
         onTransport?(transport)
         let statuses = transport.statusUpdates()
         tasks.append(Task { [weak self] in
@@ -285,24 +389,41 @@ public final class MacScreenSession {
             for await status in statuses {
                 // A stopped transport's end belongs to the session it served, not to a newer one.
                 guard let self, self.transport === transport, !Task.isCancelled else { return }
+                if let size = status.streamSize, size.width >= 1, size.height >= 1, size != streamSize { streamSize = size }
                 switch status.state {
                 case .streaming:
                     if !askedKeyframe {
                         askedKeyframe = true
                         transport.requestKeyframe()
                     }
+                    reach(.frame)
                     if phase != .connected { phase = .connected }
-                    if let rtt = status.rttMs { stats.latencyMs = Double(rtt) }
+                    if let rtt = status.rttMs {
+                        stats.latencyMs = Double(rtt)
+                        timings.sampleRtt(Double(rtt))
+                    }
                 case let .ended(why):
-                    if case .connectionLost = why {
-                        fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
-                    } else {
-                        end(String(describing: why))
+                    switch why {
+                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                    case let .hostFailed(reason): hostFailed(reason)
+                    case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
+                    default: end(String(describing: why))
                     }
                     return
                 case .connecting, .waitingForConsent:
                     continue
                 }
+            }
+        })
+        let hostStats = transport.hostStatsUpdates()
+        tasks.append(Task { [weak self] in
+            for await report in hostStats {
+                guard let self, self.transport === transport, !Task.isCancelled else { return }
+                stats.hostKbps = Double(report.kbps)
+                stats.kilobytesPerSecond = Double(report.kbps) / 8
+                stats.lossPercent = report.lossPercent
+                stats.encodeMsP50 = report.encodeMsP50
+                stats.encodeProfile = report.encodeProfile
             }
         })
         transport.connect()
@@ -318,6 +439,60 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// `cmux rd connect`'s `ended` line: the session ends, a failure naming who failed
+    /// (``failureCause(ofEnded:)``), so the failed card says why ("link failed: the secure
+    /// handshake timed out" reads "The connection to <name> failed: the secure handshake timed out").
+    func linkEnded(_ reason: String) {
+        switch Self.failureCause(ofEnded: reason) {
+        case let .host(why)?: hostFailed(why)
+        case let cause?:
+            end(reason)
+            if case .failed = phase { failureCause = cause }
+        case nil: end(reason)
+        }
+    }
+
+    /// The host said it could not serve the session: a failure even after the picture started
+    /// (the host stopped, and why), never a plain Disconnected.
+    private func hostFailed(_ reason: String) {
+        logger.info("session ended: the host failed: \(reason, privacy: .public)")
+        fail(reason)
+        failureCause = .host(reason)
+    }
+
+    /// What `cmux rd connect`'s `ended` line says about who failed (cmux-rd-host `connect.rs`):
+    /// `host: failed: <reason>` is the host's own failure, `link failed: <why>` this Mac's
+    /// link, `failed: <error>` the link bridge's own error. Nil for every other end (the host
+    /// stopped, the viewer stopped, the pane closed), which needs no explanation.
+    nonisolated static func failureCause(ofEnded reason: String) -> FailureCause? {
+        if reason.hasPrefix("host: ") {
+            guard case let .hostFailed(why) = RemoteRdHandshake.hostEnd(String(reason.dropFirst("host: ".count))) else { return nil }
+            return .host(why)
+        }
+        for prefix in ["link failed: ", "failed: "] where reason.hasPrefix(prefix) {
+            return .link(String(reason.dropFirst(prefix.count)))
+        }
+        return nil
+    }
+
+    /// The connect got past a stage (never back: a late answer does not undo a link).
+    func reach(_ stage: MacScreenConnectStage) {
+        guard stage > connectStage else { return }
+        connectStage = stage
+        timings.reached(stage, at: .now)
+        if stage == .shown { connectDeadline.cancel() }
+    }
+
+    /// The connect deadline passed before a picture showed: fail naming the stage it was in.
+    func connectTimedOut() {
+        let stage = connectStage
+        guard let detail = stage.timeoutDetail(name: title) else { return }
+        logger.error("cmux rd: connect timed out at \(stage.name, privacy: .public) after \(String(describing: self.connectTimeout), privacy: .public)")
+        disconnect()
+        timedOutStage = stage
+        phase = .failed(message: detail, needsSignIn: false)
     }
 
     /// Whether a `path.kind` of `cmux rd` is a relayed path (the hub's `path` signal says so).
@@ -339,6 +514,7 @@ public final class MacScreenSession {
     /// A frame reached the screen: counts it for the stats (once a second, no timer).
     func framePresented(size: CGSize) {
         if size != frameSize, size.width >= 1 { frameSize = size }
+        if connectStage != .shown { reach(.shown) }
         frameWindow.frames += 1
         stats.framesDecoded += 1
         let elapsed = frameWindow.start.duration(to: .now)
@@ -346,6 +522,17 @@ public final class MacScreenSession {
             stats.fps = Double(frameWindow.frames) / (Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
             frameWindow = (.now, 0)
         }
+    }
+
+    /// The current transport's counter heard from (every 15th frame, and the first): the first
+    /// frame's time and the frames the other Mac numbered that never showed here. An old
+    /// transport's late batch is not this session's.
+    func framesCounted(_ counter: MacScreenFrameCounter) {
+        guard counter === frameCounter else { return }
+        let frames = counter.timings
+        if let first = frames.firstPresentedAt { timings.firstFrame(at: first) }
+        let dropped = Double(frames.dropped)
+        if stats.framesDropped != dropped { stats.framesDropped = dropped }
     }
 
     public func setStreamFrameSize(_ size: CGSize) {
@@ -373,6 +560,8 @@ public final class MacScreenSession {
 
     public func selectDisplay(_ index: Int) {
         wantedDisplay = index
+        linkedDisplay = nil
+        linkedDisplayGone = false
         guard phase == .connected || phase == .connecting else { return }
         restart()
     }
@@ -434,6 +623,21 @@ nonisolated enum MacScreenUnixStream {
             },
             close: { connection.cancel() }
         )
+    }
+}
+
+extension MacScreenSession {
+    /// A fixture state for the viewer gallery (`AAMacScreenViewerGalleryTests`): the session reads as `phase` with
+    /// no process or network, so the pane draws the card or the picture that state shows.
+    func showPreviewState(phase: Phase, failureCause: FailureCause? = nil, linkConnected: Bool = false,
+                          frameSize: CGSize = .zero, stalled: Bool = false, stats: LiveStats? = nil, path: String? = nil) {
+        self.phase = phase
+        if let stats { self.stats = stats }
+        if let path { streamPath = path }
+        self.failureCause = failureCause
+        self.linkConnected = linkConnected
+        self.frameSize = frameSize
+        isStalled = stalled
     }
 }
 

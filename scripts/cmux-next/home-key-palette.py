@@ -26,13 +26,14 @@ window (trunk 283047940d8, Lawrence 2026-10-18; HomeUnfocusedAppearanceTests), s
 
 Usage: home-key-palette.py --tag <tag> [--out DIR]
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, json, os, re, signal, socket, subprocess, sys, time
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 from home_pixels import read_png  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -149,8 +150,18 @@ def band_colour(path, box):
     return counts.most_common(1)[0][0] if counts else None
 
 
-def wait_settled():
-    time.sleep(0.6)  # test harness: the palette change's redraw lands (off-main row bitmaps)
+def wait_settled(*windows):
+    """The palette change's redraw lands (off-main row bitmaps): every visible row in each window's Home view drew with
+    that view's own state, and the states stopped changing. A miss is left to the checks that follow."""
+    ids = [w for w in windows if w] or window_ids()
+
+    def drawn():
+        states = [state(w) for w in ids]
+        return all(x.get("legacy") or (x.get("cellsOffInactive") == 0 and x.get("typingOffInactive") in (0, None))
+                   for x in states) and states
+    wait_until(drawn, "every Home row drawn with its view's state", timeout=10, interval=0.1, raise_on_timeout=False)
+    wait_stable(lambda: [state(w) for w in ids], "the Home views' key states", timeout=10, interval=0.1, reads=4,
+                raise_on_timeout=False)
 
 
 def open_fixture():
@@ -185,7 +196,7 @@ try:
     a = ids[0]
     rpc("debug.window.focus", {"window": a})
     check("the app is active", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
-    wait_settled()
+    wait_settled(a)
     s1, fa1 = state(a), fill(a, "1-a-key")
     safe_print(f"     1 A key: A {s1} A fill {fa1}", flush=True)
     check("1: the app is active and A is key", s1.get("appActive") == 1 and s1.get("windowKey") == 1, s1)
@@ -198,7 +209,7 @@ try:
     if not check("window B opens", bool(b), window_ids()):
         sys.exit(1)
     rpc("debug.window.focus", {"window": b})
-    wait_settled()
+    wait_settled(a)
     s2, fa2 = state(a), fill(a, "2-a-behind-b")
     safe_print(f"     2 B key, no Home: A {s2} A fill {fa2}", flush=True)
     check("2: B key without a Home pane: A inactive", own(s2, 1), s2)
@@ -206,7 +217,7 @@ try:
 
     check("window B: a Home fixture tab shows its transcript", open_fixture(), rpc("debug.home.drive", {"action": "texts"}))
     rpc("debug.window.focus", {"window": b})
-    wait_settled()
+    wait_settled(a, b)
     s3a, s3b, fa3, fb3 = state(a), state(b), fill(a, "3-a"), fill(b, "3-b")
     safe_print(f"     3 B key with Home: A {s3a} B {s3b} A fill {fa3} B fill {fb3}", flush=True)
     check("3: B key (hosts Home): B active", own(s3b, 0), s3b)
@@ -214,7 +225,7 @@ try:
     check("3: A and B show the key fill", same(fa3, fb3, key_fill), {"a": fa3, "b": fb3, "key": key_fill})
 
     rpc("debug.window.focus", {"window": a})
-    wait_settled()
+    wait_settled(a, b)
     s4a, s4b, fa4, fb4 = state(a), state(b), fill(a, "4-a"), fill(b, "4-b")
     safe_print(f"     4 A key again: A {s4a} B {s4b} A fill {fa4} B fill {fb4}", flush=True)
     check("4: A key again: A active", own(s4a, 0), s4a)
@@ -224,7 +235,7 @@ try:
     # Another app takes the activation (Finder; the input lock holds the GUI session).
     subprocess.run(["/usr/bin/open", "-b", "com.apple.finder"], capture_output=True)
     check("the app is no longer active (Finder is)", bool(poll(lambda: state(a).get("appActive") == 0, timeout=10)), state(a))
-    wait_settled()
+    wait_settled(a, b)
     s5a, s5b, fa5, fb5 = state(a), state(b), fill(a, "5-a"), fill(b, "5-b")
     safe_print(f"     5 app inactive: A {s5a} B {s5b} A fill {fa5} B fill {fb5}", flush=True)
     check("5: the app inactive: A and B inactive", own(s5a, 1) and own(s5b, 1), [s5a, s5b])
@@ -235,7 +246,7 @@ try:
     subprocess.run(["/usr/bin/open", "-a", app], capture_output=True)  # the app active again (the input lock is held)
     check("the app is active again", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
     rpc("debug.window.focus", {"window": a})
-    wait_settled()
+    wait_settled(a)
     s6, fa6 = state(a), fill(a, "6-a-before")
     safe_print(f"     6 A key before the move: A {s6} A fill {fa6}", flush=True)
     check("6: before the move A is key: A active and the key fill",
@@ -249,16 +260,20 @@ try:
     if check("a 1x virtual display exists", vd is not None, line or (run.stderr or "")[-300:]):
         moved = rpc("debug.window_frame", {"window": a, "screen": "last"}) or {}
         check("A moves onto the virtual display", moved.get("screen") == "MessagesLab Rig", moved)
-        wait_settled()
+        wait_settled(a)
         s7 = state(a)
         safe_print(f"     6 A on the 1x display: {s7}", flush=True)
         check("6: the move does not change A's state", own(s7, 0), [s6, s7])
         subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)
         gone = poll(lambda: subprocess.run(["kill", "-0", str(vd)], capture_output=True).returncode != 0, timeout=15)
         vd = None if gone else vd
-        time.sleep(1.0)  # test harness: the window is back on the 2x display
+        # The window is back on the 2x display once the virtual display is gone.
+        if not wait_until(lambda: (lambda f: f.get("screen") and f.get("screen") != "MessagesLab Rig")(
+                rpc("debug.window_frame", {"window": a}) or {}), "A back off the virtual display", timeout=15,
+                interval=0.1, raise_on_timeout=False):
+            safe_print(f"     A still reports {rpc('debug.window_frame', {'window': a})} after the virtual display quit", flush=True)
         rpc("debug.window.focus", {"window": a})
-        wait_settled()
+        wait_settled(a)
         s8, fa8 = state(a), fill(a, "6-a-after")
         safe_print(f"     6 A back on the 2x display: {s8} A fill {fa8}", flush=True)
         check("6: after the move back: the same state and the same fill",
@@ -267,16 +282,19 @@ try:
     # 7: the typing indicator per window state, exactly (key and non-key fills differ by one level: no tolerance).
     # The mock Chief of A's fixture types from 1.5 s to 3.0 s after a send; both snapshots fall inside that window.
     rpc("debug.window.focus", {"window": a})
-    wait_settled()
+    wait_settled(a)
     rpc("debug.home.drive", {"action": "focus", "window": a})
     rpc("debug.home.drive", {"action": "type", "text": "Key state typing check", "window": a})
     sent = rpc("debug.home.drive", {"action": "send", "window": a}) or {}
     check("7: a send in A", bool(sent.get("ok")), sent)
-    time.sleep(1.7)  # test harness: inside the mock Chief's typing window
+    # Inside the mock Chief's typing window: A's Home reports a typing row (the check below reports a miss).
+    wait_until(lambda: (rpc("debug.home.drive", {"action": "typing", "window": a}) or {}).get("ok"),
+               "A's typing row after the send", timeout=10, interval=0.05, raise_on_timeout=False)
     t_key, box_key = typing_fill(a, "7-a-typing-key")
     s7k = state(a)
     rpc("debug.window.focus", {"window": b})
-    time.sleep(0.3)  # test harness: the key change's redraw lands
+    # The key change's redraw lands: A inactive with its rows and typing row drawn with it (the checks report a miss).
+    wait_until(lambda: own(state(a), 1), "A inactive with B key", timeout=5, interval=0.05, raise_on_timeout=False)
     t_off, box_off = typing_fill(a, "7-a-typing-behind-b")
     s7o = state(a)
     check("7: A shows a typing row in both states", bool(t_key and t_off), [box_key, box_off])
@@ -296,7 +314,10 @@ finally:
         process.wait(timeout=30)  # `open -W` returns when the app it launched exits
     except subprocess.TimeoutExpired:
         safe_print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
-        process.kill()  # the `open -W` this script started
+        try:
+            os.killpg(process.pid, signal.SIGKILL)  # the `open -W` this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))

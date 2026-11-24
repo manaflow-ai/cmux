@@ -39,6 +39,14 @@ pub enum Accepted {
         name: &'static str,
         values: Option<Vec<String>>,
     },
+    /// A `json` row: a value matching the row's JSON Schema, and what was
+    /// wrong with this one (`{at, why, token?}` per problem, the shape's first
+    /// mismatch or the sidebar row reducer's problems).
+    Json {
+        /// Boxed: a Refusal stays small enough to return by value.
+        schema: Box<Value>,
+        problems: Vec<Value>,
+    },
 }
 
 impl Accepted {
@@ -54,19 +62,88 @@ impl Accepted {
             }
             Accepted::Shape(shape) => json!({"shape": shape}),
             Accepted::Domain { name, values } => json!({"domain": name, "values": values}),
+            Accepted::Json { schema, problems } => {
+                json!({"shape": "JSON matching the schema", "schema": schema, "problems": problems})
+            }
         }
+    }
+
+    /// The first problem in words (`sidebar.workspaceRow.lines[3]: tooManyLines`), for the
+    /// refusal's message.
+    pub fn first_problem(&self) -> Option<String> {
+        let Accepted::Json { problems, .. } = self else { return None };
+        let problem = problems.first()?;
+        let at = problem.get("at").and_then(Value::as_str).unwrap_or_default();
+        let why = problem.get("why").and_then(Value::as_str).unwrap_or_default();
+        Some(match problem.get("token").and_then(Value::as_str) {
+            Some(token) => format!("{at}: {why} ({token})"),
+            None if at.is_empty() => why.to_owned(),
+            None => format!("{at}: {why}"),
+        })
+    }
+}
+
+/// The problems of `value` for a `json` row: the shape's first mismatch, then
+/// the row's domain's own (the sidebar row reducer's). Empty: accepted.
+fn json_problems(row: &Row, shape: &Value, value: &Value) -> Vec<Value> {
+    if let Err(why) = super::shape::matches(shape, value) {
+        let (at, why) = match why.split_once(": ") {
+            Some((path, why)) => (format!("{}{path}", row.key), why.to_owned()),
+            None => (row.key.clone(), why),
+        };
+        return vec![json!({"at": at, "why": why})];
+    }
+    match row.validation {
+        super::Validation::Domain(domain) if super::sidebar_rows::is_sidebar_rows(domain) => {
+            super::sidebar_row_problems(domain, value)
+        }
+        _ => Vec::new(),
     }
 }
 
 /// `Ok` when the app would apply `value` for `row` without a diagnostic.
 /// Numbers outside the range are refused although the parser clamps them.
 pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusal> {
+    if let Kind::Json(shape) = &row.kind {
+        let problems = json_problems(row, shape, value);
+        if problems.is_empty() {
+            return Ok(());
+        }
+        return Err(Refusal::InvalidValue {
+            key: row.key.clone(),
+            kind: row.kind.name(),
+            accepted: Accepted::Json { schema: Box::new(shape.clone()), problems },
+            value: value.clone(),
+        });
+    }
     if row_accepts(row, value, domains) {
         return Ok(());
     }
     let accepted = if is_backdrop_selection(row) {
         Accepted::Shape(
-            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+            "none, a listed painting, system:<absolute path>, file:<absolute path>, youtube:<video id> (or a YouTube video address) or folder:<absolute path>",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPicture) {
+        Accepted::Shape(
+            "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
+        Accepted::Shape(
+            "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropLocation) {
+        Accepted::Shape("\"LAT,LON\" in degrees, such as \"37.77,-122.42\"")
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropMemory) {
+        Accepted::Shape(
+            "an object of rotate (daily or folder:<absolute path>), folder (folder:<absolute path>) and off (none or a fixed background)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPlacement) {
+        Accepted::Shape(
+            "an object of picture ids to fill, fit, center or stretch, then optionally X Y (0 to 1) and a zoom (1 to 4), such as \"fill 0.3 0.7 1.5\"",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropRecents) {
+        Accepted::Shape(
+            "an array of at most 8 different backgrounds (none, daily, a listed painting, desktop, system:, file: or folder:<absolute path>, youtube:<video id>), newest first",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
@@ -80,6 +157,18 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "an array of preset names and rule objects, each with a label and a program or match",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::TranscriptTokens) {
+        Accepted::Shape(
+            "an object of transcript look tokens, each in its range (docs/cmux-next/transcript-customization.md)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::Hosts) {
+        Accepted::Shape(
+            "an array of hosts, each with a unique label and endpoints (ssh addresses tried in order)",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
+        Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
+    } else if row.validation == super::Validation::Domain(DomainKind::SidebarSectionIds) {
+        Accepted::Shape("an array of at most 256 distinct section ids of 1 to 128 characters")
     } else {
         accepted(&row.kind, domains)
     };
@@ -92,18 +181,61 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
+/// An unset row that replaced a retired key reads that key through the
+/// retired-keys table (`super::retired`), as the app does, and an old choice
+/// value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    match crate::value::value_at(root, &row.path) {
-        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
+    let stored = crate::value::value_at(root, &row.path).or_else(|| {
+        let replaced = super::replaced_by_row(&row.path)?;
+        replaced.read(crate::value::value_at(root, &replaced.old)?)
+    });
+    let stored = stored.map(|stored| aliased(row, stored));
+    match stored {
+        Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
         _ => row.default.clone(),
     }
+}
+
+/// `value` as the row reads it: an old choice value as its replacement.
+pub fn aliased(row: &Row, value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|old| super::choice_alias(&row.key, old))
+        .map_or_else(|| value.clone(), |new| Value::String(new.to_owned()))
 }
 
 fn is_backdrop_selection(row: &Row) -> bool {
     row.validation == super::Validation::Domain(DomainKind::BackdropSelection)
 }
 
+/// Values written by older cmux-next builds for the hand-written Swift
+/// `WorkspaceColorIndicatorStyle` enum. Swift reads each as its canonical
+/// replacement without a diagnostic, so the shared Rust validator must do the
+/// same or customization would reject an otherwise valid user config.
+fn accepts_legacy_workspace_color_indicator(row: &Row, value: &Value) -> bool {
+    row.key == "workspaceColors.indicatorStyle"
+        && value.as_str().is_some_and(|text| {
+            matches!(
+                text,
+                "solidFill"
+                    | "rail"
+                    | "border"
+                    | "wash"
+                    | "lift"
+                    | "typography"
+                    | "washRail"
+                    | "blueWashColorRail"
+            )
+        })
+}
+
 fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    if let Kind::Json(shape) = &row.kind {
+        return json_problems(row, shape, value).is_empty();
+    }
+    if accepts_legacy_workspace_color_indicator(row, value) {
+        return true;
+    }
     match row.validation {
         super::Validation::Domain(DomainKind::ChatRoots) => {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -116,27 +248,56 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
         }
+        super::Validation::Domain(DomainKind::BackdropPicture) => {
+            return value.as_str().is_some_and(super::backdrop::is_picture);
+        }
+        super::Validation::Domain(DomainKind::BackdropSchedule) => {
+            return super::backdrop::is_schedule(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropLocation) => {
+            return value.as_str().is_some_and(super::backdrop::is_location);
+        }
+        super::Validation::Domain(DomainKind::BackdropMemory) => {
+            return super::backdrop::is_memory(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropPlacement) => {
+            return crate::backdrop_placement::is_placement_map(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropRecents) => {
+            return super::backdrop::is_recents(value);
+        }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
         }
         super::Validation::Domain(DomainKind::CommandLabels) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_command_label));
         }
+        super::Validation::Domain(DomainKind::AppId) => {
+            return value.as_str().is_some_and(super::app_id::is_valid_app_id);
+        }
+        super::Validation::Domain(DomainKind::TranscriptTokens) => {
+            return crate::transcript_look::accepts_tokens(value);
+        }
+        super::Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return is_sidebar_section_ids(value);
+        }
+        super::Validation::Domain(DomainKind::Hosts) => {
+            return crate::hosts::accepts(value);
+        }
         _ => {}
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
         // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
-        // path>` (the person's own image) or `folder:<absolute path>` (the
-        // pictures of a folder shuffled, never `/` alone), as Swift
-        // `BackdropSelectionSetting`.
-        let path = ["system:", "file:"]
-            .iter()
-            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        // path>` (the person's own image or video), a canonical `youtube:`
+        // video or `folder:<absolute path>` (the pictures of a folder
+        // shuffled, never `/` alone), as Swift `BackdropSelectionSetting`.
+        let path = super::backdrop::is_path_or_video(text);
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);
-        return path || folder || is_accepted(&row.kind, value, domains);
+        let live = super::backdrop::is_live(text);
+        return path || folder || live || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -198,6 +359,7 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::SoundRules => {
             value.as_object().is_some_and(|members| members.values().all(is_sound_rule))
         }
+        Kind::Json(shape) => super::shape::matches(shape, value).is_ok(),
     }
 }
 
@@ -274,9 +436,27 @@ fn is_command_label(value: &Value) -> bool {
         && (members.contains_key("program") || members.contains_key("match"))
 }
 
+/// The most ids a sidebar section list holds, and the longest id
+/// (cmux-layout-reducer `sidebar_section_customization`).
+pub const MAX_SECTION_IDS: usize = 256;
+pub const MAX_SECTION_ID_CHARS: usize = 128;
+
+/// Swift `SidebarSectionIDsSetting.accepts`: at most 256 distinct ids of 1
+/// to 128 characters, the lists the sidebar planner reads with no problem.
+fn is_sidebar_section_ids(value: &Value) -> bool {
+    let Some(items) = value.as_array() else { return false };
+    let mut seen = BTreeSet::new();
+    items.len() <= MAX_SECTION_IDS
+        && items.iter().all(|item| {
+            item.as_str().is_some_and(|id| {
+                !id.is_empty() && id.chars().count() <= MAX_SECTION_ID_CHARS && seen.insert(id)
+            })
+        })
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
-fn is_search_template(text: &str) -> bool {
+pub fn is_search_template(text: &str) -> bool {
     let trimmed = trim_whitespaces(text);
     if trimmed.is_empty() {
         return true;
@@ -362,6 +542,9 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::SoundRules => Accepted::Shape(
             "an object of sound names or {\"sound\": name, \"volume\": 0...1, \"events\": {event: name}}",
         ),
+        Kind::Json(shape) => {
+            Accepted::Json { schema: Box::new(shape.clone()), problems: Vec::new() }
+        }
     }
 }
 
@@ -371,9 +554,53 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::FontFamily => "font_family",
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
+        DomainKind::BackdropPicture => "backdrop_picture",
+        DomainKind::BackdropSchedule => "backdrop_schedule",
+        DomainKind::BackdropLocation => "backdrop_location",
+        DomainKind::BackdropMemory => "backdrop_memory",
+        DomainKind::BackdropPlacement => "backdrop_placement",
+        DomainKind::BackdropRecents => "backdrop_recents",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
+        DomainKind::AppId => "app_id",
+        DomainKind::SidebarRowLines => "sidebar_row_lines",
+        DomainKind::SidebarRowLinesByKind => "sidebar_row_lines_by_kind",
+        DomainKind::SidebarRowLinesByAgent => "sidebar_row_lines_by_agent",
+        DomainKind::TranscriptTokens => "transcript_tokens",
+        DomainKind::SidebarSectionIds => "sidebar_section_ids",
+        DomainKind::Hosts => "hosts",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_color_indicator_accepts_swift_legacy_values() {
+        let row = super::super::Schema::embedded()
+            .row("workspaceColors.indicatorStyle")
+            .expect("workspace color indicator row");
+        for value in [
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail",
+        ] {
+            assert!(
+                accepts(row, &Value::String(value.to_owned()), &Default::default()).is_ok(),
+                "{value}"
+            );
+        }
+        assert!(
+            accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
+                .is_err()
+        );
     }
 }

@@ -2,9 +2,11 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTestSupport
 import CmuxNextWakeups
 import CmuxScreenKit
@@ -33,7 +35,7 @@ private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences())
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(), viewerLook: .current)
 }
 
 /// Mac Screen tabs: the record, scrolling.
@@ -94,6 +96,61 @@ struct MacScreenStoreTests {
         let reloaded = MacScreenStore(file: file)
         await reloaded.load()
         #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Mac mini 2")
+    }
+
+    /// The first-use guide hides for good after the first share: the mark is written and read back.
+    @Test func sharedBeforePersists() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        store.markSharedBefore()
+        await store.flush()
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("hasSharedBefore"))
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasSharedBefore)
+    }
+
+    /// A share marked before the file finished loading stays marked.
+    @Test func sharedBeforeMarkedDuringLoadIsKept() async throws {
+        let (store, file) = makeStore()
+        // A file from before the share, in a folder the mark's save cannot overwrite, so load reads `false`.
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"deviceNames":{},"hasSharedBefore":false,"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        #expect(store.hasSharedBefore)
+    }
+
+    /// Viewing another Mac once ends the first-use guide too, and the mark is written and read back.
+    @Test func viewedBeforePersistsAndEndsTheFirstUseGuide() async throws {
+        let (store, file) = makeStore()
+        await store.load()
+        #expect(MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        store.markViewedBefore()
+        #expect(store.hasUsedBefore && !MacScreenHomeSnapshot.showsFirstUse(store: store, isSharing: false))
+        await store.flush()
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hasViewedBefore && !reloaded.hasSharedBefore)
+    }
+
+    /// A change made before the file is read never overwrites the file with the empty state: the names stay.
+    @Test func aChangeBeforeLoadKeepsTheSavedNames() async throws {
+        let (store, file) = makeStore()
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"hubDeviceName":"Office","deviceNames":{"\#(deviceID)":"Studio"},"linkPairingsRemoved":true}"#.utf8).write(to: file)
+        store.markSharedBefore()
+        await store.flush()
+        await store.load()
+        await store.flush()
+        #expect(store.hubDeviceName == "Office" && store.deviceNames[deviceID] == "Studio" && store.hasSharedBefore)
+        let reloaded = MacScreenStore(file: file)
+        await reloaded.load()
+        #expect(reloaded.hubDeviceName == "Office" && reloaded.deviceNames[deviceID] == "Studio" && reloaded.hasSharedBefore)
     }
 }
 
@@ -170,12 +227,12 @@ struct MacScreenScrollTests {
 @Suite(.closesItsWindows)
 struct MacScreenDevelopmentSettingsRouteTests {
     @Test func developmentRoutesOnlyInDevBuilds() {
-        #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
-        #expect(SettingsWindowService.route(section: .development, setting: nil, devBuild: false) == nil)
-        #expect(SettingsWindowService.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: true)
+        #expect(SettingsDeepLink.route(section: .development, setting: nil, devBuild: true) == "#/settings/development")
+        #expect(SettingsDeepLink.route(section: .development, setting: nil, devBuild: false) == nil)
+        #expect(SettingsDeepLink.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: true)
             == "#/settings/development?focus=macScreen.debug.relayOnly")
-        #expect(SettingsWindowService.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: false) == nil)
-        #expect(SettingsWindowService.route(section: .advanced, setting: nil, devBuild: false) == "#/settings/advanced")
+        #expect(SettingsDeepLink.route(section: nil, setting: "macScreen.debug.relayOnly", devBuild: false) == nil)
+        #expect(SettingsDeepLink.route(section: .advanced, setting: nil, devBuild: false) == "#/settings/advanced")
     }
 }
 
@@ -294,6 +351,19 @@ struct MacScreenPageTabTests {
     /// Without a device hub (or signed out) the home page says how to set Mac Screen up.
     @Test func theHomePageExplainsTheSetup() {
         #expect(MacScreenHomeSnapshot.setupDevices(configured: false).note != MacScreenHomeSnapshot.setupDevices(configured: true).note)
+    }
+
+    /// Leo, 2026-11-19 (ask-6a79af928f): Your Devices said "None of your other devices share Mac Screen" with a
+    /// list never read. "None" is said only after a read; before it, loading; a failure says why.
+    @Test func yourDevicesSaysNoneOnlyAfterTheListWasRead() {
+        let none = L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac.")
+        #expect(MacScreenHomeSnapshot.emptyNote(.noDevices) == none)
+        #expect(MacScreenHomeSnapshot.emptyNote(.finding) == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        let failed = MacScreenHomeSnapshot.emptyNote(.failed(.list, detail: "HTTP 503"))
+        #expect(failed != none && failed.contains("HTTP 503"))
+        #expect(MacScreenHomeSnapshot.emptyNote(.failed(.connection, detail: nil)) != none)
+        #expect(DeviceDiscovery.make(status: "ready", listed: false, connection: "connected", shown: 0) == .finding)
+        #expect(DeviceDiscovery.make(status: "ready", listed: true, connection: "connected", shown: 0) == .noDevices)
     }
 }
 

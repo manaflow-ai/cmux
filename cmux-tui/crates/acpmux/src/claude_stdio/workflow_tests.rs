@@ -149,7 +149,7 @@ async fn a_workflow_sends_its_phases_and_agents_then_only_what_changed() {
             {"index": 1, "label": "review:#1", "state": "running", "phase": "Review", "phaseIndex": 1,
              "agentId": "a01", "kind": "workflow-subagent", "model": "claude-opus-5-5", "effort": "high", "lastMessage": "Reviewing the PR", "tokens": 1200,
              "toolUses": 2, "elapsedMs": 4000, "queuedAt": 1000, "startedAt": 1100, "lastProgressAt": 5000,
-             "attempt": 1, "action": "gh pr view 1", "prompt": "You are an independent reviewer for PR #1"},
+             "attempt": 1, "action": "gh pr view 1", "actionKind": "execute", "prompt": "You are an independent reviewer for PR #1"},
             {"index": 2, "label": "review:#2", "state": "queued", "phase": "Review", "phaseIndex": 1,
              "queuedAt": 1000},
         ])
@@ -517,7 +517,7 @@ async fn a_background_agent_reports_its_progress() {
     assert_eq!(
         progress.first().map(|v| (*v).clone()),
         Some(json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "acp-1/toolu_a",
-            "tokens": 5100, "toolUses": 2, "elapsedMs": 61000, "action": "Bash", "agentId": "a1"})),
+            "tokens": 5100, "toolUses": 2, "elapsedMs": 61000, "action": "Bash", "actionKind": "execute", "agentId": "a1"})),
         "{out:?}"
     );
     // A progress summary (agentProgressSummaries) is the better action.

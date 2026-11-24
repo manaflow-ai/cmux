@@ -33,9 +33,7 @@ extension TabContentCache {
     }
 
     /// `presenter` scrolled on screen, into the keep-alive band, or away.
-    func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) {
-        apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter)))
-    }
+    func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) { apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter))) }
 
     /// `presenter` is going away.
     func removePresenter(_ presenter: any SurfacePresenter) {
@@ -45,9 +43,7 @@ extension TabContentCache {
     }
 
     /// The pane presenting `key`, if any.
-    func presenter(of key: String) -> (any SurfacePresenter)? {
-        ledger.owner(of: key).flatMap { presenters[$0]?.value }
-    }
+    func presenter(of key: String) -> (any SurfacePresenter)? { ledger.owner(of: key).flatMap { presenters[$0]?.value } }
 
     func isRendering(_ key: String) -> Bool { ledger.isRendering(key) }
 
@@ -67,9 +63,8 @@ extension TabContentCache {
 
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
         guard !effects.isEmpty else { return }
-        for displaced in effects.displaced {
-            presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
-        }
+        for displaced in effects.displaced { presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key) }
+        for freed in effects.freed { presenters[freed.owner]?.value?.surfaceIsFree(freed.key) } // the pane it was taken from may show it again
         for (key, render) in effects.rendering.sorted(by: { !$0.value && $1.value }) {
             // Hides first, so a frame never shows two tabs of one pane.
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
@@ -95,7 +90,7 @@ extension TabContentCache {
         for key in keys {
             evictHiddenTerminal(key)
             if browsers[key] != nil { hibernation?.hibernateForWorkspace(key, byPerson: byPerson) }
-            hibernation?.agentPages?.releaseForWorkspace(key)
+            hibernation?.agentPages?.pages.releaseForWorkspace(key)
         }
     }
 

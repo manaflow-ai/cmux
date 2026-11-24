@@ -1223,6 +1223,10 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # The Chief's automations, owned by optchat-chief and passed
+                # through unchanged (automations.rs, issue 25573).
+                "operations.chief.automation.list.result",
+                "operations.chief.automation.update.result.arguments[0]",
                 # Import from Conductor's dry run, owned by the
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
@@ -2456,7 +2460,7 @@ def _operation_catalog(
             or client_fields.get("transport", {}).get("type")
             != {"kind": "ref", "name": "ClientTransport"}
             or types.get("ClientTransport")
-            != {"kind": "enum", "values": ["unix", "websocket"]}
+            != {"kind": "enum", "values": ["unix", "websocket", "remote"]}
             or client_fields.get("connected_seconds", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")

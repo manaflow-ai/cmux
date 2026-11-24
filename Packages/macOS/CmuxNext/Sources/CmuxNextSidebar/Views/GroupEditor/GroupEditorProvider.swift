@@ -29,6 +29,8 @@ final class GroupEditorProvider: PageProvider {
     var openSession: String?
     var onCall: ((Call) -> Void)?
     private var listener: (@MainActor (JSONValue) -> Void)?
+    /// The page loaded and listens for sessions, so an open's group draws at once.
+    var isSubscribed: Bool { listener != nil }
 
     /// Shows `event` (a new open, or a refresh of the open one).
     func push(_ event: JSONValue) {

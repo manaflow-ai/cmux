@@ -22,6 +22,28 @@ namespace cmux_shim {
 inline constexpr char kCmuxPageScheme[] = "cmux-page";
 inline constexpr char kCmuxPageDefaultCSP[] = "default-src 'self'";
 
+// The CefSchemeRegistrar::AddCustomScheme options of cmux-page://, as plain bits so the
+// test compiles with no CEF (page_scheme_registration.h checks each against CEF's
+// cef_scheme_options_t). Standard (the host is the origin), secure, CORS and fetch() within
+// the scheme, and V8's code cache: the fork's CMUX_CEF_SCHEME_OPTION_CODE_CACHE (include/
+// cef_cmux.h, manaflow-ai/cef) puts the scheme in Chromium's
+// ContentClient::Schemes::code_cache_schemes, as chrome:// WebUI scripts are, so pane.js
+// keeps its compiled code in the profile's Code Cache folder across launches. Blink checks
+// that cache against the script's source hash (code cache with hashing), so a changed
+// pane.js, after an app update or a web update, compiles again and never runs an old
+// compile. Chromium allows it only beside the standard bit. A fork without it ignores the bit.
+namespace page_scheme_option {
+inline constexpr int kStandard = 1 << 0;
+inline constexpr int kSecure = 1 << 3;
+inline constexpr int kCorsEnabled = 1 << 4;
+inline constexpr int kFetchEnabled = 1 << 6;
+inline constexpr int kCodeCache = 1 << 7;
+}  // namespace page_scheme_option
+
+inline constexpr int kCmuxPageSchemeOptions = page_scheme_option::kStandard | page_scheme_option::kSecure |
+                                              page_scheme_option::kCorsEnabled | page_scheme_option::kFetchEnabled |
+                                              page_scheme_option::kCodeCache;
+
 // Lowercases `id` into *out when it is a valid page id (the URL host):
 // 1-253 characters of [a-z0-9.-], no empty label, no label that starts or
 // ends with '-'. Leaves *out empty and returns false otherwise.
@@ -198,22 +220,59 @@ inline bool GrantsCmuxPageLocalNetwork(const std::string& requesting_origin, uin
   return requesting_origin.size() > prefix.size() && requesting_origin.compare(0, prefix.size(), prefix) == 0;
 }
 
+// Whether `url` is a document or file of the cmux page `domain` (cmux-page://<domain>, then
+// end, '/', '?' or '#').
+inline bool SameCmuxPageOrigin(const std::string& url, const std::string& domain) {
+  const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
+  return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
+         (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
+          url[origin.size()] == '#');
+}
+
+// What the page scheme does with a request for a page's files.
+enum class PageRequestVerdict {
+  kAllow,
+  kRefuse,
+  // The requesting frame is a top frame the browser side still reads as empty or about:blank:
+  // its document has committed in the renderer, but CEF updates the frame's URL on the UI
+  // thread, after that document's own files are already asked for on the IO thread. The
+  // request waits until the browser knows the frame's URL (`frame_settled`), then is judged.
+  kWaitForFrame,
+};
+
 // Whether a request may load a page's files: a main-frame navigation, or a
 // request from a frame of the same cmux-page origin (a child frame being
 // navigated is judged by its parent). Normal web pages can neither embed
-// nor load cmux-page resources.
+// nor load cmux-page resources. `frame_settled` is false while the browser
+// side may not have the requesting frame's committed URL yet; a blank top
+// frame then waits instead of being refused (on a busy first launch every
+// script and style of a page was refused, and the page stayed blank). A
+// frame that stays blank is refused once settled, as before.
+inline PageRequestVerdict JudgePageRequest(bool main_frame, const std::string& frame_url, const std::string& parent_url,
+                                           const std::string& domain, bool frame_settled) {
+  if (main_frame) return PageRequestVerdict::kAllow;
+  if (ArtifactContextRestricted(frame_url, parent_url)) return PageRequestVerdict::kRefuse;
+  auto same = [&](const std::string& url) { return SameCmuxPageOrigin(url, domain); };
+  if (same(frame_url)) return PageRequestVerdict::kAllow;
+  if (!frame_url.empty() && frame_url != "about:blank") return PageRequestVerdict::kRefuse;
+  if (!parent_url.empty()) return same(parent_url) ? PageRequestVerdict::kAllow : PageRequestVerdict::kRefuse;
+  return frame_settled ? PageRequestVerdict::kRefuse : PageRequestVerdict::kWaitForFrame;
+}
+
+// A request that waited (kWaitForFrame), judged once the browser has the URL of its top frame
+// (`settled_url`): that frame must be the page's own document, and the request's own first party
+// (the top document that asked) must be the page too, so a document that replaces the page in
+// the same browser before the browser has seen it commit cannot load the page's files.
+inline bool DeferredPageRequestAllowed(const std::string& settled_url, const std::string& first_party,
+                                       const std::string& domain) {
+  return JudgePageRequest(false, settled_url, "", domain, true) == PageRequestVerdict::kAllow &&
+         SameCmuxPageOrigin(first_party, domain);
+}
+
+// JudgePageRequest once the frame is settled: allowed or not.
 inline bool PageRequestAllowed(bool main_frame, const std::string& frame_url, const std::string& parent_url,
                                const std::string& domain) {
-  if (main_frame) return true;
-  if (ArtifactContextRestricted(frame_url, parent_url)) return false;
-  const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
-  auto same = [&](const std::string& url) {
-    return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
-           (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
-            url[origin.size()] == '#');
-  };
-  if (same(frame_url)) return true;
-  return (frame_url.empty() || frame_url == "about:blank") && same(parent_url);
+  return JudgePageRequest(main_frame, frame_url, parent_url, domain, true) == PageRequestVerdict::kAllow;
 }
 
 // Response headers of every cmux-page response. frame-ancestors 'self' is
@@ -228,6 +287,22 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
       {"Cross-Origin-Resource-Policy", "same-origin"},
   };
 }
+
+// Whether a bundled page file's request names its content (`?h=` and 8 to 64 hex digits, written by
+// the page's build: build-agent-pane-web.sh's pane.css): that URL never names other bytes, so the
+// answer may be kept (`Cache-Control: max-age=31536000, immutable`). Blink then hands every page of
+// the renderer that links it the sheet it parsed once, where an answer it may not keep is fetched
+// and parsed again per page (about 2 MB a chat page for the agent pane's sheet). Any other query, or
+// none, is answered as before: a file without its hash may change under a live web loop.
+inline bool IsContentHashedQuery(const std::string& query) {
+  if (query.size() < 2 + 8 || query.size() > 2 + 64 || query.compare(0, 2, "h=") != 0) return false;
+  for (size_t at = 2; at < query.size(); ++at) {
+    const char c = query[at];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  return true;
+}
+inline constexpr char kImmutableCacheControl[] = "max-age=31536000, immutable";
 
 // A header value from the page host: empty when it holds a CR or LF, so an answer cannot split a
 // header (cmux_shim_page_resource_respond_page's CSP).

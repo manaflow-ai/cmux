@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_MS } from "../src/motion/scale.generated";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -37,7 +38,7 @@ await requireBrowserLane("hover-row-sweep.test.ts", async () => {
   async function sweep(body: string, css: string, selector: string) {
     await page.setContent(
       `<!doctype html><html><head><style>${css}
-      :root { --agent-motion-hover: 80ms; --agent-motion-hover-out: 0s; --acpmux-motion-hover: 80ms; }
+      :root { --agent-motion-hover: ${MOTION_MS.quick}ms; --agent-motion-hover-out: 0s; --acpmux-motion-hover: ${MOTION_MS.quick}ms; }
       body { margin: 0; background: #fff; color: #000; }
       ${selector} { display: block; height: 28px; width: 300px; }
       </style></head><body>${body}</body></html>`,

@@ -20,16 +20,20 @@ import yaml
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import nightly_text  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 
 
-def prepare_step() -> str:
-    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["build-sign-notarize-nightly"]["steps"]
+def prepare_step_and_env() -> tuple[str, dict[str, str]]:
+    # The step runs scripts/ci/nightly-steps/prepare-notarization-recovery.sh; nightly_text() puts it back inline.
+    steps = yaml.safe_load(nightly_text())["jobs"]["build-sign-notarize-nightly"]["steps"]
     step = next(s for s in steps if s.get("name") == "Prepare pending notarization recovery artifact")
-    return gh_expressions.EXPRESSION.sub("fixture", step["run"])
+    step_env = {k: gh_expressions.EXPRESSION.sub("fixture", str(v)) for k, v in (step.get("env") or {}).items()}
+    return gh_expressions.EXPRESSION.sub("fixture", step["run"]), step_env
 
 
 def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -59,8 +63,11 @@ def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]
     }
     state.update(state_extra)
     Path(f"{dmg}.notarization.state").write_text("".join(f"{k}={v}\n" for k, v in state.items()))
+    script, step_env = prepare_step_and_env()
     env = dict(
-        os.environ,
+        {**os.environ, **step_env},
+        GITHUB_RUN_ID="fixture",
+        GITHUB_RUN_ATTEMPT="fixture",
         NIGHTLY_DMG_RELEASE=str(dmg),
         CHANNEL_APP_PATH=str(app),
         CHANNEL="nightly",
@@ -69,7 +76,7 @@ def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]
         CHANNEL_RELEASE_TAG="nightly-next",
         NIGHTLY_BUILD="1",
     )
-    result = subprocess.run(["bash", "-c", prepare_step()], cwd=temp, env=env, capture_output=True, text=True)
+    result = subprocess.run(["bash", "-c", script], cwd=temp, env=env, capture_output=True, text=True)
     result.manifest = temp / "cmux-nightly-notarization-recovery.json"  # type: ignore[attr-defined]
     return result
 

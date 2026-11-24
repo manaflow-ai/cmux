@@ -19,6 +19,7 @@
 //! they go, and it stops at its page's bytes. Leo, 2026-11-12: "Delete the pacer, the snapshot
 //! variants, watch_delta.rs and Known."
 
+#[cfg(test)]
 use super::list_guard::BuiltRow;
 use super::session_pages::{PageRow, Picked, pick_page};
 use super::*;
@@ -206,9 +207,66 @@ impl Hub {
         ListRows { rows, states: self.peer_link_states() }
     }
 
+    /// The page `params` asks for (`session_pages::pick_page`: filters, cursor, order and
+    /// `limit`), picked, none of its rows built yet: [`Hub::session_page_text`] builds them as its
+    /// reply's bytes take them.
+    pub(crate) fn session_page(&self, params: &Value) -> Result<PickedPage, RpcError> {
+        let (list, Picked { rows, next }) = self.picked_page(params)?;
+        Ok(PickedPage { list, rows, next, made: Default::default() })
+    }
+
+    /// `page`'s reply text: its rows in reply order, each built (with tools when `with_tools`)
+    /// only when it goes, as many as fit in `budget` bytes, at least one, with the `nextCursor` of
+    /// the rest (`list_guard::cut_page` cuts the same way). A row larger than `budget` alone is
+    /// trimmed (`list_guard::fit_row`).
+    ///
+    /// Rows are built as the bytes take them, not every picked row first: `acpmux ls` asks for
+    /// pages of 1000 rows and more, of which a page of 4 KB rows sends about 260 in its 1 MB, and
+    /// building every picked row first made each page cost up to 1000 rows, and a whole list of
+    /// N rows about N²/520 row builds (docs/findings/2026-11-23-acpmux-cli-startup-tax.md in
+    /// cmuxterm-hq: 355 ms for 833 rows). A row built for a larger `budget` is not built again
+    /// for a smaller one (`list_reply.rs` `within_limit`).
+    pub(crate) fn session_page_text(
+        &self,
+        page: &PickedPage,
+        params: &Value,
+        with_tools: bool,
+        budget: usize,
+    ) -> String {
+        let mut next = page.next.clone();
+        let (mut texts, mut used) = (Vec::<Arc<str>>::with_capacity(64), 0_usize);
+        let mut last: Option<&Unbuilt> = None;
+        for &at in &page.rows {
+            let Some(row) = page.list.rows().get(at) else { continue };
+            let text = page
+                .made
+                .borrow_mut()
+                .entry(at)
+                .or_insert_with(|| page.list.text(self, row, with_tools))
+                .clone();
+            let text: Arc<str> = match super::list_guard::fit_row(&text, row, budget) {
+                std::borrow::Cow::Borrowed(_) => text,
+                std::borrow::Cow::Owned(fitted) => fitted.into(),
+            };
+            // One more byte for the comma between rows.
+            let total = used.saturating_add(text.len()).saturating_add(1);
+            if let Some(last) = last
+                && total > budget
+            {
+                next = Some(Value::String(super::list_guard::page_cursor(params, last)));
+                break;
+            }
+            used = total;
+            texts.push(text);
+            last = Some(row);
+        }
+        super::list_guard::page_text(next.map(|next| next.to_string()), &texts)
+    }
+
     /// The rows of the page `params` asks for (`session_pages::pick_page`: filters, cursor, order
     /// and `limit`), each built, with tools when `with_tools`, in reply order, and the page's
     /// `nextCursor`. No row outside the page is built.
+    #[cfg(test)]
     pub(crate) fn session_page_rows(
         &self,
         params: &Value,
@@ -242,6 +300,78 @@ impl Hub {
         let text = |row: &Unbuilt| list.text(self, row, with_tools);
         super::list_guard::bounded(list.rows(), text, params, budget)
     }
+}
+
+impl Hub {
+    /// The rows `keys` name, as `_acpmux/sessions` writes them with `with_tools`: this daemon's
+    /// session by its id ([`Hub::own_row_text`], a closed one from its cached bytes), a peer's
+    /// or a hub machine's by its `PEER/ID` row key (the mirrored row, never asked of the peer).
+    /// `None` for a key that names no row. Only the rows asked for are built, whatever the
+    /// list's size (`_acpmux/info` with `sessionIds`, agent service v2 row 7b).
+    pub(crate) fn rows_by_key(&self, keys: &[String], with_tools: bool) -> Vec<Option<Arc<str>>> {
+        /// A key's row, found before any is built.
+        enum Found {
+            Own(Arc<Session>),
+            Mirrored(Arc<RemoteSession>),
+        }
+        // The lookups only under the locks, one lock at a time: no row is built while a peer's
+        // writer waits.
+        let mut found: Vec<Option<Found>> =
+            keys.iter().map(|key| self.session_by_id(key).map(Found::Own)).collect();
+        {
+            let remote = self.remote_sessions.read();
+            for (key, found) in keys.iter().zip(found.iter_mut()) {
+                if found.is_none() && key.contains('/') {
+                    *found = remote.get(key.as_str()).cloned().map(Found::Mirrored);
+                }
+            }
+        }
+        let mut states = None;
+        keys.iter()
+            .zip(found)
+            .map(|(key, found)| match found {
+                Some(Found::Own(session)) => Some(self.own_row_text(&session, with_tools)),
+                found => {
+                    let row = match found {
+                        Some(Found::Mirrored(row)) => row,
+                        _ if key.contains('/') => self.mesh_book_row(key)?,
+                        _ => return None,
+                    };
+                    let states = states.get_or_insert_with(|| self.peer_link_states());
+                    Some(super::peers::listed_remote_text(&row, states, with_tools).into())
+                }
+            })
+            .collect()
+    }
+
+    /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's `own` closed
+    /// sessions and the peers' and hub machines' mirrored ones, read from their status with no
+    /// row built (`ls`'s hidden line, beside a read of the live view), and of those the mirrored
+    /// ones (which the v2 list does not hold: a form that walks its whole view reads v1 while
+    /// any is listed).
+    pub(crate) fn closed_listed(&self, own: usize) -> ClosedListed {
+        let closed = |row: &RemoteSession| row.summary.status() == Some("closed");
+        let peers = self.remote_sessions.read().values().filter(|row| closed(row)).count();
+        let remote = peers + self.mesh_book_count(closed);
+        ClosedListed { all: own + remote, remote }
+    }
+}
+
+/// [`Hub::closed_listed`]: the closed rows the unfiltered list holds, and of those the ones other
+/// machines list.
+pub(crate) struct ClosedListed {
+    pub(crate) all: usize,
+    pub(crate) remote: usize,
+}
+
+/// A page by `limit` picked ([`Hub::session_page`]): the rows it is picked from, its rows' places
+/// among them in reply order, its `nextCursor` (null when the list ends there), and the rows'
+/// texts built so far, by place.
+pub(crate) struct PickedPage {
+    list: ListRows,
+    rows: Vec<usize>,
+    next: Option<Value>,
+    made: std::cell::RefCell<HashMap<usize, Arc<str>>>,
 }
 
 /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a

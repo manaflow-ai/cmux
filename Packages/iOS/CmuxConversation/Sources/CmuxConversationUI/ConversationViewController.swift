@@ -37,6 +37,11 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Asked before anything the person made is sent: typed text from the Send button,
+    /// the keyboard's Return key or the effect picker, a voice message, a poll, a
+    /// scheduled message sent now. False holds the send; `retry` sends it after all.
+    /// Chief asks for AI sharing consent here (App Review 5.1.2(i), ChiefAIConsent).
+    public var sendGate: ((_ retry: @escaping () -> Void) -> Bool)?
     /// Room a host keeps under the header for its own pinned row (Chief's
     /// question bar, upstream request U8), as Messages pins a business
     /// chat's request under its navigation bar: the transcript starts this
@@ -419,7 +424,16 @@ public final class ConversationViewController: UIViewController {
         store.claimPrimary(self) { [weak self] change in self?.storeDidChange(change) }
         store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
         store.start()
+        // A store already down past its bound sends no new callback for this screen: read it now.
+        showConnectionStatus()
         rebuild(change: .reset)
+    }
+
+    /// The header's line under the name: only a drop past the store's quiet bound says so,
+    /// a normal reconnect shows nothing.
+    private func showConnectionStatus() {
+        let down = store.connection != .connected && store.connectionNoticeDue
+        header.setConnectionStatus(down ? String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module) : nil)
     }
 
     /// The conversation draws its own header, so it hides its navigation
@@ -815,6 +829,9 @@ public final class ConversationViewController: UIViewController {
             view.layoutIfNeeded()
             return
         }
+        // Reduce Motion keeps this: it only ever rides the system keyboard's
+        // own animation (remaining > 0), which Reduce Motion doesn't remove;
+        // landing early would part the composer from the keyboard.
         UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
             self.view.layoutIfNeeded()
         }
@@ -839,7 +856,7 @@ public final class ConversationViewController: UIViewController {
         detailsController?.storeDidChange(change)
         switch change {
         case .connection:
-            header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
+            showConnectionStatus()
             // A host's pinned row sits under that line: it moves with it.
             parent?.view.setNeedsLayout()
             if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount) }
@@ -1517,7 +1534,7 @@ public final class ConversationViewController: UIViewController {
             // Pinned: insertions and the scroll to the new bottom share one
             // spring, ChatKit's transcript update spring on iOS 26 and 27
             // (stiffness 438.649, damping 41.888: 0.3 s, critically damped).
-            UIView.animate(springDuration: 0.3, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(springDuration: 0.3, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
@@ -1526,7 +1543,7 @@ public final class ConversationViewController: UIViewController {
             }
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
-            UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
@@ -1618,7 +1635,7 @@ public final class ConversationViewController: UIViewController {
             UIView.performWithoutAnimation {
                 cell.contentView.transform = CGAffineTransform(translationX: 0, y: -shared)
             }
-            UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.28, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
                 cell.contentView.transform = .identity
             }
         }
@@ -1648,6 +1665,7 @@ public final class ConversationViewController: UIViewController {
                 continue
             }
             UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: Self.arrivalFadeDuration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
                 cell.contentView.alpha = 1
             }
@@ -1664,6 +1682,8 @@ public final class ConversationViewController: UIViewController {
     private func flyTypingAvatar(from start: CGRect, initials: String, to cell: MessageCell) {
         guard !cell.avatar.isHidden, let indexPath = collectionView.indexPath(for: cell),
               let rowFrame = layout.frame(at: indexPath.item) else { return }
+        // Reduce Motion: no flying copy; the message's own avatar shows in place.
+        guard !UIView.reducesMotion else { return }
         // The cell's final place: it may still be moving with the batch.
         let end = cell.avatar.frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let overlay = ConversationAvatarView(frame: start)
@@ -2054,6 +2074,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.statusGrowsOnLanding = false
             cell.setFlightHidden(false)
         }
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? MessageCell)?.activeTextSelection?.end()
     }
 
     func transcriptItemCount() -> Int { rows.count }

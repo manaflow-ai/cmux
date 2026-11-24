@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextMobile
 import Foundation
+import os
 
 /// This Mac's theme and wallpaper reach the iPhone (ask-87d30da8e5): the colors the chrome derives
 /// from (the terminal theme, or `appearance.appTheme`, with `appearance.accent`) and the picture
@@ -12,6 +13,10 @@ import Foundation
 /// Stop condition: the task ends when `IPhoneHostService.stop` cancels it (`followingAppearance`).
 @MainActor
 enum ThemePhone {
+    /// One line per appearance handed to hostd, so a run times each hop of a theme change
+    /// (scripts/ci/cmux_next_pair_e2e.py's theme-file leg reads it from the pairing log).
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.appearance")
+
     /// What the phone gets, read on the main actor: the source picture, not yet the phone copy.
     struct Shown: Equatable, Sendable {
         var appearance: MobileHostAppearance
@@ -28,13 +33,28 @@ enum ThemePhone {
 
     /// The appearance of `input` and `tokens` (the app store's), with the tint the windows lay
     /// over a picture. Under Art Color the accent the windows show is sent as the theme's own.
-    static func appearance(input: ThemeInput, tokens: ThemeTokens, accentFollowsArt: Bool, tint: Double) -> MobileHostAppearance {
+    /// `terminal`: the Ghostty config's terminal theme lines (``ThemeStore/terminalConfigLines``),
+    /// which the phone's terminals load whatever the chrome shows.
+    static func appearance(input: ThemeInput, tokens: ThemeTokens, accentFollowsArt: Bool, tint: Double,
+                           terminal: [String] = []) -> MobileHostAppearance {
         MobileHostAppearance(
             background: hex(input.background), foreground: hex(input.foreground), palette: input.palette.map(hex),
             selectionBackground: input.selectionBackground.map(hex), selectionForeground: input.selectionForeground.map(hex),
             cursor: input.cursor.map(hex), accent: accentFollowsArt ? "art" : input.accent.rawValue,
             accentColor: accentFollowsArt ? hex(tokens.accent) : input.accentColor.map(hex),
-            backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint)
+            backgroundOpacity: input.backgroundOpacity, wallpaperTintOpacity: tint, terminal: terminal)
+    }
+
+    /// The look beyond the colors as the windows show it: the scope's tuning (hue, saturation,
+    /// glass), the window style and sidebar surface, the terminals' font, the Home chat bubble
+    /// colors and the sidebar's group colors. hostd checks every field (`appearance.rs`).
+    static func look(tuning: AppearanceTuning, design: DesignSettings) -> MobileHostAppearance.Look {
+        MobileHostAppearance.Look(
+            chromeStyle: design.chromeStyle.rawValue, hue: tuning.hue, saturation: tuning.saturation,
+            glassTransparency: tuning.glassTransparency, sidebarSurface: design.sidebarSurface.rawValue,
+            terminalFontFamily: design.effectiveTerminalFontFamily, terminalFontSize: design.terminalFontSize,
+            chatColors: design.homeBubbleColors, groupPalette: design.sidebarSections.groupPalette.rawValue,
+            groupGradient: design.sidebarSections.groupGradient.rawValue)
     }
 
     /// What the app's scope shows now (observed: the store's colors and its picture's revision).
@@ -44,7 +64,9 @@ enum ThemePhone {
         let tokens = store.tokens
         let selection = scope.backdropSelection
         let tint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
-        let appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint)
+        var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt, tint: tint,
+                                    terminal: store.terminalConfigLines)
+        appearance.look = look(tuning: scope.appearanceTuning, design: DesignSettings.shared)
         let picture = selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) }
         return Shown(appearance: appearance, picture: picture, dark: tokens.isDark)
     }
@@ -83,6 +105,9 @@ enum ThemePhone {
                     }.value
                 }
                 guard !Task.isCancelled, let iphone else { return }
+                let terminalBackground = appearance.terminal.last { $0.hasPrefix("background = ") }
+                    .map { String($0.dropFirst("background = ".count)) } ?? "none"
+                logger.info("appearance to hostd: background \(appearance.background, privacy: .public), terminal background \(terminalBackground, privacy: .public)")
                 await iphone.setAppearance(appearance)
             }
         }
