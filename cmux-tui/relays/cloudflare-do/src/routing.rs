@@ -146,6 +146,7 @@ mod tests {
             generation: None,
             issued_at_unix: 50,
             expires_at_unix: 100,
+            grant: None,
         }
     }
 

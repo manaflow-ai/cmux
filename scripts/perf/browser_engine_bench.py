@@ -220,7 +220,7 @@ def cpu_percent_over(app_pid: int, app_path: str, seconds: float) -> dict[str, f
     """CPU use per group over a window, counting only processes alive at both ends."""
     processes = [(app_pid, "app")] + [(pid, classify(path, app_path)) for pid, path in app_processes(app_pid, app_path)]
     t0, before = cpu_sample(processes)
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the CPU measurement window
     t1, after = cpu_sample(processes)
     window_ns = (t1 - t0) * 1e9
     totals = {"app": 0.0, "webkit": 0.0, "chromium": 0.0}
@@ -577,7 +577,7 @@ def run_engine(app: TaggedApp, engine: str, params: dict[str, Any], server: Fixt
     result["first_page_load_ms"] = loads[0]
     result["warm_page_load_ms"] = stats(loads[1:]) if len(loads) > 1 else {}
     result["open_rpc_ms"] = stats(opens)
-    time.sleep(args.settle_s)
+    time.sleep(args.settle_s)  # sleep-ok: --settle-s, footprints are read that long after the loads for every engine
     after = engine_snapshot(app.pid, str(app.app))
     # Only the engine under test: a previous engine's processes are closed but may still be exiting.
     key = f"{engine}_footprint_bytes"
@@ -641,7 +641,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 if index < args.launches - 1:
                     app.quit()
             result["launch"]["socket_ready_ms"] = stats(launch_ms)
-            time.sleep(args.settle_s)
+            time.sleep(args.settle_s)  # sleep-ok: --settle-s, the idle footprint is read that long after launch
             result["launch"]["idle"] = engine_snapshot(app.pid, str(app_path))
             result["launch"]["idle_cpu_percent"] = cpu_percent_over(app.pid, str(app_path), args.cpu_window_s)
             result["key_latency_ms_no_browser"] = key_latency(app, args)

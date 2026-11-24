@@ -264,15 +264,16 @@ const pct = (n) => (n === null || n === undefined ? "–" : `${Math.round(n)}%`)
 function usageRow(u) {
   return VStack({ spacing: 3 }, [
     HStack({ spacing: 6 }, [
-      Text(() => NAMES[u().id] ?? u().id).weight("semibold"),
+      Text(() => NAMES[u().id] ?? u().id).weight("semibold").fixedSize("horizontal"),
       Badge(() => String(u().accounts), cmux.theme.accent).help("Accounts"),
-      Spacer(),
-      Text(() => `session ${pct(u().session)} · week ${pct(u().weekly)}${u().extra > 0 ? ` · $${u().extra.toFixed(2)} extra` : ""}`)
-        .font("caption")
-        .monospaced()
-        .color(cmux.theme.text.secondary)
+      Spacer()
     ]),
-    ProgressView(() => (u().weekly === null ? null : u().weekly / 100))
+    ProgressView(() => (u().weekly === null ? null : u().weekly / 100)),
+    // The numbers on a line of their own, so a narrow card wraps them and never the name.
+    Text(() => `session ${pct(u().session)} · week ${pct(u().weekly)}${u().extra > 0 ? ` · $${u().extra.toFixed(2)} extra` : ""}`)
+      .font("caption")
+      .monospaced()
+      .color(cmux.theme.text.secondary)
   ])
 }
 
@@ -286,7 +287,13 @@ function renderStart() {
   return VStack({ spacing: 14 }, [
     Spacer(),
     HStack({ spacing: 8 }, [
-      Text("Studio").font("title").weight("semibold"),
+      Text("Studio").font("title").weight("semibold").fixedSize("horizontal"),
+      Menu("Create", [
+        Button("New Tab in Session", () => run("newSurface")),
+        Button("New Local Session", () => run("workspace.newOnMachine", { machine: "local" })),
+        Button("New Session on Host…", () => run("palette.open", { query: "New Workspace on Machine" })),
+        Button("Add Remote Host…", () => run("remote.connect"))
+      ]),
       Spacer(),
       Text(() => `${counts().working} working · ${counts().input} need you · ${counts().done} done`).font("caption").monospaced().color(cmux.theme.text.secondary)
     ]),
@@ -309,7 +316,7 @@ function renderStart() {
           }).onTap(() => show(c()))
         ),
         () => (live().length ? null : EmptyState({ title: "No threads yet", symbol: "view.list" }))
-      ]),
+      ]).frame({ width: "infinity" }),
       Panel({ title: "Usage", style: "card" }, [
         () => {
           if (usageError() && !usage()) return EmptyState({ title: "No usage here yet", message: usageError(), symbol: "context.usage" })
@@ -317,7 +324,9 @@ function renderStart() {
           if (!usage().length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "account" })
           return VStack({ spacing: 8 }, [ForEach({ items: usage, key: (u) => u.id }, usageRow)])
         }
-      ]).contextMenu([Button("Read usage now", () => loadUsage(true))])
+      ])
+        .frame({ width: "infinity" })
+        .contextMenu([Button("Read usage now", () => loadUsage(true))])
     ]),
     Spacer()
   ])

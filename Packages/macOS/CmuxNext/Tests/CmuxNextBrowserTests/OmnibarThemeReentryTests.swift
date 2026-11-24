@@ -67,13 +67,13 @@ struct OmnibarThemeReentryTests {
         var description: String { "rgba\(rgba)" }
     }
 
-    /// The resting field's host and path ink (an http address keeps its `http://`, drawn as the
-    /// path is), and the chip icon's and label's.
+    /// The resting field's host and path ink, and the chip icon's and label's; the path ink is nil for an address with
+    /// nothing after its host.
     private func shownInk(_ bar: AddressBarView, url: String) throws -> (host: Ink?, path: Ink?, icon: Ink?, label: Ink?) {
         let value = bar.field.attributedStringValue
         let host = try #require(BrowserURLDisplay.hostRange(in: value.string, for: URL(string: url)), "no host in \(value.string)")
         let hostInk = value.attribute(.foregroundColor, at: host.location, effectiveRange: nil) as? NSColor
-        let path = value.attribute(.foregroundColor, at: value.length - 1, effectiveRange: nil) as? NSColor
+        let path = host.upperBound < value.length ? value.attribute(.foregroundColor, at: value.length - 1, effectiveRange: nil) as? NSColor : nil
         let icon = bar.chip.subviews.compactMap { $0 as? NSImageView }.first?.contentTintColor
         let label = bar.chip.subviews.compactMap { $0 as? ChromeLabel }.first?.textColor
         return (Ink(hostInk), Ink(path), Ink(icon), Ink(label))
@@ -81,14 +81,14 @@ struct OmnibarThemeReentryTests {
 
     /// The ink the bar's theme gives its text and its page-info icon now.
     private func themeInk(_ bar: AddressBarView) -> (primary: Ink?, secondary: Ink?, icon: Ink?) {
-        bar.performWithTheme { (Ink(OmnibarStyle.textPrimary), Ink(OmnibarStyle.textSecondary), Ink(OmnibarStyle.resultsIcon)) }
+        bar.performWithTheme { (Ink(OmnibarStyle.textPrimary), Ink(OmnibarStyle.textSecondary), Ink(OmnibarStyle.iconInk)) }
     }
 
     /// Checks the bar shows `theme`'s ink on its host, path, page-info icon and label.
     private func expectShows(_ theme: (primary: Ink?, secondary: Ink?, icon: Ink?), _ bar: AddressBarView, url: String, security: BrowserSecurityState) throws {
         let shown = try shownInk(bar, url: url)
         #expect(shown.host == theme.primary, "the host keeps another theme's ink: \(String(describing: shown.host)), theme \(String(describing: theme.primary))")
-        #expect(shown.path == theme.secondary, "the path keeps another theme's ink: \(String(describing: shown.path)), theme \(String(describing: theme.secondary))")
+        #expect(shown.path == nil || shown.path == theme.secondary, "the path keeps another theme's ink: \(String(describing: shown.path)), theme \(String(describing: theme.secondary))")
         #expect(shown.icon == theme.icon, "the page-info icon keeps another theme's ink: \(String(describing: shown.icon)), theme \(String(describing: theme.icon))")
         if security == .insecure {
             // Plain http: the "Not secure" label is drawn in the primary ink.
@@ -107,7 +107,7 @@ struct OmnibarThemeReentryTests {
         defer { f.window.close() }
         let before = themeInk(f.bar)
         let shownBefore = try shownInk(f.bar, url: url)
-        #expect(shownBefore.host == before.primary && shownBefore.path == before.secondary, "the bar does not start in its theme")
+        #expect(shownBefore.host == before.primary && (shownBefore.path == nil || shownBefore.path == before.secondary), "the bar does not start in its theme")
 
         // The pane shows another tab: the browser chrome leaves the window, and the theme changes meanwhile.
         f.chrome.removeFromSuperview()

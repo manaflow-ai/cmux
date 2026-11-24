@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 
 /// Palette geometry derived from the shared Design tokens. Every value is
@@ -112,6 +113,18 @@ enum PaletteText {
         return ceil(natural * scale) / scale
     }
 
+    /// The y of a `height`-tall frame for `field` (in its superview's unflipped coordinates) that puts
+    /// the middle of its capitals on `midY`. Centering the frame (the line box) instead puts text of
+    /// different sizes on different lines: the box's room above the capitals and below the baseline
+    /// differ, and by a different amount at each size, so the footer's 13 pt "Run Command" sat lower
+    /// than its 11 pt "Search" and "Actions" (#48512). The baseline comes from the field itself
+    /// (`firstBaselineOffsetFromTop`, at `height`), so it holds for any font the label draws in.
+    static func capCenteredY(_ field: NSTextField, height: CGFloat, midY: CGFloat) -> CGFloat {
+        guard let font = field.font else { return midY - height / 2 }
+        if field.frame.height != height { field.setFrameSize(NSSize(width: field.frame.width, height: height)) }
+        return midY - font.capHeight / 2 - (height - field.firstBaselineOffsetFromTop)
+    }
+
     /// Width that shows the whole string. `intrinsicContentSize` of a
     /// truncating label is unreliable after its value changes. At least the cell's own width
     /// without bounds, which adds its text padding: `space2` alone is less than that padding at
@@ -146,7 +159,9 @@ enum PaletteText {
         if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
         guard let image = NSImage.packOverride(forSymbol: name, pointSize: size)
-            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
+            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+            // `brand:<id>`: a brand's mark (GitHub) as a template, tinted like the symbols, its circle as wide as a symbol's ring.
+            ?? (name.hasPrefix("brand:") ? AgentBrandCatalog.templateImage(brand: String(name.dropFirst(6)), size: size, fill: 1) : nil) else {
             return nil
         }
         if symbols.count >= 1_024 { symbols.removeAll() }

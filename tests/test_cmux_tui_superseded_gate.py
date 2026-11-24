@@ -71,15 +71,19 @@ class SupersededGateTest(unittest.TestCase):
     def test_the_gate_runs_the_preflight_check_on_the_control_pool_without_secrets(self) -> None:
         all_jobs = jobs()
         gate, preflight = all_jobs["push-gate"], all_jobs["tree-preflight"]
-        # The one-minute control pool, never GitHub-hosted (its queue waited hours on 2026-11-18).
+        # The one Linux label (scripts/ci/one_linux_label.py), never GitHub-hosted for an own-branch push (its
+        # queue waited hours on 2026-11-18).
         self.assertEqual(gate["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
+                         "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
+                         "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")
         self.assertIn(SCRIPT, mine["run"])
-        self.assertEqual(mine["run"], theirs["run"])
-        self.assertEqual(mine["env"], theirs["env"])
+        # tree-preflight's step adds the coalescing-window arguments (#51879); the gate asks the same question.
+        self.assertTrue(theirs["run"].startswith(mine["run"]), (mine["run"], theirs["run"]))
+        self.assertEqual({k: v for k, v in theirs["env"].items() if k in mine["env"]}, mine["env"])
         self.assertTrue(all("secrets." not in str(v) for v in mine["env"].values()))
         checkout = gate["steps"][0]["with"]
         self.assertIn(SCRIPT, checkout["sparse-checkout"])
@@ -107,7 +111,10 @@ class SupersededGateTest(unittest.TestCase):
 
     def test_no_other_job_starts_before_preflight(self) -> None:
         for name, job in jobs().items():
-            if name in ("push-gate", "tree-preflight", "reject-untrusted-pin-ref"):
+            # supersede-feat-runs is a gate of the same kind for feat-cmux-next pushes: it runs beside the
+            # preflight on the one-minute control pool and only cancels older never-started runs
+            # (tests/test_cmux_tui_feat_latest_wins.py). coalesce (base-coalesce.yml) is the other upfront gate.
+            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref", "supersede-feat-runs"):
                 continue
             with self.subTest(job=name):
                 self.assertIn("needs", job, f"{name} would start beside the gate and take a runner")

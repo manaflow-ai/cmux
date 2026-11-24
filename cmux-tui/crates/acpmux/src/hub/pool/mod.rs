@@ -1114,6 +1114,7 @@ impl Hub {
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
+            m.claude_unstored_work = false;
             m.claude_profile = Some(m.harness.clone());
             drop(m);
             self.write_mode_state(
@@ -1130,8 +1131,11 @@ impl Hub {
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
+        // It started with the person's suggestions (`initialize_params`): right for theirs only.
+        let asked_right = self.for_a_person(session);
+        self.note_start_level(session, &child, asked_right);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
