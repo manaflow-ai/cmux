@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "56e485b7559f4817088caa06738bf641391dc18e17046c74cca5793224a88d74",
+  "catalog_sha256": "2582ead72d78273f086fa65ebecdb4dab6dda9c96954ef0023a08f18ac20e4d5",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -202,6 +202,9 @@
     "cloud.machine.chief_start": {
       "class": "mutation"
     },
+    "cloud.machine.fork": {
+      "class": "mutation"
+    },
     "cloud.machine.io": {
       "class": "mutation"
     },
@@ -379,6 +382,9 @@
     "diff.comments.send": {
       "class": "mutation"
     },
+    "diff.comments.thread": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -422,6 +428,15 @@
       "class": "read"
     },
     "git.push": {
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "class": "mutation"
+    },
+    "git.review.start": {
       "class": "mutation"
     },
     "git.status": {
