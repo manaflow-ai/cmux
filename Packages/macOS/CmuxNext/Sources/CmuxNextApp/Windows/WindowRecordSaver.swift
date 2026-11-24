@@ -282,16 +282,11 @@ extension AppServices {
             .map { LaunchRecordSidebarSnapshot(id: $0.id, title: $0.title, iconKey: $0.icon ?? "") }
         let windows = ordered.compactMap { controller -> LaunchRecordWindowSnapshot? in
             guard let window = controller.window else { return nil }
-            let image = images[controller.state.id]
-            let color = controller.themeScope.tokens.surfaceBackground
-            let rgba = (LayoutCacheTheme.byte(color.red), LayoutCacheTheme.byte(color.green), LayoutCacheTheme.byte(color.blue), LayoutCacheTheme.byte(color.alpha))
             let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in
                 content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
             }
-            return WindowLaunchImages.stamped(LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: LayoutCacheDisplay.id(of: window.screen),
-                backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
-                imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
-                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs), for: window)
+            return WindowLaunchImages.snapshot(id: controller.state.id, window: window, background: controller.themeScope.tokens.surfaceBackground,
+                image: images[controller.state.id], workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
         }
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }

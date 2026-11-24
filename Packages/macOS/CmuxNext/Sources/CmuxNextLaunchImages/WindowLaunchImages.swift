@@ -167,9 +167,19 @@ public final class WindowLaunchImages {
         }
     }
 
+    /// The launch record's entry for `window` (`WindowRecordSaver`): its frame and display, its backdrop colour
+    /// (`background`), its last frame's image, its workspace and shown tabs, stamped for stage 0.
+    public static func snapshot(id: String, window: NSWindow, background color: ThemeRGB, image: LaunchRecordImage?,
+                                workspaceID: String, tabIDs: [String]) -> LaunchRecordWindowSnapshot {
+        let rgba = (LayoutCacheTheme.byte(color.red), LayoutCacheTheme.byte(color.green), LayoutCacheTheme.byte(color.blue), LayoutCacheTheme.byte(color.alpha))
+        return stamped(LaunchRecordWindowSnapshot(id: id, frame: window.frame, displayID: LayoutCacheDisplay.id(of: window.screen),
+            backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "", imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
+            workspaceID: workspaceID, tabIDs: tabIDs), for: window)
+    }
+
     /// `snapshot` with what stage 0 checks before it draws the image (cmux-launch-shell `plan`): the display's
     /// frame and scale, the system's appearance (the record's is compared with the launch's), full screen.
-    public static func stamped(_ snapshot: LaunchRecordWindowSnapshot, for window: NSWindow) -> LaunchRecordWindowSnapshot {
+    static func stamped(_ snapshot: LaunchRecordWindowSnapshot, for window: NSWindow) -> LaunchRecordWindowSnapshot {
         var snapshot = snapshot
         snapshot.backingScale = Double(window.screen?.backingScaleFactor ?? 0)
         snapshot.screenFrame = window.screen?.frame ?? .zero
