@@ -38,6 +38,31 @@ fn push(log: &TerminalLog, bytes: &[u8]) {
     state.pending.extend_from_slice(bytes);
 }
 
+/// A replacement terminal receives the persisted replay, so its oldest
+/// retained row remains available to scrolling and line search. The replay
+/// has a byte bound, rather than dropping history at the old 2,000-line
+/// target.
+#[test]
+fn a_replaced_terminal_keeps_ten_thousand_lines_for_scroll_and_find() {
+    let root = directory("restore-scrollback");
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000f4a").unwrap();
+    let mut terminal = ghostty_vt::Terminal::new(120, 24, 10_000_000, Default::default()).unwrap();
+    let output = (1..=10_000).map(|line| format!("line-{line:05}\r\n")).collect::<String>();
+    terminal.vt_write(output.as_bytes());
+    let budget = super::replay_budget(120, 24, super::super::SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES);
+    let replay = terminal.vt_replay_bounded(budget).unwrap().into_self_contained_bytes();
+    super::write(&root, &id, "generation", output.len() as u64, 120, 24, &replay).unwrap();
+
+    // This is the same line-oriented predicate used by terminal-find. Keep
+    // it in the regression so the retained replay is checked independently
+    // of the live Ghostty terminal that was replaced.
+    let restored = super::read(&root, &id).unwrap().0;
+    let found =
+        String::from_utf8_lossy(&restored.bytes).lines().any(|line| line.contains("line-00001"));
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(found, "line 1 was lost from the persisted replay");
+}
+
 /// The capture ran while the reader's chunk was parsed but not yet in the
 /// store (an odd epoch): its digest already shows the chunk. The chunk that
 /// arrives next must reach the tail, not wait as a redraw of stored content
