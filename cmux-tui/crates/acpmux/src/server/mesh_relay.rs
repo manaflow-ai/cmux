@@ -40,7 +40,10 @@ use tokio::sync::{mpsc, watch};
 
 #[path = "mesh_control_ledger.rs"]
 mod control_ledger;
+#[path = "mesh_relay_park.rs"]
+mod park;
 use control_ledger::{Claim, ControlLedger};
+use park::{Cause, Parking};
 
 /// A read of a session through the hub, both sides (`mesh_read.rs`).
 #[path = "mesh_read.rs"]
@@ -468,6 +471,8 @@ async fn inbox(
     }
     let mut deliveries = tokio::task::JoinSet::new();
     let in_flight: Arc<StdMutex<HashSet<String>>> = Arc::default();
+    // Messages that wait, untried, for their cause to end (`mesh_relay_park.rs`).
+    let parking: Arc<Parking> = Arc::default();
     loop {
         while deliveries.try_join_next().is_some() {}
         if deliveries.len() >= options.max_in_flight.max(1) {
@@ -518,12 +523,35 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
-                    let (client, control, in_flight, beat) =
-                        (client.clone(), control.clone(), in_flight.clone(), beat.clone());
+                    let (client, control, in_flight, beat, parking) = (
+                        client.clone(),
+                        control.clone(),
+                        in_flight.clone(),
+                        beat.clone(),
+                        parking.clone(),
+                    );
                     let own_id = own.borrow().clone();
                     deliveries.spawn(async move {
-                        let ack =
-                            deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
+                        let id = message.message_id.as_str();
+                        // Parked on a cause that still holds: its lease brings it back again.
+                        if parking.waits(id, Instant::now(), |cause| cause.holds(&hub)) {
+                            in_flight.lock_or_recover().remove(id);
+                            return;
+                        }
+                        let (ack, cause) =
+                            deliver_noting(&hub, &message, control.as_ref(), own_id.as_deref())
+                                .await;
+                        match cause {
+                            Some(cause) => {
+                                if parking.park(id, cause.clone(), Instant::now()) {
+                                    tracing::info!(
+                                        "mesh relay: {id} waits until {cause}, or {} min",
+                                        park::RECHECK.as_secs() / 60
+                                    );
+                                }
+                            }
+                            None => parking.clear(id),
+                        }
                         // A started session is in the hub's address book before its sender
                         // hears the start went through.
                         if message.kind == Kind::Control
@@ -1171,6 +1199,29 @@ pub async fn deliver(
     control: &dyn ControlHook,
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
+    deliver_noting(hub, message, control, own_daemon).await.0
+}
+
+/// [`deliver`], and for a message left unacked the cause it waits for, when only something else
+/// ends it (`mesh_relay_park.rs`).
+async fn deliver_noting(
+    hub: &Arc<Hub>,
+    message: &InMessage,
+    control: &dyn ControlHook,
+    own_daemon: Option<&str>,
+) -> (Option<Ack>, Option<Cause>) {
+    let mut cause = None;
+    let ack = deliver_once(hub, message, control, own_daemon, &mut cause).await;
+    (ack, cause)
+}
+
+async fn deliver_once(
+    hub: &Arc<Hub>,
+    message: &InMessage,
+    control: &dyn ControlHook,
+    own_daemon: Option<&str>,
+    cause: &mut Option<Cause>,
+) -> Option<Ack> {
     // Sender display metadata alone must never change legacy session delivery semantics.
     let own_user = crate::cli::cloud_join::machine_user_id();
     let team = team_delivery(message, own_user.as_deref());
@@ -1283,6 +1334,7 @@ pub async fn deliver(
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
+            *cause = Cause::of(&why, &session.id);
             None
         }
     }

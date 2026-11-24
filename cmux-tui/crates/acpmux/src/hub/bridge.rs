@@ -983,6 +983,13 @@ fn unreached_error(name: &str, why: Option<&Unreached>) -> RpcError {
 }
 
 impl Hub {
+    /// Whether registered chat `session`'s row says it is unreachable ([`UNREACHABLE_TAG`]:
+    /// registration stale or contested) until it registers again. The mesh relay parks a message
+    /// to it on this (`server/mesh_relay_park.rs`).
+    pub(crate) fn bridge_unreached(&self, session: &Session) -> bool {
+        session.read_meta(|m| m.tags.contains_key(UNREACHABLE_TAG))
+    }
+
     /// Puts why registered chat `session` is unreachable on its row ([`UNREACHABLE_TAG`]), or
     /// takes it off when it is reachable or merely closed. Written only on a change: the outbox
     /// asks again on every retry.
