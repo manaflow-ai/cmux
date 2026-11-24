@@ -647,6 +647,7 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
         resume_there,
         continue_there: None,
         from: None,
+        slow_ok: false,
         from_snapshot: false,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
@@ -1011,12 +1012,13 @@ async fn move_steps(
     if let (Some(then), Some(there)) = (&args.continue_there, o.there.clone()) {
         // Moved whatever this says: the tags only label it, and the fallback prompt only goes
         // when the move's own continuation did not (automatic retries off or spent).
+        let dst = dst_end.client();
         let tagged =
             dst.request(method::MUX_TAG, json!({"sessionId": there, "set": then.tags})).await;
         let fallback = match tagged {
             Ok(info) if crate::cli::run::sleep_handoff::stalled(&info) => {
                 crate::cli::output::queue_prompt(
-                    dst.clone(),
+                    dst_end.reopened().unwrap_or_else(|| dst_client.clone()),
                     &there,
                     &then.fallback,
                     false,
