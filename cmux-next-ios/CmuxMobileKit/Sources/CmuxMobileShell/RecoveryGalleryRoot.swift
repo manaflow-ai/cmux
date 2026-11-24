@@ -24,7 +24,8 @@ import SwiftUI
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
-/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
+///   `cloudmachines-held`: the same with a start and a new machine waiting for approval in the Feed.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 /// - `chip`: the terminal's connection chip (Leo 2026-11-21: "a symbol or short thing,
 ///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
@@ -90,6 +91,8 @@ public struct RecoveryGalleryRoot: View {
                 connectionChips
             case "chiplist":
                 listChips
+            case "cloudmachines-held":
+                NavigationStack { CloudMachinesScreen(model: .gallery(held: true), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             case "keybar":

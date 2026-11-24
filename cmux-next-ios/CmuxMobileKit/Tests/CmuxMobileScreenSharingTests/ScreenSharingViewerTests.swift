@@ -37,6 +37,50 @@ import Testing
         #expect(ends.calls.isEmpty)
     }
 
+    /// A screen link (`cmux://mac-screen?device=…&display=…`) streams over `cmux.rd/1` on its
+    /// display, never WebRTC (the joined Mac's share host refuses WebRTC offers): view only
+    /// unless the link asked for control and the Mac granted it. The host's end or refusal
+    /// ends the session; a link that failed reattaches like a dropped stream.
+    @Test func aScreenLinkStreamsOverRdOnItsDisplayViewOnlyUnlessControlIsGranted() async throws {
+        let (service, ends) = makeService()
+        service.demoDiscovery = .listed
+        service.demoMacs = [mac()]
+        service.open(deviceID: hostID.uppercased(), name: nil, scope: .view, display: "69733382")
+        let viewer = try #require(service.viewer)
+        #expect(viewer.rd == MacScreenRdTarget(displayID: 69_733_382, control: false))
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .view)), scope: .view)
+        service.route(.sessionTicket(ticket("s1", scope: .view)))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
+        #expect(viewer.screen == nil, "no WebRTC session")
+        #expect(viewer.rdScreen != nil)
+        #expect(!viewer.rdControl)
+        #expect(viewer.takeSignaling() == nil, "the ticket's signaling waits for the rd open")
+
+        // A link failure reattaches; the host's refusal ends the session on the hub.
+        viewer.rdClosed(sessionID: "s1", code: "link_failed", reason: "")
+        #expect(viewer.phase == .reconnecting(sessionID: "s1", scope: .view))
+        #expect(viewer.rdScreen != nil, "the picture stays for the reattach")
+        service.route(.sessionTicket(ticket("s1", scope: .view)))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
+        viewer.rdClosed(sessionID: "s1", code: "refused", reason: "sharing is off")
+        #expect(viewer.phase == .ended(reason: "sharing is off"))
+        #expect(viewer.rdScreen == nil)
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "s1", reason: "failed")])
+
+        // Control asked: granted only with a full-scope ticket. A list tap after it is WebRTC.
+        let (full, _) = makeService()
+        full.demoDiscovery = .listed
+        full.demoMacs = [mac()]
+        full.open(deviceID: hostID, name: nil, scope: .full)
+        let controller = try #require(full.viewer)
+        #expect(controller.rd == MacScreenRdTarget(displayID: nil, control: true))
+        controller.requestAnswered(.success(HubSession(id: "s2", state: .pending, scope: .full)), scope: .full)
+        full.route(.sessionTicket(ticket("s2", scope: .full)))
+        #expect(controller.rdControl)
+        #expect(controller.screen == nil)
+    }
+
     @Test func aTicketBeforeTheHTTPAnswerIsTakenAndTheAnswerChangesNothing() throws {
         let (service, _) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .view))

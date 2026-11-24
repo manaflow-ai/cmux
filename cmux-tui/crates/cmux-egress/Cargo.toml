@@ -1,0 +1,24 @@
+[package]
+name = "cmux-egress"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The daemon's egress gate: every HTTP client cmux makes for itself is built here, and a connection to a host docs/privacy.md does not list is refused in dev and nightly builds."
+
+[features]
+# blocking_client_builder: a gated reqwest::blocking client.
+blocking = ["reqwest/blocking"]
+
+[dependencies]
+reqwest.workspace = true
+rustls.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-tungstenite.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

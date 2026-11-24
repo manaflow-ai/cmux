@@ -1025,6 +1025,22 @@ def commit_rises(repo: Path, sha: str, rows: set[str]) -> dict[str, int] | None:
     return {row: delta.total(row) for row in rows}
 
 
+def prefetch_range(repo: Path, since: str, until: str, paths: list[str]) -> int:
+    """Fetch every blob raised_by's walk of SINCE..UNTIL reads in one fetch, and return how many the clone lacked:
+    each commit's changed files under PATHS at both ends (`log --raw`) and PATHS at SINCE. Read commit by commit, a
+    blobless checkout fetched them one at a time, a pack each, into the host's shared wt mirror (fs-agent-lane-10,
+    2026-11-24: 2372 packs in an hour)."""
+    blobs: set[str] = set()
+    code, raw = git(repo, "log", "--no-merges", "--raw", "--no-abbrev", "--format=", f"{since}..{until}", "--", *paths)
+    if code == 0:
+        blobs |= {oid for line in raw.splitlines() if line.startswith(":") for oid in line.split()[2:4]}
+    code, listed = git(repo, "ls-tree", "-r", "--format=%(objecttype) %(objectname)", since, "--",
+                       *[p for p in paths if not p.startswith(":(")])  # ls-tree takes no pathspec magic
+    if code == 0:
+        blobs |= {line.split()[1] for line in listed.splitlines() if line.startswith("blob ")}
+    return load_counts().Git(repo).fetch_missing(blobs)
+
+
 def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, list[tuple[str, int, str]]]:
     """{row: [(sha, rise, "author: subject")]} of the non-merge commits in SINCE..UNTIL that raised a row.
 
@@ -1048,6 +1064,8 @@ def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, l
     code, out = git(repo, "log", "--no-merges", "--reverse", "--format=%H%x1f%an%x1f%s", f"{since}..{until}", "--", *paths)
     if code != 0:
         return found
+    if counts.Git(repo).remote():
+        prefetch_range(repo, since, until, paths)
     for line in out.splitlines():
         sha, author, subject = (line.split("\x1f") + ["", ""])[:3]
         rises = commit_rises(repo, sha, rows)

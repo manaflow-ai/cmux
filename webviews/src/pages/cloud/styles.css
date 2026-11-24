@@ -227,6 +227,36 @@ select {
   padding: 14px 0 6px;
 }
 
+/* The surge card (SurgeCard.tsx): one line above the machine list after a surge. */
+.cloud-surge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--grid-half-step) var(--grid-gap);
+  margin: 0 0 var(--grid-gap);
+  padding: var(--grid-gap) var(--grid-gap);
+  border: 1px solid var(--cloud-separator);
+  border-left: 3px solid var(--cloud-text-2);
+  border-radius: 6px;
+  background: var(--cloud-elevated);
+}
+
+.cloud-surge.is-drained {
+  border-left-color: var(--cloud-ok);
+}
+
+.cloud-surge-title {
+  font-weight: 600;
+}
+
+.cloud-surge-ready {
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-surge-part {
+  font-variant-numeric: tabular-nums;
+}
+
 .cloud-section-title {
   margin: 0;
   font-size: 13px;
@@ -472,6 +502,21 @@ select {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* A failed renewal: one warning line under the plan, Manage Billing beside it. */
+.cloud-past-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.cloud-past-due-text {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--cloud-warn);
 }
 
 .cloud-mono {
