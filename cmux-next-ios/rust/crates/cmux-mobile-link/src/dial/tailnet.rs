@@ -335,6 +335,8 @@ fn dialed(
         webrtc_media: false,
         hold: None,
         liveness: None,
+        // The tailnet's keys belong to Tailscale, not to this link.
+        tunnel_keys: None,
     }
 }
 
@@ -364,7 +366,10 @@ impl Dialer for TailnetDialer {
                 .send_signal(
                     mac,
                     session_id,
-                    SignalPayload::TailnetInit { token: hex(&token), lanes: offered_lanes(options, false, false) },
+                    SignalPayload::TailnetInit {
+                        token: hex(&token),
+                        lanes: offered_lanes(options, false, false),
+                    },
                 )
                 .map_err(|error| DialError::Signaling(error.to_string()))?;
             let (endpoints, peer_lanes) = tokio::time::timeout(options.answer_timeout, async {
@@ -500,7 +505,8 @@ mod tests {
 
     #[test]
     fn failures_are_classified_from_the_dial_errors_text() {
-        let phone = DialError::Transport(format!("{TAILSCALE_OFF_PHONE}: Tailscale is not connected on this iPhone"));
+        let phone =
+            DialError::Transport(format!("{TAILSCALE_OFF_PHONE}: Tailscale is not connected on this iPhone"));
         assert_eq!(TailnetFailure::classify(&phone.to_string()), Some(TailnetFailure::PhoneOff));
         let mac = DialError::Bye(TAILSCALE_OFF_MAC.into());
         assert_eq!(TailnetFailure::classify(&mac.to_string()), Some(TailnetFailure::MacOff));

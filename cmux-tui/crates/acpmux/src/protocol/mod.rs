@@ -204,6 +204,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PERF, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
+        // The felt-latency histograms (cmux-felt).
+        untyped(method::MUX_FELT_SNAPSHOT, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
@@ -258,6 +260,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::McpReconnectParams>(method::MUX_MCP_RECONNECT, Request),
         keyed::<params::SubagentStopParams>(method::MUX_SUBAGENT_STOP, Request),
         keyed::<params::SubagentTranscriptParams>(method::MUX_SUBAGENT_TRANSCRIPT, Request),
+        keyed::<params::SubagentListParams>(method::MUX_SUBAGENT_LIST, Request),
         keyed::<params::NativeHistoryParams>(method::MUX_NATIVE_HISTORY, Request),
         untyped(method::MUX_WORKFLOWS, Request),
         keyed::<params::AppReplyParams>(method::MUX_APP_REPLY, Request),
@@ -271,6 +274,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_AUDIT, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
+        untyped(method::MUX_GITHUB_REST, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
         // Saved prompts (`prompts.rs`).
@@ -471,6 +475,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/transfer_end_stale", Request),
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_preflight", Request),
         untyped("_acpmux/transfer_history", Request),
         untyped("_acpmux/transfer_history_export", Request),
         untyped("_acpmux/transfer_history_have", Request),
@@ -555,9 +560,11 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped(method::MUX_PLACE_CHAT, Request),
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),

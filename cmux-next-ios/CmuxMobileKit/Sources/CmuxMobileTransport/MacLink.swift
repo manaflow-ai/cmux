@@ -122,6 +122,23 @@ public protocol MacLink: AnyObject, Sendable {
     /// is idle: with Align Keepalives on, the heartbeat probes it on the
     /// keepalive beat (``KeepaliveBeat``).
     var trafficAgo: Duration? { get }
+    /// The WireGuard static public keys this link's tunnel handshook with
+    /// (nil: not a tunnel). The phone's `auth` signs them and checks the Mac's
+    /// identity proof over them (``TunnelKeys``).
+    var tunnelKeys: TunnelKeys? { get }
+}
+
+/// The two WireGuard static public keys of a tunnel (base64, as in `wg-init`
+/// and `wg-resp`): the dialer's (this phone's) and the answerer's (the Mac's).
+/// A v2 `auth`'s identity proofs cover them (cmux-mobile-host `pairing.rs`).
+public struct TunnelKeys: Sendable, Equatable {
+    public var dialer: String
+    public var answerer: String
+
+    public init(dialer: String, answerer: String) {
+        self.dialer = dialer
+        self.answerer = answerer
+    }
 }
 
 extension MacLink {
@@ -129,6 +146,7 @@ extension MacLink {
     public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public var tunnelKeys: TunnelKeys? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
     public func setForegroundProbe(_ on: Bool) {}
 
