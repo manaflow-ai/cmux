@@ -14,6 +14,8 @@ import type { StatusItem } from "./composerStatusModel";
 import { teardownDom } from "../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
+// computerUseState.ts installs its hook once, at its first load: an earlier file may have loaded it.
+const hadComputerUseHook = Object.hasOwn(scope, "cmuxAcpmuxComputerUseState");
 const keys = [
   "window",
   "document",
@@ -99,7 +101,7 @@ afterEach(() => {
 afterAll(async () => {
   void mock.module("./composerStatusCard", () => realSeam);
   // computerUseState.ts, reached through the dot's imports, installs this hook at load.
-  delete scope.cmuxAcpmuxComputerUseState;
+  if (!hadComputerUseHook) delete scope.cmuxAcpmuxComputerUseState;
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -261,4 +263,36 @@ test("the strip arm draws the static facts as a line and the live ones as counte
   await dot({ facts, arm: "off", now: 1 });
   expect(host.querySelector(".acpmux-composer-status-strip")).toBeNull();
   expect(host.querySelector(".acpmux-composer-status-count")).toBeNull();
+});
+
+test("a host failure row offers its action and a Details button that opens the raw text", async () => {
+  const ran: string[] = [];
+  const failure: StatusItem = {
+    kind: "hostFailure",
+    level: "problem",
+    words: "status.hostFailure.unavailable",
+    detail: "acpmux: connection refused",
+    action: "retry",
+  };
+  await dot({
+    items: [failure],
+    initial: "pinned",
+    actions: new Set(["retry"]),
+    onAction: (action) => void ran.push(action),
+  });
+  expect(button().getAttribute("aria-label")).toBe("Can't reach the agent service.");
+  const [retry, details] = Array.from(card()!.querySelectorAll<HTMLButtonElement>(".acpmux-status-action"));
+  expect(retry.textContent).toBe("Retry");
+  await click(retry);
+  expect(ran).toEqual(["retry"]);
+  expect(details.textContent).toBe("Details");
+  expect(details.getAttribute("aria-expanded")).toBe("false");
+  expect(card()!.querySelector(".acpmux-status-row-detail")).toBeNull();
+  await click(details);
+  expect(details.getAttribute("aria-expanded")).toBe("true");
+  expect(card()!.querySelector(".acpmux-status-row-detail")?.textContent).toBe("acpmux: connection refused");
+  await dot({ items: [{ ...failure, pending: true }], initial: "pinned", actions: new Set(["retry"]) });
+  const pending = card()!.querySelector<HTMLButtonElement>(".acpmux-status-action")!;
+  expect(pending.disabled).toBe(true);
+  expect(pending.textContent).toBe("Retrying…");
 });

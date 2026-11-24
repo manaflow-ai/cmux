@@ -22,6 +22,10 @@ export type StatusItem = {
   /// The dot shows it no earlier than this, ms since the epoch.
   showAt?: number;
   action?: StatusAction;
+  /// Pane-local items only (never on the wire): what the card's Details shows, in acpmux's own words.
+  detail?: string;
+  /// Pane-local items only: the action runs now, so its button is off and says so.
+  pending?: boolean;
 };
 
 /// One piece of the footer's quiet metadata (acpmux `FooterFact`).
@@ -47,9 +51,17 @@ const KINDS: ReadonlySet<string> = new Set<StatusKind>([
   "agentService",
   "restoringSessions",
   "sendsHeld",
+  "hostFailure",
 ]);
 const LEVELS: ReadonlySet<string> = new Set<StatusLevel>(["info", "attention", "problem"]);
-const ACTIONS: ReadonlySet<string> = new Set<StatusAction>(["reconnect", "resumeQueue", "signIn", "update"]);
+const ACTIONS: ReadonlySet<string> = new Set<StatusAction>([
+  "reconnect",
+  "resumeQueue",
+  "signIn",
+  "update",
+  "retry",
+  "restartService",
+]);
 const FACTS: ReadonlySet<string> = new Set<FactKind>([
   "machine",
   "folder",
@@ -89,6 +101,11 @@ const WORDS: Record<string, StringKey> = {
   "status.agentService.reconnecting": "status.agentService.reconnecting",
   "status.restoringSessions.restoring": "status.restoringSessions.restoring",
   "status.sendsHeld.held": "status.sendsHeld.held",
+  "status.hostFailure.unavailable": "status.hostFailure.unavailable",
+  "status.hostFailure.peerUnreachable": "status.hostFailure.peerUnreachable",
+  "status.hostFailure.peerUnreachableUnnamed": "status.hostFailure.peerUnreachableUnnamed",
+  "status.hostFailure.tooLarge": "status.hostFailure.tooLarge",
+  "status.hostFailure.said": "status.hostFailure.said",
 };
 
 /// The catalog key an item draws: undefined for words this build does not know and, given `now`, for
@@ -208,7 +225,41 @@ export type HostRecovery = {
   restoring?: HostRestoring;
   failureShown?: boolean;
   waitingSince?: number;
+  /// The failure the pane says (HostError.tsx HostUnavailableLine's), once it is said.
+  failure?: HostFailure;
 };
+
+/// A failed handshake the pane says: its words (a `status.hostFailure.*` key and its `subject`),
+/// acpmux's own words behind Details, and its one action, or none while the pane asks again by
+/// itself (`selfRetrying`: then it is only "Reconnecting…").
+export type HostFailure = {
+  words: string;
+  subject?: string;
+  detail?: string;
+  selfRetrying: boolean;
+  action?: "retry" | "restartService";
+  /// That action runs now (a queued Retry, a Restart in flight).
+  pending?: boolean;
+  /// When the pane's trouble began, ms since the epoch.
+  since?: number;
+};
+
+/// The failure as a dot item: "Reconnecting…" while the pane asks again by itself, else a problem
+/// with its Retry (or Restart) and Details.
+export function hostFailureItem(failure: HostFailure): StatusItem {
+  if (failure.selfRetrying && failure.action !== "restartService") {
+    const item: StatusItem = { kind: "agentService", level: "info", words: "status.agentService.reconnecting" };
+    if (failure.since !== undefined) item.since = failure.since;
+    return item;
+  }
+  const item: StatusItem = { kind: "hostFailure", level: "problem", words: failure.words };
+  if (failure.subject !== undefined) item.subject = failure.subject;
+  if (failure.since !== undefined) item.since = failure.since;
+  if (failure.detail) item.detail = failure.detail;
+  if (failure.action) item.action = failure.action;
+  if (failure.pending) item.pending = true;
+  return item;
+}
 
 /// The pane's own recovery as a dot item (HostRecoveringLine's "Restoring sessions…" or
 /// "Reconnecting…", under the same rule, hostRetry.ts `hostRecoveryLine`), due RECONNECT_LINE_AFTER_MS
@@ -227,6 +278,13 @@ export function hostRecoveryItem(host: HostRecovery | undefined, now: number): {
         showAt: since + RECONNECT_LINE_AFTER_MS,
       },
     };
+  }
+  if (host.failure) {
+    // One host line at a time, the newest winning: past its deadline the waiting line (HostError.tsx
+    // HostWaitingLine, still above the composer) replaces the failure, as it replaced the card.
+    const waitShows = host.waitingSince === undefined ? undefined : host.waitingSince + HOST_ERROR_DEADLINE_MS;
+    if (waitShows !== undefined && now >= waitShows && !host.failure.pending) return {};
+    return { item: hostFailureItem(host.failure), wakeAt: nextWake([waitShows], now) };
   }
   const since = host.relinkingSince;
   if (since === undefined || host.failureShown) return {};

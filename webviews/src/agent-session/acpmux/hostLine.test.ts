@@ -94,11 +94,18 @@ test("the app's own localized refusal stays the line, with nothing behind Detail
     "cmux couldn't find its agent service. Reinstall cmux to fix this.",
   ]) {
     const refusal = new NativeError({ code: "host_unavailable", userMessage: words });
-    expect(hostLineText(refusal, words, translate)).toEqual({ line: words });
+    expect(hostLineText(refusal, words, translate)).toEqual({
+      line: words,
+      words: "status.hostFailure.said",
+      subject: words,
+    });
   }
   // A chat too large to open is the pane's own words.
   const tooLarge = translate("host.tooLarge");
-  expect(hostLineText(new Error("frame too large"), tooLarge, translate)).toEqual({ line: tooLarge });
+  expect(hostLineText(new Error("frame too large"), tooLarge, translate)).toEqual({
+    line: tooLarge,
+    words: "status.hostFailure.tooLarge",
+  });
 });
 
 // Audit 2026-11-12: a message that was not code-shaped ("Failed to fetch", "Error: …") was the line.
@@ -112,11 +119,13 @@ test("any other failure's text reads as the plain line, its words behind Details
     expect(hostLineText(new Error(words), words, translate)).toEqual({
       line: translate("host.unavailable"),
       detail: words,
+      words: "status.hostFailure.unavailable",
     });
     // A native error with no code (pageHost.ts: a call that never got an answer) is not the app's words.
     expect(hostLineText(new NativeError(undefined, words), words, translate)).toEqual({
       line: translate("host.unavailable"),
       detail: words,
+      words: "status.hostFailure.unavailable",
     });
   }
 });
@@ -129,6 +138,7 @@ test("a coded native error other than the app's refusal reads as the plain line,
     expect(hostLineText(new NativeError({ code, userMessage: words }), words, translate)).toEqual({
       line: translate("host.unavailable"),
       detail: words,
+      words: "status.hostFailure.unavailable",
     });
   }
 });

@@ -128,6 +128,7 @@
 }
 .acpmux-status-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-height: 20px;
@@ -149,6 +150,25 @@
   background: none;
   color: var(--agent-accent, currentColor);
   font: inherit;
+}
+/* The host failure's Details: a quiet button, and acpmux's own words on a line of their own. */
+.acpmux-status-action.acpmux-status-details {
+  color: var(--agent-muted);
+}
+.acpmux-status-action:disabled {
+  color: var(--agent-muted);
+}
+.acpmux-status-row-detail {
+  flex: 1 0 100%;
+  max-width: 320px;
+  margin: 0;
+  padding-inline-start: 14px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .acpmux-status-fact {
   display: flex;

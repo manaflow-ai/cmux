@@ -8756,6 +8756,16 @@
           "const": "update",
           "description": "Update the machine.",
           "type": "string"
+        },
+        {
+          "const": "retry",
+          "description": "Pane-local: ask the agent service for the chat again now.",
+          "type": "string"
+        },
+        {
+          "const": "restartService",
+          "description": "Pane-local: stop the other build's agent service that holds this app's socket, so this\napp's own starts.",
+          "type": "string"
         }
       ]
     },
@@ -8866,6 +8876,11 @@
         {
           "const": "sendsHeld",
           "description": "Pane-local, never sent by acpmux: the pane holds sends it could not deliver yet.",
+          "type": "string"
+        },
+        {
+          "const": "hostFailure",
+          "description": "Pane-local, never sent by acpmux: the pane could not get its agent service, and asking\nagain on its own cannot change that (the host failure card's Retry and Details).",
           "type": "string"
         }
       ]
