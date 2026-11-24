@@ -36,6 +36,27 @@
           ]
         },
         {
+          "key": "experiments.composerButtonsVisible",
+          "title": {
+            "key": "settings.experiments.composerButtonsVisible",
+            "text": "Always Show Composer Buttons"
+          },
+          "help": {
+            "key": "settings.experiments.composerButtonsVisible.help",
+            "text": "Keep Send, attachment removal, and queued message actions visible in agent chats."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "composer",
+            "buttons",
+            "send",
+            "attachments",
+            "queue",
+            "hover"
+          ]
+        },
+        {
           "key": "experiments.composerV2",
           "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
           "title": {
@@ -81,6 +102,31 @@
             "hover",
             "card",
             "glass"
+          ]
+        },
+        {
+          "key": "experiments.seeThroughDock",
+          "note": "Leo, 2026-11-17 (ask-cbb09912f6): the agent chat's \"Needs your input\" stack and the notice lines above the composer (switch notice, managed banner, host line, host-error cards, dictation, ui-notice) hide only what they draw, so the conversation stays visible beside and between them (webviews experimentSwitchOn(\"seeThroughDock\"), conversation/useBesideStack.ts, besideStack.ts bandMask). Off by default; off keeps today's mask, which ends the rows at the stack's top.",
+          "title": {
+            "key": "settings.experiments.seeThroughDock",
+            "text": "See-Through Dock"
+          },
+          "help": {
+            "key": "settings.experiments.seeThroughDock.help",
+            "text": "The conversation stays visible behind the notices and the Needs your input row above the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "dock",
+            "notice",
+            "input",
+            "dismiss",
+            "transcript",
+            "mask"
           ]
         },
         {
@@ -256,6 +302,32 @@
             "widget",
             "tool",
             "card"
+          ]
+        },
+        {
+          "key": "experiments.attachmentTypeIcons",
+          "note": "Taste prototype: while the App looks up a dropped or pasted file's local path, its composer chip shows a file or image icon instead of the loading mark, and an image keeps its image icon until its thumbnail arrives (webviews experimentSwitchOn(\"attachmentTypeIcons\"), composer/attachmentIntakeModel.ts resolvingPath). Off by default; off keeps the loading mark. The path-first attach itself is not behind this switch.",
+          "title": {
+            "key": "settings.experiments.attachmentTypeIcons",
+            "text": "Attachment Type Icons"
+          },
+          "help": {
+            "key": "settings.experiments.attachmentTypeIcons.help",
+            "text": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "attachment",
+            "attachments",
+            "icon",
+            "file",
+            "image",
+            "loading",
+            "chip"
           ]
         }
       ]

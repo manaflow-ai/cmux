@@ -315,6 +315,7 @@ async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
         Some("peer-token".into()),
         tx,
     );
+    peer.refuse_early(); // its fake listener is a plain tungstenite accept, as before the early request
     peer.set_link_host("inst_b".into());
     peer.set_link_socket(socket);
     assert_eq!(peer.dial_order(), [Via::Link, Via::Ssh]);
