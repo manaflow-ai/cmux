@@ -430,10 +430,15 @@ impl Tap {
 pub fn base_manifest(protocol: &str, fallback: &str) -> Result<Manifest, String> {
     if let Some(dir) = std::env::var_os("CMUX_WIRE_BASE_DIR") {
         let path = std::path::Path::new(&dir).join(format!("{protocol}.json"));
-        if let Ok(text) = std::fs::read_to_string(&path)
-            && let Ok(manifest) = Manifest::from_json(&text)
-        {
-            return Ok(manifest);
+        match std::fs::read_to_string(&path) {
+            // The base has a manifest: it must parse, or this run would compare head with itself.
+            Ok(text) => {
+                return Manifest::from_json(&text)
+                    .map_err(|e| format!("{protocol} base manifest {}: {e}", path.display()));
+            }
+            // No file: the protocol is new at this revision, so the head is its own base.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", path.display())),
         }
     }
     Manifest::from_json(fallback).map_err(|e| format!("{protocol} manifest: {e}"))
