@@ -14,10 +14,12 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let followedMarkdownPaths: [[String]] = [
         MarkdownViewerSettingsSchema.fontPresetPath, MarkdownViewerSettingsSchema.codeFamilyPath, MarkdownViewerSettingsSchema.codeScalePath,
     ]
-    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
-    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
+    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``),
+    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx),
+    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), hidden in cmux-next.json,
+    /// and the key style and keyboard layout the page's lists answer to (``KeyboardStyleSettings``; webviews ui/keyStyle.ts).
     public static let followedAppPaths: [[String]] = [
-        SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath,
+        SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
         KeyboardStyleSettings.keyStylePath, KeyboardStyleSettings.shortcutLayoutPath,
     ]
     /// The transcript look keys, which a theme file may set (``ThemeFileOverlay/lookKeys``): read from the
