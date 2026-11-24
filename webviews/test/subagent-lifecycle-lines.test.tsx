@@ -8,6 +8,7 @@ import { SubagentStartedLine } from "../src/agent-session/acpmux/subagents/Subag
 import { SubagentHarnessContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -94,7 +95,7 @@ for (const harness of ["claude-opus-5-5", "codex"])
     expect(withSubagentLines(replayed)).toBe(replayed);
     const geometry = layoutConversation(closed, 760);
     for (const entry of closed.filter((entry) => entry.kind === SUBAGENT_STARTED || entry.kind === SUBAGENT_DONE))
-      expect(geometry.heights[closed.indexOf(entry)]).toBe(22);
+      expect(geometry.heights[closed.indexOf(entry)]).toBe(TRANSCRIPT_LINE_ROW);
   });
 
 test("queued placeholders and missing identities do not announce work", () => {
@@ -148,58 +149,15 @@ test("the batched start names both agents with their own marks and no disclosure
   expect(html).not.toContain("cv-agent-activity__chevron");
 });
 
-// Leo, 2026-11-22, on a start line whose chips shrank as more agents joined it: "there's like a
-// secondary animation that shifts as it recalculates to shrink stuff ... with better designs this
-// won't happen". A line names the agents one record started; it is never rewritten for a later one.
-test("an agent the group starts later gets its own start line under the rows before it", () => {
-  const record = recorded("claude");
-  const cache: DoneLineCache = new Map();
-  const group = () => [...record.groups.values()];
-  const starts = (rows: readonly AcpmuxRow[]) => rows.filter((entry) => entry.kind === SUBAGENT_STARTED);
-  const [first] = starts(withSubagentLines([prompt, ...group()], cache));
-  expect(first!.subagents?.map((agent) => agent.id)).toEqual(["review-a", "review-b"]);
-  // The chat ran a tool, then started a third agent (the fold's events are a second apart).
-  const tool = { ...call, at: 1_500 };
-  record.feed("subagent_spawned", [
-    { id: "review-c", parent: null, name: "Review C", task: "Dummy task three", state: "running" },
-  ]);
-  expect(group()).toHaveLength(1);
-  const later = { ...answer, at: 9_000 };
-  const out = withSubagentLines([prompt, ...group(), tool, later], cache);
-  expect(out.map((entry) => entry.kind)).toEqual(["user", SUBAGENT_STARTED, "activity", SUBAGENT_STARTED, "assistant"]);
-  const [kept, joined] = starts(out);
-  // The first line is the same row: nothing in it is drawn again.
-  expect(kept).toBe(first!);
-  expect(joined!.subagents?.map((agent) => agent.id)).toEqual(["review-c"]);
-  expect(joined!.id).not.toBe(kept!.id);
-  expect(renderToStaticMarkup(<SubagentStartedLine row={joined!} />)).toContain("Dummy task three");
-  // A fourth agent leaves both lines as they are and adds its own at the end.
-  record.feed("subagent_spawned", [
-    { id: "review-d", parent: null, name: "Review D", task: "Dummy task four", state: "running" },
-  ]);
-  const again = starts(withSubagentLines([prompt, ...group(), tool, later], cache));
-  expect(again).toHaveLength(3);
-  expect(again[0]).toBe(kept!);
-  expect(again[1]).toBe(joined!);
-  // Read again with nothing new, every row is the same object.
-  const settled = withSubagentLines([prompt, ...group(), tool, later], cache);
-  expect(starts(settled)).toEqual(again);
-  starts(settled).forEach((entry, index) => expect(entry).toBe(again[index]!));
-});
-
 test("late kind and prompt metadata update a cached start label", () => {
   const record = recorded("claude");
   record.feed("subagent_spawned", [
     { id: "chat/toolu_review", name: "chat/toolu_alias", parent: null, state: "running" },
   ]);
   const cache: DoneLineCache = new Map();
-  // The agent started after the group's first two, so it has a start line of its own.
   const read = () =>
-    withSubagentLines([...record.groups.values()], cache).find(
-      (entry) => entry.kind === SUBAGENT_STARTED && entry.subagents?.some((agent) => agent.id === "chat/toolu_review"),
-    )!;
+    withSubagentLines([...record.groups.values()], cache).find((entry) => entry.kind === SUBAGENT_STARTED)!;
   const first = read();
-  expect(first.subagents).toHaveLength(1);
   record.feed("subagent_state_update", [{ id: "chat/toolu_review", kind: "Explore" }]);
   const second = read();
   expect(second).not.toBe(first);

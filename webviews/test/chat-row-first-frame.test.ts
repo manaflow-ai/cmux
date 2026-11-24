@@ -25,6 +25,7 @@ import {
   stopFirstFrameRects,
 } from "./support/firstFrameRects";
 import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
+import { SUBAGENT_STARTED } from "../src/agent-session/acpmux/subagents/subagentRows";
 
 await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -191,7 +192,11 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
     expect(outsideLiveLine(report)).toEqual([]);
   });
 
-  test("agents started one after another never move the ones already shown", async () => {
+  // A turn has one start line (runningTray.ts `withSubagentLines`, cmux#51238; Leo, 2026-11-22: fifteen
+  // "started working" lines filled the screen), so an agent the turn starts later joins that line and
+  // redraws it: two names, then three as icons and a count (startedLineCrowd.experiment.ts). That is
+  // the line's design, so the test logs what moves on the start line and holds every other row.
+  test("agents started one after another move no row but the turn's start line", async () => {
     const names = [NAME, "Audit chat row renderings", "Prepush gate cost and offload"];
     const lines: string[] = [];
     for (const width of [900, 520]) {
@@ -205,7 +210,11 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
         ],
         width,
       );
-      lines.push(...outsideLiveLine(report));
+      const startLine = report.shifts.filter((shift) => shift.row.startsWith(SUBAGENT_STARTED));
+      console.log(`first-frame three-agents-${width} start line: ${JSON.stringify(shiftTotals({ ...report, shifts: startLine }))}`);
+      lines.push(
+        ...outsideLiveLine({ ...report, shifts: report.shifts.filter((shift) => !shift.row.startsWith(SUBAGENT_STARTED)) }),
+      );
     }
     expect(lines).toEqual([]);
   });

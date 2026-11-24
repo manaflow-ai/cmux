@@ -20,16 +20,22 @@
 //!    over, and so is one whose free disk, less what the move writes, is under its registry
 //!    floor (`placement::disk_floor`), unless every host that answers is: then the one with
 //!    the most free takes it with a warning. Each host passed over is printed with why. Chats
-//!    in one checkout go to one host.
+//!    in one checkout go to one host. A named machine no ssh peer names but the team hub lists
+//!    as one of the person's moves through the hub instead (`session_move_hub.rs`).
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
-//!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
+//!    while the rest is made; any step below that fails gives it back (`transfer_abort`). When
+//!    both daemons list pre-copy, its history is staged on the target first, with no freeze, and
+//!    the freeze moves only what followed (`transfer::precopy`, `hub/transfer_precopy.rs`).
 //! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
 //!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
 //!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`).
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
+//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
+//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
 //!    (`ssh_forward.rs`): the bundle is paged across, imported there in its new folder, then
@@ -39,6 +45,7 @@
 //!    moved chat never runs here again (`hub/lifecycle.rs`), so there is one writer. `resolve`
 //!    and agent links follow it (`hub/locate.rs`).
 
+use super::move_end::{MoveEnd, Reach};
 use super::*;
 use crate::cli::session_move_carry::{self as carry, Carry};
 use crate::cli::session_move_plan::{self as plan, Checkout, Folder};
@@ -52,8 +59,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
+#[path = "session_move_hub.rs"]
+mod hub;
+
 #[path = "session_move_preflight.rs"]
 mod preflight;
+#[path = "session_move_snapshot.rs"]
+pub(crate) mod snapshot;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -104,15 +116,17 @@ async fn begin_waiting(
     name: &str,
     watch: Option<Value>,
     args: &MoveArgs,
+    staged: Option<&super::transfer::Staged>,
 ) -> Result<super::transfer::Begun> {
     // Neither flag: a running turn moves with the chat, between its tool calls.
     if !args.interrupt && !args.after_turn {
-        let live = super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT);
+        let live =
+            super::transfer::begin_move_live(src, id, watch, super::transfer::TOOL_WAIT, staged);
         return waiting(name, "freezing the chat for its move", live).await;
     }
     let running = (args.interrupt, args.after_turn);
     let bound = args.after_turn.then_some(args.turn_timeout);
-    let begin = super::transfer::begin_move(src, id, watch, running, bound);
+    let begin = super::transfer::begin_move(src, id, watch, running, bound, staged);
     let Some(bound) = bound else {
         return waiting(name, "freezing the chat for its move", begin).await;
     };
@@ -142,13 +156,15 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat as a
-/// reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
+/// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat `id` as
+/// a reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
 /// (`peerState` connected or degraded, as `ls` reads it, `cli/ls_table.rs`). `Err`: why not yet.
-fn arrived(reply: &Value) -> Result<(), String> {
+fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     let rows = reply.get("rows").and_then(Value::as_array).into_iter().flatten();
     let mut why = "not listed here yet".to_owned();
-    for row in rows.filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
+    for row in rows
+        .filter(|r| r.get("sessionId").and_then(Value::as_str).is_none_or(|s| s == id))
+        .filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
     {
         let state = row.get("peerState").and_then(Value::as_str);
         if row.get("stale").and_then(Value::as_bool) == Some(true) {
@@ -162,29 +178,66 @@ fn arrived(reply: &Value) -> Result<(), String> {
     Err(why)
 }
 
-/// Waits, at most `bound`, asking every `poll`, until `src` lists the moved chat `there` as
-/// reachable on its new machine (`arrived`): a move that ends before then leaves `ls` showing
-/// it unknown, its peer reconnecting, though it runs there. `Err`: why it is not, at the bound.
+/// Waits, at most `bound`, asking every `poll` (one request for all still waited on), until
+/// `src` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
+/// that ends before then leaves `ls` showing it unknown, its peer reconnecting, though it runs
+/// there. One wait for all the chats of a move, not one per chat. Returns the ids not listed by
+/// the bound, each with why.
 async fn await_arrival(
     src: &Client,
-    there: &str,
+    there: &[String],
     bound: std::time::Duration,
     poll: std::time::Duration,
-) -> Result<(), String> {
+) -> Vec<(String, String)> {
     let deadline = tokio::time::Instant::now() + bound;
-    let params = json!({"sessionIds": [there], "row": true});
+    let mut left: Vec<String> = there.to_vec();
     loop {
-        let why = match src.request(method::MUX_INFO, params.clone()).await {
-            Ok(reply) => match arrived(&reply) {
-                Ok(()) => return Ok(()),
-                Err(why) => why,
-            },
-            Err(e) => format!("{e:#}"),
-        };
-        if tokio::time::Instant::now() + poll > deadline {
-            return Err(why);
+        let params = json!({"sessionIds": left, "row": true});
+        let reply = src.request(method::MUX_INFO, params).await.map_err(|e| format!("{e:#}"));
+        let mut why = Vec::new();
+        for id in &left {
+            let w = match &reply {
+                Ok(r) => arrived(r, id).err(),
+                Err(e) => Some(e.clone()),
+            };
+            if let Some(w) = w {
+                why.push((id.clone(), w));
+            }
         }
+        if why.is_empty() || tokio::time::Instant::now() + poll > deadline {
+            return why;
+        }
+        left = why.into_iter().map(|(id, _)| id).collect();
         tokio::time::sleep(poll).await;
+    }
+}
+
+/// After the moves: done only once this machine lists each moved chat where it went,
+/// reachable, else `ls` right after shows it unknown, its peer reconnecting (item D). One wait
+/// for them all; a chat still not listed at the bound is named, and still moved.
+async fn settle_arrivals(src: &Client, outcomes: &[Outcome]) {
+    let moved: Vec<&Outcome> = outcomes.iter().filter(|o| o.moved && o.there.is_some()).collect();
+    if moved.is_empty() {
+        return;
+    }
+    let there: Vec<String> = moved.iter().filter_map(|o| o.there.clone()).collect();
+    let who = match moved.as_slice() {
+        [one] => one.name.clone(),
+        many => format!("{} chats", many.len()),
+    };
+    let step = "waiting until this machine lists it reachable where it went";
+    let late = waiting(&who, step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+    for (id, why) in late {
+        let Some(o) = moved.iter().find(|o| o.there.as_deref() == Some(id.as_str())) else {
+            continue;
+        };
+        eprintln!(
+            "move: {}: moved to {}, but this machine does not list it reachable there after {}s \
+             ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+            o.name,
+            o.host.as_deref().unwrap_or("?"),
+            ARRIVAL_WAIT.as_secs()
+        );
     }
 }
 
@@ -211,6 +264,9 @@ pub(crate) struct MoveArgs {
     /// to reach the other: a Mac mini and a cloud VM that only this laptop reaches still trade
     /// chats, and `--machine local` brings one back here.
     pub from: Option<String>,
+    /// `--from-snapshot`: the chats start on the target from this machine's copy of them
+    /// (`session_move_snapshot.rs`), for a machine that does not answer.
+    pub from_snapshot: bool,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -218,7 +274,12 @@ pub(crate) struct MoveArgs {
 #[derive(Clone, Debug)]
 pub(crate) enum Source {
     Here,
-    Peer { name: String, ssh: String },
+    /// `socket`: its daemon's socket there, as a move reaches it again (`move_end.rs`).
+    Peer {
+        name: String,
+        ssh: String,
+        socket: String,
+    },
 }
 
 impl Source {
@@ -226,6 +287,18 @@ impl Source {
         match self {
             Source::Here => None,
             Source::Peer { ssh, .. } => Some(ssh),
+        }
+    }
+
+    /// How a move reaches the chats' daemon again when its connection drops.
+    fn reach(&self) -> Option<Reach> {
+        match self {
+            Source::Here => std::path::absolute(crate::config::socket_path())
+                .ok()
+                .map(|path| Reach::Socket { path }),
+            Source::Peer { ssh, socket, .. } => {
+                Some(Reach::Ssh { host: ssh.clone(), socket: socket.clone() })
+            }
         }
     }
 }
@@ -274,7 +347,12 @@ impl Outcome {
 }
 
 pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
+    if args.from_snapshot {
+        return snapshot::run(args, json_out).await;
+    }
     let local = connect(true).await?;
+    // A move from this machine whose client went away is ended first (`move_end.rs`).
+    super::move_end::reclaim_dead_moves(&super::move_end::journal_dir()).await;
     let peers = local.request("_acpmux/peers", json!({})).await?;
     let here = crate::pairing::machine_name();
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
@@ -301,13 +379,21 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .await??;
             let forward = Forward::open(&ssh, &about.socket).await?;
             let client = Client::connect(&forward.local).await?;
-            let source = Source::Peer { name: from.clone(), ssh };
+            let source = Source::Peer { name: from.clone(), ssh, socket: about.socket.clone() };
             (client, source, PathBuf::from(&about.home), Some(forward))
         }
     };
     let ids = if args.all_idle { idle_chats(&src).await? } else { args.sessions.clone() };
     if ids.is_empty() {
         bail!("no chat to move: name one or more, or pass --all-idle");
+    }
+    // A machine no ssh peer names, that the team hub lists as one of the person's: the move goes
+    // through the hub, the target pulling it (`session_move_hub.rs`).
+    if matches!(source, Source::Here)
+        && args.host != "auto"
+        && peer_ssh(&peers, &args.host).is_none()
+    {
+        return hub::run(&src, &ids, &args, &home, json_out).await;
     }
     let here_target = match &source {
         Source::Peer { .. } if names_here(&args.host, &here) => {
@@ -326,6 +412,9 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         }
         outcomes.push(outcome);
     }
+    if !args.dry_run {
+        settle_arrivals(&src, &outcomes).await;
+    }
     let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
     if json_out {
         let rows: Vec<Value> = outcomes
@@ -340,21 +429,41 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         print_json(&json!({"moves": rows, "failed": failed}));
     }
     match not_moved(&outcomes) {
-        Some(why) => bail!("{why}"),
+        Some(e) => Err(e.into()),
         None => Ok(()),
     }
 }
 
-/// The run's error when a chat did not move: how many, and each one's own reason (a caller
-/// that reads only the error, as `--json`'s does, still learns why).
-fn not_moved(outcomes: &[Outcome]) -> Option<String> {
-    let why: Vec<String> = outcomes
+/// The error a move ends with when any chat did not move: each such chat and why, in its message
+/// (text output) and as `data.failed` (`--json`'s error envelope), so a caller that reads only the
+/// last line still learns the reason. A move once ended with only "1 of 1 chats did not move".
+fn not_moved(outcomes: &[Outcome]) -> Option<crate::cli::errors::AppError> {
+    let failed: Vec<&Outcome> = outcomes.iter().filter(|o| o.error.is_some()).collect();
+    if failed.is_empty() {
+        return None;
+    }
+    let reasons: Vec<String> = failed
         .iter()
-        .filter_map(|o| o.error.as_ref().map(|e| format!("{} ({}): {e}", o.name, o.session)))
+        .map(|o| format!("{} ({}): {}", o.name, o.session, o.error.as_deref().unwrap_or("")))
         .collect();
-    (!why.is_empty()).then(|| {
-        format!("{} of {} chats did not move: {}", why.len(), outcomes.len(), why.join("; "))
-    })
+    let rows: Vec<Value> = failed
+        .iter()
+        .map(|o| {
+            json!({"session": o.session, "name": o.name, "host": o.host,
+                   "reason": o.error, "errorCode": o.error_code})
+        })
+        .collect();
+    let message = format!(
+        "{} of {} chats did not move: {}",
+        failed.len(),
+        outcomes.len(),
+        reasons.join("; ")
+    );
+    let code = crate::cli::errors::Code::Runtime;
+    Some(
+        crate::cli::errors::AppError::new(code, "not_moved", message)
+            .with_data(json!({"failed": rows})),
+    )
 }
 
 fn print_outcome(o: &Outcome, dry_run: bool) {
@@ -396,6 +505,13 @@ pub(crate) struct MovedOff {
 /// same steps and pick as `session move ID --host auto`. `Err`: it did not move, and why (no peer
 /// has room, a refusal, a failed step given back); the chat is here as it was.
 pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<MovedOff> {
+    move_auto(src, id, true).await
+}
+
+/// The idle chat `id` moved off this machine as `session move ID --host auto` moves it, with no
+/// one asking: the daemon's automatic evacuation (`hub/auto_evacuate.rs`) calls this with
+/// `resume_there` false. `Err`: it did not move, and why; the chat is here as it was.
+pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Result<MovedOff> {
     let args = MoveArgs {
         sessions: vec![id.to_owned()],
         host: "auto".into(),
@@ -407,13 +523,15 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         carry_changes: false,
         cwd: None,
         dry_run: false,
-        resume_there: true,
+        resume_there,
         from: None,
+        from_snapshot: false,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
     let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
     let o = move_one(src, id, &args, &home, &mut targets).await;
+    settle_arrivals(src, std::slice::from_ref(&o)).await;
     if let Some(e) = o.error {
         bail!("{e}");
     }
@@ -569,6 +687,10 @@ async fn move_steps(
                  never pushed; the commit goes under {SNAPSHOT_REFS}, outside refs/heads)",
                 sub_text(subdir)
             ),
+            Folder::Bundle { top, branch, subdir, .. } => format!(
+                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
+                sub_text(subdir)
+            ),
         });
         return Ok(());
     }
@@ -584,14 +706,34 @@ async fn move_steps(
         Source::Peer { .. } => None,
     };
     let name = o.name.clone();
-    let begun = begin_waiting(src, &id, &name, watch, args).await?;
+    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // daemons can (`transfer::precopy`), so the freeze moves only what follows.
+    let (forward, dst, dst_init) = waiting(
+        &name,
+        "connecting to the target",
+        super::transfer::connect_target(&target.ssh, &remote.socket),
+    )
+    .await?;
+    let staged = waiting(
+        &name,
+        "copying its history to the target",
+        super::transfer::precopy(src, &dst, &dst_init, &id),
+    )
+    .await;
+    let begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await {
+        // The log changed under the prefix (a compaction): given back, and moved in full.
+        Err(e) if super::transfer::refused_diverged(&e) => {
+            begin_waiting(src, &id, &name, watch, args, None).await?
+        }
+        begun => begun?,
+    };
     let prepared = waiting(
         &name,
         "making its folder on the target",
         prepare(&cwd, &home, &target, &remote, args, source, o),
     )
     .await;
-    let (record, forward, dst, dst_init) = match prepared {
+    let record = match prepared {
         Ok(p) => p,
         Err(e) => {
             super::transfer::abort_move(src, &id, &begun).await;
@@ -599,40 +741,51 @@ async fn move_steps(
         }
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
-    let moved = waiting(
+    let dst_reach = if target.ssh.is_empty() {
+        Reach::Socket { path: PathBuf::from(&remote.socket) }
+    } else {
+        Reach::Ssh { host: target.ssh.clone(), socket: remote.socket.clone() }
+    };
+    let mut src_end = MoveEnd::new("source", src, source.reach());
+    let mut dst_end = MoveEnd::new("target", &dst, Some(dst_reach));
+    let finished = waiting(
         &name,
         "copying the chat to the target",
-        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record),
+        super::transfer::finish_move(
+            &mut src_end,
+            &mut dst_end,
+            &dst_init,
+            &id,
+            &begun,
+            there,
+            None,
+            record,
+        ),
     )
-    .await?;
+    .await;
+    src_end.close().await;
+    let moved = match finished {
+        Ok(moved) => moved,
+        Err(e) => {
+            dst_end.close().await;
+            return Err(e);
+        }
+    };
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-    // Done only once this machine lists it where it went, reachable: else `ls` right after
-    // shows the chat unknown, its peer reconnecting (item D).
-    if let Some(there) = o.there.clone() {
-        let step = format!("waiting until this machine lists it reachable on {}", target.name);
-        let listed =
-            waiting(&name, &step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
-        if let Err(why) = listed {
-            eprintln!(
-                "move: {name}: moved to {}, but this machine does not list it reachable there \
-                 after {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
-                target.name,
-                ARRIVAL_WAIT.as_secs()
-            );
-        }
-    }
     if args.resume_there
         && let Some(there) = o.there.clone()
     {
         // Moved whatever this says: a failed resume leaves the chat there with its queue held.
+        let dst = dst_end.client();
         let resumed = match dst.request(method::MUX_INFO, json!({"sessionId": there})).await {
-            Ok(info) => super::extra::resume_held(&dst, &there, &info).await,
+            Ok(info) => super::extra::resume_held(dst, &there, &info).await,
             Err(e) => Err(e),
         };
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
+    dst_end.close().await;
     if let Some(forward) = forward {
         forward.close().await;
     }
@@ -642,10 +795,9 @@ async fn move_steps(
     Ok(())
 }
 
-/// The frozen chat's folder made on the target, and a client of the target's daemon: the
-/// checkout read again (it may have changed before the freeze), its branch pushed, the folder
-/// made there. Returns the move's record (`movedTo`), the forward, the client, and the
-/// receiving daemon's own `initialize` reply on it (`transfer::receiver_takes`).
+/// The frozen chat's folder made on the target: the checkout read again (it may have changed
+/// before the freeze), its branch pushed, the folder made there. Returns the move's record
+/// (`movedTo`).
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -654,7 +806,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<(Value, Option<Forward>, std::sync::Arc<Client>, Value)> {
+) -> Result<Value> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -668,6 +820,23 @@ async fn prepare(
     let mut record = json!({"host": target.name});
     let mut carry = None;
     let mut at = None;
+    let mut bundle = None;
+    // The commit the target's folder is made at, whether the folder has uncommitted work, and
+    // its checkout's top folder on the source.
+    let mut base: Option<(String, bool, PathBuf)> = None;
+    if let (Folder::Bundle { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
+        // No origin: the repository goes itself, read after the freeze.
+        let read = tokio::task::spawn_blocking({
+            let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
+            move || read_bundle(ssh.as_deref(), &top)
+        })
+        .await??;
+        record.set("branch", json!(branch));
+        record.set("commit", json!(read.0));
+        record.set("bundled", json!(true));
+        base = Some((read.0.clone(), *dirty, c.top.clone()));
+        bundle = Some(read);
+    }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
         // of this move's own, and the target checks that commit out detached.
@@ -687,10 +856,13 @@ async fn prepare(
             record.set("detached", json!(true));
             at = Some((dest, commit.clone(), c.top.clone()));
         }
-        if *dirty && args.carry_changes {
+        base = Some((commit, *dirty, c.top.clone()));
+    }
+    if let Some((commit, dirty, top)) = base {
+        if dirty && args.carry_changes {
             // Read after the freeze and the push: what the agent left, against what was pushed.
             let read = tokio::task::spawn_blocking({
-                let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
+                let (top, ssh) = (top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
                     None => carry::snapshot(&|script, input| run_here(script, input), &top, true),
                     Some(ssh) => carry::snapshot(
@@ -711,7 +883,7 @@ async fn prepare(
             record.set("uncommittedCarried", read.record());
             o.carried = Some(read.record());
             carry = Some(read);
-        } else if *dirty {
+        } else if dirty {
             let left_on = match source {
                 Source::Here => crate::pairing::machine_name(),
                 Source::Peer { name, .. } => name.clone(),
@@ -722,7 +894,14 @@ async fn prepare(
     let there = tokio::task::spawn_blocking({
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
-        move || prepare_folder(&host, &folder, pin.as_ref().map(|(r, c)| (r.as_str(), c.as_str())))
+        move || match (&folder, bundle) {
+            (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
+                unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
+            }
+            _ => {
+                prepare_folder(&host, &folder, pin.as_ref().map(|(r, c)| (r.as_str(), c.as_str())))
+            }
+        }
     })
     .await;
     if let Some((dest, _, top)) = at {
@@ -744,21 +923,7 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    // This machine as the target (`--machine local`): its own daemon, no forward.
-    let (forward, dst) = if target.ssh.is_empty() {
-        (None, Client::connect(Path::new(&remote.socket)).await?)
-    } else {
-        let forward = Forward::open(&target.ssh, &remote.socket).await?;
-        let dst = Client::connect(&forward.local).await?;
-        (Some(forward), dst)
-    };
-    let dst_init = dst
-        .request(
-            method::INITIALIZE,
-            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-        )
-        .await?;
-    Ok((record, forward, dst, dst_init))
+    Ok(record)
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
@@ -917,6 +1082,109 @@ fn apply_carry(host: &str, there: &str, carry: &Carry) -> Result<()> {
     Ok(())
 }
 
+/// The fixed script that bundles a checkout with no `origin` on the machine it is on: its top
+/// folder on stdin; prints its HEAD, then a `git bundle` of every branch and tag in base64. The
+/// checkout's refs, index and working tree never change.
+pub(crate) const BUNDLE_SCRIPT: &str = r#"read -r top || exit 2
+cd -- "$top" || exit 2
+git rev-parse --verify -q HEAD || { echo "it has no commit to carry" >&2; exit 3; }
+s=$(mktemp -d) || exit 2
+trap 'rm -rf -- "$s"' EXIT
+git bundle create "$s/b" --branches --tags 2>"$s/err" || { cat -- "$s/err" >&2; exit 3; }
+base64 <"$s/b" | tr -d '\n'
+echo"#;
+
+/// The fixed script that makes a bundled checkout on the target: its top folder, branch, the
+/// commit it is at and the chat's subfolder on four lines of stdin, then the bundle's bytes. A
+/// fresh repository of its own, no remote: into the folder when it is missing or empty, else a
+/// new one beside it (never into anything already there). Prints the chat's folder.
+pub(crate) const UNBUNDLE_SCRIPT: &str = r#"read -r d || exit 2; read -r branch || exit 2; read -r at || exit 2; read -r sub
+case "$d" in /*) ;; *) exit 2;; esac
+case "$branch" in ""|-*) exit 2;; esac
+if [ -e "$d" ] && [ -n "$(ls -A -- "$d" 2>/dev/null)" ]; then
+  d=$(mktemp -d "$d.moved.XXXXXX") || exit 1
+else
+  mkdir -p -- "$d" || exit 1
+fi
+b=$(mktemp) || exit 1
+trap 'rm -f -- "$b"' EXIT
+cat >"$b" || exit 1
+git init -q -- "$d" >/dev/null || exit 1
+git -C "$d" symbolic-ref HEAD "refs/heads/$branch" || exit 1
+git -C "$d" fetch -q --update-head-ok "$b" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || exit 1
+git -C "$d" reset -q --hard || exit 1
+head=$(git -C "$d" rev-parse HEAD) || exit 1
+if [ "$head" != "$at" ]; then echo "the new repository is at $head, not $at" >&2; exit 4; fi
+if [ -n "$sub" ]; then mkdir -p -- "$d/$sub" || exit 1; fi
+cd -- "$d/$sub" && pwd -P"#;
+
+/// [`BUNDLE_SCRIPT`] on the source (this machine, or the ssh host `ssh`): the checkout's HEAD
+/// and the bundle's bytes.
+fn read_bundle(ssh: Option<&str>, top: &Path) -> Result<(String, Vec<u8>)> {
+    let input = format!("{}\n", top.display());
+    let out = match ssh {
+        None => run_here(BUNDLE_SCRIPT, input.as_bytes())?,
+        Some(ssh) => crate::cli::hosts::Remote::exec(
+            &crate::cli::hosts::SshRemote(ssh),
+            BUNDLE_SCRIPT,
+            Some(input.as_bytes()),
+        )?,
+    };
+    parse_bundle(&out).with_context(|| format!("bundling {} (it has no origin)", top.display()))
+}
+
+/// [`BUNDLE_SCRIPT`]'s answer: HEAD, then the bundle in base64.
+fn parse_bundle(out: &crate::cli::hosts::RemoteOut) -> Result<(String, Vec<u8>)> {
+    use base64::Engine as _;
+    if !out.ok {
+        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        bail!("{last}");
+    }
+    let mut lines = out.stdout.lines();
+    let head = lines.next().unwrap_or_default().trim().to_owned();
+    if head.len() < 40 || !head.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("it answered no HEAD commit");
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(lines.next().unwrap_or_default().trim())?;
+    if bytes.is_empty() {
+        bail!("it answered an empty bundle");
+    }
+    Ok((head, bytes))
+}
+
+/// Makes the bundled checkout `top` on `branch` at `commit` on the ssh host `host` (this machine
+/// when empty) through [`UNBUNDLE_SCRIPT`]; returns the chat's folder there (`subdir` inside).
+fn unbundle_folder(
+    host: &str,
+    top: &str,
+    branch: &str,
+    subdir: &str,
+    commit: &str,
+    bundle: &[u8],
+) -> Result<String> {
+    let mut input = format!("{top}\n{branch}\n{commit}\n{subdir}\n").into_bytes();
+    input.extend_from_slice(bundle);
+    let out = if host.is_empty() {
+        run_here(UNBUNDLE_SCRIPT, &input)?
+    } else {
+        crate::cli::hosts::Remote::exec(
+            &crate::cli::hosts::SshRemote(host),
+            UNBUNDLE_SCRIPT,
+            Some(&input),
+        )?
+    };
+    let host = if host.is_empty() { "this machine" } else { host };
+    if !out.ok {
+        return Err(folder_failure(host, &out));
+    }
+    let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
+    if !(path.starts_with('/') && crate::cli::hosts::plain_path(&path)) {
+        bail!("{host} answered no plain folder path for the chat");
+    }
+    Ok(path)
+}
+
 /// This machine's daemon as a target (`--machine local`): its home and local socket.
 fn local_daemon() -> Result<RemoteDaemon> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
@@ -1029,6 +1297,8 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
 /// The fixed script that makes a chat's folder on the target and prints its real path. Its
 /// values come on stdin, one per line, never in the script.
 const PLAIN_SCRIPT: &str = r#"read -r d || exit 2; mkdir -p -- "$d" && cd -- "$d" && pwd -P"#;
+/// What the folder scripts write on stderr for the person to read: shown even when they succeed.
+pub(crate) const FOLDER_NOTE: &str = "acpmux move: ";
 /// With a `ref` and `at` line (a snapshot of a shared branch), a detached checkout of the commit
 /// `at`, fetched from origin's `ref`; never a checkout of the branch itself.
 pub(crate) const WORKTREE_SCRIPT: &str = r#"read -r repo; read -r branch; read -r url; read -r sub
@@ -1036,10 +1306,17 @@ read -r ref || true; read -r at || true
 PATH="$HOME/.local/bin:$PATH"
 dir=
 if [ -n "$at" ]; then
+  short=$(printf '%.12s' "$at")
   if command -v wt >/dev/null 2>&1; then
-    out=$(wt new "$repo" --at "$at" --name "move-$(printf '%.12s' "$at")") && dir=$(printf '%s\n' "$out" | tail -n 1)
+    out=$(wt new "$repo" --at "$at" --name "move-$short" 2>/dev/null) && dir=$(printf '%s\n' "$out" | tail -n 1)
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+      dir=
+      echo "acpmux move: wt new --at $short failed (wt's mirror has no commit that is on no branch); cloning $url and fetching $ref instead" >&2
+    fi
+  else
+    echo "acpmux move: no wt on PATH; cloning $url and fetching $ref instead" >&2
   fi
-  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+  if [ -z "$dir" ]; then
     base="$HOME/Projects/checkouts/$(printf '%s' "$repo" | tr / -)"
     mkdir -p -- "$base" || exit 1
     dir=$(mktemp -d "$base/move-$(printf '%.12s' "$at").XXXXXX") || exit 1
@@ -1072,6 +1349,8 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
             let pin = at.map_or_else(String::new, |(r, c)| format!("{r}\n{c}\n"));
             (WORKTREE_SCRIPT, format!("{repo}\n{branch}\n{url}\n{subdir}\n{pin}"))
         }
+        // Its bundle comes with it: `unbundle_folder` makes it.
+        Folder::Bundle { top, .. } => bail!("{top} is made from its bundle, which was not read"),
     };
     let out = if host.is_empty() {
         run_here(script, input.as_bytes())?
@@ -1086,11 +1365,20 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
     if !out.ok {
         return Err(folder_failure(host, &out));
     }
+    for note in out.stderr.lines().filter_map(|l| l.strip_prefix(FOLDER_NOTE)) {
+        eprintln!("move: {host}: {}", note.trim());
+    }
     let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
     if !(path.starts_with('/') && crate::cli::hosts::plain_path(&path)) {
         bail!("{host} answered no plain folder path for the chat");
     }
     Ok(path)
+}
+
+/// Makes `folder` on this machine (the target of a hub move, `hub/transfer_pull.rs`) as a move
+/// over ssh makes it there, and returns its path.
+pub(crate) fn prepare_folder_here(folder: &Folder) -> Result<String> {
+    prepare_folder("", folder, None)
 }
 
 /// Explain a remote folder command failure without dropping the only useful diagnostic. SSH
@@ -1223,7 +1511,7 @@ impl Targets {
 
     /// The source cannot also be a destination, including saved aliases for its SSH endpoint.
     fn exclude_source(&mut self, source: &Source, registry: Option<&Value>) -> Result<()> {
-        let Source::Peer { name, ssh } = source else { return Ok(()) };
+        let Source::Peer { name, ssh, .. } = source else { return Ok(()) };
         let identity = crate::placement::move_targets::identity;
         let source_id = identity(registry, name);
         let is_source = |peer: &str, endpoint: &str| {

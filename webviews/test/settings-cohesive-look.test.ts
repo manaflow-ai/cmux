@@ -6,7 +6,9 @@
 //   the window sidebar's fill (none by default: the app's sidebar is the window's color; Lucas
 //   2026-11-12, after Lawrence); the content is a panel beside it with rounded left corners and no line
 //   between them, only the two fills, as the window's main pane beside the app sidebar (Lucas 2026-11-12);
-// - the sidebar opens with the page's title ("Settings") above the search field;
+// - the sidebar has no title (Lawrence 2026-11-23: "remove settings header, align things better like
+//   the search input with the h1"): the search field opens it, its middle on the page title's middle,
+//   its box on the row pills' edge, its magnifier on the row icons' column, its text on the row names;
 // - the content is one centered column of at most 680 px;
 // - a row's description wraps at about 60% of the card, leaving the right side to the control.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -102,10 +104,27 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
             parseFloat(getComputedStyle(sidebar.parentElement!, "::before").left) -
               sidebar.getBoundingClientRect().width,
           ) <= 0.5,
-        title: sidebar.querySelector<HTMLElement>(".sidebar-title")?.textContent?.trim() ?? null,
-        titleAboveSearch:
-          (sidebar.querySelector(".sidebar-title")?.getBoundingClientRect().bottom ?? Infinity) <=
-          sidebar.querySelector(".search-bar")!.getBoundingClientRect().top,
+        sidebarHeadings: sidebar.querySelectorAll("h1, h2").length,
+        sidebarNotices: sidebar.querySelectorAll("[data-doctor-notice]").length,
+        ...(() => {
+          const box = (element: Element | null) => element!.getBoundingClientRect();
+          const middle = (rect: DOMRect) => rect.top + rect.height / 2;
+          const center = (rect: DOMRect) => rect.left + rect.width / 2;
+          const field = box(sidebar.querySelector(".search-input"));
+          const glass = box(sidebar.querySelector(".search .icon"));
+          const link = sidebar.querySelector(".section-link[data-section-link]")!;
+          const pill = box(link.querySelector(".section-link-content"));
+          const icon = box(link.querySelector(".section-icon"));
+          const name = link.querySelector<HTMLElement>(".section-name")!;
+          const input = sidebar.querySelector<HTMLInputElement>(".search-input")!;
+          const textStart = field.left + parseFloat(getComputedStyle(input).paddingLeft);
+          return {
+            searchOnTitle: Math.round(Math.abs(middle(field) - middle(box(content.querySelector(".section-title"))))),
+            searchOnPill: Math.round(Math.abs(field.left - pill.left)),
+            glassOnIcon: Math.round(Math.abs(center(glass) - center(icon))),
+            textOnName: Math.round(Math.abs(textStart - box(name).left)),
+          };
+        })(),
         columnWidth: Math.round(columnBox.width),
         leftGap: Math.round(columnBox.left - contentBox.left),
         rightGap: Math.round(contentBox.left + contentInner - columnBox.right),
@@ -115,7 +134,7 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
 
   for (const [name, engine] of engines) {
     describe(name, () => {
-      test("Settings is one surface with a titled sidebar and a centered 680 px column", async () => {
+      test("Settings is one surface with an untitled, aligned sidebar and a centered 680 px column", async () => {
         const browser = await engine.launch({ headless: true });
         try {
           const page = await browser.newPage({ viewport: { width: 1300, height: 900 } });
@@ -130,8 +149,12 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
             expect(look.panelEdge).toBe(0);
             expect(look.panelCorner).toBeGreaterThan(0);
             expect(look.panelOnSidebarEdge).toBe(true);
-            expect(look.title).toBe("Settings");
-            expect(look.titleAboveSearch).toBe(true);
+            expect(look.sidebarHeadings).toBe(0);
+            expect(look.sidebarNotices).toBe(0);
+            expect({ section, searchOnTitle: look.searchOnTitle }).toEqual({ section, searchOnTitle: 0 });
+            expect(look.searchOnPill).toBe(0);
+            expect(look.glassOnIcon).toBe(0);
+            expect(look.textOnName).toBeLessThanOrEqual(1);
             expect(look.columnWidth).toBeLessThanOrEqual(680);
             expect(Math.abs(look.leftGap - look.rightGap)).toBeLessThanOrEqual(2);
             expect(look.wideHelps).toEqual([]);

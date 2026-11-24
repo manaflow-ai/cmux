@@ -69,6 +69,9 @@ export type Choice = {
   description?: string;
   icon?: React.ReactNode;
   hint?: string;
+  /// The verb Return carries out on this row, drawn beside the Return keycap when the row is
+  /// highlighted in a Picker with `returnHint` (the composer's +).
+  verb?: string;
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
 };
