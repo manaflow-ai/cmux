@@ -245,10 +245,14 @@ export async function awaitPaused(
   }
 }
 
-/** The send arm sent a prompt and no turn came, with the machine still paused: nothing woke it. */
-export function sendWokeNothing(turnOk: boolean, statusAfter: string): string | null {
-  if (turnOk || statusAfter !== "paused") return null;
-  return "the prompt did not wake the machine: it still reads paused (a person's pause is never woken by a carrier ask or a prompt, cmux-platform CloudDO PERSON_PAUSED; the app's Resume is cloud.machine.start)";
+/**
+ * What a lost prompt looked like from the client and the guest, so the verdict says where it was lost: the prompt's ack,
+ * the first reply record, whether the guest's ticker saw a freeze across the event (null: it did not), and the platform's
+ * status. Run 45373442557 send #0: ack 76 ms, reply record 147 ms, no freeze seen, no turn in the session's history.
+ */
+export function lostPromptFacts(f: { ack_ms: number | null; first_byte_ms: number | null; running_ms: number | null; status: string }): string {
+  const ms = (x: number | null) => (x === null ? "none" : `${x} ms`);
+  return `prompt ack ${ms(f.ack_ms)}, reply record ${ms(f.first_byte_ms)}, guest ${f.running_ms === null ? "showed no freeze across the event" : `ran again ${f.running_ms} ms after it`}, platform read ${f.status}`;
 }
 
 /** One exec after a wake: the guest's clock now, the ticker's gaps and the journal's relay and resume lines since `sinceS`. */
@@ -500,11 +504,11 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             s.agent_same_process = before && after ? before.length > 0 && before.join(",") === after.join(",") : null;
             const outcome = s.first_byte_ms === null && s.cause === "attach" ? { ok: false, text: "not sent" } : await turnOutcome(ctx, marker, chat.session);
             if (!outcome.ok) s.turn = outcome.text;
-            if (arm === "send" && deps.status) {
-              const woke = sendWokeNothing(outcome.ok, await deps.status().catch(() => "unread"));
-              if (woke) { s.error = woke; s.cause = "unavailable"; }
+            if (arm === "send" && !outcome.ok) {
+              const st = deps.status ? await deps.status().catch(() => "unread") : "unread";
+              s.turn = `${outcome.text}: ${lostPromptFacts({ ack_ms: s.ack_ms, first_byte_ms: s.first_byte_ms, running_ms: s.running_ms, status: st })}`;
             }
-            if (!outcome.ok && s.first_byte_ms !== null) { s.error ||= `turn: ${outcome.text}`; s.cause ??= "turn"; }
+            if (!outcome.ok && s.first_byte_ms !== null) { s.error ||= `turn: ${s.turn ?? outcome.text}`; s.cause ??= "turn"; }
             s.restored = s.agent_same_process === null ? null : s.agent_same_process && outcome.ok && s.first_byte_ms !== null;
             floor = await feltBoundary(ctx, chat.session, floor ?? chat.held, outcome.ok);
             if (arm === "direct" || arm === "send") await deps.platformSync();

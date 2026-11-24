@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderAdapter } from "./resume-slo-provider.ts";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, armUnavailable, awaitPaused, sendWokeNothing, RELAY_REGISTERED, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, awaitPaused, lostPromptFacts, RELAY_REGISTERED, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -281,12 +281,10 @@ describe("awaitPaused (the hold starts once the machine reads paused; run 453734
   });
 });
 
-describe("sendWokeNothing", () => {
-  test("a send turn that never ran on a machine still paused says nothing woke it", () => {
-    expect(sendWokeNothing(false, "paused")).toContain("did not wake the machine");
-    expect(sendWokeNothing(false, "running")).toBeNull();
-    expect(sendWokeNothing(true, "paused")).toBeNull();
-    expect(armUnavailable(sendWokeNothing(false, "paused")!)).toBe(false);
+describe("lostPromptFacts", () => {
+  test("says where the prompt got to: acked, replied, guest frozen or not, platform status", () => {
+    expect(lostPromptFacts({ ack_ms: 76, first_byte_ms: 147, running_ms: null, status: "paused" })).toBe("prompt ack 76 ms, reply record 147 ms, guest showed no freeze across the event, platform read paused");
+    expect(lostPromptFacts({ ack_ms: null, first_byte_ms: null, running_ms: 900, status: "running" })).toContain("ran again 900 ms after it");
   });
 });
 
