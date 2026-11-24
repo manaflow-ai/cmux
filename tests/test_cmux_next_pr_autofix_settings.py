@@ -281,6 +281,30 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
                 args = self.repair_args(doc, job, SETTINGS_EXPORTS, SHORTCUTS="true")
                 self.assertIn("--docs-shortcuts", args)
 
+    def test_a_setup_that_did_not_finish_leaves_its_repairs(self):
+        # The PR job bounds Setup Bun and the Rust toolchain (continue-on-error): a failed setup drops the repairs
+        # that run its tool and says so, and keeps the rest.
+        args = self.repair_args(PR, "repair", ("plans/cmux-next/action-surfaces.json", *SETTINGS_EXPORTS),
+                                ACTIONS="true", EXPORTS_VERIFIED="true", CLOUD="true", FMT="true",
+                                BUN_SETUP="failure", RUST_SETUP="failure")
+        self.assertIn("--generated", args)
+        self.assertNotIn("--docs-shortcuts", args)
+        self.assertNotIn("--app-host", args)
+        self.assertNotIn("--cloud-clients", args)
+        self.assertIn("--no-fmt", args)
+        args = self.repair_args(PR, "repair", SETTINGS_EXPORTS, SHORTCUTS="true", FMT="true",
+                                BUN_SETUP="success", RUST_SETUP="success")
+        self.assertIn("--docs-shortcuts", args)
+        self.assertNotIn("--no-fmt", args)
+
+    def test_setups_are_bounded_and_node_is_for_vp_fmt_only(self):
+        steps = {s.get("name"): s for s in PR["jobs"]["repair"]["steps"]}
+        for name in ("Setup Node", "Setup Bun", "Set up pinned cmux-tui Rust"):
+            with self.subTest(step=name):
+                self.assertTrue(steps[name].get("continue-on-error"))
+                self.assertLessEqual(int(steps[name]["timeout-minutes"]), 5)
+        self.assertNotIn("strings", steps["Setup Node"]["if"])
+
 
 class FleetBundleHandsBackEveryExport(unittest.TestCase):
     """2026-10-25: a lane ran regenerate-settings-exports.sh as a fleet step for #24923. A step returns one
