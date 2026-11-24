@@ -4,11 +4,6 @@
 //! window's keys in order and only the rows whose value changed, never the index again. Every store
 //! is a synthetic fixture in a temp home.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

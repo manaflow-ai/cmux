@@ -11,11 +11,6 @@
 //! Knobs: `COLD_RTT_MS` (default 50), `COLD_RUNS` (default 5), and `NO_EARLY` for the raw
 //! listener compatibility check. Prints `COLDCONNECT {json}`.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["COLD_RTT_MS", "COLD_RUNS", "NO_EARLY"]);
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

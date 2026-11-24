@@ -6,9 +6,7 @@
 //! such a home, through its socket.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(BENCH_VARS);
+use crate::daemon_env;
 /// The benchmarks' bounds, sizes and optional executable path, never credentials.
 /// The hermetic re-start keeps only these, so `env_or` refuses any other name.
 const BENCH_VARS: &[&str] = &[

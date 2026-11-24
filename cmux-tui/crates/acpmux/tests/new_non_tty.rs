@@ -2,9 +2,7 @@
 //! daemon and waiting for the full-screen TUI that has no terminal to draw on.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::fs;
 use std::io::{Read, Write};

@@ -11,10 +11,7 @@
 //! - (d) every refusal names the host to approve on and the preset to use.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

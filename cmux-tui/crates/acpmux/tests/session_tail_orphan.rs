@@ -11,14 +11,7 @@
 //! a before/after); `ACPMUX_TAIL_MEASURE_ONLY=1` prints the numbers without asserting.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The harness knobs reach the re-started test process (`daemon_env::enter` clears the rest).
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
-    "ACPMUX_TAIL_BIN",
-    "ACPMUX_TAIL_MEASURE_ONLY",
-    "ACPMUX_TAIL_LOG_MB",
-]);
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};

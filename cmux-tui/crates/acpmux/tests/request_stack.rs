@@ -13,14 +13,10 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
 mod request_stack {
     pub mod arms;
     pub mod arms_in_source;
 }
-// This process runs the stand-in agent (tests/fake_agent.py) in its hub.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

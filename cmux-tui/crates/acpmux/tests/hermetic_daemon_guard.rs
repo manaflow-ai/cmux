@@ -7,7 +7,8 @@
 //! `daemon_env::apply` instead.
 //!
 //! Every test process runs hermetic too (cx-s8wux.1): each test binary (a
-//! top-level file in `tests/`) includes `support/daemon_env.rs`, which
+//! top-level file in `tests/`; the modules of `acpmux_all.rs` share its root's)
+//! includes `support/daemon_env.rs`, which
 //! starts the process again with the hermetic environment before `main`, so a
 //! hub run in the test process never sees the host's PATH or HOME (cx-fylng).
 
@@ -115,11 +116,16 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
 #[test]
 fn every_test_binary_runs_in_the_hermetic_environment() {
     let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let shared = std::fs::read_to_string(tests.join("acpmux_all.rs")).unwrap();
     let mut missing = Vec::new();
     for entry in std::fs::read_dir(&tests).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if !name.ends_with(".rs") || name == "hermetic_daemon_guard.rs" {
+            continue;
+        }
+        // A module of the one shared binary uses its crate root's helper and `HERMETIC`.
+        if shared.contains(&format!("#[path = \"{name}\"]")) {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();

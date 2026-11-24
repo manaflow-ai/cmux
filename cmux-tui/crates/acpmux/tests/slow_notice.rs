@@ -3,10 +3,7 @@
 //! 2 h 41 min on a daemon that had stopped answering, and said nothing.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent; the acpmux it starts is a one-shot client.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::io::Read as _;
 use std::time::{Duration, Instant};

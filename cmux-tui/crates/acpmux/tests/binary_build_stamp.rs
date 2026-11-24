@@ -8,10 +8,7 @@
 //! left, the scan took rustc's `rustc version 1.95.0 (<hash> <date>)` and
 //! every Linux self-update failed as a push mismatch.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts nothing; it only reads the binary.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 /// The scan as acpmux updaters before acpmux-build-id's `STAMP` ran it: the
 /// first `<digit> (<hash>[+dirty.<fp>] <date>)`.

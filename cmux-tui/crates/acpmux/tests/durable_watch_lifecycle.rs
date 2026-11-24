@@ -1,8 +1,6 @@
 //! Ordinary wake messages across local turns, peer outages and daemon crashes.
 #![cfg(unix)]
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 #[path = "durable_watch_lifecycle/daemon.rs"]
 mod daemon;
 use daemon::{Daemon, next_wake, observe, quiet};

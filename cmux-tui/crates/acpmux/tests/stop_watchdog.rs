@@ -21,11 +21,8 @@
 //! stop_watchdog -- --nocapture` (a debug build: only it has the seam).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// No agent starts; the sizes hold no credential.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["ACPMUX_WATCHDOG_RUNS", "ACPMUX_WATCHDOG_GOD_SCALE"]);
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use acpmux::god_fixture::{self, Shape};
 use serde_json::{Value, json};

@@ -4,9 +4,7 @@
 //! wake's latency from the worker's turn end to the outbox acceptance (ACK) and the recipient's
 //! turn, idle and busy.
 #![cfg(unix)]
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 // These helpers are shared with durable_watch_lifecycle.rs, which uses all of them; this test
 // uses only part of each, so the rest would be dead code here.
 #[allow(dead_code)]

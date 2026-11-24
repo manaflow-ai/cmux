@@ -2,11 +2,6 @@
 //! from any prompt or answer in its harness's store, not only its title and folder, and answers
 //! with the message and a snippet around the words. Local socket only. Synthetic temp homes only.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

@@ -1,9 +1,7 @@
 //! CLI JSON permission replies retain the daemon's person-only allow rule.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;

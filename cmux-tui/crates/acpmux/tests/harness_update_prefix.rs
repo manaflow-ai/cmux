@@ -3,10 +3,6 @@
 //! package managers run here; no npm, registry or installed CLI is touched.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::harness_health::channel::{Channel, Install, detect, update_plan};
 use acpmux::harness_health::{HarnessHealth, HealthService};
 use serde_json::json;

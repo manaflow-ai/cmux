@@ -27,19 +27,9 @@
 //! test; the time bars are printed, since one CI sample is noisy. Manual, on Linux CI:
 //! `cargo test -p acpmux --release --test acpmux_all delta_cost -- --ignored --nocapture`.
 
-// The per-home `json!` has more keys than the default limit expands, as in `god_daemon.rs`.
-#![recursion_limit = "256"]
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The prompt goes to tests/fake_agent.py; the sizes hold no credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_GOD_SHAPES",
-    "ACPMUX_GOD_SCALE",
-    "ACPMUX_DELTA_N",
-    "ACPMUX_DELTA_ROUNDS",
-]);
+use crate::daemon_env;
 
 use acpmux::god_fixture::{self, Shape};
 use acpmux::rows::{Patch, RowTable};

@@ -1,11 +1,6 @@
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The canary starts the keeper with a stand-in harness (`/bin/true`). CI sets
-// `ACPMUX_REQUIRE_BWRAP` so a missing bwrap fails instead of skipping.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().keep(&["ACPMUX_REQUIRE_BWRAP"]);
+use crate::daemon_env;
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

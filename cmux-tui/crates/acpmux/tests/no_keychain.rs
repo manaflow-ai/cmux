@@ -32,10 +32,7 @@
 //! setting absent and once on, and runs a remote chain in process.
 #![cfg(target_os = "macos")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs a stand-in agent (fake_agent.py) and stand-in CLIs.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};

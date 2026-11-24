@@ -21,22 +21,7 @@
 //! `cargo test -p acpmux --test acpmux_all mobile_link_conditions -- --ignored --nocapture`.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/). It starts from a cleared
-// environment, so the bench's knobs are kept by name or every run takes the defaults.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "NETCOND_PROFILES",
-    "NETCOND_PROFILES_FILE",
-    "NETCOND_RELAY",
-    "NETCOND_SCALES",
-    "NETCOND_RUNS",
-    "NETCOND_SEED_BASE",
-    "NETCOND_BW_PROFILE",
-    "NETCOND_BW_TURNS",
-    "NETCOND_BW_SECS",
-    "NETCOND_BW_APPS",
-]);
+use crate::daemon_env;
 
 #[path = "support/app_ws.rs"]
 mod app_ws;

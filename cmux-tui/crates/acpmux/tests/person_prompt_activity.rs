@@ -1,11 +1,6 @@
 //! The Cloud activity report's `last_person_prompt_at` (`hub/person_prompt_at.rs`): a person's
 //! prompt into a chat sets it; another agent's message and a send from inside a session do not.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

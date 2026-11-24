@@ -2,11 +2,6 @@
 //! log in again on the modal picker before the user even sends a prompt."): a chat's sign-in
 //! from its own evidence, by session or by target, never a guess.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::config::profiles::AuthNotes;
 use acpmux::config::{Config, ProfileMeta, StoreMode};
 use acpmux::hub::Hub;

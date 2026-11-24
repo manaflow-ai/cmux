@@ -4,10 +4,7 @@
 //! and keeps serving; the cmux-next app sends new lines to Sentry.
 #![cfg(all(unix, debug_assertions))]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::time::{Duration, Instant};
 

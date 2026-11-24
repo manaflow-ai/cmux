@@ -9,9 +9,7 @@
 //! `temp_dir().join(…)` folder; a new one uses `daemon_env::Scratch` (or `tempfile`).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use daemon_env::Scratch;
 use std::path::{Path, PathBuf};

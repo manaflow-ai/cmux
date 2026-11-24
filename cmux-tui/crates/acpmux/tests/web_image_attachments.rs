@@ -1,10 +1,6 @@
 //! Execute the dashboard attachment code, including the remote-message boundary.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Runs only Node on a static page: no daemon and no agent. Node is the one host
-// tool it needs; the hermetic PATH does not hold it.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().tools(&["node"]);
+use crate::daemon_env;
 
 #[test]
 fn web_image_attachments() {

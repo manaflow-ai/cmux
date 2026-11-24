@@ -17,14 +17,8 @@
 //! `cargo test -p acpmux --release --test acpmux_all startup_accept_bench -- --ignored --nocapture`.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_BENCH_GOD_MB",
-    "ACPMUX_BENCH_CHATS",
-    "ACPMUX_BENCH_ROUNDS",
-]);
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};

@@ -6,12 +6,9 @@
 //! keeps the app's watch stream open, as the app does.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
+use crate::daemon_env;
 #[path = "support/thread_activity.rs"]
 mod thread_activity;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use serde_json::{Value, json};
 use std::fs;

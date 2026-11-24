@@ -1,8 +1,5 @@
 //! Watch RPC authority and actionable validation, through real connection dispatch.
 #![cfg(unix)]
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::{config::Config, hub::Hub, server::Origin};
 use serde_json::json;
 

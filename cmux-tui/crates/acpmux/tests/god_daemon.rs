@@ -49,50 +49,12 @@
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
 //! --features dhat-heap --test acpmux_all god_daemon -- --ignored --nocapture` (line tables name inlined frames).
 
-// The baseline's `json!` has more keys than the default limit expands, as in `lib.rs`.
-#![recursion_limit = "256"]
 #![cfg(unix)]
 
 #[path = "support/chat_size_seed.rs"]
 mod chat_size_seed;
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The prompt goes to tests/fake_agent.py; the sizes and the profile switch hold no credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_GOD_SHAPES",
-    "ACPMUX_GOD_SCALE",
-    // The chat size sweep's sizes (`chat_size_sweep`).
-    "ACPMUX_CHAT_SIZES",
-    "ACPMUX_CHAT_SIM_BIN",
-    // The fleet's output directory, not a credential: keep the bounded daemon-log artifacts.
-    "FAST_CHECKS_OUT",
-    "ACPMUX_GOD_DHAT",
-    "ACPMUX_GOD_DHAT_TOP",
-    // A control artifact for differential runs; the child still uses the hermetic environment.
-    "ACPMUX_GOD_DAEMON_BIN",
-    // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
-    "ACPMUX_GOD_PEER_ROW_BATCHES",
-    // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
-    "ACPMUX_CHURN_ROWS",
-    "ACPMUX_CHURN_SECS",
-    "ACPMUX_CHURN_EVERY_MS",
-    "ACPMUX_CHURN_CPUS",
-    "ACPMUX_CHURN_BUSY",
-    "ACPMUX_CHURN_FOLLOW",
-    "ACPMUX_CHURN_ARENAS",
-    // The growth lab's knobs (`god_daemon/growth.rs`).
-    "ACPMUX_GROWTH_SECS",
-    "ACPMUX_GROWTH_ROWS",
-    "ACPMUX_GROWTH_STABLE",
-    "ACPMUX_GROWTH_CHURN",
-    "ACPMUX_GROWTH_SSH_DOWN",
-    "ACPMUX_GROWTH_CUT_MS",
-    "ACPMUX_GROWTH_CHATS",
-    "ACPMUX_GROWTH_CLIENTS",
-    "ACPMUX_GROWTH_CLIENT_MS",
-    "ACPMUX_GROWTH_SLOW",
-    "ACPMUX_GROWTH_STACKS",
-]);
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use acpmux::chat_size_fixture;
 /// The growth lab: a daemon with many sessions under a mesh of peers that come and go.

@@ -209,8 +209,18 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     env.push((ENTERED.into(), "1".into()));
     // The interpreter found now, so the hermetic process does not look again.
     env.push((PYTHON.into(), host_tool("python3").display().to_string()));
+    // A tool the host lacks is left out here, so one module's tool cannot stop a binary whose
+    // other modules never run it; a test that runs it then fails at its own `host_tool`.
     for tool in process.tools {
-        env.push((tool_var(tool), host_tool(tool).display().to_string()));
+        let found = std::env::var_os("PATH")
+            .iter()
+            .flat_map(std::env::split_paths)
+            .filter(|d| d.is_absolute())
+            .map(|d| d.join(tool))
+            .find(|p| p.is_file());
+        if let Some(path) = found {
+            env.push((tool_var(tool), path.display().to_string()));
+        }
     }
     let exe = std::env::current_exe().expect("the test binary's path");
     let mut args = args.into_iter();

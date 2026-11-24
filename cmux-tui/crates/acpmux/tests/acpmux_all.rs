@@ -4,21 +4,179 @@
 //! test names, feature gates, helper paths, and nested fixtures are preserved while Cargo links
 //! acpmux once.
 
+// The per-home and baseline `json!` of delta_cost and god_daemon have more keys than the
+// default limit expands; the attribute counts only at the crate root.
 #![recursion_limit = "256"]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 
-// The consolidated process uses stand-in agents and a hermetic PATH. Individual
-// child commands still select `Agents::Deny` or `Agents::StandIn` as before.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// The one process of every module below: stand-in agents and a hermetic PATH. Child commands
+// still pick `Agents::Deny` or `Agents::StandIn` themselves. A module that needs a process
+// variable set (`Process::with_env`) cannot share one process with the rest and stays its own
+// test binary (Cargo.toml); every other module's kept host variables and tools are here, each a
+// test-runner knob, never a credential. Modules use this through `crate::daemon_env` and
+// `crate::HERMETIC`, so the helper (and its types) is compiled once.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in()
+    .keep(KEEP)
+    // web_image_attachments runs node itself.
+    .tools(&["node"]);
+
+/// The host variables the modules' tests read (each group names its module).
+const KEEP: &[&str] = &[
+    // chats_search_bench.
+    "CHAT_SEARCH_BENCH_CHATS",
+    "CHAT_SEARCH_BENCH_MIB",
+    // codex_app_server_live.
+    "ACPMUX_CODEX_LIVE",
+    "CODEX_HOME",
+    // daemon_memory (BENCH_VARS).
+    "ACPMUX_MEMORY_BENCH_BINARY",
+    "ACPMUX_MEMORY_BENCH_LEFTOVERS",
+    "ACPMUX_MEMORY_BENCH_CHATS",
+    "ACPMUX_MEMORY_BUDGET_MB",
+    "ACPMUX_WAIT_BENCH_SECS",
+    "ACPMUX_PEER_SNAPSHOT_PEAK_MB",
+    "ACPMUX_PEER_SNAPSHOT_CPU_MS",
+    "ACPMUX_SCALE_CHATS",
+    "ACPMUX_SCALE_TURNS",
+    "ACPMUX_SCALE_CATALOGS",
+    "ACPMUX_SCALE_DHAT_DIR",
+    // daemon_summary_tools.
+    "ACPMUX_SUMMARY_TOOLS_OUTPUT",
+    // delta_cost, god_daemon.
+    "ACPMUX_GOD_SHAPES",
+    "ACPMUX_GOD_SCALE",
+    "ACPMUX_DELTA_N",
+    "ACPMUX_DELTA_ROUNDS",
+    // durable_agents (restart_reattach.rs).
+    "ACPMUX_REATTACH_LIVE",
+    "ACPMUX_REATTACH_IDLE",
+    "ACPMUX_REATTACH_CLOSED",
+    "ACPMUX_REATTACH_RECORDS",
+    "ACPMUX_REATTACH_SCAN_DELAY_MS",
+    "ACPMUX_REATTACH_BUDGET_MS",
+    "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+    "ACPMUX_IDLE_SUBS",
+    "ACPMUX_IDLE_SUBS_WINDOW_S",
+    "ACPMUX_IDLE_SUBS_OUT",
+    // duress_daemon.
+    "ACPMUX_DURESS",
+    "ACPMUX_DURESS_LEGS",
+    "ACPMUX_DURESS_SECS",
+    "ACPMUX_DURESS_CAP_SECS",
+    "ACPMUX_DURESS_CPU_X",
+    "ACPMUX_DURESS_SESSIONS",
+    "ACPMUX_DURESS_N",
+    "ACPMUX_DURESS_PEERS",
+    "ACPMUX_DURESS_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CORES",
+    "ACPMUX_DURESS_STARVE_X",
+    "ACPMUX_DURESS_STARVE_IDLE",
+    "ACPMUX_DURESS_STARVE_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CPU_MAX",
+    "ACPMUX_DURESS_STARVE_DELAY_MS",
+    "ACPMUX_DURESS_STARVE_JITTER_MS",
+    "ACPMUX_DURESS_STARVE_STALL_MS",
+    "ACPMUX_DURESS_STARVE_STALL_EVERY_S",
+    "ACPMUX_DURESS_BIG_RECORDS",
+    // duress_daemon, god_daemon: the commit under test and the fleet's output directory, not credentials.
+    "GITHUB_SHA",
+    "FAST_CHECKS_OUT",
+    // duress_daemon, host_scope: how `systemd-run --user` reaches the user's manager.
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    // file_put_window_bench.
+    "FPW_BYTES",
+    "FPW_PROFILES",
+    "FPW_LOADS",
+    "FPW_WINDOWS",
+    "FPW_RUNS",
+    "FPW_DURESS_TURNS",
+    // fuzz_crash_durable.
+    "CMUX_CI_STEP_KEY",
+    "ACPMUX_FUZZ_SEED",
+    "ACPMUX_FUZZ_ROUNDS",
+    // god_daemon (chat size sweep, dhat, control binary, peer row batches, churn and growth labs).
+    "ACPMUX_CHAT_SIZES",
+    "ACPMUX_CHAT_SIM_BIN",
+    "ACPMUX_GOD_DHAT",
+    "ACPMUX_GOD_DHAT_TOP",
+    "ACPMUX_GOD_DAEMON_BIN",
+    "ACPMUX_GOD_PEER_ROW_BATCHES",
+    "ACPMUX_CHURN_ROWS",
+    "ACPMUX_CHURN_SECS",
+    "ACPMUX_CHURN_EVERY_MS",
+    "ACPMUX_CHURN_CPUS",
+    "ACPMUX_CHURN_BUSY",
+    "ACPMUX_CHURN_FOLLOW",
+    "ACPMUX_CHURN_ARENAS",
+    "ACPMUX_GROWTH_SECS",
+    "ACPMUX_GROWTH_ROWS",
+    "ACPMUX_GROWTH_STABLE",
+    "ACPMUX_GROWTH_CHURN",
+    "ACPMUX_GROWTH_SSH_DOWN",
+    "ACPMUX_GROWTH_CUT_MS",
+    "ACPMUX_GROWTH_CHATS",
+    "ACPMUX_GROWTH_CLIENTS",
+    "ACPMUX_GROWTH_CLIENT_MS",
+    "ACPMUX_GROWTH_SLOW",
+    "ACPMUX_GROWTH_STACKS",
+    // linux_sandbox_keeper, remote_sandbox_linux.
+    "ACPMUX_REQUIRE_BWRAP",
+    // machine_join, person_allow.
+    "ACPMUX_TEST_BINARY",
+    // mobile_link_conditions.
+    "NETCOND_PROFILES",
+    "NETCOND_PROFILES_FILE",
+    "NETCOND_RELAY",
+    "NETCOND_SCALES",
+    "NETCOND_RUNS",
+    "NETCOND_SEED_BASE",
+    "NETCOND_BW_PROFILE",
+    "NETCOND_BW_TURNS",
+    "NETCOND_BW_SECS",
+    "NETCOND_BW_APPS",
+    // peer_cold_connect_bench.
+    "COLD_RTT_MS",
+    "COLD_RUNS",
+    "NO_EARLY",
+    // rc_faults.
+    "CMUX_FAULT_RUNS",
+    "CMUX_FAULT_SEED",
+    "CMUX_FAULT_SEED_BASE",
+    "CMUX_FAULT_PARALLEL",
+    // session_tail_orphan.
+    "ACPMUX_TAIL_BIN",
+    "ACPMUX_TAIL_MEASURE_ONLY",
+    "ACPMUX_TAIL_LOG_MB",
+    // start_under_load_bench.
+    "START_BENCH_LOAD",
+    "START_BENCH_SAMPLES",
+    "START_BENCH_LOAD_NICE",
+    "START_BENCH_SPARE",
+    "START_BENCH_ASSERT",
+    // startup_accept_bench.
+    "ACPMUX_BENCH_GOD_MB",
+    "ACPMUX_BENCH_CHATS",
+    "ACPMUX_BENCH_ROUNDS",
+    // startup_load.
+    "ACPMUX_STARTUP_BENCH_SESSIONS",
+    "ACPMUX_STARTUP_BENCH_EVENTS",
+    "ACPMUX_STARTUP_BUDGET_MS",
+    // stop_watchdog.
+    "ACPMUX_WATCHDOG_RUNS",
+    "ACPMUX_WATCHDOG_GOD_SCALE",
+    // subsessions_live (CODEX_HOME also codex_app_server_live).
+    "ACPMUX_SUBSESSIONS_LIVE_CLAUDE",
+    "ACPMUX_SUBSESSIONS_LIVE_CODEX",
+    "ANTHROPIC_BASE_URL",
+];
 
 #[path = "additional_directories.rs"]
 mod additional_directories;
 #[path = "admission.rs"]
 mod admission;
-#[path = "agent_host.rs"]
-mod agent_host;
 #[path = "agent_launch_deny.rs"]
 mod agent_launch_deny;
 #[path = "app_orphan_exit.rs"]
@@ -103,8 +261,6 @@ mod codex_live_catalog;
 mod conn_auth;
 #[path = "connection_work_limit.rs"]
 mod connection_work_limit;
-#[path = "cpu_class.rs"]
-mod cpu_class;
 #[path = "created_by.rs"]
 mod created_by;
 #[path = "cross_host_send_cli.rs"]
@@ -155,8 +311,6 @@ mod delta_cost;
 mod disallowed_tools;
 #[path = "dispatch_durable.rs"]
 mod dispatch_durable;
-#[path = "dispatch_last_resort.rs"]
-mod dispatch_last_resort;
 #[path = "document_prompt.rs"]
 mod document_prompt;
 #[path = "durable_agents.rs"]
@@ -295,16 +449,12 @@ mod pairing_join_stdin;
 mod panic_log;
 #[path = "parent_deadline.rs"]
 mod parent_deadline;
-#[path = "peer_admission_origin.rs"]
-mod peer_admission_origin;
 #[path = "peer_briefs_origin.rs"]
 mod peer_briefs_origin;
 #[path = "peer_canonical_endpoint.rs"]
 mod peer_canonical_endpoint;
 #[path = "peer_cold_connect_bench.rs"]
 mod peer_cold_connect_bench;
-#[path = "peer_dispatch_origin.rs"]
-mod peer_dispatch_origin;
 #[path = "peer_fork.rs"]
 mod peer_fork;
 #[path = "peer_harness_catalog.rs"]
@@ -325,8 +475,6 @@ mod peer_person_stop;
 mod peer_prompt_exactly_once;
 #[path = "peer_queue_approval.rs"]
 mod peer_queue_approval;
-#[path = "peer_request_deadlines.rs"]
-mod peer_request_deadlines;
 #[path = "peer_restart.rs"]
 mod peer_restart;
 #[path = "peer_send_filtered_attach.rs"]
@@ -337,8 +485,6 @@ mod peer_session_resume;
 mod peer_state_events;
 #[path = "peer_state_origin.rs"]
 mod peer_state_origin;
-#[path = "peer_status.rs"]
-mod peer_status;
 #[path = "peer_token_race.rs"]
 mod peer_token_race;
 #[path = "peer_transport.rs"]
@@ -395,8 +541,6 @@ mod remote_local_claude_peer;
 mod remote_new_hints;
 #[path = "remote_peer_scratch_trust.rs"]
 mod remote_peer_scratch_trust;
-#[path = "remote_sandbox.rs"]
-mod remote_sandbox;
 #[path = "remote_sandbox_canary.rs"]
 mod remote_sandbox_canary;
 #[path = "remote_sandbox_linux.rs"]
@@ -443,8 +587,6 @@ mod send_sender_token_cli;
 mod send_steer;
 #[path = "session_auth.rs"]
 mod session_auth;
-#[path = "session_control_peer_cli.rs"]
-mod session_control_peer_cli;
 #[path = "session_delete_disk.rs"]
 mod session_delete_disk;
 #[path = "session_env.rs"]

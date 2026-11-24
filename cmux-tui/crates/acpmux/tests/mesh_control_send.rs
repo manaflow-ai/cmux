@@ -1,7 +1,5 @@
 //! Real daemon RPC dispatch to the shared mesh sender; no HTTP credentials or agent processes.
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::HERMETIC;
 
 use acpmux::config::Config;
 use acpmux::hub::Hub;

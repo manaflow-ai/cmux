@@ -10,11 +10,6 @@
 //! such a chat as the Mac does, until the phone is removed (Leo, 2026-11-14:
 //! "chat writable in both directions / this is obviously what we need").
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::pairing::Role;

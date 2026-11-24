@@ -15,16 +15,7 @@
 //! Without the variable for an agent its test says so and passes (CI has no model).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Live by design (only with the variables above): the real agent CLIs and
-// their model route are kept; nothing else of the host.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_SUBSESSIONS_LIVE_CLAUDE",
-    "ACPMUX_SUBSESSIONS_LIVE_CODEX",
-    "ANTHROPIC_BASE_URL",
-    "CODEX_HOME",
-]);
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

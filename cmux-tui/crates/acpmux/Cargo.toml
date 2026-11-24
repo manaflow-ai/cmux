@@ -548,6 +548,44 @@ path = "tests/tool_inventory.rs"
 name = "trust_canonical"
 path = "tests/trust_canonical.rs"
 
+# These set process variables of their own (`Process::with_env` in their HERMETIC), which the
+# shared process of acpmux_all cannot.
+[[test]]
+name = "agent_host"
+path = "tests/agent_host.rs"
+
+[[test]]
+name = "cpu_class"
+path = "tests/cpu_class.rs"
+
+[[test]]
+name = "dispatch_last_resort"
+path = "tests/dispatch_last_resort.rs"
+
+[[test]]
+name = "peer_admission_origin"
+path = "tests/peer_admission_origin.rs"
+
+[[test]]
+name = "peer_dispatch_origin"
+path = "tests/peer_dispatch_origin.rs"
+
+[[test]]
+name = "peer_request_deadlines"
+path = "tests/peer_request_deadlines.rs"
+
+[[test]]
+name = "peer_status"
+path = "tests/peer_status.rs"
+
+[[test]]
+name = "remote_sandbox"
+path = "tests/remote_sandbox.rs"
+
+[[test]]
+name = "session_control_peer_cli"
+path = "tests/session_control_peer_cli.rs"
+
 # Sign-in hot-module tests mutate the running module's process-wide state.
 [[test]]
 name = "agent_login"

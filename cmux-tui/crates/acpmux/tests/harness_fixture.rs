@@ -6,10 +6,7 @@
 //! health copy is saved. A fixture file that cannot be read stops the start.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The fixture harness's command is a stand-in that only writes a marker.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

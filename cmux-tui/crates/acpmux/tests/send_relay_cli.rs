@@ -5,10 +5,7 @@
 //! agent VM that cannot dial back to the machine that drives it); the relay still delivers there.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::json;
 use std::fs;

@@ -7,11 +7,7 @@
 //! for scripts/gallery-matrix/summary-tools-memory.mjs (actual Chromium page RSS).
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Synthetic artifact destination; contains no account credentials.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["ACPMUX_SUMMARY_TOOLS_OUTPUT"]);
+use crate::daemon_env;
 
 use serde_json::json;
 use std::io::{BufRead, BufReader};

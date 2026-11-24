@@ -1,7 +1,4 @@
 //! The persisted harness-failure projection survives a daemon restart.
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

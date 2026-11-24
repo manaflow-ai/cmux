@@ -3,11 +3,7 @@
 //! Fixture and shell loops stop after their fixed path lists.
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Starts no agent: the keeper runs a fixed `/bin/sh` script. CI sets
-// `ACPMUX_REQUIRE_BWRAP` so a missing bwrap fails instead of skipping.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX_REQUIRE_BWRAP"]);
+use crate::daemon_env;
 
 use acpmux::hub::Hub;
 use std::path::PathBuf;

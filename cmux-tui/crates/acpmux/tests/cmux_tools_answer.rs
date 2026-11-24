@@ -6,11 +6,6 @@
 //! `cmux_tools_answer` unit tests), and a chat started on the machine itself has none (its own
 //! file applies).
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs a stand-in agent (tests/fake_agent.py).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

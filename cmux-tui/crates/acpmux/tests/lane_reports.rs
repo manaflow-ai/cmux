@@ -7,8 +7,7 @@
 
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
+use crate::daemon_env;
 #[path = "lane_reports/detach.rs"]
 mod detach;
 #[path = "lane_reports/reads.rs"]
@@ -17,8 +16,6 @@ mod reads;
 mod subagent_mcp;
 #[path = "lane_reports/subagents.rs"]
 mod subagents;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

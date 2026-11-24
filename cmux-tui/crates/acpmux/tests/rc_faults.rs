@@ -13,15 +13,7 @@
 //! ```
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Stand-in agents (tests/fake_agent.py); the fault harness reads its seeds from these.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "CMUX_FAULT_RUNS",
-    "CMUX_FAULT_SEED",
-    "CMUX_FAULT_SEED_BASE",
-    "CMUX_FAULT_PARALLEL",
-]);
+use crate::daemon_env;
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, ErrorKind, Write};

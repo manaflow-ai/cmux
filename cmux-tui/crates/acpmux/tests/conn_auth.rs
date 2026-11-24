@@ -6,10 +6,7 @@
 //! (`_meta.acpmux.auth`, `server/conn_auth.rs`), which the mode rule reads.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};

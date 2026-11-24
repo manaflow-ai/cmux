@@ -8,10 +8,7 @@
 //! it ends.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use acpmux::client::Client;
 use acpmux::config::{Config, StoreMode};

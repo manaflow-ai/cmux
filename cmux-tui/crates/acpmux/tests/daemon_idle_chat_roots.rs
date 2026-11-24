@@ -8,10 +8,8 @@
 //! are counted over quiet windows, as `daemon_idle_chats.rs` counts them.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The daemon this test starts runs no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;

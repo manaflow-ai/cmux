@@ -8,10 +8,7 @@
 //! agent tier's (`qos::AGENT_NICE`).
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The daemon this test starts runs tests/fake_agent.py only.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;

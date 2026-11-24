@@ -2,10 +2,7 @@
 //! timeout; each child has a twenty-second alarm that bounds waits.
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Starts no acpmux and no agent: only python3 children (kept on the bare PATH).
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};

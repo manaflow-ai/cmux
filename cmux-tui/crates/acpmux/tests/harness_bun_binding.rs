@@ -2,10 +2,6 @@
 //! No installed agent, registry, user configuration or real package manager runs.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::harness_health::channel::{Channel, Install, UpdatePlan, detect, update_plan};
 use acpmux::harness_health::{HarnessHealth, HealthService, Settings};
 use serde_json::json;

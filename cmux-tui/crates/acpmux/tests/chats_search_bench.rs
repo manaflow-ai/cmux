@@ -29,12 +29,6 @@
 //! Its lines, beside the human ones: `PERF_ROW {"name":"chat_search.keystroke",...}` and the two
 //! report-only rows; the cron stores them as `webui.chat_search.*`.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent; it keeps only its own size knobs.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["CHAT_SEARCH_BENCH_CHATS", "CHAT_SEARCH_BENCH_MIB"]);
-
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

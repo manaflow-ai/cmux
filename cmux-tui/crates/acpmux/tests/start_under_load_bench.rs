@@ -23,17 +23,7 @@
 //! `START_BENCH_ASSERT=1` fails when a loaded p95 is past 1.2x the idle one).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The daemon this test starts runs tests/fake_agent.py only.
-// The knobs below are the bench's own, not the host's: kept through the hermetic re-start.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "START_BENCH_LOAD",
-    "START_BENCH_SAMPLES",
-    "START_BENCH_LOAD_NICE",
-    "START_BENCH_SPARE",
-    "START_BENCH_ASSERT",
-]);
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;
