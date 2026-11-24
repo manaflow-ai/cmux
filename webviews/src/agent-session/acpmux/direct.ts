@@ -10955,7 +10955,11 @@ export class AcpmuxDirectClient {
   private noteReadWork(working: boolean, fromStore: boolean): void {
     const session = this.selectedSessionId;
     const read = this.readWork;
-    if (read && (!working || fromStore || read.session !== session || read.generation !== this.selectionGeneration)) {
+    // The marks stay while the same chat is shown: they only act on the running turn (an ended
+    // turn's fold holds its work anyway), and writing them again whenever the chat is picked again
+    // or its working state flickers would hand the pane new row objects for unchanged rows
+    // (agent-pane-remote-resync-frames.test.ts).
+    if (read && (fromStore || read.session !== session)) {
       this.readWork = undefined;
       this.rows.readAtOpen = undefined;
       this.rows.restampRead(read.items.keys());
