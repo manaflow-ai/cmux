@@ -42,7 +42,10 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     private(set) var selection: TerminalTextSelection? {
         didSet {
             guard selection != oldValue else { return }
-            if followsRows { selectedRows = selection.map { (($0.start.row)...($0.end.row)).map { rowText($0) ?? "" } } ?? [] }
+            if followsRows {
+                selectedRows = selection.map { (($0.start.row)...($0.end.row)).map { rowText($0) ?? "" } } ?? []
+                lostSince = nil
+            }
             redraw()
             selectionChanged(selection)
         }
@@ -138,19 +141,47 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     /// rows it is on now, or ends when that text left the screen, never staying behind over
     /// other text (Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont
     /// move when i scroll?"). Select All covers the whole screen, whatever it shows.
+    ///
+    /// A screen drawn in more than one batch (cleared, then drawn again) can lack the text for
+    /// a moment: the highlight hides, and ends only when the text is still gone
+    /// ``lostGrace`` later.
     func followRows() {
         guard followsRows, let current = selection, !selectedRows.isEmpty else { return }
         let rows = documentRows()
         guard !rows.isEmpty, current.start.row > rows.lowerBound || current.end.row < rows.upperBound - 1 else { return }
         let screen = rows.map { rowText($0) ?? "" }
         guard let delta = TerminalRowFollow.delta(selected: selectedRows, firstRow: current.start.row - rows.lowerBound,
-                                                  screen: screen) else { return clear() }
+                                                  screen: screen) else { return textLost() }
+        let wasLost = lostSince != nil
+        lostSince = nil
         shiftRows(by: delta)
+        if wasLost, delta == 0 { redraw() }
+    }
+
+    /// How long a followed selection's text may be off the screen before the selection ends.
+    static let lostGrace: CFTimeInterval = 0.5
+    /// When the followed text was last found missing (nil: it is on the screen).
+    private var lostSince: CFTimeInterval?
+
+    private func textLost() {
+        let now = CACurrentMediaTime()
+        guard let since = lostSince else {
+            lostSince = now
+            menu?.dismissMenu()
+            redraw()
+            // No more output may come: look again once the grace is over.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.lostGrace) { [weak self] in
+                guard let self, lostSince == now else { return }
+                followRows()
+            }
+            return
+        }
+        if now - since >= Self.lostGrace { clear() }
     }
 
     /// Re-lays the highlight (the document or the cell size changed).
     func redraw() {
-        guard let selection, isEnabled() else {
+        guard let selection, isEnabled(), lostSince == nil else {
             highlight.isHidden = true
             startHandle.isHidden = true
             endHandle.isHidden = true
@@ -173,6 +204,11 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         startHandle.isHidden = !showsHandles
         endHandle.isHidden = !showsHandles
     }
+
+    #if DEBUG
+    /// The highlight's rects drawn now, one per row, in the host's coordinates (the highlight demo).
+    var drawnRects: [CGRect] { highlight.isHidden ? [] : highlight.rects }
+    #endif
 
     // MARK: Gestures
 

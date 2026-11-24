@@ -201,6 +201,21 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         host.bringSubviewToFront(highlight)
     }
 
+    #if DEBUG
+    /// The highlights drawn now, one rect per row a match covers, in the host's coordinates
+    /// (the highlight demo, TerminalHighlightScrollUITests).
+    var drawnRects: [CGRect] {
+        highlight.isHidden || highlight.superview == nil ? [] : highlight.rects.map { $0.0.offsetBy(dx: highlight.frame.minX, dy: highlight.frame.minY) }
+    }
+
+    /// Opens the bar and searches `query`, as typing it in the bar does (the highlight demo).
+    func debugSearch(_ query: String) {
+        present(terminalHadFocus: false)
+        interaction?.searchText = query
+        search(query)
+    }
+    #endif
+
     // MARK: UIFindInteractionDelegate
 
     func findInteraction(_ interaction: UIFindInteraction, sessionFor view: UIView) -> UIFindSession? {
