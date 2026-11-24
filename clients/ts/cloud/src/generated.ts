@@ -434,6 +434,28 @@ export type CloudSurgeSlot = {
   readonly retryable: boolean
 }
 
+export type CloudUsageCurrent = {
+  readonly period: string
+  readonly as_of: number
+  readonly metered_since: number | null
+  readonly vcpu_seconds: number | "Infinity" | "-Infinity" | "NaN"
+  readonly memory_gib_seconds: number | "Infinity" | "-Infinity" | "NaN"
+  readonly stored_gib_seconds: number | "Infinity" | "-Infinity" | "NaN"
+  readonly usd: {
+    readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+    readonly memory: number | "Infinity" | "-Infinity" | "NaN"
+    readonly stored: number | "Infinity" | "-Infinity" | "NaN"
+    readonly total: number | "Infinity" | "-Infinity" | "NaN"
+  }
+  readonly gaps: ReadonlyArray<string>
+  readonly payment_method: {
+    readonly attached: boolean
+    readonly brand?: string | null
+    readonly last4?: string | null
+  }
+  readonly stripe_mode: "test" | "live"
+}
+
 export type CloudVmNetwork = {
   readonly tenant: NativeTenantId
   readonly mesh: NativeMeshId
@@ -2046,10 +2068,10 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first. */
+  /** Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first. */
   readonly "cloud.billing.checkout": {
     readonly params: {
-      readonly plan: string
+      readonly plan?: string
     }
     readonly result: {
       readonly url: string
@@ -2343,6 +2365,11 @@ export interface CloudOps {
       readonly ttl_seconds: number
     }
     readonly result: CloudSurgePreview
+  }
+  /** The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+  readonly "cloud.usage.current": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: CloudUsageCurrent
   }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.attention.emit": {
@@ -4577,6 +4604,7 @@ export const cloudOpMeta = {
   "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.surge.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.surge.preview": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.usage.current": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
