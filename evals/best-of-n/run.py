@@ -21,7 +21,7 @@ candidates' worktree starts are made from DIR/repo, and a folder with no trust d
 candidate on the parent, which only the person can answer (`hub/trust_wait.rs`); /tmp hangs the same way.
 Attempts are identical samples of one prompt by default. `--diverse` makes them differ on purpose, so the judge has
 something to choose between (DIVERSE below): `models` gives each attempt its own model (haiku, sonnet, codex, haiku);
-`full` adds a different plan hint per attempt (`acpmux race new --hint`, one per candidate), the first attempt cold
+`plans` keeps --model and gives each attempt a different plan hint; `full` does both: a different plan hint per attempt (`acpmux race new --hint`, one per candidate), the first attempt cold
 with none. `score` reports oracle_gain (oracle - single: did the attempts differ in a way that matters) and
 judge_gap (pick - oracle: what the judge left on the table) beside win_rate_gain.
 
@@ -120,15 +120,25 @@ def plan(model: str, attempts: int, diverse: str | None) -> list[tuple[str, str]
     """Each attempt's (model, plan hint): the same model and no hint unless `--diverse`."""
     if not diverse:
         return [(model, "")] * attempts
-    return [(DIVERSE[i % len(DIVERSE)][0], DIVERSE[i % len(DIVERSE)][1] if diverse == "full" else "")
-            for i in range(attempts)]
+    rows = [DIVERSE[i % len(DIVERSE)] for i in range(attempts)]
+    return [(model if diverse == "plans" else m, "" if diverse == "models" else h) for m, h in rows]
+
+
+def hints_in_prompt(prompt: str, hints: list[str]) -> str:
+    """For an acpmux with no `race new --hint`: every attempt reads every approach, keyed by its worktree's name
+    (a race's candidate worktree ends -c1, -c2, ...), so this is weaker than a real per-attempt hint."""
+    table = "\n".join(f"- `-c{i + 1}`: {h or 'no set approach: work however you think best.'}" for i, h in enumerate(hints))
+    return (f"First run `basename \"$PWD\"`: your attempt is the -cN it ends with. Follow your attempt's approach and "
+            f"no other:\n{table}\n\n{prompt}")
 
 
 def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | None, only: str | None,
-          diverse: str | None = None) -> None:
-    if diverse == "full" and "--hint" not in subprocess.run(["acpmux", "race", "new", "--help"], capture_output=True,
-                                                            text=True).stdout:
-        sys.exit("run.py: this acpmux has no `race new --hint` (per-attempt plan hints); use --diverse models")
+          diverse: str | None = None, emulate: bool = False) -> None:
+    hinted = diverse in ("full", "plans")
+    has_hint = "--hint" in subprocess.run(["acpmux", "race", "new", "--help"], capture_output=True, text=True).stdout
+    if hinted and not has_hint and not emulate:
+        sys.exit("run.py: this acpmux has no `race new --hint` (per-attempt plan hints); pass --emulate-hints, or "
+                 "use --diverse models")
     repo = work / "repo"
     state_file = work / "state.json"
     state = json.loads(state_file.read_text()) if state_file.exists() else {}
@@ -138,17 +148,21 @@ def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | No
                "You hold best-of-N benchmark races as their parent. Reply with the single word ready and stop.",
                timeout=300)
         state = {"parent": name, "repo": str(repo), "model": model, "attempts": attempts, "reviewer": reviewer,
-                 "effort": effort, "diverse": diverse, "plan": plan(model, attempts, diverse), "races": {}}
+                 "effort": effort, "diverse": diverse, "plan": plan(model, attempts, diverse),
+                 "hints_emulated": hinted and not has_hint, "races": {}}
     for name in tasks(only):
         if name in state["races"]:
             continue
         args = ["race", "new", "--parent", state["parent"], "--reviewer", reviewer, "--prompt-file",
                 str(work / f"{name}.prompt.md")]
-        (work / f"{name}.prompt.md").write_text(prompt_for(name))
+        hints = [h for _, h in plan(model, attempts, diverse)]
+        emulated = hinted and not has_hint
+        (work / f"{name}.prompt.md").write_text(hints_in_prompt(prompt_for(name), hints) if emulated
+                                               else prompt_for(name))
         for model_i, _ in plan(model, attempts, diverse):
             args += ["-m", model_i]
-        if diverse == "full":
-            for _, hint in plan(model, attempts, diverse):
+        if hinted and not emulated:
+            for hint in hints:
                 args += ["--hint", hint]
         if effort:
             args += ["-e", effort]
@@ -204,12 +218,31 @@ def check() -> int:
     return 1 if bad else 0
 
 
+def race_show(parent: str, rid: str) -> dict:
+    """`acpmux race show`, else the parent's own saved record: a daemon restart leaves this agent's caller token
+    stale (`subsessions.caller_not_proven`) while the races go on, and reading them needs no authority."""
+    try:
+        return acpmux("race", "show", rid, "--parent", parent)
+    except RuntimeError as e:
+        home = Path(os.environ.get("ACPMUX_HOME", Path.home() / ".acpmux"))
+        for meta in home.glob("sessions/*/session.json"):
+            try:
+                doc = json.loads(meta.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (doc.get("name") or "").split("/")[-1] == parent:
+                race = next((r for r in doc.get("races") or [] if r.get("id") == rid), None)
+                if race:
+                    return race
+        raise RuntimeError(f"{e} (and no saved record of race {rid} under {home})") from e
+
+
 def score(work: Path, wait_s: float, out: Path | None) -> dict:
     state = json.loads((work / "state.json").read_text())
     deadline = time.time() + wait_s
     races = {}
     while True:
-        races = {n: acpmux("race", "show", rid, "--parent", state["parent"]) for n, rid in state["races"].items()}
+        races = {n: race_show(state["parent"], rid) for n, rid in state["races"].items()}
         if all(r.get("state") in TERMINAL for r in races.values()) or time.time() >= deadline:
             break
         time.sleep(20)
@@ -246,6 +279,7 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
         "task_set": f"cmux evals/best-of-n/{TASKS.name}",
         "model": state["model"], "attempts": state["attempts"], "reviewer": state["reviewer"],
         "effort": state.get("effort"), "diverse": state.get("diverse"), "plan": state.get("plan"),
+        "hints_emulated": state.get("hints_emulated"),
         "n_tasks": len(done), "n_started": len(rows),
         "single_solve_rate": mean("single"), "pick_solve_rate": mean("pick"), "oracle_solve_rate": mean("oracle"),
         "single_test_share": mean("single_tests"), "pick_test_share": mean("pick_tests"),
@@ -275,8 +309,11 @@ def main() -> None:
             p.add_argument("--reviewer", default="claude/sonnet")
             p.add_argument("--effort")
             p.add_argument("--tasks")
-            p.add_argument("--diverse", choices=("models", "full"),
-                           help="make attempts differ: per-attempt models, plus per-attempt plan hints with full")
+            p.add_argument("--diverse", choices=("models", "plans", "full"),
+                           help="make attempts differ: models (per-attempt models), plans (--model with per-attempt "
+                                "plan hints), full (both)")
+            p.add_argument("--emulate-hints", action="store_true",
+                           help="with no `race new --hint`, key the hints to each attempt's worktree in the prompt")
         if name == "score":
             p.add_argument("--wait", type=float, default=3600)
             p.add_argument("--out", type=Path)
@@ -295,7 +332,7 @@ def main() -> None:
     if a.cmd == "start":
         if a.attempts < 2:
             sys.exit("run.py: --attempts must be at least 2 (a race needs two candidates)")
-        start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks, a.diverse)
+        start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks, a.diverse, a.emulate_hints)
     else:
         doc = score(work, a.wait, a.out)
         print(json.dumps({k: v for k, v in doc.items() if k != "rows"}, indent=2))
