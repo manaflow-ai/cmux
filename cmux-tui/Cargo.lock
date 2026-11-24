@@ -1912,9 +1912,17 @@ dependencies = [
 name = "cmux-egress"
 version = "1.0.0"
 dependencies = [
+ "bytes",
+ "cmux-egress",
+ "cmux-scope",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
 ]
 
