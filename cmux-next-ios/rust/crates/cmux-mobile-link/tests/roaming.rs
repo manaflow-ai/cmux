@@ -549,7 +549,12 @@ async fn wireguard_network_change_opens_new_signaling_without_waiting_for_the_ol
 
     relay.go_dark();
     let changed_at = Instant::now();
-    let roam = tokio::spawn(wireguard::network_changed());
+    // This session's roam only: the process-wide `network_changed` would roam the sessions of the
+    // tests running beside this one.
+    let roam = {
+        let session_id = session_id.clone();
+        tokio::spawn(async move { wireguard::roam_session(&session_id, true).await })
+    };
     let (base_url, phone) = (server.base_url.clone(), phone_id.clone());
     let open = async move { SignalingClient::connect(&base_url, "user:alice", "team", &phone).await };
     let fresh = match after_network_change(Some(&old), open).await {
