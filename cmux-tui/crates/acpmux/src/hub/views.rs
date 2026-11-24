@@ -186,6 +186,8 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
+        _ if last == Some("capacity") => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         // A peer gone unreachable takes its work with it; a local chat whose harness stopped
@@ -268,7 +270,14 @@ pub fn lane(summary: &Value) -> Value {
         // Its own turn's start, else since its subagents work on past the last one.
         Some("working") => (
             "working",
-            summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
+            summary["turn"]["startedAt"]
+                .as_u64()
+                .or(summary["subagentsWorkingSince"].as_u64())
+                .or_else(|| {
+                    (summary["lastTurn"]["status"] == "capacity")
+                        .then(|| summary["lastTurn"]["endedAt"].as_u64())
+                        .flatten()
+                }),
         ),
         Some("input") => (
             "input",
@@ -927,7 +936,12 @@ impl Hub {
             unread_turns: m.unread_turns,
             seen_seq: m.seen_seq,
             last_return: m.last_return,
-            last_turn: m.last_turn.clone(),
+            // A turn acpmux waits out a capacity error for reads `capacity` (`auto_resume.rs`).
+            last_turn: super::auto_resume::row_last_turn(
+                m.last_turn.as_ref(),
+                retry.as_ref(),
+                retry_deciding,
+            ),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
             retry_deciding,
