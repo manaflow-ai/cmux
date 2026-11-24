@@ -8,21 +8,27 @@
 //! one round trip.
 //!
 //! `cargo test -p acpmux --test peer_cold_connect_bench -- --ignored --nocapture`
-//! Knobs: `COLD_RTT_MS` (default 50), `COLD_RUNS` (default 5). Prints `COLDCONNECT {json}`.
+//! Knobs: `COLD_RTT_MS` (default 50), `COLD_RUNS` (default 5), and `NO_EARLY` for the raw
+//! listener compatibility check. Prints `COLDCONNECT {json}`.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["COLD_RTT_MS", "COLD_RUNS"]);
+    daemon_env::Process::deny().keep(&["COLD_RTT_MS", "COLD_RUNS", "NO_EARLY"]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
+use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_ws_with};
+use futures_util::{SinkExt, StreamExt};
+use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::tungstenite::Message as WsFrame;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 fn hub() -> Arc<Hub> {
     let mut cfg = Config::default();
@@ -175,10 +181,16 @@ async fn cold_connect_round_trips() {
         );
     }
     totals.sort_by(f64::total_cmp);
-    let p50 = totals[totals.len() / 2];
+    let percentile = |percent: usize| {
+        let rank = (totals.len() * percent).div_ceil(100).saturating_sub(1);
+        totals.get(rank).copied().unwrap_or_default()
+    };
+    let p50 = percentile(50);
+    let p95 = percentile(95);
     println!(
-        "COLDCONNECT p50 {p50:.1} ms = {:.2} RTT at {rtt} ms RTT over {runs} runs",
-        p50 / rtt as f64
+        "COLDCONNECT summary {{\"p50_ms\":{p50:.1},\"p95_ms\":{p95:.1},\"p50_rtt\":{:.2},\"p95_rtt\":{:.2},\"runs\":{runs},\"rtt_ms\":{rtt}}}",
+        p50 / rtt as f64,
+        p95 / rtt as f64
     );
 }
 
@@ -243,4 +255,116 @@ async fn the_listener_answers_an_initialize_sent_with_the_upgrade() {
     let text = String::from_utf8_lossy(&got);
     assert!(text.starts_with("HTTP/1.1 101"), "reply {} B: {text}\nrequest:\n{request}", got.len());
     assert!(text.contains("\"id\":1"), "no answer behind the 101: {text}");
+}
+
+/// A listener from before early initialize used tungstenite directly. It rejects the first
+/// upgrade when the client writes a frame behind it, then accepts the retry without those bytes.
+async fn old_listener() -> (u16, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let seen = attempts.clone();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            match tokio_tungstenite::accept_async(stream).await {
+                Err(error) => {
+                    seen.lock().unwrap().push(format!("rejected: {error}"));
+                }
+                Ok(mut ws) => {
+                    seen.lock().unwrap().push("accepted".into());
+                    while let Some(Ok(frame)) = ws.next().await {
+                        let WsFrame::Text(text) = frame else { continue };
+                        let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text)
+                        else {
+                            continue;
+                        };
+                        let result = match m.as_str() {
+                            method::INITIALIZE => json!({
+                                "protocolVersion": 1,
+                                "_meta": {"acpmux": {"build": "old", "origin": "peer", "features": []}}
+                            }),
+                            method::MUX_WATCH => json!({"sessions": []}),
+                            _ => json!({}),
+                        };
+                        let line = Message::ok(id, result).to_line();
+                        if ws.send(WsFrame::Text(line.trim_end().to_owned().into())).await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    });
+    (port, attempts)
+}
+
+/// A new client retries an old tungstenite listener after its early frame is rejected. The
+/// successful second upgrade has no frame behind the request, so its first frame is initialize.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_client_falls_back_to_an_old_listener_without_early_bytes_on_retry() {
+    let (port, attempts) = old_listener().await;
+    let a = hub();
+    a.add_peer("old-listener", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let attempts = attempts.lock().unwrap().clone();
+    assert_eq!(attempts.len(), 2, "one rejected early attempt and one retry: {attempts:?}");
+    assert!(
+        attempts[0].starts_with("rejected:"),
+        "old listener accepted early bytes: {attempts:?}"
+    );
+    assert_eq!(attempts[1], "accepted", "the retry must upgrade without early bytes: {attempts:?}");
+    assert_eq!(a.peers()[0]["connected"], true, "{attempts:?}");
+}
+
+/// An old client that waits for the upgrade before sending initialize remains compatible with
+/// the new listener. This is the other half of the lockstep pair.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_old_client_without_early_bytes_connects_to_a_new_listener() {
+    let home = std::env::temp_dir().join(format!("cold-old-client-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let auth = PeerAuth::create(&home).unwrap();
+    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(serve_ws_with(
+        hub(),
+        listener,
+        "tok".into(),
+        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+    ));
+
+    let mut request = format!("ws://{addr}/").into_client_request().unwrap();
+    request.headers_mut().insert("authorization", "Bearer tok".parse().unwrap());
+    request
+        .headers_mut()
+        .insert(acpmux::server::peer_auth::HEADER, peer_token.trim().parse().unwrap());
+    let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let initialize = Message::request(
+        1,
+        method::INITIALIZE,
+        json!({"protocolVersion": 1, "clientInfo": {"name": "old-peer"}}),
+    )
+    .to_line();
+    ws.send(WsFrame::Text(initialize.trim_end().to_owned().into())).await.unwrap();
+    let response = loop {
+        let frame = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("new listener did not answer old client")
+            .expect("new listener closed")
+            .unwrap();
+        let WsFrame::Text(text) = frame else { continue };
+        let message = Message::parse(&text).unwrap();
+        if matches!(&message, Message::Response { id, .. } if *id == 1) {
+            break message;
+        }
+    };
+    match response {
+        Message::Response { result: Some(result), error: None, .. } => {
+            assert_eq!(result["protocolVersion"], 1, "{result}");
+        }
+        other => panic!("old client initialize failed: {other:?}"),
+    }
 }
