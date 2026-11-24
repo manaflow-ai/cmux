@@ -430,6 +430,7 @@ read_ios_artifact() {
   local status host device reason dir
   { IFS= read -r status; IFS= read -r host; IFS= read -r device; IFS= read -r reason; } <<<"$check"
   dir="$STATE/ios"
+  rm -f "$STATE/ios-passed"
   if [[ "$status" == pass ]]; then
     REPORT_SIM="fleet simulator ($host, $device), signed in (agent account), restored after a credential-free relaunch: $dir (screens/signed-in-auto_login.png, screens/signed-in-restored.png, recording.mp4; step $SIM_STEP)"
   else
@@ -440,6 +441,18 @@ read_ios_artifact() {
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the device app is not a safe zip (${why##*$'\n'})"; REVIEW_FAILED=1; return 1; }
   [[ -d "$STATE/device/CmuxMobileApp.app" ]] ||
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the artifact has no device app"; REVIEW_FAILED=1; return 1; }
+  # This head's iPhone build passed: a rerun (the Mac build failed, a phone was locked) reuses it (sim_reusable).
+  [[ "$status" != pass ]] || printf '%s\n' "${SIM_STEP:-}" >"$STATE/ios-passed"
+}
+
+# A rerun at this head reuses the iPhone build whose step passed here before, instead of sending the step again: the
+# controller answers that step's key only to the run that sent it (a new run seals a new sign-in key), so the
+# rerun of 0e728c2b25 got "409: step_key already names a different step" and nothing for the phone (2026-11-24).
+# The state is per tag and head, and read_ios_artifact checks the manifest's tag and commit again.
+sim_reusable() {
+  [[ -s "$STATE/ios-passed" && -s "$STATE/ios.zip" ]] || return 1
+  SIM_STEP="$(head -n 1 "$STATE/ios-passed")"
+  echo "==> iPhone app: reusing this head's build from step ${SIM_STEP:-?} (its simulator check passed)"
 }
 
 # --- the tagged Mac -----------------------------------------------------------
@@ -957,10 +970,10 @@ review_run() {
   fi
 
   mkdir -p "$STATE"
-  fleet_start_sim
-  local mac_ok=1 ios_ok=1 target
+  local mac_ok=1 ios_ok=1 target sim_reused=0
+  if sim_reusable; then sim_reused=1; else fleet_start_sim; fi
   { fleet_submit_mac && fleet_finish_mac; } || mac_ok=0
-  fleet_finish_sim || ios_ok=0
+  [[ $sim_reused -eq 1 ]] || fleet_finish_sim || ios_ok=0
   [[ $ios_ok -eq 0 ]] || read_ios_artifact || ios_ok=0
   if [[ $NO_PHONE -eq 1 ]]; then
     finish || exit 1
