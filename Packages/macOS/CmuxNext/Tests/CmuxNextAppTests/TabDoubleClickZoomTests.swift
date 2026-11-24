@@ -159,8 +159,8 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         private(set) lazy var toolbar: PaneToolbar = {
             let registry = self.registry
             let toolbar = PaneToolbar(registry: { registry })
-            // A pane's bar has room for its buttons: a zero-width bar hides every button that does not fit and
-            // "…" offers it instead (#26132), which is not what these cases are about.
+            // A pane's bar has room for its buttons: a zero-width bar hides every button that does not fit
+            // (#26132), which is not what these cases are about.
             toolbar.view.frame = NSRect(x: 0, y: 0, width: 240, height: TabStripView.preferredHeight)
             return toolbar
         }()
@@ -171,34 +171,30 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         }
     }
 
-    /// A zoom adds no pinned button: the bar's one Exit Zoom shows left of "…", which is lit, and "…"'s menu
-    /// still offers Toggle Pane Zoom.
-    @Test func aZoomShowsExitZoomLeftOfALitMore() throws {
+    /// A zoom adds no pinned button: the bar's one Exit Zoom shows in the trailing slot (no "…" beside it, #53356).
+    @Test func aZoomShowsExitZoomInTheTrailingSlot() throws {
         let harness = Toolbar()
         let toolbar = harness.toolbar
         toolbar.update(target: "tab0", kind: .terminal, paneKinds: [.terminal])
-        let width = toolbar.view.intrinsicContentSize.width
-        #expect(toolbar.view.reservedCount == 1)
+        #expect(toolbar.view.intrinsicContentSize.width == 0, "nothing pinned: no room kept")
+        #expect(toolbar.view.reservedCount == 0)
 
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
         #expect(toolbar.view.buttons.isEmpty, "the indicator is the pane's, not a toolbar button")
-        #expect(toolbar.view.reservedCount == 1)
         #expect(!toolbar.view.zoomButton.isHidden)
-        #expect(toolbar.view.intrinsicContentSize.width == width + TitlebarBandButton.side + Metrics.space1 / 2, "Exit Zoom's slot and its gap only")
-        #expect(toolbar.view.lit)
-        let menu = try #require(toolbar.view.moreMenu?())
-        #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
+        #expect(toolbar.view.intrinsicContentSize.width == Metrics.tabBarControlSide + PaneToolbarView.trailingGap, "Exit Zoom's slot only")
     }
 
-    /// A chat selected in a zoomed pane keeps the same room: selecting it moves no tab.
-    @Test func aZoomedPaneKeepsItsRoomWhicheverTabIsSelected() {
+    /// A chat selected in a zoomed pane keeps the same room, with or without pins: selecting it moves no tab.
+    @Test(arguments: [[], ["splitRight"], ["splitRight", "toggleSplitZoom"]] as [[String]])
+    func aZoomedPaneKeepsItsRoomWhicheverTabIsSelected(pinned: [String]) {
         let harness = Toolbar()
         let toolbar = harness.toolbar
-        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
-        #expect(toolbar.view.reservedCount == 1)
-        toolbar.update(target: "chat", kind: nil, zoomed: true, paneKinds: [.terminal])
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, pinned: pinned, paneKinds: [.terminal])
+        let width = toolbar.view.intrinsicContentSize.width
+        toolbar.update(target: "chat", kind: nil, zoomed: true, pinned: pinned, paneKinds: [.terminal])
         #expect(toolbar.view.items.isEmpty)
-        #expect(toolbar.view.reservedCount == 1, "the strip's width does not follow the selection")
+        #expect(toolbar.view.intrinsicContentSize.width == width, "\(pinned): the strip's width does not follow the selection")
     }
 
     /// A pinned zoom gives way to the bar's one Exit Zoom button while the pane is zoomed, so the pane shows one zoom

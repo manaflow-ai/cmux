@@ -278,16 +278,6 @@ export const PAGES = {
     out: "webviews/src/pages/cloud-progress/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud-progress/Localizable.xcstrings" }],
   },
-  // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
-  "mobile-pairing": {
-    out: "webviews/src/pages/mobile-pairing/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
-      },
-    ],
-  },
   // The server page (cmux-page://cmux.server-cards/): the menu bar popover's routes. Every card (Add Server, Pair
   // Another Machine, Add Machine, app health) is native (AddServerDialog, PairInviteDialog, AddMachineDialog).
   "server-cards": {

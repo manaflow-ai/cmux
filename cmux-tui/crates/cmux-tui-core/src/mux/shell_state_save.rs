@@ -111,6 +111,7 @@ impl Mux {
     /// whose state is unknown or unsaveable (jobs, an fd it opened, no
     /// integration, no answer in [`SAVE_TIMEOUT`]) would come back changed.
     /// Blocks the caller up to [`SAVE_TIMEOUT`].
+    #[allow(dead_code)] // The freeing policy's gate; its caller has not landed yet.
     pub(crate) fn shell_state_saved(&self, surface: SurfaceId) -> bool {
         let terminal =
             self.with_state(|state| match state.resource_indexes.content_ids.get(&surface) {
