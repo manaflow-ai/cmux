@@ -298,6 +298,7 @@ chief.subagentSidebar
 chief.subagentSidebarHideWords
 chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
+cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
