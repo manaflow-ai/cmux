@@ -255,6 +255,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `substack.com` | opens | a site the address bar suggests before it is in your history |
 | `tailscale.com` | opens | a Tailscale page, opened when you add a device |
 | `login.tailscale.com` | opens | a Tailscale page, opened when you add a device |
+| `controlplane.tailscale.com` | identifier | Tailscale's default control server, compared with the one a machine is already signed in to before cmux adds it to your tailnet; the machine's own `tailscale` connects to it, never the app |
 | `twitter.com` | opens | a site the address bar suggests before it is in your history |
 | `vercel.com` | opens | a site the address bar suggests; also a docs host an agent catalog entry may link to |
 | `x.com` | opens | cmux on X, a link in Settings |

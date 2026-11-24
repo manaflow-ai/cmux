@@ -51,9 +51,9 @@ public final class CloudMachineStatePush {
     private var lastSocket = 0
 
     /// The reconnect waits and the keepalive (cmux-cloud-machine `push::backoff`): the first reconnect waits 500 ms, each
-    /// failure doubles it up to 30 s, and an open socket sends the protocol's `ping` every 30 s so no proxy closes it.
+    /// failure doubles it up to 30 s, and an open socket sends the protocol's `ping` every 60 s so no proxy closes it.
     private struct Backoff: Decodable {
-        var waitMs = 500, nextMs = 500, keepaliveMs = 30000
+        var waitMs = 500, nextMs = 500, keepaliveMs = 60000
         var ping = #"{"v":1,"t":"ping"}"#
 
         init() {}
@@ -160,7 +160,7 @@ public final class CloudMachineStatePush {
         task.resume()
         let keepalive = Backoff(current: nil, opened: true)
         let ping = Task {
-            // wakeup-allow: one keepalive send per open push socket every 30 s, ended with the socket
+            // wakeup-allow: one keepalive send per open push socket every 60 s, ended with the socket
             while (try? await ContinuousClock().sleep(for: .milliseconds(keepalive.keepaliveMs))) != nil {
                 guard (try? await task.send(.string(keepalive.ping))) != nil else { return }
             }
