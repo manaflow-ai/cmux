@@ -1490,11 +1490,11 @@ KEY_CODES = {"command": 55, "shift": 56, "return": 36, "d": 2, "z": 6, "escape":
 def real_keys(keys):
     """Plays `keys` (modifier names, then one key) as a keyboard's raw transitions through the app's event queue
     (debug.key `sequence`: NSApp.postEvent, nextEvent, sendEvent, the key window), the path a real key takes, not the
-    key router's own entry that `debug.key` without `sequence` calls. The cmux window is made key first (without
-    activating the app), as it is for a person whose cmux window is in front."""
+    key router's own entry that `debug.key` without `sequence` calls. The keys go to whatever window is key now, as a
+    person's do: no window is made key for them."""
     steps = [{"key_code": KEY_CODES[k], "down": True, "after_ms": 0 if i == 0 else 8} for i, k in enumerate(keys)]
     steps += [{"key_code": KEY_CODES[k], "down": False, "after_ms": 30 if i == 0 else 8} for i, k in enumerate(reversed(keys))]
-    reply = rpc("debug.key", {"sequence": steps, "key_window": "shell"})
+    reply = rpc("debug.key", {"sequence": steps})
     time.sleep(0.25 + (reply.get("duration_ms") or 0) / 1000 if isinstance(reply, dict) else 0.5)  # test harness: the sequence plays
     return reply
 
@@ -1524,10 +1524,14 @@ def check_key_route(tab, pane):
     Cmd-Shift-Return zooms its pane and again unzooms it, and real Cmd-D splits it. Real keys: debug.key `sequence`
     (the app's event queue and sendEvent), never the router's own entry. In tree before the fix the gate refused the
     page (`gate_last_refusal` "no input event or focus route") and the shortcuts did nothing until a click."""
+    # The cmux window is the key window, as for a person working in it (no-activate runs start with none).
+    window_id = (((rpc("debug.focus") or {}).get("windows") or [{}])[0]).get("id")
+    RAW["key_route_window_focus"] = rpc("debug.window.focus", {"window": window_id})
     terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
     if terminal_tab:
         action("tab.focus", target=f"tab:{terminal_tab}")
         time.sleep(0.5)  # test harness: the terminal takes the keys
+    RAW["key_route_focus_terminal"] = focus_facts()
     page_eval("window.__k = []; if (!window.__kOn) { window.__kOn = true;"
               " document.addEventListener('keydown', e => window.__k.push(e.key), true); } true", tab)
     action("tab.focus", target=f"tab:{tab}")
@@ -1535,10 +1539,14 @@ def check_key_route(tab, pane):
     facts = focus_facts()
     RAW["key_route_focus"] = facts
     on = opts.in_tree == "on"
-    page_responder = facts["classified"] not in (None, "windowOrNone") and facts["resolved"] == "browserPage" \
-        and (not on or "RenderWidgetHostView" in str(facts["first_responder"]))
+    # The keys stay with the cmux window (in tree) or its page's child window (off): never a window no cmux window
+    # owns, such as an in-tree page's headless Chromium window.
+    keys_home = facts["key_window"] in (("ShellWindow",) if on else ("ShellWindow", "CefNSWindow"))
+    page_responder = keys_home and facts["resolved"] == "browserPage" \
+        and (not on or ("RenderWidgetHostView" in str(facts["first_responder"]) and facts["is_key"]))
     row(page_responder, "key_route.responder",
-        {"bug": 23, "facts": facts, "pass_if": "after tab.focus with no click the page's view is the first responder"})
+        {"bug": 23, "facts": facts, "before": RAW["key_route_focus_terminal"], "window_focus": RAW["key_route_window_focus"],
+         "pass_if": "after tab.focus with no click the cmux window keeps the keys and the page's view is its first responder"})
     real_keys(["z"])
     keys = page_json("JSON.stringify(window.__k)", tab)
     row(keys == ["z"], "key_route.page_key",
