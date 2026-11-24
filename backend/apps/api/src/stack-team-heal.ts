@@ -30,7 +30,7 @@ export const HEAL_BUDGET_MS = 3_000
  * does not confirm), and a mint retried while the read runs waits on it instead of finding no teams. A soft
  * limit: the shared pace and TeamDO's delivery dedupe bound the rest.
  */
-const healedAt = new Map<string, { readonly at: number; readonly teams: Promise<ReadonlyMap<string, string>>; settled: boolean }>()
+const healedAt = new Map<string, { readonly at: number; readonly teams: Promise<StackTeamsRead>; settled: boolean }>()
 /**
  * A read or sync still running after this long is not waited on again (a Worker request that ended can drop
  * its fetch, leaving the promise unsettled for good): Stack's read gives up within about 12 s, a sync within 10 s.
@@ -60,45 +60,65 @@ export const within = <T>(p: Promise<T>, ms: number): Promise<{ readonly done: t
   return Promise.race([p.then((value) => ({ done: true as const, value })), late]).finally(() => clearTimeout(timer))
 }
 
+/** One read of the person's Stack teams: `read` false when Stack was not asked (no pace token) or did not answer. */
+export interface StackTeamsRead {
+  readonly read: boolean
+  readonly teams: ReadonlyMap<string, string>
+}
+
 /**
  * The person's Stack teams as cmux ids (to their Stack ids), read at most once per HEAL_WINDOW_MS and only
- * with a pace token; inside the window, the last read's teams; empty when never read (or unreadable). A Stack team whose webhook deliveries never reached TeamDO
+ * with a pace token; inside the window, the last read's teams. A Stack team whose webhook deliveries never reached TeamDO
  * (one made before the mirror existed, or events Stack never sent) is otherwise never known: its TeamDO
  * does not know its members (prod 2026-10-29: Home listed no teammates; 2026-11-11: `cmux auth token`
- * refused the app's own active team as not a member).
+ * refused the app's own active team as not a member). `read` is false when Stack was not asked (no pace token) or
+ * failed: such a read is never kept for the window, and a membership check answers it `pending`, never "not a member"
+ * (prod 2026-11-24: the production probe account's `cmux auth token` was refused as not a member of its active team
+ * for 7 hours, every sign-in, while every user.teams.list also spent the shared pace on a team refresh, cmux#51997).
  */
-export const stackTeamsOf = async (env: Env, user: string, stackUser: string | undefined, deps: StackHealDeps): Promise<Map<string, string>> => {
-  if (!deps.stack || !stackUser) return new Map()
+export const stackTeamsRead = async (env: Env, user: string, stackUser: string | undefined, deps: StackHealDeps): Promise<StackTeamsRead> => {
+  // No Stack client or no Stack user: there is nothing to ask, ever, so the empty answer is final.
+  if (!deps.stack || !stackUser) return { read: true, teams: new Map() }
   const stack = deps.stack
   const now = deps.now()
   const last = healedAt.get(user)
-  if (last !== undefined && now - last.at < HEAL_WINDOW_MS && (last.settled || now - last.at < IN_FLIGHT_STALE_MS)) return new Map(await last.teams)
+  if (last !== undefined && now - last.at < HEAL_WINDOW_MS && (last.settled || now - last.at < IN_FLIGHT_STALE_MS)) return copy(await last.teams)
   if (healedAt.size >= HEALED_MAX) healedAt.clear()
   // Published before the pace token is asked for, so a concurrent check waits on this read instead of asking for a
   // token of its own and, without one, refusing a real member while the read runs (review F1 on cmux#42958).
-  let entry: { readonly at: number; readonly teams: Promise<ReadonlyMap<string, string>>; settled: boolean } | undefined
+  let entry: { readonly at: number; readonly teams: Promise<StackTeamsRead>; settled: boolean } | undefined
+  // Nothing is kept for the window after a read that did not happen, so the next check asks Stack again.
+  const forget = () => {
+    if (entry !== undefined && healedAt.get(user) === entry) healedAt.delete(user)
+  }
   const teams = Promise.resolve()
     .then(() => deps.pace().catch(() => false))
-    .then(async (paced): Promise<ReadonlyMap<string, string>> => {
+    .then(async (paced): Promise<StackTeamsRead> => {
       if (!paced) {
-        // No token: Stack was not asked. Nothing is kept for the window, so the next check asks for a token again.
-        if (entry !== undefined && healedAt.get(user) === entry) healedAt.delete(user)
-        return new Map()
+        forget()
+        return { read: false, teams: new Map() }
       }
       try {
         const ids = await stack.listUserTeams(stackUser)
-        return new Map(ids.map((id) => [stackTeamIdFor(env.STACK_PROJECT_ID, id), id] as const))
+        return { read: true, teams: new Map(ids.map((id) => [stackTeamIdFor(env.STACK_PROJECT_ID, id), id] as const)) }
       } catch (e) {
         logged("stack teams unreadable", e)
-        return new Map()
+        forget()
+        return { read: false, teams: new Map() }
       }
     })
   entry = { at: now, teams, settled: false }
   const published = entry
   healedAt.set(user, published)
   void teams.then(() => void (published.settled = true))
-  return new Map(await teams)
+  return copy(await teams)
 }
+
+const copy = (r: StackTeamsRead): StackTeamsRead => ({ read: r.read, teams: new Map(r.teams) })
+
+/** stackTeamsRead's teams alone: empty when never read (or unreadable). */
+export const stackTeamsOf = async (env: Env, user: string, stackUser: string | undefined, deps: StackHealDeps): Promise<Map<string, string>> =>
+  new Map((await stackTeamsRead(env, user, stackUser, deps)).teams)
 
 /** Syncs still running, per isolate, by team and person: a second caller (a retried mint) waits on the first instead of a duplicate delivery. */
 const syncing = new Map<string, { readonly at: number; readonly run: Promise<string | undefined> }>()
@@ -181,7 +201,10 @@ export const memberCheck = async (env: Env, team: string, user: string, stackUse
   if (first.value) return { role: first.value }
   let step = "reading your teams from Stack"
   const heal = (async (): Promise<MemberCheck> => {
-    const stackTeam = (await stackTeamsOf(env, user, stackUser, deps)).get(team)
+    const stackTeams = await stackTeamsRead(env, user, stackUser, deps)
+    // Stack was not asked (the shared pace was full) or did not answer: nobody knows yet, so ask again later.
+    if (!stackTeams.read) return { pending: "Stack's list of your teams could not be read now" }
+    const stackTeam = stackTeams.teams.get(team)
     if (stackTeam === undefined) return { role: null }
     step = "syncing the team from Stack"
     const outcome = await syncTeam(env, team, stackTeam, user, deps.now())

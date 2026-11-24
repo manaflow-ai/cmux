@@ -307,6 +307,36 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
     }
   })
 
+  // Prod 2026-11-24: the production probe account's `cmux auth token` was refused "not a member" of its own active
+  // team for 7 hours. A Stack team list that was never read (no pace token) or failed was an empty list, so the
+  // check answered not a member; and a failed read was kept for the 10-minute window.
+  it("a member whose Stack teams could not be read (no pace token) gets a retryable answer, and mints once Stack is read", async () => {
+    const s = await setup("Pace full")
+    let tokens = 0
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: s.w.fake, pace: async () => tokens-- > 0, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    const first = await mint(s.team)
+    expect(first.status, JSON.stringify(first.json)).toBe(503)
+    expect(errorOf(first)).toMatchObject({ code: "owner.unreachable", retryable: true })
+    tokens = 10
+    const next = await mint(s.team)
+    expect(next.status, JSON.stringify(next.json)).toBe(200)
+  })
+
+  it("a Stack team read that fails is retryable and is not kept for the window", async () => {
+    const s = await setup("Stack down")
+    let down = true
+    const stack = { listUserTeams: async (u: string) => (down ? Promise.reject(new Error("stack GET user teams returned 429")) : s.w.fake.listUserTeams(u)) }
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack, pace: async () => true, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    const first = await mint(s.team)
+    expect(first.status, JSON.stringify(first.json)).toBe(503)
+    expect(errorOf(first)).toMatchObject({ code: "owner.unreachable", retryable: true })
+    down = false
+    const next = await mint(s.team)
+    expect(next.status, JSON.stringify(next.json)).toBe(200)
+  })
+
   // Review F1 on cmux#42958: two checks at once both missed the window and asked for a pace token; with only one
   // granted, the other got no teams and refused a real member while the first one's Stack read ran.
   it("two checks at once share one pace token and one Stack read", async () => {
