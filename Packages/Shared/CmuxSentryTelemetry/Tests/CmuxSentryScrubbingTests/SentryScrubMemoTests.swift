@@ -11,8 +11,8 @@ import Testing
 
     /// Strings that hit every rule (and some that hit none), each scrubbed twice.
     private static let corpus = [
-        "opening /Users/dev/secret with token=sk-abc123def456ghij",
-        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        "opening /Users/dev/secret with token=sk-fake123def456ghij",
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fake-signature-not-real",
         "mail alice@example.com about redis://user:p@ss@host/db",
         "AKIAIOSFODNN7EXAMPLE in /home/bob/.aws/credentials",
         "/Applications/cmux NIGHTLY.app/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp",
@@ -28,7 +28,7 @@ import Testing
             #expect(memoized.scrub(text) == expected, "first: \(text)")
             #expect(memoized.scrub(text) == expected, "remembered: \(text)")
         }
-        #expect(!memoized.scrub(Self.corpus[0]).contains("sk-abc123"))
+        #expect(!memoized.scrub(Self.corpus[0]).contains("sk-fake123"))
         #expect(!memoized.scrub(Self.corpus[0]).contains("/Users/dev"))
     }
 
