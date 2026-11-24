@@ -1407,6 +1407,7 @@ fn join_claims(
         issued_at_unix: validity.0,
         expires_at_unix: validity.1,
         grant: None,
+        region: None,
     }
 }
 
@@ -1740,6 +1741,7 @@ mod tests {
                 generation,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
@@ -1790,6 +1792,7 @@ mod tests {
                 issued_at_unix,
                 expires_at_unix,
                 grant: None,
+                region: None,
             })
             .unwrap()
     }
@@ -1824,6 +1827,7 @@ mod tests {
                 generation: 7,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
@@ -2089,6 +2093,7 @@ mod tests {
                 generation,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
@@ -2291,6 +2296,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
@@ -2323,6 +2329,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
@@ -2356,6 +2363,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
@@ -2398,6 +2406,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                region: None,
                 inline: false,
             },
         )
