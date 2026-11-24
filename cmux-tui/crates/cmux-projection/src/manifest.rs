@@ -78,6 +78,10 @@ pub struct Manifest {
     /// a machine from before it reads the entries and leaves the rest, and the Mac refuses their
     /// bytes either way.
     kept: BTreeMap<u32, String>,
+    /// SHA-256 of a file's bytes, by entry, for the files the Mac has hashed (RFD 0065, piece 6;
+    /// a Mac hashes lazily, so not every file has one). Last on the wire, after `kept`: a machine
+    /// from before it reads the entries and `kept` and leaves the rest.
+    hashes: BTreeMap<u32, [u8; 32]>,
 }
 
 #[derive(Default)]
@@ -162,7 +166,7 @@ impl Manifest {
             }
         }
         anyhow::ensure!(entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
-        Ok(Self { entries, kept: BTreeMap::new() })
+        Ok(Self { entries, ..Self::default() })
     }
 
     /// Marks file `index` as kept on the Mac for `reason`: listed with its stat, its bytes never
@@ -185,6 +189,28 @@ impl Manifest {
     #[must_use]
     pub fn kept(&self, index: u32) -> Option<&str> {
         self.kept.get(&index).map(String::as_str)
+    }
+
+    /// Records the SHA-256 of file `index`'s bytes.
+    pub fn set_hash(&mut self, index: u32, hash: [u8; 32]) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.entry(index).is_some_and(|entry| entry.kind == Kind::File),
+            "entry {index} is not a file"
+        );
+        self.hashes.insert(index, hash);
+        Ok(())
+    }
+
+    /// The SHA-256 of file `index`'s bytes, when the Mac listed one.
+    #[must_use]
+    pub fn hash(&self, index: u32) -> Option<&[u8; 32]> {
+        self.hashes.get(&index)
+    }
+
+    /// How many files carry a hash.
+    #[must_use]
+    pub fn hashed_count(&self) -> usize {
+        self.hashes.len()
     }
 
     /// How many files are kept on the Mac.
@@ -277,11 +303,15 @@ impl Manifest {
         zstd::Decoder::new(bytes)?.take(MAX_DECODED_BYTES + 1).read_to_end(&mut raw)?;
         anyhow::ensure!(raw.len() as u64 <= MAX_DECODED_BYTES, "the manifest is too large");
         // A Mac from before [`Manifest::keep_home`] sends the entries alone.
+        // A Mac from before [`Manifest::set_hash`] sends the entries and the kept files.
         let manifest: Self = match bincode::deserialize(&raw) {
             Ok(manifest) => manifest,
-            Err(error) => bincode::deserialize::<Vec<Entry>>(&raw)
-                .map(|entries| Self { entries, kept: BTreeMap::new() })
-                .map_err(|_| error)?,
+            Err(error) => match bincode::deserialize::<(Vec<Entry>, BTreeMap<u32, String>)>(&raw) {
+                Ok((entries, kept)) => Self { entries, kept, hashes: BTreeMap::new() },
+                Err(_) => bincode::deserialize::<Vec<Entry>>(&raw)
+                    .map(|entries| Self { entries, ..Self::default() })
+                    .map_err(|_| error)?,
+            },
         };
         manifest.check()?;
         Ok(manifest)
@@ -295,7 +325,7 @@ impl Manifest {
     /// A manifest of `entries` already laid out as [`Manifest::build`] lays them, checked as a
     /// decode checks them.
     pub(crate) fn from_entries(entries: Vec<Entry>) -> anyhow::Result<Self> {
-        let manifest = Self { entries, kept: BTreeMap::new() };
+        let manifest = Self { entries, ..Self::default() };
         manifest.check()?;
         Ok(manifest)
     }
@@ -356,6 +386,12 @@ impl Manifest {
             anyhow::ensure!(
                 !reason.is_empty() && reason.len() <= MAX_REASON_BYTES,
                 "kept entry {index}'s reason is empty or too long"
+            );
+        }
+        for index in self.hashes.keys() {
+            anyhow::ensure!(
+                self.entry(*index).is_some_and(|entry| entry.kind == Kind::File),
+                "hashed entry {index} is not a file"
             );
         }
         Ok(())

@@ -253,6 +253,31 @@ impl Content {
         }
     }
 
+    /// Whether the store holds the blob `hash` (a listing's hash of a whole file, RFD 0065 piece
+    /// 6): found by what the bytes are, so a renamed or touched file is a hit with no index record.
+    pub(super) fn has_hash(&self, hash: &Hash) -> bool {
+        self.lock().blobs.contains_key(hash)
+    }
+
+    /// Blob `hash`'s bytes, checked against it (a damaged blob is dropped, never served).
+    pub(super) fn get_hash(&self, hash: &Hash) -> Option<Vec<u8>> {
+        {
+            let mut inner = self.lock();
+            if !inner.blobs.contains_key(hash) {
+                return None;
+            }
+            inner.touch(*hash);
+        }
+        match fs::read(self.blob_path(hash)) {
+            Ok(bytes) if hash_of(&bytes) == *hash => Some(bytes),
+            _ => {
+                self.lock().forget(hash);
+                let _ = fs::remove_file(self.blob_path(hash));
+                None
+            }
+        }
+    }
+
     /// Hard-links blob `hash` at `to` (a file of the same disk); false when it is gone.
     pub(super) fn link(&self, hash: &Hash, to: &Path) -> bool {
         fs::hard_link(self.blob_path(hash), to).is_ok()

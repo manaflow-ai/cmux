@@ -1196,3 +1196,41 @@ fn the_content_store_keeps_its_floor_of_free_disk() {
     scan(&overlay, &files);
     assert!(fake.calls.load(Ordering::Relaxed) > asked, "evicted blobs came from nowhere");
 }
+
+/// RFD 0065 piece 6: a listing entry's hash lets the store answer by content, so a file that moved
+/// and was touched (another path, size kept, another mtime) is read with no fetch, where without
+/// the hash the same listing fetches it.
+#[test]
+fn a_listed_hash_serves_a_moved_file_from_the_content_store_with_no_fetch() {
+    let bytes = b"the same bytes under a new name".to_vec();
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&[("a.txt".to_owned(), bytes.clone())], 1);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &[("a.txt".to_owned(), bytes.clone())]);
+    drop(overlay);
+
+    let moved = [("moved/b.txt".to_owned(), bytes.clone())];
+    // No hash: the listing names a new (path, mtime), so the store has no record: a fetch.
+    let (plain, fake) = listing(&moved, 2);
+    let overlay = open(state.path(), &plain, &fake).with_content_floor(0);
+    scan(&overlay, &moved);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    drop(overlay);
+
+    // With the hash the Mac listed: the store answers by content.
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&[("a.txt".to_owned(), bytes.clone())], 1);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &[("a.txt".to_owned(), bytes.clone())]);
+    drop(overlay);
+    let (plain, _) = listing(&moved, 2);
+    let mut hashed = (*plain).clone();
+    let index = hashed.resolve("moved/b.txt").unwrap();
+    hashed.set_hash(index, content::hash_of(&bytes)).unwrap();
+    let hashed = Arc::new(hashed);
+    let fake = Arc::new(Fake::default());
+    let overlay = open(state.path(), &hashed, &fake).with_content_floor(0);
+    scan(&overlay, &moved);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0, "a listed hash did not serve from the store");
+    assert!(overlay.stats().cache_hits > 0);
+}

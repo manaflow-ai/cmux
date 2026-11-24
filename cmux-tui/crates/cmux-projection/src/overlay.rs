@@ -1378,17 +1378,31 @@ impl Overlay {
 
     /// Whether the content store holds `key`'s bytes (by its index alone).
     fn in_content(&self, key: Key) -> bool {
-        self.content
-            .as_ref()
-            .zip(self.content_name(key))
-            .is_some_and(|(content, name)| content.has(&name))
+        let Some(content) = self.content.as_ref() else { return false };
+        self.listed_hash(key).is_some_and(|hash| content.has_hash(&hash))
+            || self.content_name(key).is_some_and(|name| content.has(&name))
+    }
+
+    /// The hash the listing gives a whole file's bytes (RFD 0065, piece 6): with it the store
+    /// answers by content, whatever the path or mtime.
+    fn listed_hash(&self, (index, part): Key) -> Option<[u8; 32]> {
+        if part != WHOLE {
+            return None;
+        }
+        self.manifest.hash(index).copied()
     }
 
     /// `key`'s bytes from the content store (an earlier listing, or a blob the cap let go),
     /// put back in the cache; a hit, never a fetch.
     fn content_read(&self, key: Key) -> Option<Vec<u8>> {
         let content = self.content.as_ref()?;
-        let (hash, bytes) = content.get(&self.content_name(key)?)?;
+        let listed = self
+            .listed_hash(key)
+            .and_then(|hash| content.get_hash(&hash).map(|bytes| (hash, bytes)));
+        let (hash, bytes) = match listed {
+            Some(found) => found,
+            None => content.get(&self.content_name(key)?)?,
+        };
         let temp = self.scratch_path();
         if content.link(&hash, &temp) || fs::write(&temp, &bytes).is_ok() {
             self.admit(key, &temp, bytes.len() as u64);
