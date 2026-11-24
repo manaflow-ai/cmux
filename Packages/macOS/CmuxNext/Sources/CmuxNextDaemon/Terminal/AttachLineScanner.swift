@@ -75,7 +75,7 @@ struct AttachLineScanner {
             guard start <= n else { return nil }
             let p = b.base.advanced(by: start)
             guard let q = memchr(p, Int32(truncatingIfNeeded: quote), n - start) else { return nil }
-            let len = q.assumingMemoryBound(to: UInt8.self) - p
+            let len = UnsafePointer<UInt8>(q.assumingMemoryBound(to: UInt8.self)) - p
             if len > 0, memchr(p, Int32(truncatingIfNeeded: backslash), len) != nil { return nil }
             return start + len
         }
