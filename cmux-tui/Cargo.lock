@@ -1425,6 +1425,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-carrier"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -2876,6 +2880,8 @@ dependencies = [
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "blake3",
+ "chacha20poly1305",
  "libc",
  "proptest",
 ]

@@ -1850,6 +1850,7 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),
