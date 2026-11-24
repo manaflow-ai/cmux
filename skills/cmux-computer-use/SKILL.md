@@ -148,7 +148,9 @@ A refused call (`computer_use_off`, `app_denied`, `app_protected`,
 tell the person which setting would allow it, and do not reach the app another
 way. Never change a `computerUse.*` setting yourself. When the person takes
 over the mouse or keyboard, acting calls pause (`person_in_control`); wait and
-try again later, do not fight them.
+try again later, do not fight them. When a call says Computer Use is off or a
+permission is missing, run `cmux action run palette.computerUse.setup` to open
+setup for the person, tell them, and retry after they finish.
 
 System alerts (a crash notice, a sign-in reminder, a privacy ask) belong to
 protected processes. When the person has turned on `computerUse.alerts`,
