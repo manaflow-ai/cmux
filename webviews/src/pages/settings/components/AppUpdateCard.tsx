@@ -75,6 +75,13 @@ export function AppUpdateCard() {
             onGoBack={(build) => store.goBackToPreviousBuild(build)}
           />
         )}
+        {state.schedule?.map((line) => (
+          <ActionRow key={line.id} title={line.label} help="">
+            <span className="text-detail text-muted" data-app-update-schedule={line.id}>
+              {line.value}
+            </span>
+          </ActionRow>
+        ))}
       </div>
     </section>
   );

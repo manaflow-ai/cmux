@@ -11,6 +11,10 @@ const idle: AppUpdateState = {
   status: "You have 1.0.0-nightly.3913596493801.",
   detail: null,
   actions: [{ id: "check", title: "Check Now", prominent: false }],
+  schedule: [
+    { id: "lastUpdated", label: "Last Updated", value: "Today at 9:12 PM" },
+    { id: "nextCheck", label: "Next Check", value: "Today at 10:12 PM" },
+  ],
 };
 const previousBuild = (refusal: string | null): PreviousBuild => ({
   build: "3913596493800",

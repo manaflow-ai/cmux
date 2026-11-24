@@ -33275,137 +33275,6 @@
         }
       }
     },
-    "updater.held.agentWorking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The update waits to restart while an agent is working. Restart to Update installs it now."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが作業中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ينتظر التحديث إعادة التشغيل ما دام وكيل يعمل. يثبّته «إعادة التشغيل للتحديث» الآن."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ažuriranje čeka s ponovnim pokretanjem dok agent radi. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opdateringen venter med at genstarte, mens en agent arbejder. „Genstart for at opdatere“ installerer den nu."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Das Update wartet mit dem Neustart, solange ein Agent arbeitet. „Zum Aktualisieren neu starten“ installiert es jetzt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La actualización espera para reiniciar mientras un agente trabaja. «Reiniciar para actualizar» la instala ahora."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La mise à jour attend pour redémarrer tant qu’un agent travaille. « Redémarrer pour mettre à jour » l’installe maintenant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’aggiornamento attende il riavvio finché un agente è al lavoro. «Riavvia per aggiornare» lo installa ora."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈភ្នាក់ងារកំពុងធ្វើការ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 작업 중이라 업데이트가 다시 시작을 기다리고 있습니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oppdateringen venter med å starte på nytt mens en agent arbeider. «Start på nytt for å oppdatere» installerer den nå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki agent pracuje. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A atualização espera para reiniciar enquanto um agente trabalha. “Reiniciar para Atualizar” a instala agora."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Обновление ждёт перезапуска, пока работает агент. «Перезапустить для обновления» установит его сейчас."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อัปเดตรอรีสตาร์ทขณะที่เอเจนต์กำลังทำงาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Güncelleme, bir ajan çalışırken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Оновлення чекає перезапуску, поки працює агент. «Перезапустити для оновлення» встановить його зараз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bản cập nhật chờ khởi động lại trong khi một tác tử đang làm việc. “Khởi động lại để cập nhật” cài nó ngay."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "有智能体正在工作，更新等待重新启动。“重新启动以更新”会立即安装。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "有代理程式正在工作，更新等待重新啟動。「重新啟動以更新」會立即安裝。"
-          }
-        }
-      }
-    },
     "updater.held.unsentDraft": {
       "extractionState": "manual",
       "localizations": {
@@ -34188,6 +34057,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "建置 %@"
+          }
+        }
+      }
+    },
+    "updater.held.backoff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update will try to restart again in a little while. Restart to Update installs it now."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Update versucht den Neustart in Kürze erneut. „Neu starten zum Aktualisieren“ installiert es jetzt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à jour réessaiera de redémarrer dans un moment. Redémarrer pour mettre à jour l’installe maintenant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيحاول التحديث إعادة التشغيل مجددًا بعد قليل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La actualización volverá a intentar reiniciar en un rato. Reiniciar para actualizar la instala ahora."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新稍後會再次嘗試重新啟動。「重新啟動以更新」可立即安裝。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新稍后会再次尝试重新启动。“重新启动以更新”可立即安装。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트가 잠시 후 다시 재시작을 시도합니다. 재시작하여 업데이트를 누르면 지금 설치됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートはしばらくしてから再起動をもう一度試みます。「再起動してアップデート」で今すぐインストールできます。"
+          }
+        }
+      }
+    },
+    "updater.settings.lastUpdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Updated"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt aktualisiert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière mise à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر تحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Última actualización"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終アップデート"
+          }
+        }
+      }
+    },
+    "updater.settings.nextCheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Check"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächste Prüfung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prochaine vérification"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفحص التالي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próxima comprobación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次檢查"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次检查"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 확인"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回の確認"
+          }
+        }
+      }
+    },
+    "updater.settings.nextCheckSoon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Kürze"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bientôt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قريبًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即將"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "곧"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まもなく"
+          }
+        }
+      }
+    },
+    "updater.settings.nextCheckOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic checks are off"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatische Prüfungen sind aus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les vérifications automatiques sont désactivées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفحوصات التلقائية متوقفة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las comprobaciones automáticas están desactivadas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動檢查已關閉"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动检查已关闭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 확인이 꺼져 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動確認はオフです"
           }
         }
       }
