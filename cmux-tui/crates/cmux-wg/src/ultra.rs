@@ -863,6 +863,13 @@ impl UltraUnderlay {
             }
             UltraMode::Off | UltraMode::Duplicate { .. } => return,
         };
+        crate::dlog!(
+            "parity close_group members={} first={} mode={:?} nparity={}",
+            group.ciphertexts.len(),
+            group.first,
+            mode,
+            parities.len()
+        );
         for parity in parities {
             UltraCounters::add(&self.counters.parity_sent, 1);
             UltraCounters::add(&self.counters.overhead_bytes, parity.len() as u64);
@@ -1010,6 +1017,7 @@ impl UltraUnderlay {
 
     fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin) {
         UltraCounters::add(&self.counters.recovered, 1);
+        crate::dlog!("parity REBUILT len={}", rebuilt.len());
         self.rebuilt.push_back((rebuilt, origin));
     }
 

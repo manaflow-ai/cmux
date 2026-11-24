@@ -232,6 +232,12 @@ impl LossMeter {
                 }
             }
             self.missing = kept | fresh;
+            if gap > 0 {
+                crate::dlog!(
+                    "meter gap counter={counter} gap={gap} skipped={skipped} leaving={}",
+                    leaving.count_ones()
+                );
+            }
             self.sample.gaps += gap - skipped.min(gap);
             self.current = Some((current, counter));
             self.forget_passed();
@@ -246,6 +252,7 @@ impl LossMeter {
             return;
         }
         self.missing &= !bit;
+        crate::dlog!("meter fill counter={counter} rebuilt={rebuilt}");
         if rebuilt {
             self.sample.lost += 1;
         } else {
@@ -369,6 +376,10 @@ impl AutoUltra {
         }
     }
 
+    pub(crate) fn dbg(&self) -> String {
+        format!("suspect={} confirmed={} clean={}", self.suspect, self.confirmed, self.clean)
+    }
+
     /// The mode this side asks for now, and whether its network is metered.
     pub(crate) fn wanted(&self) -> (UltraMode, bool) {
         let mode = if self.on { UltraMode::SETTING } else { UltraMode::Off };
@@ -389,6 +400,7 @@ impl AutoUltra {
             self.last_loss = Some(now);
             self.clean = 0;
             if !self.on {
+                crate::dlog!("auto ON gaps={} lost={} resent={resent}", sample.gaps, sample.lost);
                 self.on = true;
                 self.suspect = 0;
                 self.confirmed = false;
@@ -403,6 +415,12 @@ impl AutoUltra {
             let quiet = self.last_loss.is_none_or(|at| now.duration_since(at) >= HOLD)
                 && self.clean >= CLEAN_DATAGRAMS;
             if reordered || quiet {
+                crate::dlog!(
+                    "auto OFF reordered={reordered} quiet={quiet} suspect={} confirmed={} clean={}",
+                    self.suspect,
+                    self.confirmed,
+                    self.clean
+                );
                 self.on = false;
             }
         }

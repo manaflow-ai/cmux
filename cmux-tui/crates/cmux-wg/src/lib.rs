@@ -37,6 +37,14 @@ mod mesh_driver;
 mod mesh_paths;
 mod mesh_peers;
 mod mesh_route;
+#[macro_export]
+#[doc(hidden)]
+macro_rules! dlog {
+    ($($arg:tt)*) => {{
+        let us = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros()).unwrap_or(0);
+        eprintln!("WGDBG {} {}", us, format_args!($($arg)*));
+    }};
+}
 mod multipath;
 mod net;
 mod pacing;

@@ -139,7 +139,16 @@ impl Driver {
         let sample = self.underlay.take_loss();
         let resent = self.pacer.take_resent();
         let was_on = auto.is_on();
+        let had = sample.gaps > 0 || sample.lost > 0 || sample.late > 0 || resent > 0;
+        let (g, l, la, rc) = (sample.gaps, sample.lost, sample.late, sample.received);
         let changed = auto.observe(Instant::now(), sample, resent);
+        if had || changed {
+            crate::dlog!(
+                "auto sample gaps={g} lost={l} late={la} recv={rc} resent={resent} was_on={was_on} on={} changed={changed} {}",
+                auto.is_on(),
+                auto.dbg()
+            );
+        }
         if !changed {
             return;
         }
