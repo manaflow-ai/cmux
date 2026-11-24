@@ -22,6 +22,10 @@ public final class LaunchShell {
     public static let backstop: Duration = .seconds(5)
 
     private let prepared: Prepared?
+    /// The layout cache this launch read, gated by `usable` (cmux-layout-cache): the real windows'
+    /// frames, sidebars and splits as they last drew, so the first frame is the final one. Read in
+    /// `prepare`, before the first commit; nil when there is none or nothing in it applies.
+    public private(set) var layoutCache: LayoutCacheLaunch?
     private let mark: @Sendable (String) -> Void
     /// The stage-0 window while it is up.
     public private(set) var window: LaunchShellWindow?
@@ -44,8 +48,9 @@ public final class LaunchShell {
     /// The real launch window, once ordered in: a hold that reaches its swap point swaps to it.
     private weak var real: NSWindow?
 
-    private init(prepared: Prepared?, mark: @escaping @Sendable (String) -> Void) {
+    private init(prepared: Prepared?, layoutCache: LayoutCacheLaunch? = nil, mark: @escaping @Sendable (String) -> Void) {
         self.prepared = prepared
+        self.layoutCache = layoutCache
         self.mark = mark
     }
 
@@ -85,10 +90,12 @@ public final class LaunchShell {
             } }
         } }
         mark("launch_shell.plan_ready")
-        guard read, plan.shows_window else { return LaunchShell(prepared: nil, mark: mark) }
-        let prepared = Prepared(plan: plan)
+        let layoutCache = LayoutCacheLaunch.read(support: support, build: build)
+        mark(layoutCache == nil ? "layout_cache.none" : "layout_cache.read")
+        guard read, plan.shows_window else { return LaunchShell(prepared: nil, layoutCache: layoutCache, mark: mark) }
+        let prepared = Prepared(plan: plan, cachedFrame: layoutCache?.front.flatMap { layoutCache?.frame(for: $0.id) })
         if let path = prepared.imagePath { prepared.decode(path, mark: mark) }
-        return LaunchShell(prepared: prepared, mark: mark)
+        return LaunchShell(prepared: prepared, layoutCache: layoutCache, mark: mark)
     }
 
     /// Makes the window and commits its first frame, marking `launch_shell.committed` when the
@@ -298,9 +305,13 @@ public struct LaunchShellPaths {
     let imagePath: String?
     private let decoded = DecodedImage()
 
-    init(plan: CmuxLaunchShellPlan) {
+    /// `cachedFrame`: the layout cache's front window, where the real window opens when the
+    /// launch record has no frame (`WindowManager.makeController`): stage 0 stands at the same place.
+    init(plan: CmuxLaunchShellPlan, cachedFrame: CGRect? = nil) {
         var plan = plan
-        if plan.uses_default_frame {
+        if plan.uses_default_frame, let cachedFrame {
+            frame = cachedFrame
+        } else if plan.uses_default_frame {
             // The real window's own default (1100 x 720, centered): the swap cannot jump.
             let visible = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
             frame = CGRect(x: visible.midX - 550, y: visible.midY - 360, width: 1100, height: 720).integral

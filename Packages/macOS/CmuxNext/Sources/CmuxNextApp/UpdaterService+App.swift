@@ -31,7 +31,8 @@ extension UpdaterService {
         useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
         // A relaunch's windows stay pictured on screen until the new process drew them; a failed install brings them back (`UpdateWindowHandoff`).
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); handoff.relaunchDecided() }
+        // The windows' layout is written before the handoff takes them off screen: the relaunched app draws it placed (LayoutCacheWriter).
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow(); handoff.relaunchDecided() }
         handoff.attach(to: self)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
