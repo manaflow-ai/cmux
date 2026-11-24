@@ -61,7 +61,14 @@ struct ChatComposer: View {
     @State private var mentionIndex = MentionIndex()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
+    /// Read by the body on every key: stops at the draft's first visible character, where
+    /// trimming copied the whole draft through Foundation per key (ComposerTypingLagUITests).
+    private var hasContent: Bool {
+        #if DEBUG
+        if ComposerReturnTextView.measuresWholeDraft { return !trimmed.isEmpty || !attachments.isEmpty }
+        #endif
+        return text.contains(where: { !$0.isWhitespace }) || !attachments.isEmpty
+    }
     private var collapsedTarget: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
     /// Follows `collapsedTarget` inside an explicit `.cmuxMobileSmooth` animation.
     /// Losing focus to the keyboard's dismissal changes the target in an

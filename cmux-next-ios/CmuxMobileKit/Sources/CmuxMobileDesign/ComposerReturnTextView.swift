@@ -64,9 +64,54 @@ open class ComposerReturnTextView: UITextView {
 
     override open var text: String! {
         didSet {
+            handedDraft = nil
             updatePlaceholder()
             unsettle()
         }
+    }
+
+    // MARK: Draft
+
+    /// The draft as last handed to the binding (`draftText()`) or taken from it
+    /// (`takeDraft(_:)`): what the view's text is, as a native Swift string. Nil after any
+    /// other change to `text`.
+    private var handedDraft: String?
+
+    /// The view's text for the binding, after an edit (the delegate's `textViewDidChange`).
+    ///
+    /// `UITextView.text` bridges as a lazy NSString (the text storage's NSBigMutableString),
+    /// so every Swift comparison of it (the binding's `didSet`, `@Observable`'s change
+    /// check, SwiftUI's diff of the views that hold it) walked it a character at a time with
+    /// Unicode normalization: hundreds of ms per key in a 10,000-character chat draft, in
+    /// stacks of `NSBigMutableString characterAtIndex` and `_NFCNormalizer` under
+    /// `AgentChatSurface.text` and `ViewBodyAccessor` (Leo, 2026-11-24; ComposerTypingLagUITests).
+    /// One native copy per key (a memcpy) makes each of those a buffer compare, and the copy
+    /// kept here lets `differs(from:)` answer the binding's next update by identity.
+    public func draftText() -> String {
+        var draft: String = text ?? ""
+        #if DEBUG
+        if Self.measuresWholeDraft { return draft }
+        #endif
+        draft.makeContiguousUTF8()
+        handedDraft = draft
+        return draft
+    }
+
+    /// Whether the binding's draft differs from the view's text (`updateUIView`). The
+    /// binding hands back the string `draftText()` gave it, the same storage, which
+    /// compares in O(1); only a draft set from outside reads and compares the view's text.
+    public func differs(from draft: String) -> Bool {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text != draft }
+        #endif
+        if let handedDraft, handedDraft == draft { return false }
+        return text != draft
+    }
+
+    /// Sets the view's text from the binding (`updateUIView`), remembered as handed.
+    public func takeDraft(_ draft: String) {
+        text = draft
+        handedDraft = draft
     }
 
     override open var font: UIFont? {
@@ -292,7 +337,7 @@ open class ComposerReturnTextView: UITextView {
     public func followCaret() {
         if !textOverflows {
             pinToTop()
-        } else if NSMaxRange(selectedRange) >= (text as NSString? ?? "").length {
+        } else if NSMaxRange(selectedRange) >= textStorage.length {
             // Typing at the end: the field's bottom inset shows below the last
             // line, as it does at rest (scrollRangeToVisible stops at the
             // caret, leaving the line flush against the field's bottom edge).
@@ -386,7 +431,7 @@ open class ComposerReturnTextView: UITextView {
     }
 
     public func updatePlaceholder() {
-        placeholderLabel.isHidden = !(text ?? "").isEmpty
+        placeholderLabel.isHidden = hasText
         accessibilityLabel = placeholder
     }
 
