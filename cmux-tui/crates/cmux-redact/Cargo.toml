@@ -1,0 +1,26 @@
+[package]
+name = "cmux-redact"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A stdin-to-stdout filter that masks known secret shapes (acpmux's gitleaks-based secret_scan::mask) line by line: the cmux-vault CLI pipes transcripts through it before upload."
+
+[[bin]]
+name = "cmux-redact"
+path = "src/main.rs"
+
+[dependencies]
+cmux-embed.workspace = true
+aho-corasick = "1"
+regex = "1"
+serde = { version = "1", features = ["derive", "rc"] }
+toml.workspace = true
+
+[dev-dependencies]
+base64 = "0.22"
+serde_json = "1"
+
+[lints]
+workspace = true

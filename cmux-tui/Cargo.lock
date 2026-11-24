@@ -2387,6 +2387,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-redact"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "base64",
+ "cmux-embed",
+ "regex",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "cmux-relay"
 version = "0.1.0"
 dependencies = [
