@@ -464,18 +464,18 @@ extension LinkMachine.Phase {
         }
     }
 
-    /// One short line for the Mac's section header and Settings. Transport,
-    /// path, latency, and daemon failures remain available to diagnostics;
-    /// the normal UI says what the person can do next.
+    /// One short line for the Mac's section header and Settings, or nil for
+    /// nothing: a connected link and one redialing on its own say nothing
+    /// (the header keeps the Mac's name and its cached rows). "Signed out"
+    /// stays (the person signs in again); "Offline" is held by the caller
+    /// until the link has been down for the shared quiet bound
+    /// (`LiveCoordinator.statusLines`). Transport, path, latency, and daemon
+    /// failures remain available to diagnostics.
     public func statusLine(macName _: String, media _: VideoMediaState = .off) -> String? {
         switch self {
-        case .idle: nil
+        case .idle, .connecting, .connected: nil
         case .macOffline: "Offline"
         case .signedOut: "Signed out"
-        // A link coming back says nothing (Leo, 2026-11-22: "i dont wanna see reconnecting to the
-        // Mac ... i want it to just connect").
-        case .connecting: nil
-        case .connected: "Connected"
         case .waiting(_, _, let reason, _):
             reason == LinkController.reason(LinkError(code: "offline", message: "")) ? "Offline" : nil
         }

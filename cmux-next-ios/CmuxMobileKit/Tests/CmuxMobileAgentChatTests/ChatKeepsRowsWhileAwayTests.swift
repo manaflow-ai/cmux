@@ -37,7 +37,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
         #expect(store.connectionLine == nil, "no \"Connecting to m…\" past the threshold")
         store.apply(.status(.idle))
-        #expect(store.connectionLine == nil, "no \"Updating…\" while catching up")
+        #expect(store.connectionLine == nil, "catching up with the Mac says nothing: the kept rows show")
         store.apply(.historyLoading(false))
         #expect(store.connectionLine == nil)
         #expect(store.clientError == nil)

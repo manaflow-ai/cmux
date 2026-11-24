@@ -1058,15 +1058,13 @@ public struct WorkspacesList: View {
             )
             .accessibilityIdentifier("workspaces.empty.others-mac")
         case .connecting:
-            VStack(spacing: 12) {
-                CmuxSpinner()
-                Text("Loading workspaces…")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("workspaces.empty.connecting")
+            // Nothing while the link comes up (Leo, 2026-11-23: "i dont wanna see connecting to
+            // cosmic-gray... with the spinner, i want it to just work"): the workspaces come with
+            // it, and a link that fails turns into the Retry state above.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+                .accessibilityIdentifier("workspaces.empty.connecting")
         case .empty(let canCreate):
             EmptyState(
                 symbol: "macwindow",

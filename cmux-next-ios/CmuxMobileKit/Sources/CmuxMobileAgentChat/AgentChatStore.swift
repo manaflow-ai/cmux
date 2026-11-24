@@ -544,9 +544,10 @@ public final class AgentChatStore {
         source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: false, promptID: promptID, resend: true))
     }
 
-    /// Feeds ``quietStatus`` from the link and history state.
+    /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -555,7 +556,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {

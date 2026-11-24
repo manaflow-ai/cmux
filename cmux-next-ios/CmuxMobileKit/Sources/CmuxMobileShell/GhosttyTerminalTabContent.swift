@@ -440,10 +440,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         feeds[id] = Task { [weak indicator, model] in
             for await state in Observations({ model.connectionState }) {
                 guard let indicator else { return }
-                if case .offline = state { indicator.update(offline: true); continue }
-                indicator.update(offline: false)
-                // Any outage (a reattach, a first connect, a failure) says so in
-                // the pill past the quiet bound: the page has no status row.
+                if case .offline = state { indicator.update(offline: true) } else { indicator.update(offline: false) }
+                // Any outage (a reattach, a first connect, a failure, an offline
+                // Mac) says so in the pill past the quiet bound: the page has no
+                // status row, and a blip draws nothing.
                 indicator.update(reattaching: !state.isAttached)
             }
         }
@@ -456,16 +456,17 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says nothing while its link comes back
-    /// (Leo, 2026-11-22), "Can't connect" once its outage has lasted
-    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
-    /// place a terminal tab shows its connection: no row by the composer
-    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
+    /// A read (no host is created): the tab's pill says "Reattaching…" (or
+    /// "Connecting…", "Can't connect", "Mac offline") only once its outage has
+    /// lasted `QuietStatusGate.threshold`; before that the tab shows its last
+    /// frame and says nothing. The only place a terminal tab shows its
+    /// connection: no row by the composer (Leo, 2026-11-17: "The reconnect
+    /// takes an extra line").
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
-        if indicator.isOffline { return "Mac offline" }
         guard indicator.isShown else { return nil }
-        return hosts[tab.id]?.model.connectionState.pillSubtitle
+        if indicator.isOffline { return "Mac offline" }
+        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {

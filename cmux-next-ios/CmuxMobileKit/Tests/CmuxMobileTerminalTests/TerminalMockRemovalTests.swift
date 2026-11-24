@@ -41,7 +41,7 @@ private final class LiveStub: TerminalSession {
         #expect(chosen is PendingTerminalSession)
         #expect(!(chosen is MockTerminalSession))
         #expect(chosen.connectionState == .connecting(mac: "Aziz's Mac Studio"))
-        #expect(chosen.connectionState.label == "Opening terminal…")
+        #expect(chosen.connectionState.quietLine == "Connecting to Aziz's Mac Studio…")
         #expect(chosen.programName == "zsh")
     }
 
@@ -112,7 +112,7 @@ private final class LiveStub: TerminalSession {
         session.send(Data("ls\r".utf8))
         session.resize(columns: 80, rows: 24)
         #expect(events == [.connection(.connecting(mac: nil))])
-        #expect(session.connectionState.label == "Opening terminal…")
+        #expect(session.connectionState.quietLine == "Connecting to your Mac…")
     }
 }
 
@@ -125,7 +125,7 @@ private final class LiveStub: TerminalSession {
         // Bytes from the Mac mean attached, even without a `.connection` event.
         #expect(connecting.applying(.output(Data("$ ".utf8))) == .attached)
         #expect(TerminalConnectionState.attached.applying(.connection(.reattaching(mac: "mini"))) == .reattaching(mac: "mini"))
-        #expect(TerminalConnectionState.reattaching(mac: "mini").label == "Reattaching…")
-        #expect(TerminalConnectionState.attached.label == nil)
+        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == "Reconnecting to mini…")
+        #expect(TerminalConnectionState.attached.quietLine == nil)
     }
 }

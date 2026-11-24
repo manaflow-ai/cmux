@@ -165,9 +165,9 @@ import UIKit
         #expect(!model.offersReconnect, "attached: no Reconnect")
 
         model.ingest(.connection(.reattaching(mac: "Demo Mac")))
-        #expect(model.connectionLine == nil, "past the quiet bound too: nothing (Leo 2026-11-22)")
+        #expect(model.connectionLine == "Reconnecting to Demo Mac…", "past the quiet bound")
         #expect(model.offersReconnect, "Reconnect is offered (in the page menu)")
-        #expect(model.connectionState.pillSubtitle == nil)
+        #expect(model.connectionState.pillSubtitle == "Reattaching…")
         #expect(Self.composerHeight(model) == attached, "a reattach adds no row by the composer")
 
         model.ingest(.connection(.failed(message: "daemon channel closed")))
