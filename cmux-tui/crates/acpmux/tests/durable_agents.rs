@@ -26,6 +26,8 @@ mod credential_restart;
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/handoff_gap.rs"]
+mod handoff_gap;
 #[path = "durable_agents/host_crash.rs"]
 mod host_crash;
 #[path = "durable_agents/host_level_move.rs"]
