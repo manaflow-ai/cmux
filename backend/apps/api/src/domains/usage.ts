@@ -32,7 +32,16 @@ export const COST_USD_PER_UNIT: Readonly<Record<Meter, number>> = {
   "egress.requests": 0,
   "model.spend_usd": 1,
   // Cloud machine time, priced by CloudDO at list price (Leo 2026-11-09): the record is already USD.
-  "cloud.machine_usd": 1
+  "cloud.machine_usd": 1,
+  "snapshot.stored_usd": 1,
+  "history.stored_usd": 1,
+  "projection.stored_usd": 1,
+  "projection.transfer_usd": 1,
+  "net.egress_usd": 1,
+  "net.upgraded_usd": 1,
+  "ci.runner_usd": 1,
+  "build.offload_usd": 1,
+  "seat.usd": 1
 }
 
 export const METERS = Object.keys(COST_USD_PER_UNIT) as ReadonlyArray<Meter>
@@ -55,7 +64,19 @@ export const ceilingUsd = (raw: string | undefined): number => {
 export const effectiveCap = (state: UsageState, ceiling: number) => (state.team_cap_usd === null ? ceiling : Math.min(state.team_cap_usd, ceiling))
 
 /** Meters whose quantity is money: recorded as USD, summed as integer micro-dollars. */
-export const MONEY_METERS: ReadonlySet<Meter> = new Set(["model.spend_usd", "cloud.machine_usd"])
+export const MONEY_METERS: ReadonlySet<Meter> = new Set([
+  "model.spend_usd",
+  "cloud.machine_usd",
+  "snapshot.stored_usd",
+  "history.stored_usd",
+  "projection.stored_usd",
+  "projection.transfer_usd",
+  "net.egress_usd",
+  "net.upgraded_usd",
+  "ci.runner_usd",
+  "build.offload_usd",
+  "seat.usd",
+])
 
 /**
  * The billable money meters, the one list every bill read and the billable-fact retention use

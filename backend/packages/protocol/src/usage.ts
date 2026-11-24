@@ -18,7 +18,16 @@ export const Meter = Schema.Literals([
   "automation.dynamic_workers",
   "egress.requests",
   "model.spend_usd",
-  "cloud.machine_usd"
+  "cloud.machine_usd",
+  "snapshot.stored_usd",
+  "history.stored_usd",
+  "projection.stored_usd",
+  "projection.transfer_usd",
+  "net.egress_usd",
+  "net.upgraded_usd",
+  "ci.runner_usd",
+  "build.offload_usd",
+  "seat.usd"
 ]).annotate({ identifier: "Meter" })
 export type Meter = typeof Meter.Type
 
@@ -29,11 +38,20 @@ export const meterUnit: Readonly<Record<Meter, string>> = {
   "automation.dynamic_workers": "worker_day",
   "egress.requests": "request",
   "model.spend_usd": "usd",
-  "cloud.machine_usd": "usd"
+  "cloud.machine_usd": "usd",
+  "snapshot.stored_usd": "usd",
+  "history.stored_usd": "usd",
+  "projection.stored_usd": "usd",
+  "projection.transfer_usd": "usd",
+  "net.egress_usd": "usd",
+  "net.upgraded_usd": "usd",
+  "ci.runner_usd": "usd",
+  "build.offload_usd": "usd",
+  "seat.usd": "usd"
 }
 
 /** Where a record came from (for reconciliation and debugging; never changes the price). `cloud`: CloudDO's machine time. */
-export const UsageSource = Schema.Literals(["tail", "step", "egress", "capability", "scheduler", "coderouter", "cloud"]).annotate({ identifier: "UsageSource" })
+export const UsageSource = Schema.Literals(["tail", "step", "egress", "capability", "scheduler", "coderouter", "cloud", "usage"]).annotate({ identifier: "UsageSource" })
 
 /** One ledger record. `key` makes recording idempotent: the same key is counted once, forever within the retention. */
 export const UsageRecord = Schema.Struct({

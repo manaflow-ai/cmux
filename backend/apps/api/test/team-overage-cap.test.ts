@@ -18,6 +18,7 @@ const V2_BP = 11_000
 const stub = (team: string) => testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
 const modelFact = (usd: number) => ({ key: `model:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() })
 const machineFact = (usd: number) => ({ key: `cloud:machine_${crypto.randomUUID()}:1:2026-11:${Math.round(usd * M)}`, meter: "cloud.machine_usd", quantity: usd, source: "cloud", observed_at: Date.now(), user: userIdFor(testEnv.STACK_PROJECT_ID, "cap-machine-creator") })
+const addonFact = (usd: number) => ({ key: `usage:net-upgraded:${crypto.randomUUID()}`, meter: "net.upgraded_usd", quantity: usd, source: "usage", observed_at: Date.now() })
 const nowS = () => Math.floor(Date.now() / 1000)
 /**
  * A fresh billable mark, as the usage sync writes it under v2 (markup pinned): the period started an hour ago, ends in
@@ -187,6 +188,16 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     await meter.record(team, [machineFact(2)])
     expect((await meter.check(team)).allowed).toBe(false)
     expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "at_cap", cap_usd: 10 })
+  })
+
+  it("counts a priced add-on money meter toward the team cap", async () => {
+    const { t, team } = await paidPerson("team-cap-addon")
+    await setCap(t, 10)
+    const meter = stub(team)
+    await meter.record(team, [modelFact(9)])
+    expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "near", spent_usd: 9, cap_usd: 10 })
+    await meter.record(team, [addonFact(1.01)])
+    expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "at_cap", spent_usd: 10.01, cap_usd: 10 })
   })
 
   it("refuses a new model call for every member inside the reservation (v2): open calls count at their maximum", async () => {
