@@ -40,6 +40,15 @@ any button passes, so the check catches a new state drawn with nothing to do, no
     python3 scripts/cmux-next/check-connection-notices.py --base HEAD^1       # and the shrink-only ratchet
     python3 scripts/cmux-next/check-connection-notices.py --list              # every hit, gated or not
     python3 scripts/cmux-next/check-connection-notices.py --write-allowlist   # drop the rows that are fixed
+
+Status notices (the second kind, same rule, its own list). Leo, 2026-11-22: "i see in the sidebar a repair
+connection to agent service... which i have requested to remove a while ago. or some similar message to it a while
+ago. we dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck em. remove them all."
+The words above caught only links. STATUS_WORDS adds the rest of what a person waits through and cannot act on:
+repairing, restarting, recovering, resuming, syncing, "still …ing", "trying again", "try again in a moment", "not
+responding", "stopped answering", "taking longer", "waiting for the app". A unit that says one needs the same bound or the same one
+action, or a row in scripts/cmux-next/status-notices-allowlist.tsv, which only shrinks the same way. Text that also
+says a connection state is the first kind's. Every run judges both kinds; --kind NAME judges one.
 """
 from __future__ import annotations
 
@@ -86,6 +95,42 @@ CONNECTION_WORDS = re.compile(
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
     r")"
 )
+# What says a status the person waits through (the second kind). Matched the same way; text that also says a
+# connection state belongs to the first kind.
+STATUS_WORDS = re.compile(
+    r"(?i)\b("
+    r"repairing|restarting|relaunching|recovering|resuming|re-?attaching|re-?syncing|syncing|warming up|catching up"
+    r"|still (?:\w+ing)\b|trying again|try again in (?:a|\d)|will retry|retry(?:ing)? in\b|taking longer"
+    r"|(?:not|isn'?t|isn’t|stopped) (?:responding|answering)"
+    r"|waiting (?:for|on) (?:the |your )?(?:app|agent chat|chat|cmux|update|sync|terminal|page|engine|index|build)\b"
+    r")"
+)
+
+
+@dataclass(frozen=True)
+class Kind:
+    """One class of notice the check judges: its words, its list, and what a finding calls it."""
+    name: str  # "connection" | "status"
+    noun: str  # "a connection state"
+    allowlist: str
+
+    def says(self, text: str) -> bool:
+        if self.name == "status":
+            return bool(STATUS_WORDS.search(text)) and not CONNECTION_WORDS.search(text)
+        return bool(CONNECTION_WORDS.search(text))
+
+    @property
+    def header(self) -> str:
+        return (f"# check-connection-notices.py allowlist ({self.name} notices): unit<TAB>surface<TAB>owner<TAB>reason. "
+                "It only shrinks: a PR that fixes\n"
+                "# a unit (a bound, or one action) removes its row in the same change; a stale row fails the check.\n"
+                ) if self.name != "connection" else ALLOWLIST_HEADER
+
+
+CONNECTION = Kind("connection", "a connection state", ALLOWLIST)
+STATUS = Kind("status", "a status the person waits through", "scripts/cmux-next/status-notices-allowlist.tsv")
+KINDS = {k.name: k for k in (CONNECTION, STATUS)}
+
 # A string literal that is UI copy, not a state tag, an identifier or a log reason: it starts with a capital (or an
 # opening quote or a format) and is either one word ("Offline", "Reconnecting…") or has a space.
 TEXT_SHAPE = re.compile(r"^[“\"'(%\\]*[A-Z](?:[a-z’'\-]*[a-z](?:…|\.\.\.|\.)?$|.*\s)")
@@ -259,8 +304,8 @@ def bound_drift(tree: Tree) -> list[str]:
     return problems
 
 
-def connection_keys(tree: Tree, files: list[str]) -> set[str]:
-    """Every string-table key whose English value says a connection state."""
+def connection_keys(tree: Tree, files: list[str], kind: Kind = CONNECTION) -> set[str]:
+    """Every string-table key whose English value says a state of this kind."""
     keys: set[str] = set()
     for path in files:
         if not path.endswith(STRING_TABLE_SUFFIX):
@@ -278,7 +323,7 @@ def connection_keys(tree: Tree, files: list[str]) -> set[str]:
                 pass
             if not isinstance(english, str):
                 english = key
-            if KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and CONNECTION_WORDS.search(english or ""):
+            if KEY_SHAPE.match(key) and not OUTCOME_KEY.search(key) and kind.says(english or ""):
                 keys.add(key)
     return keys
 
@@ -288,12 +333,12 @@ def strip_comments(source: str) -> str:
     return "\n".join(LINE_COMMENT.sub(lambda m: m.group(1), line) for line in source.split("\n"))
 
 
-def says_connection(text: str, keys: set[str]) -> bool:
+def says_connection(text: str, keys: set[str], kind: Kind = CONNECTION) -> bool:
     if KEY_SHAPE.match(text):
         return text in keys  # a dotted string-table key
     if REGEX_SHAPE.search(text):
         return False  # a pattern that reads errors, not words anyone sees
-    return bool(CONNECTION_WORDS.search(text)) and bool(TEXT_SHAPE.match(text))
+    return kind.says(text) and bool(TEXT_SHAPE.match(text))
 
 
 def resolve_spec(importer: str, spec: str) -> str:
@@ -354,9 +399,9 @@ def module_of(path: str) -> str:
     return m.group(1) if m else str(Path(path).parent) + "/"
 
 
-def scan(tree: Tree) -> list[Unit]:
+def scan(tree: Tree, kind: Kind = CONNECTION) -> list[Unit]:
     files = tree.files()
-    keys = connection_keys(tree, files)
+    keys = connection_keys(tree, files, kind)
     bound = policy_bound_ms(tree)
     units: dict[str, Unit] = {}
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
@@ -387,7 +432,7 @@ def scan(tree: Tree) -> list[Unit]:
                     said += [m.group(1).strip() for m in JSX_TEXT.finditer(line)]
                 if any(KEY_SHAPE.match(s) and OUTCOME_KEY.search(s) for s in said):
                     continue  # an outcome key and its default English (`defaultValue:`)
-                hit = next((s for s in said if says_connection(s, keys)), None)
+                hit = next((s for s in said if says_connection(s, keys, kind)), None)
                 if hit is not None:
                     unit.hits.append(Hit(first + offset + 1, hit, base + offset, 0, path))
     for unit in units.values():
@@ -488,10 +533,10 @@ def read_allowlist(text: str) -> dict[str, tuple[str, str, str]]:
     return rows
 
 
-def write_allowlist(path: Path, rows: dict[str, tuple[str, str, str]]) -> None:
+def write_allowlist(path: Path, rows: dict[str, tuple[str, str, str]], header: str = ALLOWLIST_HEADER) -> None:
     body = "".join(f"{unit}\t{s}\t{o}\t{r}\n" for unit, (s, o, r) in sorted(rows.items(), key=lambda kv: (kv[1][0], kv[0])))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(ALLOWLIST_HEADER + body, encoding="utf-8")
+    path.write_text(header + body, encoding="utf-8")
 
 
 class BaseUnreadable(Exception):
@@ -505,23 +550,25 @@ def git(root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
         raise BaseUnreadable(f"git did not run: {error}") from error
 
 
-def base_allowlist(root: Path, rev: str) -> dict[str, tuple[str, str, str]] | None:
+def base_allowlist(root: Path, rev: str, allowlist: str = ALLOWLIST) -> dict[str, tuple[str, str, str]] | None:
     """The list at REV; None only when REV resolves and has no list (the change that adds it)."""
     if git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").returncode != 0:
         raise BaseUnreadable(f"--base {rev} does not resolve to a commit (fetch it, or a deeper checkout)")
-    if git(root, "cat-file", "-e", f"{rev}:{ALLOWLIST}").returncode != 0:
+    if git(root, "cat-file", "-e", f"{rev}:{allowlist}").returncode != 0:
         return None
-    proc = git(root, "show", f"{rev}:{ALLOWLIST}")
+    proc = git(root, "show", f"{rev}:{allowlist}")
     if proc.returncode != 0:
-        raise BaseUnreadable(f"could not read {ALLOWLIST} at {rev}")
+        raise BaseUnreadable(f"could not read {allowlist} at {rev}")
     return read_allowlist(proc.stdout.decode("utf-8", errors="replace"))
 
 
-def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdout) -> int:
+def check(root: Path, base: str | None, *, list_all: bool = False, out=None, kind: Kind = CONNECTION) -> int:
+    out = sys.stdout if out is None else out
     tree = Tree(root)
-    units = scan(tree)
+    units = scan(tree, kind)
+    ALLOWLIST = kind.allowlist
     if tree.missing:
-        print(f"connection notices: cannot judge this tree: {len(tree.missing)} tracked file(s) are not on disk "
+        print(f"{kind.name} notices: cannot judge this tree: {len(tree.missing)} tracked file(s) are not on disk "
               f"(a sparse or partial checkout?), e.g. {', '.join(tree.missing[:3])}; run it in a full checkout",
               file=out)
         return 2
@@ -535,9 +582,9 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
     # type), so judging only touched files let an offender in that a later full run then failed on. The base passes
     # a full run, so no change pays for another's debt. --base adds the ratchet on the list's rows.
     try:
-        before = base_allowlist(root, base) if base is not None else None
+        before = base_allowlist(root, base, ALLOWLIST) if base is not None else None
     except BaseUnreadable as error:
-        print(f"connection notices: cannot judge the change: {error}", file=out)
+        print(f"{kind.name} notices: cannot judge the change: {error}", file=out)
         return 2
     unlisted = set(before) - set(allow) if before is not None else set()
     for uid, unit in sorted(offenders.items()):
@@ -546,10 +593,10 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
         first = unit.hits[0]
         why = (f"a literal grace under the bound ({', '.join(unit.literal_grace)}); name CONNECTION_QUIET_MS"
                if unit.literal_grace else "no action and no time bound")
-        problems.append(f"{unit.path}:{first.line}: {unit.name} shows a connection state ({first.text!r}) with {why}")
+        problems.append(f"{unit.path}:{first.line}: {unit.name} shows {kind.noun} ({first.text!r}) with {why}")
     for uid in sorted(allow):
         if uid not in offenders:  # every run: the list never holds a fixed unit, whatever file fixed it
-            problems.append(f"{ALLOWLIST}: stale row {uid}: it no longer shows an unbounded connection state; "
+            problems.append(f"{ALLOWLIST}: stale row {uid}: it no longer shows {kind.noun} with no bound or action; "
                             "remove the row in this change")
     if before is not None:
         # A row whose unit moved (same name and surface, another file, and the old unit no longer exists) is the
@@ -575,14 +622,14 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
     for line in problems:
         print(line, file=out)
     if problems:
-        print(f"connection notices: {len(problems)} finding(s). A connection state the person can do nothing about "
+        print(f"{kind.name} notices: {len(problems)} finding(s). A state the person can do nothing about "
               "waits CONNECTION_QUIET_MS (useLasting / NoticeTiming.connectionQuiet) or carries one action; see "
               "cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md", file=out)
         return 1
     per = {}
     for uid in allow:
         per[allow[uid][0]] = per.get(allow[uid][0], 0) + 1
-    print(f"connection notices: ok ({len(units)} units say a connection state; {len(allow)} listed: "
+    print(f"{kind.name} notices: ok ({len(units)} units say {kind.noun}; {len(allow)} listed: "
           + ", ".join(f"{k} {v}" for k, v in sorted(per.items())) + ")", file=out)
     return 0
 
@@ -595,19 +642,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-allowlist", action="store_true",
                         help="drop rows that are fixed; with --seed, list every offender (the first list only)")
     parser.add_argument("--seed", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--kind", choices=sorted(KINDS), help="judge one kind of notice (default: every kind)")
     args = parser.parse_args(argv)
+    kinds = [KINDS[args.kind]] if args.kind else list(KINDS.values())
     if args.write_allowlist:
-        path = args.root / ALLOWLIST
-        allow = read_allowlist(path.read_text(encoding="utf-8")) if path.exists() else {}
-        offenders = {u.id: u for u in scan(Tree(args.root)) if not u.ok}
-        rows = {uid: row for uid, row in allow.items() if uid in offenders}
-        if args.seed:
-            for uid, unit in offenders.items():
-                rows.setdefault(uid, (unit.surface, "unowned", f"says {unit.hits[0].text!r} with no bound or action"))
-        write_allowlist(path, rows)
-        print(f"wrote {len(rows)} rows to {ALLOWLIST}")
+        for kind in kinds:
+            path = args.root / kind.allowlist
+            allow = read_allowlist(path.read_text(encoding="utf-8")) if path.exists() else {}
+            offenders = {u.id: u for u in scan(Tree(args.root), kind) if not u.ok}
+            rows = {uid: row for uid, row in allow.items() if uid in offenders}
+            if args.seed:
+                for uid, unit in offenders.items():
+                    rows.setdefault(uid, (unit.surface, "unowned",
+                                          f"says {unit.hits[0].text!r} with no bound or action"))
+            write_allowlist(path, rows, kind.header)
+            print(f"wrote {len(rows)} rows to {kind.allowlist}")
         return 0
-    return check(args.root, args.base, list_all=args.list)
+    return max(check(args.root, args.base, list_all=args.list, kind=kind) for kind in kinds)
 
 
 if __name__ == "__main__":

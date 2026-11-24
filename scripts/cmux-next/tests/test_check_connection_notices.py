@@ -675,5 +675,119 @@ class SharedBound(unittest.TestCase):
         self.assertEqual(ccn.bound_drift(tree), [])
 
 
+# The sidebar's app-health line (Leo, 2026-11-22: "a repair connection to agent service... we dont need it. ever."):
+# a status that says no link word, drawn the moment a repair starts.
+REPAIR_LINE = """\
+    export function HealthLine({ repairing }: Props) {
+      return <output className="health">{repairing ? "Repairing agent chat…" : null}</output>;
+    }
+"""
+REPAIR_LINE_HELD = """\
+    import { useConnectionQuiet } from "../../ui/lasting";
+    export function HealthLine({ repairing }: Props) {
+      const lasting = useConnectionQuiet(repairing);
+      return <output className="health">{lasting ? "Repairing agent chat…" : null}</output>;
+    }
+"""
+REPAIR_LINE_ACTION = """\
+    export function HealthLine({ stuck, onRestart }: Props) {
+      return <output>{stuck ? "Agent chat stopped answering." : null}<button onClick={onRestart}>Restart</button></output>;
+    }
+"""
+IOS_STATUS = """\
+    import SwiftUI
+
+    struct ChatStartLine: View {
+        let starting: Bool
+        var body: some View {
+            if starting { Text("The chat is still starting. Send again in a moment.").font(.footnote) }
+        }
+    }
+"""
+
+
+class StatusKind(unittest.TestCase):
+    """The second kind: a status the person waits through, with its own list."""
+    LINE = f"{WEB}/HealthLine.tsx::HealthLine"
+
+    def check(self, tree: Tree, base: str | None = None) -> tuple[int, str]:
+        out = io.StringIO()
+        return ccn.check(tree.root, base, out=out, kind=ccn.STATUS), out.getvalue()
+
+    def allow(self, tree: Tree, *units: str) -> None:
+        rows = {unit: ("web:test", "status-test", "on the base when the kind landed") for unit in units}
+        ccn.write_allowlist(tree.root / ccn.STATUS.allowlist, rows, ccn.STATUS.header)
+
+    def test_a_repair_line_drawn_at_once_fails(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/HealthLine.tsx", REPAIR_LINE)
+        code, out = self.check(tree)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{WEB}/HealthLine.tsx:2: HealthLine shows a status the person waits through", out)
+        self.assertEqual(tree.check()[0], 0, "it says no link word: the connection kind does not see it")
+
+    def test_held_for_the_shared_bound_or_with_one_action_passes(self):
+        for source in (REPAIR_LINE_HELD, REPAIR_LINE_ACTION):
+            tree = Tree(self)
+            tree.write(f"{WEB}/HealthLine.tsx", source)
+            code, out = self.check(tree)
+            self.assertEqual(code, 0, out)
+
+    def test_an_ios_try_again_in_a_moment_line_fails(self):
+        tree = Tree(self)
+        tree.write(f"{IOS}/ChatStartLine.swift", IOS_STATUS)
+        code, out = self.check(tree)
+        self.assertEqual(code, 1, out)
+        self.assertIn("ChatStartLine shows a status the person waits through", out)
+
+    def test_text_that_says_a_connection_state_is_the_first_kinds(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", NOISY_NOTICE)
+        tree.write(f"{WEB}/Line.tsx", 'export function Line() { return <p>Reconnecting, still trying…</p>; }\n')
+        code, out = self.check(tree)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(tree.check()[0], 1)
+
+    def test_what_the_agent_waits_on_the_person_for_is_not_a_status(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/Ask.tsx", 'export function Ask() { return <p>Waiting for your permission</p>; }\n')
+        code, out = self.check(tree)
+        self.assertEqual(code, 0, out)
+
+    def test_its_list_is_its_own_and_only_shrinks(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/HealthLine.tsx", REPAIR_LINE)
+        tree.commit("base: the kind is not here yet")
+        self.allow(tree, self.LINE)
+        tree.commit("the kind lands with its list")
+        code, out = self.check(tree, base="HEAD^1")
+        self.assertEqual(code, 0, out)
+        self.assertFalse((tree.root / ALLOWLIST).exists(), "the connection list is untouched")
+        tree.write(f"{WEB}/Other.tsx", 'export function Other() { return <p>Restarting the helper…</p>; }\n')
+        self.allow(tree, self.LINE, f"{WEB}/Other.tsx::Other")
+        tree.commit("a new status with a new row")
+        code, out = self.check(tree, base="HEAD^1")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"new row {WEB}/Other.tsx::Other: the list only shrinks", out)
+
+    def test_a_fixed_unit_left_in_its_list_fails_as_stale(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/HealthLine.tsx", REPAIR_LINE_HELD)
+        self.allow(tree, self.LINE)
+        code, out = self.check(tree)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"stale row {self.LINE}", out)
+
+    def test_a_plain_run_judges_both_kinds(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/HealthLine.tsx", REPAIR_LINE)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = ccn.main(["--root", str(tree.root)])
+        self.assertEqual(code, 1, out.getvalue())
+        self.assertIn("connection notices: ok", out.getvalue())
+        self.assertIn("status notices: 1 finding(s)", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
