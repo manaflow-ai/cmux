@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
 use cmux_link::key_holder::{KeyFile, KeyHolder};

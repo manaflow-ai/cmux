@@ -15,7 +15,6 @@ local-networks = ["dep:libc"]
 libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
-proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

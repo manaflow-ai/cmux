@@ -8,7 +8,7 @@
 //! --from-folder` failed "Couldn't copy the folder to chat-…: the machine at
 //! …/cmux-link-….sock did not answer". These tests scale those times down.
 
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::io::BufReader;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

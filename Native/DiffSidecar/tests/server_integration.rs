@@ -1065,6 +1065,7 @@ fn rpc_page_scheme_names_patches_for_the_page_host() {
 /// makes the patch `git diff --ignore-all-space`, and the reply says so. The
 /// handshake names the capability.
 #[test]
+#[allow(clippy::too_many_lines)] // one end-to-end scenario: setup, both whitespace modes, handshake
 fn rpc_sessions_hide_white_space_when_asked() {
     let token = "0123456789abcdef";
     let group = "whitespace-test";

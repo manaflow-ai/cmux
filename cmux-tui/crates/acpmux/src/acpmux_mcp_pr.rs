@@ -361,10 +361,8 @@ pub(super) fn receipt(line: &str) -> Option<Receipt> {
     let after = after.trim_start();
     let (verdict, sha) = if let Some(s) = after.strip_prefix("SHIP at ") {
         ("SHIP", s)
-    } else if let Some(s) = after.strip_prefix("BLOCK at ") {
-        ("BLOCK", s)
     } else {
-        return None;
+        ("BLOCK", after.strip_prefix("BLOCK at ")?)
     };
     let sha: String = sha.chars().take_while(char::is_ascii_hexdigit).collect();
     (sha.len() >= 7).then(|| Receipt { verdict, sha: sha.to_lowercase(), line: plain.to_owned() })

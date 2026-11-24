@@ -3,7 +3,7 @@
 //! daemon's shutdown each end it at once; a remote dial that does not send
 //! its first line within the deadline is closed.
 
-use std::io::{BufRead, BufReader, Read as _, Write as _};
+use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 

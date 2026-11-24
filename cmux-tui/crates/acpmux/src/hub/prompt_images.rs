@@ -82,7 +82,9 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
         return None;
     }
     let (major, compatible) = (bytes.get(header..header + 4)?, bytes.get(header + 8..size)?);
-    let brands: Vec<&[u8]> = std::iter::once(major).chain(compatible.chunks_exact(4)).collect();
+    let brands: Vec<&[u8]> = std::iter::once(major)
+        .chain(compatible.as_chunks::<4>().0.iter().map(<[u8; 4]>::as_slice))
+        .collect();
     let has =
         |names: &[&[u8; 4]]| brands.iter().any(|brand| names.iter().any(|name| *brand == *name));
     if has(&[b"avif", b"avis"]) {

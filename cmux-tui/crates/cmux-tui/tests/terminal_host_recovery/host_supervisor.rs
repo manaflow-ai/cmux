@@ -11,8 +11,6 @@
 //!    a terminal that uses every attempt ends as `restart_exhausted`.
 //! 3. A respawn that a daemon stop cut off runs at the next daemon's start.
 
-use std::io::BufRead as _;
-
 use super::super::reconnect_checkpoints::gap_reasons;
 use super::host_replacement::wait_for_daemon_custody;
 use super::pty_custody::{kill_shell_then_host, send_line, signal_pid, wait_for_dead_host};

@@ -1234,7 +1234,7 @@ async fn acpmux(
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
-    let mut exposure = peer.session_exposure.clone();
+    let exposure = peer.session_exposure.clone();
     // What both directions learn about the sessions this phone touches. Locked only for a
     // moment, never across an await.
     let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
@@ -1300,7 +1300,7 @@ async fn acpmux(
                         // prompt/retry methods; info, events and mode changes also
                         // keep a live channel's exposure alive.
                         for (_, session) in crate::acpmux_policy::request_targets(&text) {
-                            relay.bound_sessions.insert(session.clone());
+                            relay.bound_sessions.insert(session);
                         }
                     }
                     // An agent a phone drives stays in a mode that asks

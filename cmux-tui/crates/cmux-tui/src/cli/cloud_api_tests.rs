@@ -2,7 +2,6 @@
 //! daemon socket to a fake Cloud API on a local port, one call of each family, and the answer
 //! read back.
 
-use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};

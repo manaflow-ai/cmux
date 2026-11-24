@@ -6,8 +6,6 @@
 //! Restart" is off), a command it ran never runs again and the marker line
 //! names it, and a real process end or a close stays ended.
 
-use std::io::Write as _;
-
 use super::pty_custody::{kill_shell_then_host, send_line, signal_pid, wait_for_dead_host};
 use super::*;
 

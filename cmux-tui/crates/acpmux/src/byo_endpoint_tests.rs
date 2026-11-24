@@ -921,7 +921,7 @@ fn recording(
         if fail {
             anyhow::bail!("the store is locked");
         }
-        seen.lock().unwrap().push(format!("{} | {}", c.argv.join(" "), &*c.stdin));
+        seen.lock().unwrap().push(format!("{} | {}", c.argv.join(" "), *c.stdin));
         Ok(())
     })
 }

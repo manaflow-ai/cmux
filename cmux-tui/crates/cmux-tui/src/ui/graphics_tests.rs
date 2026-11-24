@@ -1,4 +1,3 @@
-use base64::Engine as _;
 use ghostty_vt::{Callbacks, KittyPlacement, KittyPlacementKey, Terminal};
 
 use super::*;

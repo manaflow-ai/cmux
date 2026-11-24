@@ -40,7 +40,7 @@ impl OutputStore {
         let bytes = text.len() as u64;
         anyhow::ensure!(bytes <= 4 * 1024 * 1024, "terminal recovery snapshot exceeds 4 MiB");
         self.recovery_bytes
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::Relaxed,
                 std::sync::atomic::Ordering::Relaxed,
                 |used| used.checked_add(bytes).filter(|total| *total <= RECOVERY_MAX_BYTES),

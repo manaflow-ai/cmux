@@ -70,7 +70,7 @@ pub struct LoopbackForwardPolicy {
 
 impl Default for LoopbackForwardPolicy {
     fn default() -> Self {
-        Self { enabled: true, allow: vec![1..=u16::MAX], deny: Vec::new() }
+        Self { enabled: true, allow: std::iter::once(1..=u16::MAX).collect(), deny: Vec::new() }
     }
 }
 

@@ -325,7 +325,9 @@ fn properties_with_swap(
 
 fn without_swap(properties: &[String]) -> Vec<String> {
     properties
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .filter(|pair| !pair.get(1).is_some_and(|p| p.starts_with("MemorySwapMax=")))
         .flat_map(|pair| pair.iter().cloned())
         .collect()

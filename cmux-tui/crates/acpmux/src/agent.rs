@@ -152,11 +152,7 @@ const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 /// `ACPMUX_TEST_HOST_KIND_LATE` makes every answer count as late (past the budget), as the answer
 /// of a host whose replay a loaded Mac did not drain in time does. Release builds have no seam.
 fn host_kind_waits() -> bool {
-    #[cfg(debug_assertions)]
-    if std::env::var_os("ACPMUX_TEST_HOST_KIND_LATE").is_some() {
-        return false;
-    }
-    true
+    !(cfg!(debug_assertions) && std::env::var_os("ACPMUX_TEST_HOST_KIND_LATE").is_some())
 }
 
 /// What [`ChildAgent::host_kind`] learned of the translator an agent runs under.

@@ -3,7 +3,6 @@
 
 use std::collections::HashSet;
 
-use base64::Engine as _;
 use ring::rand::SystemRandom;
 use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair as _};
 use serde_json::Value;

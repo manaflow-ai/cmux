@@ -833,9 +833,12 @@ impl Hub {
     /// with this code does; a test stands in for an older one.
     pub(super) fn understands_queue_approval(&self) -> bool {
         #[cfg(test)]
-        if self.queue_approval_off.load(Ordering::SeqCst) {
-            return false;
+        {
+            !self.queue_approval_off.load(Ordering::SeqCst)
         }
-        true
+        #[cfg(not(test))]
+        {
+            true
+        }
     }
 }

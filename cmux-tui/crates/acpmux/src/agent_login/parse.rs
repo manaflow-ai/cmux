@@ -159,10 +159,7 @@ fn complete_words(text: &str) -> impl Iterator<Item = &str> {
 /// "one-time code", once that line is complete: 4 to 32 of `A-Z`, `0-9` and
 /// `-`, with at least one letter or digit.
 pub fn device_code(plain: &str) -> Option<String> {
-    let complete = match plain.rfind('\n') {
-        Some(end) => plain.get(..end).unwrap_or_default(),
-        None => return None,
-    };
+    let complete = plain.get(..plain.rfind('\n')?).unwrap_or_default();
     let mut lines =
         complete.lines().skip_while(|l| !l.to_ascii_lowercase().contains("one-time code"));
     lines.next()?;

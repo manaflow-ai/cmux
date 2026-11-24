@@ -3,7 +3,7 @@
 //! (`daemon-fs-for-cloud.md`, "Exact wire JSON") replayed with their
 //! answer shapes recorded for cmux-cloud.
 
-use std::io::{BufRead, BufReader, Read as _, Write as _};
+use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
 
 use serde_json::{Value, json};

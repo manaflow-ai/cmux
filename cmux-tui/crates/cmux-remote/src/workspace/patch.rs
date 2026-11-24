@@ -610,7 +610,7 @@ fn unified_hunk_line_counts(line: &str) -> Option<(usize, usize)> {
 }
 
 fn unified_range_line_count(range: &str) -> Option<usize> {
-    let (start, count) = range.split_once(',').map_or((range, "1"), |parts| parts);
+    let (start, count) = range.split_once(',').unwrap_or((range, "1"));
     start.parse::<usize>().ok()?;
     count.parse().ok()
 }

@@ -95,7 +95,7 @@ jobs:
   msrv-check:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
-    name: Rust MSRV (1.91)
+    name: Rust MSRV (1.95)
     needs: validate-inputs
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
@@ -132,8 +132,8 @@ jobs:
         with:
           save-on-dispatch: "true"
 
-      - name: Install Rust 1.91
-        run: rustup toolchain install 1.91.0 --profile minimal
+      - name: Install Rust 1.95
+        run: rustup toolchain install 1.95.0 --profile minimal
 
       # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
       - name: Give this runner instance its own CARGO_HOME
@@ -141,7 +141,7 @@ jobs:
 
       # Keep cargo's registry and the MSRV target dir between runs, as lint and test
       # do: without it every run checked the whole workspace from an empty target.
-      # The job's own key, with the toolchain in it, so 1.91 artifacts never mix
+      # The job's own key, with the toolchain in it, so 1.95 artifacts never mix
       # with the pinned toolchain's.
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -153,11 +153,11 @@ jobs:
           # its own save, so it would only push useful entries out of the cache store.
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
-          key: rust-1.91.0
+          key: rust-1.95.0
 
       - name: cargo check with MSRV
         working-directory: cmux-tui
-        run: cargo +1.91.0 check --workspace --locked
+        run: cargo +1.95.0 check --workspace --locked
 
   web-frontend:
     needs: validate-inputs

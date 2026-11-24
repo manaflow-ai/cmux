@@ -215,7 +215,7 @@ static APPENDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// FNV-1a, 64 bits, of [`INDEXED_KINDS`].
 fn kinds() -> u64 {
-    fnv(INDEXED_KINDS.iter().flat_map(|k| k.bytes().chain([b'\n'])))
+    fnv(INDEXED_KINDS.iter().flat_map(|k| k.bytes().chain(*b"\n")))
 }
 
 pub(super) fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {

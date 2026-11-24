@@ -171,7 +171,7 @@ async fn only_white_space_changes_make_an_empty_patch() {
     let source = DiffSource::Unstaged {
         repo_root: repository.root(),
     };
-    assert!(!repository.patch(&source, Whitespace::Show).await.is_empty());
+    assert_ne!(repository.patch(&source, Whitespace::Show).await, "");
     // `open_session` answers an empty patch with `emptyDiff`.
     assert_eq!(repository.patch(&source, Whitespace::Ignore).await, "");
 }
@@ -204,7 +204,7 @@ fn only_an_explicit_true_hides_white_space() {
     assert_eq!(Whitespace::requested(None), Whitespace::Show);
     assert_eq!(Whitespace::requested(Some(false)), Whitespace::Show);
     assert_eq!(Whitespace::requested(Some(true)), Whitespace::Ignore);
-    assert!(Whitespace::Show.diff_args().is_empty());
+    assert_eq!(Whitespace::Show.diff_args(), &[] as &[&str]);
     assert_eq!(Whitespace::Ignore.diff_args(), ["--ignore-all-space"]);
 }
 

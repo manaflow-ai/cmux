@@ -639,7 +639,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
     assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
-    assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
+    assert 'RUST_TOOLCHAIN: "1.100.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
     assert "cargo test --manifest-path" in bootstrap
@@ -1596,7 +1596,7 @@ def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
     release = workflow("sdk-release-cut.yml")
 
     for text in (preflight, release):
-        assert 'RUST_TOOLCHAIN: "1.95.0"' in text
+        assert 'RUST_TOOLCHAIN: "1.100.0"' in text
         assert 'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal' in text
         assert 'rustup default "$RUST_TOOLCHAIN"' in text
 

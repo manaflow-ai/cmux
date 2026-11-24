@@ -116,7 +116,7 @@ mod linux {
         child.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         loop {
             let mut byte = [0];
-            if child.read_exact(&mut byte).is_err() || byte == [b'x'] {
+            if child.read_exact(&mut byte).is_err() || byte == *b"x" {
                 return;
             }
             child.write_all(&byte).unwrap();

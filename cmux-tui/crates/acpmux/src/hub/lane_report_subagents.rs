@@ -154,12 +154,8 @@ impl Hub {
         };
         // It stopped, or the last subagent ended, while this was being left: whoever takes it
         // first has it (the hook for the subagent, or this for the parent).
-        if (!running() || crate::subagent_notice::stopped(&dir))
-            && crate::subagent_notice::take(&path).is_some()
-        {
-            return false;
-        }
-        true
+        !((!running() || crate::subagent_notice::stopped(&dir))
+            && crate::subagent_notice::take(&path).is_some())
     }
 
     /// The count of `session`'s running subagents changed to `count`: recorded for watchers

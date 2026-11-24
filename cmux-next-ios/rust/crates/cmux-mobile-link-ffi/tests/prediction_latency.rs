@@ -305,7 +305,7 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
             prediction.sent(bytes.clone(), now);
             let after = layout_signature(&prediction.layout(now, screen.cursor_column, COLUMNS));
             let index = keys.len();
-            let echoed = remote.mode == Mode::Shell && bytes != [b'\r'];
+            let echoed = remote.mode == Mode::Shell && bytes != *b"\r";
             let shown_at = (before != after && echoed).then(|| next_frame(now));
             keys.push(Key {
                 bytes: bytes.clone(),
@@ -316,7 +316,7 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
                 echoed,
             });
             events.push((up.arrival(now, &mut rng), Event::KeyArrives(index)));
-            if bytes == [b'\r'] {
+            if bytes == *b"\r" {
                 waiting_for_output_of = Some(index);
             }
             next_key += 1;
@@ -350,7 +350,7 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
                     if key.confirmed_at.is_none() {
                         key.confirmed_at = Some(next_frame(now));
                     }
-                    if key.bytes == [b'\r'] && mode == Mode::Shell && bytes.ends_with(b"\r\n$ ") {
+                    if key.bytes == *b"\r" && mode == Mode::Shell && bytes.ends_with(b"\r\n$ ") {
                         fresh_prompt = true;
                     }
                     if waiting_for_output_of == Some(index) {
