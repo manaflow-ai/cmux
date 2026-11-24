@@ -100,6 +100,11 @@ public final class ScreenSession {
     /// the Mac then leaves its cursor out of the video. Set before
     /// connecting; an app that never sets it gets the cursor in the picture.
     @ObservationIgnored public var drawsPointers = false
+    /// Follow mode's camera, which the app supplies (nil: no Follow button).
+    public var camera: (any ScreenCamera)?
+    /// One message of a screen stream's `focus` channel: a JSON focus event
+    /// from the Mac (main actor). The camera reads it.
+    @ObservationIgnored public var onFocus: ((Data) -> Void)?
     /// The Mac's cursor shape on a screen stream, its own image (nil: none
     /// yet, or a Mac that sends none). Only with ``drawsPointers`` (main actor).
     @ObservationIgnored public var onStreamCursor: ((ScreenStreamCursor?) -> Void)?
@@ -476,6 +481,12 @@ public final class ScreenSession {
                 guard let self, self.stream === viewer else { return }
                 if self.streamCursors.select(shape) { self.onStreamCursor?(self.streamCursors.current) }
                 self.onTelepointers?(person, agent)
+            }
+        }
+        viewer.onFocus = { [weak self, weak viewer] message in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.onFocus?(message)
             }
         }
         viewer.onCursorShape = { [weak self, weak viewer] shape in

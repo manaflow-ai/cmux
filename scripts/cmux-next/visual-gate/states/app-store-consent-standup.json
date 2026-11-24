@@ -2,7 +2,8 @@
   "title": "Consent card of a command-only app (Standup)",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],
