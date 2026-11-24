@@ -23,7 +23,10 @@ use super::super::agent_session_attach_tests::{
     UNGUARDED_CHAT, agent_tab, assert_code, mux_with, run, terminal_pane,
 };
 use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
-use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle};
+use super::{
+    AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY, AGENT_TRANSFER_CAPABILITY, AgentTransferHost,
+    MAX_PAGE_BYTES, try_handle,
+};
 use crate::mux::Mux;
 use crate::server::AgentStartHost;
 
@@ -166,6 +169,33 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
     assert!(advertised(&mux));
     mux.set_acpmux_socket(None);
     assert!(!advertised(&mux));
+}
+
+#[test]
+fn a_move_target_lists_the_optional_bundle_files_its_acpmux_takes() {
+    // 2026-11-24: an older target refused a whole move over `composers.json`; the pump now
+    // leaves out what identify does not list, so identify must list what this build takes.
+    let acpmux_ids: Vec<&str> =
+        acpmux::capabilities::OPTIONAL_BUNDLE_FILES.iter().map(|(id, _)| *id).collect();
+    assert_eq!(super::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES, acpmux_ids.as_slice());
+    let fake = FakeAcpmux::start("xfiles");
+    let home = Home::new("files");
+    let mux = mux_with(&fake, "atx-files");
+    let listed = |mux: &Arc<Mux>| -> Vec<String> {
+        run(mux, json!({"cmd":"identify"}))["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .filter(|id| acpmux_ids.contains(&id.as_str()))
+            .collect()
+    };
+    assert!(listed(&mux).is_empty(), "no host: no receive, so no bundle file is taken");
+    mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: false, home: home.path.clone() }));
+    assert_eq!(listed(&mux), acpmux_ids);
+    for id in &acpmux_ids {
+        assert!(super::super::native_owner::carries(id), "the native carrier drops {id}");
+    }
 }
 
 #[test]
@@ -920,6 +950,36 @@ fn begin_of_a_chat_already_moving_names_that_move() {
 }
 
 #[test]
+fn a_begin_token_reaches_acpmux_and_the_moving_refusal_hands_its_moves_token_back() {
+    let fake = FakeAcpmux::start("xtoken");
+    let home = Home::new("token");
+    let mux = transfer_mux(&fake, "atx-token", &home, false);
+    let advertised = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
+    assert!(
+        advertised.as_array().unwrap().iter().any(|c| c == AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY),
+        "{advertised}"
+    );
+    let surface = agent_tab(&mux, Some(MOVING_CHAT));
+    let mut client = Client::connect(&mux, "xtoken");
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                      "begin_token":"tok_mine"}));
+    assert_code(&begun, "agent_transfer.refused");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
+    assert_eq!(sent["params"]["beginToken"], json!("tok_mine"));
+    // The token acpmux kept with the frozen move, whoever began it.
+    assert_eq!(
+        begun["error_details"],
+        json!({"transfer_id": "xfer_frozen", "begin_token": "tok_frozen"})
+    );
+    // A token that is no plain id never reaches acpmux.
+    let bad = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                    "begin_token":"../x"}));
+    assert_code(&bad, "agent_transfer.bad_request");
+    fake.no_frame();
+}
+
+#[test]
 fn a_receive_abort_whose_forget_fails_keeps_the_receive_askable() {
     let fake = FakeAcpmux::start("xforgetfail");
     let home = Home::new("forgetfail");
@@ -1304,5 +1364,112 @@ fn a_landed_record_from_the_future_is_not_trusted() {
     assert_code(&machine_tab(&mut client, &mux, "acp_future"), "conversation_tab.machine_mismatch");
     drop(client);
     mux.shutdown();
+    fake.no_frame();
+}
+
+// MARK: Tail first, history after
+
+#[test]
+fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
+    let fake = FakeAcpmux::start("xlater");
+    let home = Home::new("later");
+    let mux = transfer_mux(&fake, "atx-later", &home, true);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xlater");
+    // Source: prepare the last turns.
+    let prepared = client.request(json!({"cmd":"agent-transfer-prepare","surface":surface,
+                                         "keep_turns":4}));
+    let data = ok_data(&prepared).clone();
+    assert_eq!(data["prepare_id"], json!("pre_1"));
+    assert_eq!(data["after_seq"], json!(7));
+    assert_eq!(data["history_later"], json!(true));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_prepare"));
+    assert_eq!(sent["params"], json!({"sessionId":SESSION,"historyLater":{"keepTurns":4}}));
+    // The prefix's pages are read under its prepare id.
+    let read = client.request(json!({"cmd":"agent-transfer-read","transfer_id":"pre_1",
+                                     "path":"events/0.ndjson","offset":0}));
+    assert_eq!(ok_data(&read)["data"], json!("YWJj"));
+    assert_eq!(fake.frame()["params"]["transferId"], json!("pre_1"));
+    // Target: stage under the receive's guard control, write, finish.
+    let cwd = home.text("work/project");
+    let staged = client.request(json!({"cmd":"agent-transfer-stage","manifest":data["manifest"],
+                                       "cwd":cwd}));
+    assert_eq!(ok_data(&staged)["stage_id"], json!("stg_1"));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_stage"));
+    assert_eq!(sent["params"]["manifest"], data["manifest"]);
+    assert!(sent["params"]["control"].as_str().is_some_and(|c| !c.is_empty()), "{sent}");
+    let wrote = client.request(json!({"cmd":"agent-transfer-write","receive_id":"stg_1",
+                                      "path":"events/0.ndjson","offset":0,"data":"YWJj"}));
+    assert_eq!(ok_data(&wrote)["next"], json!(3));
+    assert_eq!(fake.frame()["params"]["receiveId"], json!("stg_1"));
+    let finished = client.request(json!({"cmd":"agent-transfer-stage-finish","stage_id":"stg_1"}));
+    assert_eq!(ok_data(&finished)["records"], json!(2));
+    assert_eq!(fake.frame()["params"], json!({"stageId":"stg_1"}));
+    // Source: the begin names the prefix; only the tail moves, and the history is owed.
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                      "prepare_id":"pre_1"}));
+    let begun = ok_data(&begun).clone();
+    assert_eq!(begun["staged"], json!(true));
+    assert_eq!(begun["history_later"], json!(true));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION,"interrupt":false,"prepareId":"pre_1","afterSeq":7})
+    );
+    let _manifest_read = fake.frame();
+    let _session_read = fake.frame();
+    // Target: the receive takes the stage.
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":manifest(),
+                                         "cwd":cwd,"stage_id":"stg_1"}));
+    ok_data(&received);
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_receive"));
+    assert_eq!(sent["params"]["stageId"], json!("stg_1"));
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
+    let _finish = fake.frame();
+    // After: have, export, install, for the chat the receive's manifest named.
+    let have = client.request(json!({"cmd":"agent-transfer-history-have","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&have)["have"], json!(0));
+    assert_eq!(fake.frame()["params"], json!({"sessionId":"acp_moving"}));
+    let export = client.request(json!({"cmd":"agent-transfer-history-export",
+                                       "transfer_id":"xfer_1","have":0}));
+    let export = ok_data(&export).clone();
+    assert_eq!(export["prepare_id"], json!("pre_h"));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_history_export"));
+    assert_eq!(sent["params"], json!({"sessionId":SESSION,"throughSeq":7,"have":0}));
+    let installed = client.request(json!({"cmd":"agent-transfer-history","receive_id":"rcv_1",
+                                          "stage_id":"stg_1"}));
+    assert_eq!(ok_data(&installed)["records"], json!(5));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_history"));
+    assert_eq!(sent["params"], json!({"sessionId":"acp_moving","stageId":"stg_1"}));
+}
+
+#[test]
+fn a_begin_without_a_prepare_sends_todays_params() {
+    let fake = FakeAcpmux::start("xnolater");
+    let home = Home::new("nolater");
+    let mux = transfer_mux(&fake, "atx-nolater", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xnolater");
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
+    let begun = ok_data(&begun).clone();
+    assert!(begun.get("staged").is_none() && begun.get("history_later").is_none(), "{begun}");
+    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION,"interrupt":false}));
+    // An unknown prepare is refused before acpmux hears of it.
+    let unknown = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
+                                        "prepare_id":"pre_nope"}));
+    assert_code(&unknown, "agent_transfer.unknown_transfer");
+    let _manifest_read = fake.frame();
+    let _session_read = fake.frame();
+    fake.no_frame();
+    // A history export for a move that owes none is refused.
+    let export = client.request(json!({"cmd":"agent-transfer-history-export",
+                                       "transfer_id":"xfer_1","have":0}));
+    assert_code(&export, "agent_transfer.unknown_transfer");
     fake.no_frame();
 }

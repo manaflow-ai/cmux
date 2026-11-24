@@ -1366,6 +1366,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertEqual(listed, outside, "update the swift-canary-fleet target list to the production targets CmuxNextApp does not reach")
         self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
 
+    def test_a_pull_request_canary_compiles_its_pinned_head_in_debug(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]
+        step = next(s for s in job["steps"] if s.get("id") == "check")
+        self.assertEqual(step["env"]["REF"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
+        self.assertIn('[[ -z "${PR:-}" && -f scripts/ci/fleet_compile_result.py ]]', step["run"])
+        self.assertIn('compile-check --ref "$REF" --app', step["run"])
+
 
 def kill_group(pid: int) -> None:
     # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
@@ -2443,8 +2450,9 @@ class FastTierStartsWarm(unittest.TestCase):
         saves = [s for s in steps if is_cache_save(s)]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         self.assertEqual([s["with"]["path"] for s in saves],
-                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["swift"]],
-                         "the swift archive, whose pointer readers follow, goes last")
+                         ["${{ matrix.workspace }}/" + FAST_CACHE_DIRS["home"],
+                          "${{ matrix.workspace }}/" + FAST_CACHE_DIRS["swift"]],
+                         "the swift archive, whose pointer readers follow, goes last; each at its pool's path")
         for name, save in zip(("home", "swift"), saves):
             with self.subTest(name=name):
                 self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
@@ -2475,8 +2483,11 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
+        # blacksmith-root2: the same seed at the owned minis' second seed root's path (owned_spm_scratch).
+        self.assertEqual(set(pools), {"blacksmith", "blacksmith-root2"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["workspace"], "/Users/runner/_work/cmux-2/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["runner"], "blacksmith-6vcpu-macos-26")
 
     def test_a_seed_key_names_the_path_its_restore_writes(self):
         """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
@@ -3877,7 +3888,14 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+        self.assertNotIn("--release", args)
         self.assertIn("Build fleet app compile: pass", summary)
+
+    def test_the_native_pr_app_job_always_runs_debug_instead_of_reading_release(self):
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertNotIn("fleet_compile_result.py", step["run"])
+        self.assertNotIn("tip check's SwiftPM Release", step["run"])
+        self.assertIn("compile-check --ref \"$REF\" --app --timeout 1200 --queue-timeout 300", step["run"])
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
         result, output, _, _ = self.run_check(1)

@@ -11,6 +11,7 @@ import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.expe
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
+import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
@@ -55,6 +56,8 @@ import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
+import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
+import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
@@ -147,6 +150,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  workedLine,
+  toolRowWords,
   sinceLook,
   workedForMessages,
   bareWorkedTurns,
@@ -237,6 +242,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   planUsageLook,
   emojiShortcodeLook,
   pastePlaceholderLook,
+  attachStripSize,
   sendStopMorph,
   stopPresence,
   sendMenuLook,

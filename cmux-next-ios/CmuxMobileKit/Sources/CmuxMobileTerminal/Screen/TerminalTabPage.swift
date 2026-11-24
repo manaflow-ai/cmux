@@ -151,7 +151,8 @@ public struct TerminalTabPage: View {
                         // once; once attached the frame stays until the live rows
                         // are drawn, then goes in one frame: a cut, never a fade
                         // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
+                                               screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
@@ -187,16 +188,20 @@ public struct TerminalTabCard: View {
         cardContent.accessibilityHidden(true)
     }
 
+    /// What the card draws: also read by the UI tests' face probe (`TabCardFaceRecord`).
+    public var content: TerminalCardContent {
+        let started = model.controller?.started == true
+        return TerminalCardContent.choose(sessionStarted: started,
+                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                          hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+    }
+
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background)
-                let started = model.controller?.started == true
-                let content = TerminalCardContent.choose(sessionStarted: started,
-                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
