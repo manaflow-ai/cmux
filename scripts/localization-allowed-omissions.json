@@ -1,4 +1,8 @@
 {
+  "settingsPage.chiefContact.slack": {
+    "class": "brand",
+    "source": "Slack"
+  },
   "argument.value.dev": {
     "class": "brand",
     "source": "DEV"
