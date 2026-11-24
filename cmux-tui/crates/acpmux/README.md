@@ -406,6 +406,7 @@ cmux agent session tail NAME --since <sessionId>:<seq> --follow   # raw events a
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 # Race CLI commands run inside an authenticated acpmux agent session:
 acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race new -n 3 -m claude/haiku --hint "" --hint "write the failing test first" --hint "read the code path first" --reviewer claude/sonnet "task"  # attempts that diverge on purpose: one plan hint per candidate, in order ("" = the task alone)
 acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
 acpmux race stats                                              # each model's wins / completed races
 acpmux race stop RACE                                          # cancel this race's work, retain its record
