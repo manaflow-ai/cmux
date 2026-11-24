@@ -33,6 +33,22 @@ pub struct PastTurn {
     /// When the prompt was sent and the answer last written (ms since the epoch), when recorded.
     pub prompt_at: Option<u64>,
     pub answer_at: Option<u64>,
+    /// The lines Claude Code wrote into the turn itself (a task notification, a peer's message),
+    /// in order among its tool calls: work of the turn, never a prompt of the person's.
+    pub harness: Vec<PastHarness>,
+}
+
+/// A user line the harness wrote into a turn (`origin.kind` `task-notification` or `peer`). It
+/// replays as a user row marked with its origin (`_meta.lineOrigin`), so the transcript folds it
+/// as the turn's work by that mark, never by its text (Leo, 2026-11-24: "we can indeed treat them
+/// as tool calls, even though they're bursted at the end/start of turns").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PastHarness {
+    pub origin: LineOrigin,
+    pub text: String,
+    pub at: Option<u64>,
+    /// How many of the turn's tool calls came before it.
+    pub after_tools: usize,
 }
 
 /// At most this many turns (the newest) and this much text per answer: a long chat stays cheap.
@@ -131,6 +147,8 @@ impl Fold {
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
         if !self.codex {
             for step in claude_steps(&record, at) {
+                // A harness line is the turn's work, as a tool call is: a replay draws it, the
+                // chats page's text does not.
                 if self.tools || matches!(step, Step::Prompt(_) | Step::Answer(_)) {
                     add(&mut self.turns, step, at);
                 }
@@ -219,6 +237,9 @@ impl Fold {
 pub enum Step {
     Prompt(String),
     Answer(String),
+    /// A user line Claude Code wrote itself, of an origin that is the turn's work
+    /// ([`LineOrigin::is_tool_like`]).
+    Harness(LineOrigin, String),
     Tool(PastTool),
     ToolResult(ToolResult),
 }
@@ -238,7 +259,7 @@ pub fn record_steps(family: &str, record: &Value, codex_items: &mut bool) -> Vec
         }
         _ => claude_steps(record, record_time(record))
             .into_iter()
-            .filter(|step| matches!(step, Step::Prompt(_) | Step::Answer(_)))
+            .filter(|step| matches!(step, Step::Prompt(_) | Step::Answer(_) | Step::Harness(..)))
             .collect(),
     }
 }
@@ -287,6 +308,7 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
             answer: String::new(),
             prompt_at: at,
             answer_at: at,
+            harness: Vec::new(),
         }),
         Step::Tool(tool) => {
             let Some(turn) = turns.last_mut() else { return };
@@ -300,6 +322,14 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
             let Some(turn) = turns.last_mut() else { return };
             if let Some(tool) = turn.tools.iter_mut().rev().find(|t| t.id == result.id) {
                 tool.settle(&result, at);
+            }
+        }
+        // A page that begins inside a turn has no turn yet to join: the line is left out with it.
+        Step::Harness(origin, text) => {
+            let Some(turn) = turns.last_mut() else { return };
+            if turn.harness.len() < MAX_TOOLS {
+                let after_tools = turn.tools.len();
+                turn.harness.push(PastHarness { origin, text, at, after_tools });
             }
         }
         Step::Answer(text) => {
@@ -325,7 +355,21 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
 /// `{"type":"assistant",...}` text and `tool_use` blocks.
 fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
-    if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") || !from_person(record) {
+    if flag("isSidechain") || flag("isCompactSummary") {
+        return Vec::new();
+    }
+    // A line Claude Code wrote itself (a task notification; a peer's message, which it writes as
+    // a meta line) is the turn's work, kept with its origin; never a prompt.
+    let origin = line_origin(record);
+    if origin.is_tool_like() {
+        return (record.get("type").and_then(Value::as_str) == Some("user"))
+            .then(|| record.pointer("/message/content").and_then(text_of))
+            .flatten()
+            .map(|text| Step::Harness(origin, text))
+            .into_iter()
+            .collect();
+    }
+    if flag("isMeta") || origin != LineOrigin::Person {
         return Vec::new();
     }
     let Some(content) = record.pointer("/message/content") else { return Vec::new() };
@@ -402,7 +446,7 @@ pub(crate) fn from_person(record: &Value) -> bool {
 /// came in, folded with the turn's work, not a message the person typed (Leo, 2026-11-24: "we can
 /// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LineOrigin {
+pub enum LineOrigin {
     /// No origin, or `human`: the person's own words, a fixed point that never folds.
     Person,
     /// `task-notification`: a subagent or background task ended; work of the turn.
@@ -414,14 +458,32 @@ pub(crate) enum LineOrigin {
 }
 
 impl LineOrigin {
+    /// Its name on a replayed user row (`_meta.lineOrigin`), which the web transcript reads
+    /// (incomingMessage.ts `lineOrigin`): Claude Code's own `origin.kind` words.
+    pub fn wire(self) -> &'static str {
+        match self {
+            LineOrigin::Person => "person",
+            LineOrigin::TaskNotification => "task-notification",
+            LineOrigin::Peer => "peer",
+            LineOrigin::Other => "other",
+        }
+    }
+
     /// Whether the line is harness-injected work the transcript folds like a tool call.
     pub(crate) fn is_tool_like(self) -> bool {
         matches!(self, LineOrigin::TaskNotification | LineOrigin::Peer)
     }
 }
 
+/// Whether a logged `user_message` is a line the harness wrote into a turn (`_meta.lineOrigin`,
+/// written by `native_history::turn_records` and `hub/watch.rs`): the turn's work, not a prompt,
+/// so readers that count or quote prompts leave it out.
+pub fn harness_row(msg: &Value) -> bool {
+    msg.pointer("/_meta/lineOrigin").and_then(Value::as_str).is_some_and(|o| o != "person")
+}
+
 /// The origin of a Claude Code user line (`origin.kind`).
-pub(crate) fn line_origin(record: &Value) -> LineOrigin {
+pub fn line_origin(record: &Value) -> LineOrigin {
     match record.pointer("/origin/kind") {
         None | Some(Value::Null) => LineOrigin::Person,
         Some(kind) => match kind.as_str() {
@@ -472,6 +534,67 @@ mod line_origin_tests {
         assert!(!LineOrigin::Person.is_tool_like());
         assert!(!LineOrigin::Other.is_tool_like());
         assert!(!from_person(&json!({"origin": {"kind": "channel"}})));
+    }
+
+    fn fold(tools: bool, lines: &[Value]) -> Vec<PastTurn> {
+        let mut fold = Fold::new("claude", tools);
+        for line in lines {
+            fold.line(line.to_string().as_bytes());
+        }
+        fold.finish()
+    }
+
+    fn transcript() -> Vec<Value> {
+        let note = "<task-notification><task-id>a1</task-id><status>completed</status><summary>Agent \"lint\" completed</summary></task-notification>";
+        let peer =
+            "<cross-session-message from=\"s2\" name=\"coord\">Merged #1</cross-session-message>";
+        vec![
+            json!({"type": "user", "timestamp": "2026-11-24T01:00:00Z", "message": {"content": "Land the lanes"}}),
+            json!({"type": "assistant", "timestamp": "2026-11-24T01:00:01Z", "message": {"content": [{"type": "tool_use", "id": "c1", "name": "Bash", "input": {"command": "ls"}}]}}),
+            json!({"type": "user", "timestamp": "2026-11-24T01:00:02Z", "origin": {"kind": "task-notification"}, "message": {"content": note}}),
+            json!({"type": "user", "timestamp": "2026-11-24T01:00:03Z", "isMeta": true, "origin": {"kind": "peer"}, "message": {"content": [{"type": "text", "text": peer}]}}),
+            json!({"type": "user", "timestamp": "2026-11-24T01:00:04Z", "origin": {"kind": "channel"}, "message": {"content": "not ours"}}),
+            json!({"type": "assistant", "timestamp": "2026-11-24T01:00:05Z", "message": {"content": [{"type": "text", "text": "Done."}], "stop_reason": "end_turn"}}),
+        ]
+    }
+
+    #[test]
+    fn a_replay_keeps_harness_lines_in_their_turn_with_their_origin() {
+        let turns = fold(true, &transcript());
+        assert_eq!(turns.len(), 1, "a harness line opens no turn");
+        let turn = &turns[0];
+        assert_eq!(turn.prompt, "Land the lanes");
+        assert_eq!(turn.answer, "Done.");
+        let kept: Vec<_> = turn.harness.iter().map(|h| (h.origin, h.after_tools)).collect();
+        assert_eq!(kept, [(LineOrigin::TaskNotification, 1), (LineOrigin::Peer, 1)]);
+        assert!(turn.harness[0].text.starts_with("<task-notification>"));
+        assert!(turn.harness[1].text.contains("Merged #1"));
+        assert!(turn.harness[0].at.is_some());
+    }
+
+    #[test]
+    fn the_chats_page_and_a_page_before_any_prompt_leave_harness_lines_out() {
+        assert!(fold(false, &transcript())[0].harness.is_empty());
+        // A page that starts after the prompt has no turn for the line to join.
+        assert!(fold(true, &transcript()[2..])[0].harness.is_empty());
+    }
+
+    #[test]
+    fn a_watched_transcript_reads_harness_lines_as_their_own_step() {
+        let mut codex = false;
+        let steps = record_steps("claude", &transcript()[2], &mut codex);
+        assert!(matches!(&steps[..], [Step::Harness(LineOrigin::TaskNotification, _)]));
+        assert!(record_steps("claude", &transcript()[4], &mut codex).is_empty());
+    }
+
+    #[test]
+    fn a_logged_harness_row_is_known_by_its_mark() {
+        assert!(harness_row(&json!({"text": "x", "_meta": {"lineOrigin": "task-notification"}})));
+        assert!(harness_row(&json!({"_meta": {"lineOrigin": "peer"}})));
+        assert!(!harness_row(&json!({"_meta": {"lineOrigin": "person"}})));
+        assert!(!harness_row(&json!({"text": "<task-notification></task-notification>"})));
+        assert_eq!(LineOrigin::TaskNotification.wire(), "task-notification");
+        assert_eq!(LineOrigin::Peer.wire(), "peer");
     }
 }
 
