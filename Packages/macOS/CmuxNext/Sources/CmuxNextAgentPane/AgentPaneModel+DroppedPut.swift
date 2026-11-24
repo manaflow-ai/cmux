@@ -93,7 +93,7 @@ extension AgentPaneModel {
                 refusal = failed
                 break
             }
-            let answer = await stager(.chunk(token: token, offset: offset, data: data), session)
+            let answer = await stager(.chunk(token: token, offset: offset, data: AgentPaneUploadChunk(data)), session)
             guard answer["ok"] as? Bool == true,
                   ((answer["value"] as? [String: Any])?["offset"] as? NSNumber)?.intValue == offset + data.count else {
                 refusal = answer["ok"] as? Bool == false ? answer : failed
