@@ -5,7 +5,8 @@
    side inset. The row is its own band above the prompt, so the caret never
    draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
    the chip is hovered or focused. Theme tokens only. */
-.acpmux-composer-box {
+.acpmux-composer-box,
+.acpmux-newtab-box {
   --acpmux-attach-inset: 16px;
   --acpmux-attach-top: 8px;
   --acpmux-attach-gap: 6px;
@@ -99,6 +100,15 @@
      area grows at the top, no shift). The prompt gives up the strip's band (its top inset and a
      tile), so at the cap adding or removing attachments leaves the card, the transcript and the hat
      where they were; a short draft grows by the band less the top inset the prompt drops. */
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
+}
+/* The New Tab card (NewTabPage.tsx) holds its strip the same way: inside its top, the strip's band
+   taken out of the prompt's max height (styles.css .acpmux-newtab-field), so a capped draft keeps the
+   card's height when attachments land (ask-525a5e502a). */
+.acpmux-newtab-box > .acpmux-attachments {
+  padding-inline: 18px;
+}
+.acpmux-newtab-box > .acpmux-attachments ~ .acpmux-newtab-row .acpmux-newtab-field.acpmux-md-field {
   --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
 }
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
