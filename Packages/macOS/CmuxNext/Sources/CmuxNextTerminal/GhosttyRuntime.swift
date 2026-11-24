@@ -267,9 +267,16 @@ public final class GhosttyRuntime {
         let backgroundImageOpacity = configGet(config, &imagePath, key: "background-image") ? Double(imageOpacity) : nil
         opacity = min(max(configured, 0), 1)
         seeThroughLoaded = seeThroughShown
+        let ownerPaintsBackground = Self.terminalBackgroundOverridden || Self.seeThroughShown
         if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
-                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown,
+                                                           ownerPaintsBackground: ownerPaintsBackground,
                                                            backgroundImageOpacity: backgroundImageOpacity) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        }
+        // `appearance.terminalCellBackgrounds`: a program's explicit cell backgrounds over the translucent sheet.
+        let cellMode = Self.backgroundOverride.cellBackgrounds
+        for line in GhosttyRuntimeSurfacePolicy.cellBackgroundLines(mode: cellMode, configuredOpacity: opacity,
+                                                                    ownerPaintsBackground: ownerPaintsBackground) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
@@ -474,5 +481,25 @@ nonisolated enum GhosttyRuntimeSurfacePolicy {
         guard let imageOpacity = backgroundImageOpacity else { return "background-opacity = 0" }
         let raised = imageOpacity * min(max(configuredOpacity, 0), 1) / imageCarrierOpacity
         return "background-opacity = \(imageCarrierOpacity)\nbackground-image-opacity = \(raised)"
+    }
+
+    /// How far an explicit cell background's lightness may be from the theme background before it is fully drawn,
+    /// under `tint` (Ghostty's `background-cells-neutral-fade`).
+    static let cellNeutralFade = 0.5
+
+    /// The config lines for `appearance.terminalCellBackgrounds`; empty for `opaque`.
+    ///
+    /// - Parameter mode: The setting.
+    /// - Parameter configuredOpacity: The resolved `background-opacity`.
+    /// - Parameter ownerPaintsBackground: As in ``override(configuredOpacity:opacityCells:ownerPaintsBackground:backgroundImageOpacity:)``.
+    /// - Returns: Lines for `ghostty_config_load_string`. `window` takes the window's opacity only while the window
+    ///   is translucent or see-through.
+    static func cellBackgroundLines(mode: TerminalCellBackgrounds, configuredOpacity: Double,
+                                    ownerPaintsBackground: Bool) -> [String] {
+        let opacity = min(max(configuredOpacity, 0), 1)
+        let window = (mode == .window || mode == .tintWindow) && (opacity < 1 || ownerPaintsBackground)
+        let tint = mode == .tint || mode == .tintWindow
+        return (window ? ["background-cells-opacity = \(opacity)"] : [])
+            + (tint ? ["background-cells-neutral-fade = \(cellNeutralFade)"] : [])
     }
 }
