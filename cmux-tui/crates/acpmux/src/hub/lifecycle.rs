@@ -119,7 +119,15 @@ impl Hub {
             throwaway,
             require_asking,
             credential,
+            create_key,
         } = req;
+        // A create sent again after a restart cut its reply: the session the first one made
+        // answers it, on this daemon or the one before (`create_key.rs`).
+        if let Some(key) = create_key.as_deref()
+            && let Some(made) = self.created_with_key(key).await
+        {
+            return Ok(made);
+        }
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
         let starter = starter
@@ -396,6 +404,12 @@ impl Hub {
             if caller_selected_id {
                 refuse_stored_fixed_id(self.store.as_ref(), &id)?;
             }
+            // Two creates with one key at once get one session.
+            if let Some(made) =
+                create_key.as_deref().and_then(|key| super::create_key::made_in(&sessions, key))
+            {
+                return Ok(made);
+            }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
@@ -434,6 +448,7 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
+            meta.create_key = create_key;
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -913,7 +928,7 @@ impl Hub {
             // outlived the stop. It reopens for this request, ready.
             if session.status() == SessionStatus::Closed {
                 self.reopen_to_start(session, stops)?;
-                self.set_status(session, SessionStatus::Ready);
+                self.set_status(session, NotWaiting::Ready);
             }
             return Ok(child);
         }
@@ -1158,7 +1173,7 @@ impl Hub {
         }
         session.loading.store(false, Ordering::SeqCst);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
         }
     }
 
@@ -1243,15 +1258,24 @@ impl Hub {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
         let meta = session.meta();
+        // Its requests say interactive (the person's chat, a coordinator) or background
+        // (subrouter_priority.rs), so the gateways keep a share for the chats Leo talks to.
+        let for_person = super::host_level::made_for_a_person(
+            meta.created_by.as_ref(),
+            session.person.load(std::sync::atomic::Ordering::SeqCst),
+        );
+        let profile = &crate::subrouter_priority::profile_with(profile, &meta.name, for_person);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
         // Resume a Claude conversation only from a store that has it: one
-        // that never finished a turn may not be stored at all, and one that
+        // that never finished a turn may not be stored at all, one that
         // another profile ran lives in that profile's store (a failover onto
-        // a fallback with its own CLAUDE_CONFIG_DIR). Else a fresh one starts
+        // a fallback with its own CLAUDE_CONFIG_DIR), and a transcript can be
+        // gone from its own profile's store (the compactor deletes one it
+        // folded; a store can be pruned or deleted). Else a fresh one starts
         // with the restored transcript, never a turn failed on `--resume`.
         if is_claude
             && fork_from.is_none()
@@ -1372,7 +1396,25 @@ impl Hub {
             plan.args.extend(super::stop_condition::claude_args(&meta));
             // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
             plan.args.extend(super::restricted::claude_args(&meta));
-            let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
+            let (plan, mut profile) = self.remote_chain_plan(session, profile, plan).await?;
+            // The continuation of a turn a move cut at a tool boundary starts this process: it
+            // goes on from its own transcript, once the Stop's line is out of it
+            // (`claude_stdio/resume_cut.rs`). A transcript that does not end at a tool result
+            // keeps the continuation's text.
+            let resumes_cut_turn = session.resume_cut_ask.load(Ordering::SeqCst)
+                && resume.is_some()
+                && !fork
+                && crate::native::locate(&meta).into_iter().any(|(label, path)| {
+                    label == "claude-project"
+                        && crate::claude_stdio::resume_cut::prepare(&path).unwrap_or(false)
+                });
+            session.resumed_cut.store(resumes_cut_turn, Ordering::SeqCst);
+            if resumes_cut_turn {
+                let env = &mut profile.to_mut().env;
+                for (key, value) in crate::claude_stdio::resume_cut::env() {
+                    env.insert(key.into(), value.into());
+                }
+            }
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -1385,6 +1427,7 @@ impl Hub {
                     prompt_suggestions: suggestions,
                     recap: recap.clone(),
                     claude_session_id: known.clone(),
+                    resumes_cut_turn,
                 };
                 self.spawn_hosted_child(
                     session,
@@ -1405,6 +1448,9 @@ impl Hub {
                 *tr.fast.lock().await = fast;
                 tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
                 tr.set_recap(recap.as_deref());
+                if resumes_cut_turn {
+                    tr.owe_resumed();
+                }
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
@@ -1593,7 +1639,7 @@ impl Hub {
                 self.stop_started_agent(session, false, "policy_refused", record).await;
                 return Err(e);
             }
-            self.set_status(session, SessionStatus::Ready);
+            self.set_status(session, NotWaiting::Ready);
             self.note_launch(session, &child);
             self.note_start_level(session, &child, true);
             self.save_meta(session);
@@ -1642,6 +1688,11 @@ impl Hub {
                     }
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
+                        if let Some(e) = super::adoption::unavailable_resume(&e) {
+                            self.note_load_failed(session, &e);
+                            self.end_cold_start(session).await;
+                            return Err(e);
+                        }
                         self.note_load_failed(session, &e);
                         if meta.harness == "cmux-harness" {
                             return Err(Self::explain_start_failure(session, e).await);
@@ -1699,7 +1750,7 @@ impl Hub {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
         self.note_start_level(session, &child, true);
         self.save_meta(session);

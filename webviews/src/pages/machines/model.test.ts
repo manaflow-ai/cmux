@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import {
+  asksFirst,
   KIND_ICON,
   groups,
   healthHelp,
@@ -154,6 +155,17 @@ describe("words", () => {
     expect(isLinked(machine("ssh-7", "ssh", { joined }))).toBe(true);
     expect(isLinked(machine("joined:m_1", "joined", { joined }))).toBe(false);
     expect(isLinked(machine("ssh-8", "ssh"))).toBe(true);
+  });
+
+  test("New Workspace dials any online mesh-only joined machine, Mac or Linux, and no offline one", () => {
+    const linux = { id: "m_1", name: "lane-vm-3", state: "online" as const, platform: "linux" };
+    const mac = { ...linux, id: "m_2", name: "studio-mini", platform: "macos" };
+    expect(asksFirst(machine("joined:m_1", "joined", { joined: linux }))).toBe(true);
+    expect(asksFirst(machine("joined:m_2", "joined", { joined: mac }))).toBe(true);
+    expect(asksFirst(machine("joined:m_1", "joined", { joined: { ...linux, state: "offline" } }))).toBe(false);
+    expect(asksFirst(machine("joined:m_1", "joined", { joined: { ...linux, state: "revoked" } }))).toBe(false);
+    // A row the app already connects to opens its own workspace, not a dial.
+    expect(asksFirst(machine("ssh-7", "ssh", { joined: linux }))).toBe(false);
   });
 });
 

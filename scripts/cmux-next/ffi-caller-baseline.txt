@@ -18,6 +18,8 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_fro
 # Held until the stage-0 launch window (launch-stage0-window lane) calls it: launch record v2 adds the
 # window list read ahead of that Swift caller.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
+# Held until the stage-0 launch window (cmux#45389) gets its Swift caller; that re-pin is what made this one count.
+cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_write_registry
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_room
@@ -33,8 +35,17 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_timing
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_animates
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_fade_seconds
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_ffi_abi_version
+# Held until wallpaper lighting step 2 calls the light field from Swift (cmux#45022 shipped step 1: Rust, C ABI, CSS).
+cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_field
+cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_point
+cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_rim
+cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_style
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_resolve
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_spring_base
+# Held until the macOS app hosts Computer Use through its FFI (cmux#37003 shipped the engine, hosted in cmux Remote).
+cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_engine_call
+cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_engine_end_session
+cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_tools_list
 cmux-tui/crates/cmux-cookie-sync/include/cmux_cookie_sync.h	cmux_cookie_sync_abi_version
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_conn_abi_version
 cmux-tui/crates/cmux-daemon-conn-core/include/cmux_daemon_conn.h	cmux_daemon_conn_bytes_free
@@ -121,6 +132,14 @@ cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_s
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_tab_drop_edge_pane_edge
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_window_close_selection_kept
 cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h	cmux_palette_ranker_abi_version
+# Held until the screen-share viewer wires clipboard text sync (cmux#47329 shipped the cap, the macOS host and these calls).
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_dropped
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_free
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_new
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_next_deadline_us
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_offer
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_on_control
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_pop_frame
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_clock
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_enable_clock
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_upstream_target_bps
