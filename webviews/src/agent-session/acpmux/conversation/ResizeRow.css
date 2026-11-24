@@ -1,0 +1,22 @@
+/* The VM size row (ResizeRow.tsx): the failed turn's card, rail and note arms (conversation.css
+   `.cv-turn-error`), in the caution color, not the failure red: nothing failed yet. */
+.cv-resize-row .cv-resize-row__icon {
+  color: var(--agent-status-warning, var(--agent-accent));
+}
+.cv-resize-row[data-resize-kind="grew"] .cv-resize-row__icon,
+.cv-resize-row[data-resize-kind="shrank"] .cv-resize-row__icon {
+  color: var(--cv-text-dim);
+}
+.cv-resize-row.cv-turn-error--rail {
+  border-inline-start-color: color-mix(in srgb, var(--agent-status-warning, var(--agent-accent)) 70%, transparent);
+}
+/* What the first button costs and when it goes back, under the buttons on the cause's column. */
+.cv-resize-row__hint {
+  line-height: 16px;
+}
+.cv-resize-row.cv-turn-error--card .cv-resize-row__hint {
+  padding-inline-start: calc(var(--grid-icon-box) + var(--grid-gap));
+}
+.cv-resize-row.cv-turn-error--rail .cv-resize-row__hint {
+  padding-inline-start: calc(14px + var(--grid-gap));
+}

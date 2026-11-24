@@ -24,7 +24,7 @@ pub const CHECKOUT_PER_FREE_MEMORY: u64 = 8;
 const MEMORY_SLACK: f64 = 0.95;
 /// Chromium's CPU-hours for a full build: 21 on a 4-core laptop to 46 on 64 cores; about 40 on
 /// a 12-core i9 (randomascii.wordpress.com, 2020), the middle one.
-const CHROMIUM_CPU_HOURS: f64 = 40.0;
+pub const CHROMIUM_CPU_HOURS: f64 = 40.0;
 /// The burst size the row quotes a time and a price for.
 const BURST_VCPU: u32 = 32;
 const BURST_MEM_GIB: u32 = 64;

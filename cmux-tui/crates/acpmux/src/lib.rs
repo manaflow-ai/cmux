@@ -269,6 +269,7 @@ pub mod registry;
 pub(crate) mod remote_chain_profile;
 pub(crate) mod replay_rules;
 pub mod request_cancel;
+pub mod resize_row;
 pub mod resume;
 pub mod review_box;
 pub mod review_brief;
