@@ -74,6 +74,7 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            group_override: StdMutex::new(None),
             wake_hook: std::sync::OnceLock::new(),
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
@@ -586,6 +587,15 @@ impl Peer {
     /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
     pub fn set_vm_boundary(&self, on: bool) {
         self.vm_boundary.store(on, Ordering::SeqCst);
+    }
+
+    /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
+    pub fn set_group_override(&self, group: Option<String>) {
+        *self.group_override.lock().unwrap_or_else(|e| e.into_inner()) = group;
+    }
+
+    pub fn group_override(&self) -> Option<String> {
+        self.group_override.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Whether this caller opts its remote chains on the peer out of the sandbox.

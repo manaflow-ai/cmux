@@ -1639,6 +1639,14 @@ async fn dispatch_request_with_identity(
                 if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }
+                // A provisioned VM holds one parent session (`hub/agent_vm.rs`): a second
+                // parent-less start there is refused; a sub-session start names its parent.
+                let asks_parent = mux_meta(&params)
+                    .and_then(|m| m.get(crate::hub::lineage::PARENT_FIELD))
+                    .is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()));
+                if let Some(refusal) = hub.one_parent_check(&peer, asks_parent) {
+                    return Err(refusal);
+                }
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
