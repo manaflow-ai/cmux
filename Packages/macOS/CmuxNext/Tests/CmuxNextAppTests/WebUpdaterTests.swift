@@ -14,6 +14,7 @@ import Testing
         var etag = "\"1\""
         var pointerReads = 0
         var downloads = 0
+        var lastDownload: URL?
         /// Downloads still to fail.
         var failures = 0
         /// Runs at the start of each download (a test holds one there).
@@ -48,6 +49,7 @@ import Testing
                 let source = try #require(server.archive)
                 let copy = FileManager.default.temporaryDirectory.appending(path: "WebUpdaterTests-\(UUID().uuidString).tar.gz")
                 try FileManager.default.copyItem(at: source, to: copy)
+                server.lastDownload = copy
                 return copy
             })
         updater.channel = .everyMerge
@@ -64,7 +66,10 @@ import Testing
         let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
         let updater = Self.updater(server, store: store)
         var ready: [URL?] = []
-        updater.onReady = { tree, _ in ready.append(tree) }
+        updater.onReady = { tree, _ in
+            ready.append(tree)
+            #expect(server.lastDownload.map { FileManager.default.fileExists(atPath: $0.path) } == false)
+        }
         await updater.check()
         #expect(updater.phase == .idle)
         #expect(updater.state.active == pointer)
