@@ -349,8 +349,14 @@ final class RemoteTmuxControlConnection {
     /// would silently become false — a login that was seen and then forgotten. Reset per spawn along
     /// with the buffer it summarises.
     private var sawUnansweredCredentialPrompt = false
-    /// The pending decision on a prompt seen before control mode, if one is waiting.
+    /// The pending decision on a prompt seen before control mode, if one is waiting for stderr to
+    /// catch up. See ``noteCredentialPromptIfSeen()``.
     private(set) var credentialPromptCheck: Task<Void, Never>?
+    /// Callers waiting for the stderr consumer to reach a catch-up marker, in request order, with
+    /// the reader that will publish it.
+    private var stderrCatchUpWaiters: [(reader: ObjectIdentifier, continuation: CheckedContinuation<Void, Never>)] = []
+    /// Whether the current stderr reader's stream is still being read.
+    private var stderrStreamOpen = false
     /// Where this connection's attach stands, or nil when there is nothing left to wait for: it
     /// was never started, it ended, or it is parked until someone logs in.
     func attachProgress(now: ContinuousClock.Instant = .now) -> RemoteTmuxAttachProgress? {
@@ -391,15 +397,51 @@ final class RemoteTmuxControlConnection {
     /// stares at a frozen mirror for the length of the timeout and then gets an error
     /// about the host instead of the login that would have worked.
     ///
-    /// Not when the master refused this attempt: the login would be refused the same way. ssh reports
-    /// the refusal before it starts the fresh connection that could prompt.
+    /// Not when the master refused this attempt: the login would be refused the same way. ssh writes
+    /// the refusal to stderr before it starts the fresh connection that could prompt, but stdout and
+    /// stderr are read by separate tasks, so the prompt can arrive here first. The decision waits
+    /// until the stderr reader has delivered everything already in its pipe.
     private func noteCredentialPromptIfSeen() {
-        guard !enterReceived, !sawUnansweredCredentialPrompt,
-              !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderrBuffer) else { return }
-        guard RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
-            preControlOutputBuffer + parser.unterminatedTail) else { return }
+        guard !enterReceived, !sawUnansweredCredentialPrompt, credentialPromptCheck == nil,
+              !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderrBuffer),
+              RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+                  preControlOutputBuffer + parser.unterminatedTail) else { return }
+        guard let stderrPipeReader else {
+            parkForCredentialPrompt()
+            return
+        }
+        let generation = processGeneration
+        credentialPromptCheck = Task { [weak self] in
+            await self?.stderrCaughtUp(stderrPipeReader)
+            guard let self, self.processGeneration == generation else { return }
+            self.credentialPromptCheck = nil
+            guard !self.enterReceived,
+                  self.connectionState == .connecting || self.connectionState == .reconnecting,
+                  !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(self.stderrBuffer) else { return }
+            self.parkForCredentialPrompt()
+        }
+    }
+
+    private func parkForCredentialPrompt() {
         sawUnansweredCredentialPrompt = true
         parkForInteractiveAuth(reason: "credential-prompt")
+    }
+
+    /// Returns once the stderr consumer has appended every byte that was in `reader`'s pipe when
+    /// this was called, or once that stream has ended.
+    private func stderrCaughtUp(_ reader: RemoteTmuxProcessOutputReader) async {
+        guard stderrPipeReader === reader, stderrStreamOpen else { return }
+        await withCheckedContinuation { continuation in
+            stderrCatchUpWaiters.append((ObjectIdentifier(reader), continuation))
+            reader.catchUp()
+        }
+    }
+
+    private func resumeStderrCatchUpWaiters(reader: ObjectIdentifier, all: Bool) {
+        while let index = stderrCatchUpWaiters.firstIndex(where: { $0.reader == reader }) {
+            stderrCatchUpWaiters.remove(at: index).continuation.resume()
+            if !all { return }
+        }
     }
     /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
@@ -706,6 +748,8 @@ final class RemoteTmuxControlConnection {
         preControlOutputBuffer = ""
         lastTransportOutputAt = .now
         sawUnansweredCredentialPrompt = false
+        credentialPromptCheck?.cancel()
+        credentialPromptCheck = nil
         enterReceived = false
         controlModeEnteredAt = nil
 
@@ -859,13 +903,23 @@ final class RemoteTmuxControlConnection {
     /// Reads the current spawn's stderr into ``appendStderr(_:)``.
     func consumeStderr(from stderrPipeReader: RemoteTmuxProcessOutputReader) {
         self.stderrPipeReader = stderrPipeReader
+        stderrStreamOpen = true
+        let reader = ObjectIdentifier(stderrPipeReader)
         stderrTask = Task { [weak self] in
             for await chunk in stderrPipeReader.stream {
+                // An empty chunk is the reader's catch-up marker, never output.
+                guard !chunk.isEmpty else {
+                    self?.resumeStderrCatchUpWaiters(reader: reader, all: false)
+                    continue
+                }
                 if let text = String(data: chunk, encoding: .utf8), !text.isEmpty {
                     self?.appendStderr(text)
                 }
                 stderrPipeReader.release(chunk)
             }
+            guard let self else { return }
+            if self.stderrPipeReader === stderrPipeReader { self.stderrStreamOpen = false }
+            self.resumeStderrCatchUpWaiters(reader: reader, all: true)
         }
     }
 
@@ -1108,6 +1162,7 @@ final class RemoteTmuxControlConnection {
         stdoutReader = nil
         stderrPipeReader?.close()
         stderrPipeReader = nil
+        stderrStreamOpen = false
         stdinWriter?.close()
         stdinWriter = nil
         terminateProcessTree(process)
