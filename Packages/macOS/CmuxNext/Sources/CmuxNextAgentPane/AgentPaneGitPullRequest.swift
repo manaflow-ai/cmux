@@ -3,7 +3,8 @@ import Foundation
 /// The Changes view's Create PR (cx-tcwj, Codex desktop's): `git.pullRequest` with `{cwd}`. The
 /// App opens the pull request of the chat's checked-out branch with the GitHub CLI: the open one
 /// when the branch has one, else `gh pr create --web` (only when gh says the branch has none: a
-/// failed lookup opens nothing). It answers the compare-form URL that gh opened. Before asking
+/// failed lookup opens nothing). With no `gh` here, the lookups go through acpmux (the cmux GitHub
+/// App, AgentPaneGitBranchPullRequest.swift) and the browser opens the same compare form. It answers the compare-form URL that gh opened. Before asking
 /// `gh`, it asks the session host's Rust `git.push` mutation to push the branch and set its
 /// upstream when needed; that mutation never force-pushes and reports actionable remote errors.
 /// It needs a real click or key in the pane, a chat on this
@@ -58,15 +59,16 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// Opens the pull request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows, with `gh`
     /// at that path (nil: not installed).
     @concurrent static func run(_ request: AgentPaneGitPullRequest, roots: [String], home: String = NSHomeDirectory(),
-                                gh: String?, push: (@Sendable (String, String?) async throws -> Void)? = nil) async -> Outcome {
+                                gh: String?, push: (@Sendable (String, String?) async throws -> Void)? = nil,
+                                github: GitHubCall = AgentPaneGitHubREST.call) async -> Outcome {
         let folder: String
         switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
         case .refused(let message): return .refused(message)
         case .folder(let resolved): folder = resolved
         }
-        guard let gh else { return .refused(noGitHubCLIMessage) }
-        if request.readsThreads { return await threads(in: folder, gh: gh) }
-        if let number = request.merges, let url = request.mergeURL { return await merge(number, url: url, in: folder, gh: gh) }
+        // The threads and the merge go through acpmux (the cmux GitHub App, or the person's gh).
+        if request.readsThreads { return await threads(in: folder, github: github) }
+        if let number = request.merges, let url = request.mergeURL { return await merge(number, url: url, in: folder, github: github) }
         let git = { (arguments: [String]) in await AgentPaneGitProcess.output(["-C", folder] + arguments, timeout: localTimeout) }
         let head = await git(["symbolic-ref", "--quiet", "--short", "HEAD"])
         guard head.status == 0 else { return .refused(detachedMessage) }
@@ -81,6 +83,8 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         } catch {
             return .refused(pushUnavailableMessage)
         }
+        // No gh here: the lookups go through acpmux and the browser opens GitHub's compare form.
+        guard let gh else { return await openWithoutCLI(branch: branch, base: await recordedBase(of: branch, git: git), github: github, git: git) }
         let cli = { (arguments: [String]) in
             await AgentPaneGitProcess.output(arguments, executable: gh, directory: folder, timeout: networkTimeout, network: true)
         }
@@ -248,7 +252,7 @@ extension AgentPaneGitPullRequest {
     /// `git.pullRequest` (nil: params that break the contract), for a chat on this Mac only: spends
     /// `model`'s GRANT credit, then opens the pull request; a threads read needs no credit.
     @MainActor static func reply(to request: AgentPaneGitPullRequest?, in model: AgentPaneModel,
-                                 gh: String? = gitHubCLI()) async -> [String: Any] {
+                                 gh: String? = gitHubCLI(), github: GitHubCall = AgentPaneGitHubREST.call) async -> [String: Any] {
         guard let request else { return AgentPaneReply.failure(code: "native.invalid_request", message: invalidMessage) }
         guard model.gitWritesHere?() == true else {
             return AgentPaneReply.failure(code: "git.remote", message: AgentPaneGitProcess.remoteMessage)
@@ -256,9 +260,6 @@ extension AgentPaneGitPullRequest {
         guard request.readsThreads || model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
-        }
-        guard gh != nil else {
-            return AgentPaneReply.failure(code: "git.failed", message: noGitHubCLIMessage)
         }
         let push: (@Sendable (String, String?) async throws -> Void)?
         var runRoots = model.fileOpenRoots()
@@ -300,7 +301,7 @@ extension AgentPaneGitPullRequest {
             }
             runRoots = [sessionFolder.cwd]
         }
-        switch await run(request, roots: runRoots, gh: gh, push: push) {
+        switch await run(request, roots: runRoots, gh: gh, push: push, github: github) {
         case .opened(let url, let number): return AgentPaneReply.success(["url": url, "number": number.map { $0 as Any } ?? NSNull()])
         case .formOpened(let url): return AgentPaneReply.success(["url": url, "number": NSNull()])
         case .threads(let url, let number, let threads):
