@@ -101,7 +101,7 @@ fn ok(text: String, structured: Value) -> Value {
 
 /// What an announce did, as the agent or the CLI reads it.
 pub fn announce_text(r: &Value) -> String {
-    let id = r["post"]["id"].as_str().unwrap_or_default();
+    let id = r.pointer("/post/id").and_then(Value::as_str).unwrap_or_default();
     if r["proposed"] == true {
         return format!(
             "A person's rule holds this key; your post {id} is a proposal they will see."
@@ -117,25 +117,30 @@ pub fn announce_text(r: &Value) -> String {
 
 /// A topic's posts as one paragraph each.
 pub fn list_text(r: &Value) -> String {
-    let rows = r["posts"].as_array().cloned().unwrap_or_default();
+    let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+    let rows = r.get("posts").and_then(Value::as_array).cloned().unwrap_or_default();
     if rows.is_empty() {
-        return format!("No posts on {}.", r["topic"].as_str().unwrap_or("this topic"));
+        let topic = text(r, "topic");
+        return format!("No posts on {}.", if topic.is_empty() { "this topic" } else { &topic });
     }
     rows.iter()
         .map(|p| {
-            let a = &p["author"];
-            let who = a["account"].as_str().or(a["handle"].as_str()).or(a["name"].as_str());
-            let links = p["links"].as_array().map(|l| {
-                l.iter().filter_map(Value::as_str).map(|l| format!("\n  {l}")).collect::<String>()
-            });
+            let who = p
+                .get("author")
+                .map(|a| [text(a, "account"), text(a, "handle"), text(a, "name")])
+                .and_then(|n| n.into_iter().find(|n| !n.is_empty()))
+                .unwrap_or_else(|| "?".to_owned());
+            let links: String = p
+                .get("links")
+                .and_then(Value::as_array)
+                .map(|l| l.iter().filter_map(Value::as_str).map(|l| format!("\n  {l}")).collect())
+                .unwrap_or_default();
             format!(
-                "[{}] {} ({}, {}):\n{}{}",
-                p["kind"].as_str().unwrap_or(""),
-                p["key"].as_str().unwrap_or(""),
-                who.unwrap_or("?"),
-                p["id"].as_str().unwrap_or(""),
-                p["body"].as_str().unwrap_or(""),
-                links.unwrap_or_default()
+                "[{}] {} ({who}, {}):\n{}{links}",
+                text(p, "kind"),
+                text(p, "key"),
+                text(p, "id"),
+                text(p, "body"),
             )
         })
         .collect::<Vec<_>>()
@@ -203,7 +208,13 @@ async fn call(daemon: &Client, params: &Value) -> Value {
                 o.remove("account");
             }
             match daemon.request(method::MUX_FORUM_POST, args).await {
-                Ok(r) => ok(format!("Posted {}.", r["post"]["id"].as_str().unwrap_or("")), r),
+                Ok(r) => ok(
+                    format!(
+                        "Posted {}.",
+                        r.pointer("/post/id").and_then(Value::as_str).unwrap_or("")
+                    ),
+                    r,
+                ),
                 Err(e) => error_result(format!("{e:#}")),
             }
         }

@@ -82,7 +82,7 @@ pub async fn run(cmd: ForumCmd, json_out: bool) -> Result<()> {
     } else if m == method::MUX_FORUM_LIST {
         println!("{}", crate::forum_mcp::list_text(&reply));
     } else if m == method::MUX_FORUM_POST {
-        println!("Posted {}.", reply["post"]["id"].as_str().unwrap_or(""));
+        println!("Posted {}.", reply.pointer("/post/id").and_then(|v| v.as_str()).unwrap_or(""));
     } else if m == method::MUX_FORUM_ANNOUNCE {
         println!("{}", crate::forum_mcp::announce_text(&reply));
     } else {
