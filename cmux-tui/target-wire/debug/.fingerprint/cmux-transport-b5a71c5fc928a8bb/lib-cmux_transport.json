@@ -1,0 +1,1 @@
+{"rustc":7458672600737419911,"features":"[]","declared_features":"[\"local-networks\"]","target":17835956983828311663,"profile":1141576929448877025,"path":14300399420381338576,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"debug/.fingerprint/cmux-transport-b5a71c5fc928a8bb/dep-lib-cmux_transport","checksum":false}}],"rustflags":[],"config":8247474407144887393,"compile_kind":0}
