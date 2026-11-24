@@ -102,8 +102,9 @@ final class SidebarIconView: NSView {
             inkKey = "icon|\(name.rawValue)|\(pointSize)"
             imageView.isHidden = false
         case let .page(name)?:
-            // A cmux page's own pack icon (a Cloud desktop's cloud) in the same slot and ink as the site globe.
-            imageView.image = NSImage.icon(name, size: Self.packSide)
+            // A cmux page's own pack icon (a Cloud desktop's cloud) in the favicon's slot, at the favicon's size: it is
+            // the page's favicon, so it matches the site favicons beside it (Leo: "dont have such a dinky cloud icon").
+            imageView.image = NSImage.icon(name, size: Self.pageSide)
             inkKey = "icon|\(name.rawValue)|\(pointSize)"
             imageView.isHidden = false
         case .swatch?, nil:
@@ -193,8 +194,9 @@ final class SidebarIconView: NSView {
     private func leadingImageFrame(side: CGFloat) -> CGRect? {
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0,
               let ink = SidebarGlyphInk.shared.box(of: image, glyph: inkKey) else { return nil }
-        // A favicon takes its tab's size; a symbol, an emoji's glyph and the pack's icons the glyphs' (#49583).
-        let optics = shownFavicon != nil ? SidebarStyle.rowFaviconOptics : SidebarStyle.rowGlyphOptics
+        // A favicon and a cmux page's own icon (its favicon) take the tab's favicon size; a symbol, an emoji's glyph and
+        // the pack's other icons the glyphs' (#49583).
+        let optics = drawsAtFaviconSize ? SidebarStyle.rowFaviconOptics : SidebarStyle.rowGlyphOptics
         return optics.frame(imageSize: image.size, ink: ink, leading: 0, centerY: bounds.midY,
                                                  flipped: isFlipped, scale: window?.backingScaleFactor ?? 2)
     }
@@ -203,11 +205,22 @@ final class SidebarIconView: NSView {
 
     /// The favicon shown, if the icon is one.
     private var shownFavicon: SidebarFavicon? { if case let .favicon(favicon)? = icon { favicon } else { nil } }
+    /// Whether the shown icon draws at the favicon's optical size: a favicon, or a cmux page's own icon in its slot.
+    private var drawsAtFaviconSize: Bool {
+        if shownFavicon != nil { return true }
+        if case .page? = icon { return true }
+        return false
+    }
     private var backingScale: CGFloat { window?.backingScaleFactor ?? 2 }
     private func snap(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
     /// A pack icon's raster side: the tab's icon box the row draws it at (`SidebarStyle.rowGlyphOptics`), so the row
     /// shows the tab's very image at the tab's size (Lucas 2026-11-14).
     static var packSide: CGFloat { SidebarStyle.rowGlyphOptics.box ?? SidebarStyle.kindGlyphSize }
+    /// A cmux page's own icon's raster side: the favicon's box (`SidebarStyle.rowFaviconOptics`), so the icon drawn at
+    /// the favicon's larger frame stays sharp.
+    static var pageSide: CGFloat {
+        SidebarStyle.rowFaviconOptics.box ?? SidebarStyle.rowFaviconOpticalSide * 4 / 3
+    }
     /// The favicon's bitmap side: the tab's icon box the row draws it at (`SidebarStyle.rowGlyphOptics`), so it renders
     /// at its drawn size and stays sharp.
     private var faviconSide: CGFloat {

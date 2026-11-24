@@ -488,7 +488,8 @@ class WorkflowTests(unittest.TestCase):
         steps = notify["steps"]
         step = next(s for s in steps if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertNotIn("continue-on-error", step, "a hand-off that could not run is the job's red, not a warning")
-        # The CI pool's token first, the run's own when no pool minted one (#51604); the cmux-bot App's is the spare.
+        # The CI pool App's token first, the workflow token without it (#51604); the bot App's token, or the
+        # workflow token behind a pool token, is the spare.
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ env.CI_POOL_GH_TOKEN || github.token }}")
         self.assertEqual(step["env"]["GH_TOKEN_SPARE"],
                          "${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}")
