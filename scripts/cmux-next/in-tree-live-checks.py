@@ -1694,6 +1694,12 @@ def check_omnibar_narrow(tab, pane):
     if not frame:
         row("INFO", "omnibar_narrow", {"note": "no in-tree page view"})
         return
+    # The chip's natural (label) width: its widest frame in the run, from the widest pane first. debug.omnibar reports
+    # frames only, no intrinsic size, so a chip that still shows its label (wider than the icon-only chip) but is
+    # narrower than that is a clipped label ("Not secu", other Mac BEFORE 2026-11-24).
+    chip_natural = [0.0]
+    CHIP_ICON_ONLY_PT = 30  # the icon-only chip is 22.5 pt; any label makes it wider
+    MIN_TEXT_PT = 40  # a URL field narrower than this shows a letter or two ("h.", 4 pt on BEFORE at 260 pt)
     for width in (480, 360, 300, 260, 200):
         layers = main_layers()
         frame = page_view(pane, layers)
@@ -1724,11 +1730,20 @@ def check_omnibar_narrow(tab, pane):
                         problems.append(f"{name} overlaps the start of {label}")
             if toolbar and bar[0] + bar[2] > toolbar[0] + toolbar[2] + 0.5:
                 problems.append("bar past the toolbar's right edge")
+            chip = frames.get("chip")
+            if chip:
+                chip_natural[0] = max(chip_natural[0], chip[2])
+                if CHIP_ICON_ONLY_PT < chip[2] < chip_natural[0] - 1:
+                    problems.append(f"chip label clipped: {round(chip[2], 1)} pt of its {round(chip_natural[0], 1)} pt")
+            if text and text[2] < MIN_TEXT_PT:
+                problems.append(f"URL field {round(text[2], 1)} pt wide (< {MIN_TEXT_PT} pt)")
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"omnibar-{width}.png")})
         row(not problems, f"omnibar_narrow.{width}",
             {"bug": 15, "pane_width": frame[2] if frame else None, "problems": problems[:6],
              "frames": {k: v for k, v in frames.items()}, "text": report.get("text"),
-             "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
+             "chip_natural_pt": chip_natural[0],
+             "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar; the chip shows its "
+                        "whole label or only its icon; the URL field at least 40 pt wide"})
 
 
 KEY_CODES = {"command": 55, "shift": 56, "return": 36, "d": 2, "z": 6, "escape": 53}
