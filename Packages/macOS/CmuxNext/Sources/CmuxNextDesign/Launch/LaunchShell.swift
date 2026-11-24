@@ -42,6 +42,9 @@ public final class LaunchShell {
     /// The real window did not take stage 0's place (or none was there at the dismissal): held
     /// clicks aimed at nothing it shows, so only keys replay.
     private var mismatched = false
+    /// True once the real window showed what stage 0's image did (`contentReady`): only then do clicks on
+    /// the image replay into it. Equal frames alone are not enough (a connecting view, a timed-out wait).
+    private var contentMatched = false
     private var shownAt = ContinuousClock.now
     /// Held input with no real window to take it yet (stage 0 was dismissed first).
     private var heldForReal: [NSEvent] = []
@@ -189,6 +192,7 @@ public final class LaunchShell {
             let swapOnce: @MainActor (String) -> Void = { [weak self, weak real] reason in
                 guard !swapped, let self, let real, self.window != nil else { return }
                 swapped = true
+                self.contentMatched = reason == "ready"
                 self.contentTimer.cancel()
                 self.mark("launch_shell.content_\(reason)")
                 self.swap(to: real, front: true)
@@ -244,7 +248,7 @@ public final class LaunchShell {
         backstopTimer.cancel()
         if showsBare, let view = window.contentView { content.handoff?(view) }
         heldForReal += window.takeHeld()
-        mismatched = real?.frame != window.frame
+        mismatched = real?.frame != window.frame || !contentMatched
         let kind = real == nil ? "dismissed" : mismatched ? "swapped.mismatch" : "swapped"
         window.orderOut(nil)
         window.close()

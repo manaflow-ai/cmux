@@ -579,7 +579,9 @@ impl Controller {
                         );
                     }
                 }
-                "error" | "stopped" => {
+                // tsnet's IPN bus reports a passing `Stopped` before the key logs in; only a
+                // node that is gone (closed, failed) ends the wait.
+                "error" | "stopped" if snapshot.error.is_some() || self.state_node().is_none() => {
                     return Err(snapshot.error.clone().unwrap_or_else(|| {
                         format!("the node {} before it joined", snapshot.state)
                     }));

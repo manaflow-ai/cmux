@@ -4800,6 +4800,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
   /// Auto picked and not yet decided: the daemon says where first; the prompt stays until it has.
   const autoSendGate = {
+    /// Auto picked: a send may stop at `holds` (asking nothing here), so it never goes ahead of its files.
+    picked: autoPicked,
     /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
     holds: (text: string): boolean => {
       if (autoPicked && autoDecided.current !== newTabGeneration) {
@@ -6778,6 +6780,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        if (first && newTabNow.current === undefined) acpmuxPerf.markLaunch("rowsDrawn");
+        if (settledNow) acpmuxPerf.markLaunch("settledDrawn");
         // When the host is told the page shows the chat, beside the report itself: the flicker log's
         // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
         // `seen`); what moved before it was still under the host's cover.

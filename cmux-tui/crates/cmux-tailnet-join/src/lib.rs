@@ -108,8 +108,8 @@ pub struct JoinRequest {
     /// profile and switches to it. Only after the user said so for this machine.
     #[serde(default)]
     pub switch_from_other_tailnet: bool,
-    /// The person allowed a plain `http://` login server for this join (`--allow-http`): the key
-    /// crosses the network unencrypted. Never inferred from the address.
+    /// The user chose plain `http://` for this login server, knowing the key crosses unencrypted.
+    /// Never inferred from the address.
     #[serde(default)]
     pub allow_http: bool,
 }
@@ -214,11 +214,11 @@ fn check_control_url(url: &str, allow_http: bool) -> Result<String, Invalid> {
     let rest = if let Some(rest) = url.strip_prefix("https://") {
         rest
     } else if let Some(rest) = url.strip_prefix("http://") {
-        // A key over plain HTTP is readable on the way: only when the person said so for this
-        // server (`--allow-http`). An address that looks private is no consent.
+        // A key over plain HTTP is readable on the way, on any network: only when the user chose
+        // it for this server, never guessed from the address.
         if !allow_http {
             return invalid(
-                "The server URL must be https://. For a plain http:// server (a lab Headscale), allow it for this join with --allow-http: the key crosses the network unencrypted.",
+                "The server URL must be https://. Plain http:// sends the key unencrypted; choose it explicitly (--allow-http) only for a server you trust the path to.",
             );
         }
         rest
@@ -255,7 +255,7 @@ pub fn check_hostname(name: &str) -> Result<String, Invalid> {
 pub fn check_tag(tag: &str) -> Result<String, Invalid> {
     let tag = tag.trim();
     let tag = if tag.starts_with("tag:") { tag.to_owned() } else { format!("tag:{tag}") };
-    let name = &tag[4..];
+    let name = tag.strip_prefix("tag:").unwrap_or_default();
     let ok = name.len() <= 63
         && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
@@ -326,6 +326,7 @@ pub fn vm_join_script(checked: &Checked) -> String {
     let mut s = String::new();
     s.push_str("#!/bin/sh\n# cmux: join this machine to the user's tailnet (cmux-tailnet-join).\nset -eu\n");
     s.push_str(&format!("k={KEY_FILE}\ntrap 'rm -f \"$k\" 2>/dev/null || true' EXIT INT TERM\n"));
+    s.push_str("if [ -L \"$k\" ] || [ ! -f \"$k\" ]; then echo 'cmux-tailnet: the key file is missing or a symlink' >&2; exit 3; fi\n");
     s.push_str("[ -f \"$k\" ] || { echo 'cmux-tailnet: no key file' >&2; exit 2; }\n");
     s.push_str(
         "if ! command -v tailscale >/dev/null 2>&1; then\n  curl -fsSL https://tailscale.com/install.sh | sh >&2\nfi\n",
@@ -407,7 +408,7 @@ const ROOT: &str = r#"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$
 /// `user` is the account the file API writes as; the folder is made its own, 0700.
 pub fn prepare_command(user: &str) -> String {
     format!(
-        "{ROOT}; u={}; root mkdir -p {RUN_DIR} && root chown \"$u\" {RUN_DIR} && root chmod 700 {RUN_DIR} && root rm -f {RUN_DIR}/out {RUN_DIR}/err {RUN_DIR}/rc && echo prepared",
+        "{ROOT}; u={}; if [ -L {RUN_DIR} ]; then echo 'cmux-tailnet: run dir is a symlink' >&2; exit 3; fi; root mkdir -p {RUN_DIR} && root chown -h \"$u\" {RUN_DIR} && root chmod 700 {RUN_DIR} && root rm -f {KEY_FILE} {RUN_DIR}/out {RUN_DIR}/err {RUN_DIR}/rc && echo prepared",
         shell_quote(user)
     )
 }
@@ -496,23 +497,30 @@ pub fn parse_joined(stdout: &str) -> Outcome {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
             return Outcome::Failed("tailscale status did not answer JSON".to_owned());
         };
-        if value["BackendState"] != "Running" {
+        let state = value.get("BackendState").and_then(serde_json::Value::as_str);
+        if state != Some("Running") {
             return Outcome::Failed(format!(
                 "the node is {} after sign-in",
-                value["BackendState"].as_str().unwrap_or("in an unknown state")
+                state.unwrap_or("in an unknown state")
             ));
         }
-        let me = &value["Self"];
+        let null = serde_json::Value::Null;
+        let me = value.get("Self").unwrap_or(&null);
         let strings = |v: &serde_json::Value| -> Vec<String> {
             v.as_array()
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
                 .unwrap_or_default()
         };
         return Outcome::Joined(Joined {
-            dns_name: me["DNSName"].as_str().unwrap_or_default().trim_end_matches('.').to_owned(),
-            ips: strings(&me["TailscaleIPs"]),
-            tags: strings(&me["Tags"]),
-            online: me["Online"].as_bool().unwrap_or(false),
+            dns_name: me
+                .get("DNSName")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .trim_end_matches('.')
+                .to_owned(),
+            ips: me.get("TailscaleIPs").map(strings).unwrap_or_default(),
+            tags: me.get("Tags").map(strings).unwrap_or_default(),
+            online: me.get("Online").and_then(serde_json::Value::as_bool).unwrap_or(false),
         });
     }
     Outcome::Failed("the join script ended without a result".to_owned())

@@ -45,9 +45,13 @@ done
 d logs "$NODE" 2>&1 | grep '^LIVE' || true
 FAILS=0
 CLIENT="$RUN_ID-client"
-if d exec "$CLIENT" tailscale status | grep cmux-embedded-live; then echo "PASS client status lists the embedded node"
+for _ in $(seq 1 30); do
+  d exec "$CLIENT" tailscale status | grep cmux-embedded-live | grep -vq offline && break
+  sleep 1
+done
+if d exec "$CLIENT" tailscale status | grep cmux-embedded-live | grep -v offline; then echo "PASS client status lists the embedded node"
 else echo "FAIL client status"; d exec "$CLIENT" tailscale status || true; FAILS=1; fi
-if d exec "$CLIENT" tailscale ping -c 5 --until-direct=false cmux-embedded-live; then echo "PASS client pings the embedded node"
+if d exec "$CLIENT" tailscale ping -c 10 cmux-embedded-live; then echo "PASS client pings the embedded node"
 else echo "FAIL ping"; FAILS=1; fi
 d wait "$NODE" >/dev/null || true
 d logs "$NODE" 2>&1 | grep -E '^LIVE left|test result' || true

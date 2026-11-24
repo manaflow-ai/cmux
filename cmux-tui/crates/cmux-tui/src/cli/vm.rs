@@ -941,6 +941,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     {
         return Some(super::vm_tailnet::run(tail, global.output == OutputMode::Json, &env));
     }
+    if let Some(vm_id) = super::vm_tailnet::cloned_vm(rest)
+        && let Some(refusal) = super::vm_tailnet::refuse_clone_of_joined(vm_id, &env)
+    {
+        eprintln!("{refusal}");
+        return Some(2);
+    }
     if let [verb, vm_id, ..] = rest
         && matches!(verb.as_str(), "rm" | "delete")
         && !vm_id.starts_with('-')

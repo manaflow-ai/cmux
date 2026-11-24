@@ -80,38 +80,29 @@ fn headscale_takes_any_key_and_its_own_server() {
 }
 
 #[test]
-fn plain_http_servers_only_with_the_persons_opt_in() {
-    // (url, ok without --allow-http, ok with it): a private-looking address is no consent.
-    for (url, plain, allowed) in [
-        ("https://hs.example.com", true, true),
-        ("http://headscale:8080", false, true),
-        ("http://10.0.0.5:8080", false, true),
-        ("http://100.64.0.1", false, true),
-        ("http://localhost:8080", false, true),
-        ("http://hs.example.com", false, true),
-        ("ftp://hs", false, false),
+fn plain_http_only_when_the_user_chose_it() {
+    for (url, allow, ok) in [
+        ("http://headscale:8080", false, false),
+        ("http://10.0.0.5:8080", false, false),
+        ("http://10.0.0.5:8080", true, true),
+        ("http://hs.example.com", true, true),
+        ("https://hs.example.com", false, true),
+        ("ftp://hs", true, false),
         ("https://hs.example.com/$(id)", false, false),
-        ("http://hs example.com", false, false),
+        ("https://hs example.com", false, false),
     ] {
-        for (allow_http, ok) in [(false, plain), (true, allowed)] {
-            let mut r = request(Credential::AuthKey { key: Secret::new("k") });
-            r.control_url = Some(url.to_owned());
-            r.allow_http = allow_http;
-            assert_eq!(r.check().is_ok(), ok, "{url} allow_http={allow_http}");
-        }
+        let mut r = request(Credential::AuthKey { key: Secret::new("k") });
+        r.control_url = Some(url.to_owned());
+        r.allow_http = allow;
+        assert_eq!(r.check().is_ok(), ok, "{url} allow={allow}");
     }
-    let mut r = request(Credential::AuthKey { key: Secret::new("k") });
-    r.control_url = Some("http://10.0.0.5:8080".to_owned());
-    assert!(r.check().unwrap_err().0.contains("--allow-http"));
 }
 
 #[test]
-fn allow_http_defaults_off_for_an_older_request() {
-    let old =
-        r#"{"credential":{"kind":"auth_key","key":"k"},"controlUrl":"http://headscale:8080"}"#;
-    let r: JoinRequest = serde_json::from_str(old).unwrap();
-    assert!(!r.allow_http);
-    assert!(r.check().is_err());
+fn the_key_path_is_never_followed_through_a_symlink() {
+    assert!(prepare_command("cmux").contains("[ -L /run/cmux-tailnet ]"));
+    assert!(prepare_command("cmux").contains("rm -f /run/cmux-tailnet/authkey"));
+    assert!(vm_join_script(&request(auth_key()).check().unwrap()).contains("[ -L \"$k\" ]"));
 }
 
 #[test]

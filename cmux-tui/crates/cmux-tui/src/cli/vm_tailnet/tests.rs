@@ -102,3 +102,20 @@ fn the_record_lists_joined_vms_for_rm() {
     write_record(&env, &record);
     assert!(joined_here(&env, "vm_1"));
 }
+
+#[test]
+fn a_joined_vm_is_not_copied_until_it_leaves() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().to_str().unwrap().to_owned();
+    let env = move |name: &str| (name == "XDG_STATE_HOME").then(|| path.clone());
+    assert_eq!(cloned_vm(&words("fork vm_1")), Some("vm_1"));
+    assert_eq!(cloned_vm(&words("snapshot create vm_1 --name x")), Some("vm_1"));
+    assert_eq!(cloned_vm(&words("snapshot list")), None);
+    assert_eq!(cloned_vm(&words("fork --help")), None);
+    assert!(refuse_clone_of_joined("vm_1", &env).is_none());
+    let mut record = read_record(&env);
+    record.insert("vm_1".to_owned(), "box.ts.net".to_owned());
+    write_record(&env, &record);
+    let refusal = refuse_clone_of_joined("vm_1", &env).unwrap();
+    assert!(refusal.contains("cmux vm tailnet leave vm_1"), "{refusal}");
+}
