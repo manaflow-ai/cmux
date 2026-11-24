@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, resolve,
-    restore_machine, table,
+    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, not_loaded, parse,
+    pausable, pause_all_misuse, pause_all_requested, resolve, restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -305,4 +305,58 @@ fn an_unlisted_vm_id_for_an_app_verb_is_named_verbatim() {
         respelled["message"].as_str().unwrap_or_default().contains("vm_a7b3c9d0"),
         "{respelled}"
     );
+}
+
+/// ask-b97d36a28a: `vm pause --all` pauses only the running VMs, by id, with their names.
+#[test]
+fn pause_all_picks_the_running_vms() {
+    let listed = json!({"machines": [
+        {"machine_id": "vm_a1", "title": "dev", "status": "running"},
+        {"machine_id": "vm_b2", "title": "build", "status": "paused"},
+        {"machine_id": "vm_c3", "status": "running"},
+        {"machine_id": "vm_d4", "title": "broken", "status": "failed"},
+    ], "creating": [{"name": "new", "status": "creating"}]});
+    assert_eq!(
+        pausable(&listed),
+        vec![("vm_a1".to_owned(), "dev".to_owned()), ("vm_c3".to_owned(), "vm:vm_c3".to_owned())]
+    );
+    assert!(pausable(&json!({"machines": []})).is_empty());
+    let short = parse(&words(&["vm", "pause", "--all"])).expect("pause --all parses");
+    assert_eq!(short.cloud_verb, "pause-machine");
+    assert!(short.named.is_none() && short.tail == words(&["--all"]));
+}
+
+/// Greptile P1 on #52473: an app that has not loaded its VMs lists none; `vm pause --all` must
+/// refuse with a retry, never print "No running Cloud VMs to pause." and exit 0.
+#[test]
+fn pause_all_on_an_unloaded_list_is_a_retry_not_a_success() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let error = not_loaded(&unloaded).expect("an unloaded list is refused");
+    assert_eq!(error.get("code"), Some(&json!("cloud.not_loaded")));
+    assert!(not_loaded(&json!({"loaded": true, "machines": []})).is_none());
+    assert!(not_loaded(&json!({"machines": []})).is_none());
+}
+
+/// Review F1 on #52664: with no app, `pause --all` must not fall through to the VM API, which
+/// has no `--all`; `run_if_requested` refuses it when `pause_all_requested` holds.
+#[test]
+fn pause_all_is_recognised_for_pause_and_shutdown_only() {
+    for verb in ["pause", "shutdown"] {
+        let short = parse(&words(&["vm", verb, "--all"])).expect("parses");
+        assert!(pause_all_requested(&short), "{verb}");
+        assert!(short.api_verb, "{verb} would otherwise go to the VM API");
+    }
+    let one = parse(&words(&["vm", "pause", "dev"])).expect("parses");
+    assert!(!pause_all_requested(&one));
+}
+
+/// Review F2 on #48221: `vm pause --all --minutes 15` was a silent mass pause; it is refused.
+#[test]
+fn pause_all_refuses_other_words() {
+    let check = |typed: &[&str]| pause_all_misuse(&parse(&words(typed)).unwrap());
+    assert_eq!(check(&["vm", "pause", "--all"]), None);
+    assert_eq!(check(&["vm", "shutdown", "--all"]), None);
+    let refused = check(&["vm", "pause", "--all", "--minutes", "15"]).expect("refused");
+    assert!(refused.contains("--minutes"), "{refused}");
+    assert_eq!(check(&["vm", "pause", "box"]), None);
 }

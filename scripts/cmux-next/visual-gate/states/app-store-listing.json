@@ -2,7 +2,8 @@
   "title": "App Store: the Hello Deploy listing (install = deploy + pin)",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],

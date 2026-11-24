@@ -69,49 +69,74 @@
   color: var(--unread-accent-text);
   font-weight: var(--weight-emphasis);
 }
-/* A: a thin accent hairline across the middle of the gap, no word. */
-/* B: on the rule under the row above (a "Worked for" line's hairline, conversation.css
-   .cv-worked.has-divider): the row's top is that row's end, so the mark sits on its rule and lights
-   it in the accent, "New" at its end in the gap under it, then fades back to the plain rule. */
-.cv-since[data-look="worked"] .cv-since__menu {
+/* The count ("157 new messages"; Leo, 2026-11-15, of the terminal chat's rule: "we needto properly do
+   somthing like this in the gui somehow"): muted caption words in tabular figures, so a count that
+   grows by a digit only widens the words. They lie in the mark's overlay like the rule: no height. */
+.cv-since__words,
+.cv-since__tag {
+  font-variant-numeric: tabular-nums;
+}
+.cv-since__words {
+  flex: none;
+  color: var(--agent-muted);
+}
+/* A: a thin accent hairline across the middle of the gap. With a count, the words sit at its center,
+   the rule on both sides, each narrowing toward the words as it dissipates. */
+.cv-since__rule--end {
+  transform-origin: left center;
+}
+/* B over any other next row (a background task's line, a reply, a tool row): the mark keeps the
+   static view's place, centred in the gap, and "New" sits on the rule's own centre line, so the
+   space above the rule (to the row above, its actions) equals the space under it (to the next row).
+   It once hung from the gap's top edge with "New" under it, which read as a line of its own with
+   its label below it (manaflow-ai/cmux#51747; user, 2026-11-22: "we need to make sure space top
+   and space down is the same"). With a recap the row starts at the recap: the mark lies on the
+   recap's top edge, "New" in the gap under it. */
+.cv-since[data-look="worked"][data-recap] .cv-since__menu {
   top: 0;
   translate: 0 -1px;
   height: auto;
 }
-.cv-since[data-look="worked"] .cv-since__line {
+.cv-since[data-look="worked"][data-recap] .cv-since__line {
   align-items: flex-start;
   height: auto;
 }
-.cv-since[data-look="worked"] .cv-since__rule {
-  margin-top: 0;
-}
-.cv-since[data-look="worked"] .cv-since__tag {
+.cv-since[data-look="worked"][data-recap] .cv-since__tag {
   margin-top: var(--ds-space-1);
 }
 /* B over the next turn's "Worked for" line (turnFoldStyle puts the line right above it, Leo
-   2026-11-10): the mark lies on that line's row, "New" at its end where the label leaves room and
-   the rule under it (.cv-worked.has-divider) lit in the accent, so the line is the Worked for line's
-   own and nothing is drawn between the two. */
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__menu {
+   2026-11-10): the mark draws no rule of its own. The Worked for line's own divider
+   (conversation.css .cv-worked.has-divider::after) is lit in the accent, and "New" sits at the end
+   of that line's words, so the divider stays exactly where it always is and nothing is drawn
+   between the two. A rule of the mark's own, placed to match the divider, drifted off it whenever
+   the line's box changed: its toggle grew a foot gap under its words (.cv-worked.has-divider.is-toggle)
+   and the New rule then drew a second line above the divider (manaflow-ai/cmux#51002; Leo,
+   2026-11-22: "just put the new stuff where the divider should be in the first place").
+   The running turn's "Working for" line (WorkingFor.tsx, row .acpmux-working) has the same divider
+   and takes the same mark; one under its work (.is-below) has no divider and keeps B's plain rule.
+   With a recap the recap sits between the mark and the line, so the mark keeps its place over the
+   gap above the recap (.cv-since[data-recap] .cv-since__menu) and the divider stays plain. */
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__menu {
   top: var(--cv-since-gap);
   translate: none;
   height: var(--grid-row);
 }
-.acpmux-row:has(+ .acpmux-worked .cv-worked.is-toggle) .cv-since[data-look="worked"] .cv-since__menu {
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider.is-toggle) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__menu {
   height: var(--cv-tool-row-height);
 }
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__line {
-  position: relative;
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__line {
   align-items: center;
   height: 100%;
 }
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__rule {
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__rule {
+  display: none;
 }
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__tag {
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__tag {
   margin-top: 0;
+}
+/* The divider is outside .cv-since, so it reads the accent token itself (as --unread-accent does). */
+.acpmux-row:has(.cv-since[data-look="worked"][data-shown]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
+  background: var(--cmux-app-accent, var(--agent-text));
 }
 /* C: a small New pill at the end of the gap, no rule. */
 .cv-since[data-look="pill"] .cv-since__tag {
@@ -129,9 +154,19 @@
       opacity var(--agent-motion-calm) var(--agent-ease-out),
       scale var(--agent-motion-calm) var(--agent-ease-out);
   }
+  /* B's lit Worked for divider fades to the accent and back to the plain rule on the same step. */
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
+    transition: background-color var(--agent-motion-calm) var(--agent-ease-out);
+  }
 }
 /* The app's motion gate: with motion off or reduced the line comes and goes in one step. */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.cv-since__line, .cv-since__rule) {
+  transition: none;
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap]))
+  + :is(.acpmux-worked, .acpmux-working)
+  .cv-worked.has-divider::after {
   transition: none;
 }
 
