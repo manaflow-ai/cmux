@@ -639,6 +639,19 @@ async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_se
     assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
     assert_eq!(on_b(&session).await["name"], "renamed-e2e");
 
+    // A retry goes through too (`acpmux retry machine-b/renamed-e2e`): B runs it on its own
+    // session and answers, here that its last turn did not fail, never that the hub does not
+    // carry it (2026-11-24: lanes the SR2 pool's 503 cut could not be retried from here).
+    let retry =
+        call_error(&a, method::MUX_RETRY, json!({"sessionId": "machine-b/renamed-e2e"})).await;
+    let said = retry["message"].as_str().unwrap_or_default();
+    assert!(said.contains("retry.nothing_failed"), "{retry}");
+    assert!(!said.contains("does not carry") && !said.contains("no session"), "{retry}");
+    // A sender B trusts only to read retries nothing.
+    let refused =
+        read(&read_only, "machine-b", &session, method::MUX_RETRY, &json!({})).await.unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+
     // Every other session verb the hub does not carry says so, by name or by id.
     for (m, key) in [
         (method::MUX_PAUSE, "machine-b/renamed-e2e"),
