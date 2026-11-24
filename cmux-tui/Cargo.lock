@@ -2817,6 +2817,7 @@ dependencies = [
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "cmux-wire-lockstep",
  "libc",
  "proptest",
 ]
