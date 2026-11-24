@@ -11,8 +11,19 @@ Layout under <base> (default /srv/cmux-dev/wrangler, beside hq's classic Docker 
   stacks/<tag>/         src/ (the agent's backend tree), platform/ (optional), front/ (the generated front
                         Worker), state/ (wrangler --persist-to), secrets/ (0700: jwt.jwk, hub.vars, pg.url,
                         mysql.url), logs/wrangler.log, run.sh
+  secrets/              the host's team credentials (0700): tunnel.token (public origins) and turn.json (the
+                        team's Cloudflare TURN key, put by an up from 1Password: every stack's mobile Worker)
   tools/                node and bun, one pinned version each
-Units: cmux-wdev@<tag>.service runs stacks/<tag>/run.sh; cmux-wdev-reaper.timer runs `reap` every 5 minutes.
+  routes.json           every routed stack's authorities (host:port) to its tag and wrangler port, for the router
+Units: cmux-wdev@<tag>.service runs stacks/<tag>/run.sh; cmux-wdev-reaper.timer runs `reap` every 5 minutes;
+cmux-wdev-router.service runs bin/router.mjs on 127.0.0.1:3790, where Tailscale Serve sends every stack port.
+
+Lifetime: a stack lives as long as a dogfooded build may use it, bounded by the VM. An idle running stack is
+stopped (its unit only: its files, data, credentials and ports stay) and wakes on its next request, which the
+router holds until the stack answers. A stack is released (files deleted, credentials and branch freed by the
+next gc) RETAIN_SECS after its last up, or earlier when the VM runs short: a start or wake that does not fit
+stops the least recently used running stacks first (memory, MAX_STACKS), and releases the least recently used
+stopped ones when free disk is short or more than MAX_KEPT are kept.
 
 One stack, three origins: the API at https://<vm>:P, the mobile Worker (cmux-next-ios/backend) at P+1 and
 the device hub (workers/device-hub) at P+2, three consecutive ports of one stack. Tailscale Serve sends all
@@ -36,9 +47,11 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -51,15 +64,37 @@ NODE_VERSION = "v24.22.3"
 NODE_SHA256 = "4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb"  # node-v24.22.3-linux-x64.tar.xz
 BUN_VERSION = "1.4.4"
 BUN_SHA256 = "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"  # bun-v1.4.4/bun-linux-x64.zip
+# The Cloudflare Tunnel's connector (public origins), run only when <base>/secrets/tunnel.token exists.
+CLOUDFLARED_VERSION = "2026.11.1"
+CLOUDFLARED_SHA256 = "97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7"  # cloudflared-linux-amd64
 # Memory and disk a stack that is preparing or starting will take once it runs (measured 1.5-1.9 GiB for the
 # API alone; the mobile Worker and the device hub share its workerd).
 PENDING_MEM_GIB = 3.0
 PENDING_DISK_GIB = 2.0
-# Idle: no request reached the stack (wrangler's request log lines) and no `up`/`touch` for this long.
+# Idle: no request reached the stack (the router's heartbeat, wrangler's request log lines) and no `up`/`touch`
+# for this long: its unit stops, and the next request wakes it.
 IDLE_SECS_DEFAULT = int(os.environ.get("CMUX_WDEV_IDLE_SECS", str(2 * 3600)))
-# Hard cap from the last `up`; the database credentials' TTL is this plus an hour.
-MAX_SECS = int(os.environ.get("CMUX_WDEV_MAX_SECS", str(12 * 3600)))
+# Retention from the last `up`: then the stack is released. The database credentials' TTL (the Mac's
+# CRED_TTL) outlives it, so a stack never runs on an expired credential.
+RETAIN_SECS = int(os.environ.get("CMUX_WDEV_RETAIN_SECS", str(7 * 86400)))
+# Running (or starting) at once; more stopped ones are kept, up to MAX_KEPT.
 MAX_STACKS = int(os.environ.get("CMUX_WDEV_MAX_STACKS", "16"))
+MAX_KEPT = int(os.environ.get("CMUX_WDEV_MAX_KEPT", "48"))
+# A wake that failed is not retried for this long: every request in between is answered at once.
+WAKE_RETRY_SECS = 60
+# A wake still starting this long after its own wait ran out is dead (its process was killed): the next request
+# starts it again. A wake records its deadline (wake_deadline); entries from before that use WAKE_STALE_SECS.
+WAKE_GRACE_SECS = 120  # beyond the router's kill (its wait + 90 s), whose SIGTERM settles the wake first
+WAKE_STALE_SECS = 240
+ROUTER_PORT = int(os.environ.get("CMUX_WDEV_ROUTER_PORT", "3790"))
+# wrangler's own port on 127.0.0.1, one per stack: outside the tailnet range, which the classic daemon allocates
+# from without reading Serve, so a stopped stack's tailnet ports can never collide with a classic stack's local one.
+LOCAL_MIN, LOCAL_MAX = (int(p) for p in os.environ.get("CMUX_WDEV_LOCAL_PORTS", "23800-24799").split("-"))
+# Public origins (cloud-dev-stack/gateway): <svc>.<slot>.<domain>, from the slots public.json lists (written by the
+# Mac's `cloud-dev-stack.sh public-setup`, which made their custom domains). No file: tailnet only.
+PUBLIC_DOMAIN = "wdev.cmux.dev"
+SLOT_RE = re.compile(r"^s[0-9]{1,3}$")
+ROUTER_TARGET = f"http://127.0.0.1:{ROUTER_PORT}"
 MIN_MEM_GIB = float(os.environ.get("CMUX_WDEV_MIN_MEM_GIB", "24"))
 MIN_DISK_GIB = float(os.environ.get("CMUX_WDEV_MIN_DISK_GIB", "120"))
 REAPED_KEEP_SECS = 7 * 86400
@@ -138,6 +173,55 @@ def write_entry(entry: dict[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(entry, indent=1, sort_keys=True) + "\n")
+    os.replace(tmp, path)
+    write_routes()
+
+
+def forget_entry(tag: str) -> None:
+    entry_path(tag).unlink(missing_ok=True)
+    write_routes()
+
+
+# States whose ports the router serves: a stopped stack wakes on a request, a starting one is waited for.
+ROUTED = ("running", "stopped", "starting", "preparing")
+
+
+def routes_table(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The router's table: each authority (host:port) a routed stack answers on, to its tag and wrangler port."""
+    table = {}
+    for e in entries:
+        if e.get("state") in ROUTED and e.get("host") and e.get("port"):
+            for p in entry_ports(e):
+                table[f"{e['host']}:{p}".lower()] = {"tag": e["tag"], "port": local_port(e)}
+            if e.get("slot"):
+                for svc in SERVICES:
+                    table[f"{svc}.{e['slot']}.{e.get('domain') or PUBLIC_DOMAIN}"] = {"tag": e["tag"], "port": local_port(e), "public": True}
+    return table
+
+
+def public_slots() -> tuple[str, list[str]]:
+    """The public domain and its provisioned slots (public.json), or (PUBLIC_DOMAIN, []) when there are none."""
+    try:
+        data = json.loads((BASE / "public.json").read_text())
+    except (OSError, ValueError):
+        return PUBLIC_DOMAIN, []
+    return data.get("domain") or PUBLIC_DOMAIN, [x for x in data.get("slots") or [] if SLOT_RE.match(str(x))]
+
+
+def assign_slot(tag: str, entry: dict[str, Any]) -> str | None:
+    """Under the registry lock: the stack's public slot, kept across ups, stops and wakes; else the first one no
+    other stack that is not released holds. None: no free slot (tailnet only)."""
+    domain, slots = public_slots()
+    held = {e.get("slot") for e in all_entries() if e["tag"] != tag and e.get("state") in HOLDS_PORT}
+    if entry.get("slot") in slots and entry.get("slot") not in held:
+        return entry["slot"]
+    return next((x for x in slots if x not in held), None)
+
+
+def write_routes() -> None:
+    path = BASE / "routes.json"
+    tmp = path.with_suffix(f".tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(routes_table(all_entries()), indent=1, sort_keys=True))
     os.replace(tmp, path)
 
 
@@ -241,8 +325,8 @@ def stack_ports(base: int) -> list[int]:
 def pick_port(tag: str, previous: int | None, taken_by_us: set[int], classic: set[int], serve: dict[str, Any], listening: set[int]) -> int:
     """The stack's base port: its previous one when all its ports are still ours, else the highest base whose
     ports are all free on every account. Every port of a stack Serve-proxies to wrangler on the base port."""
-    own_target = f"http://127.0.0.1:{previous}"
-    if previous and all(p not in classic and p not in taken_by_us and serve_target(serve, p) in (None, own_target) and PORT_MIN <= p <= PORT_MAX
+    own = (None, ROUTER_TARGET, f"http://127.0.0.1:{previous}")  # the router, or wrangler before the router
+    if previous and all(p not in classic and p not in taken_by_us and serve_target(serve, p) in own and PORT_MIN <= p <= PORT_MAX
                         for p in stack_ports(previous)):
         return previous
     serve_ports = {int(k) for k in (serve.get("TCP") or {}).keys() if str(k).isdigit()}
@@ -253,7 +337,24 @@ def pick_port(tag: str, previous: int | None, taken_by_us: set[int], classic: se
     raise Refused(f"no {len(SERVICES)} consecutive free ports in {PORT_MIN}-{PORT_MAX}")
 
 
-HOLDS_PORT = ("preparing", "starting", "running", "failed")
+HOLDS_PORT = ("preparing", "starting", "running", "stopped", "failed")
+
+
+def local_port(entry: dict[str, Any]) -> int | None:
+    """The port the stack's wrangler listens on (127.0.0.1): its own local port, or for an entry from before
+    local ports, its base tailnet port."""
+    return entry.get("local_port") or entry.get("port")
+
+
+def pick_local_port(tag: str, previous: int | None, listening: set[int]) -> int:
+    """Under the registry lock: the stack's local port, kept while no one else listens on it."""
+    taken = {e.get("local_port") for e in all_entries() if e["tag"] != tag and e.get("state") in HOLDS_PORT}
+    if previous and LOCAL_MIN <= previous <= LOCAL_MAX and previous not in taken and previous not in listening:
+        return previous
+    for port in range(LOCAL_MIN, LOCAL_MAX + 1):
+        if port not in taken and port not in listening:
+            return port
+    raise Refused(f"no free local port in {LOCAL_MIN}-{LOCAL_MAX}")
 
 
 def entry_ports(entry: dict[str, Any]) -> list[int]:
@@ -310,7 +411,6 @@ RestrictSUIDSGID=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RuntimeMaxSec={max_secs}
 MemoryMax=6G
 MemorySwapMax=0
 CPUQuota=400%
@@ -318,6 +418,51 @@ TasksMax=4096
 KillMode=control-group
 TimeoutStopSec=20
 Nice=5
+"""
+
+ROUTER_SERVICE = """[Unit]
+Description=cmux-next wrangler dev stacks: the router (every stack port; wakes a stopped stack)
+After=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User={user}
+Group={user}
+Environment=CMUX_WDEV_BASE={base}
+ExecStart={node} {base}/bin/router.mjs
+Restart=always
+RestartSec=2
+# A wake runs `vm_stack.py wake`, which starts the stack's unit with sudo: no NoNewPrivileges here.
+PrivateTmp=yes
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+TUNNEL_SERVICE = """[Unit]
+Description=cmux-next wrangler dev stacks: Cloudflare Tunnel cmux-wdev (public origins; scripts/cmux-next/cloud-dev-stack)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={user}
+Group={user}
+ExecStart={base}/tools/cloudflared-{version}/cloudflared tunnel --no-autoupdate run --token-file {base}/secrets/tunnel.token
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadOnlyPaths={base}
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
 """
 
 REAPER_SERVICE = """[Unit]
@@ -350,10 +495,16 @@ def install_host() -> dict[str, Any]:
     for d in ("bin", "registry", "stacks", "tools", "cache"):
         (BASE / d).mkdir(mode=0o700, parents=True, exist_ok=True)
     files = {
-        f"/etc/systemd/system/{UNIT_PREFIX}@.service": UNIT_TEMPLATE.format(user=user, base=BASE, max_secs=MAX_SECS + 600),
+        f"/etc/systemd/system/{UNIT_PREFIX}@.service": UNIT_TEMPLATE.format(user=user, base=BASE),
+        f"/etc/systemd/system/{UNIT_PREFIX}-router.service": ROUTER_SERVICE.format(
+            user=user, base=BASE, node=BASE / "tools" / f"node-{NODE_VERSION}" / "bin/node"),
         f"/etc/systemd/system/{UNIT_PREFIX}-reaper.service": REAPER_SERVICE.format(user=user, base=BASE),
         f"/etc/systemd/system/{UNIT_PREFIX}-reaper.timer": REAPER_TIMER,
     }
+    tunnel = (BASE / "secrets/tunnel.token").exists()
+    if tunnel:
+        ensure_cloudflared()
+        files[f"/etc/systemd/system/{UNIT_PREFIX}-tunnel.service"] = TUNNEL_SERVICE.format(user=user, base=BASE, version=CLOUDFLARED_VERSION)
     changed = []
     for path, body in files.items():
         try:
@@ -367,7 +518,59 @@ def install_host() -> dict[str, Any]:
         systemctl("daemon-reload")
     if systemctl("is-enabled", "--quiet", f"{UNIT_PREFIX}-reaper.timer", check=False).returncode != 0 or changed:
         systemctl("enable", "--now", f"{UNIT_PREFIX}-reaper.timer")
-    return {"units_changed": changed, **ensure_tools()}
+    tools = ensure_tools()
+    with registry_lock():
+        write_routes()
+        changed += serve_sweep()
+    if tunnel and (any("tunnel" in c for c in changed)
+                   or systemctl("is-active", "--quiet", f"{UNIT_PREFIX}-tunnel.service", check=False).returncode != 0):
+        systemctl("enable", f"{UNIT_PREFIX}-tunnel.service")
+        systemctl("restart", f"{UNIT_PREFIX}-tunnel.service")
+        changed.append("tunnel restarted")
+    # The router: (re)started when its unit or its code changed since it last started.
+    router = BASE / "bin/router.mjs"
+    stamp = BASE / "bin/.router.sha256"
+    want = sha256_file(router) if router.exists() else ""
+    have = stamp.read_text().strip() if stamp.exists() else ""
+    if router.exists() and (want != have or any("router" in c for c in changed)
+                            or systemctl("is-active", "--quiet", f"{UNIT_PREFIX}-router.service", check=False).returncode != 0):
+        systemctl("enable", f"{UNIT_PREFIX}-router.service")
+        systemctl("restart", f"{UNIT_PREFIX}-router.service")
+        stamp.write_text(want)
+        changed.append("router restarted")
+    return {"units_changed": changed, **tools}
+
+
+def serve_sweep() -> list[str]:
+    """Under the registry lock: move a routed stack's ports that still go straight to its wrangler (a stack from
+    before the router) to the router, and turn off router listeners in our range that no stack claims (an older
+    helper's leftovers). A classic stack's listener (127.0.0.1:8478) is never touched."""
+    claimed = {}
+    for e in all_entries():
+        if e.get("state") in ROUTED:
+            for p in entry_ports(e):
+                claimed[p] = e
+    done = []
+    with serve_lock():
+        cfg = serve_config()
+        for host_port, web in (cfg.get("Web") or {}).items():
+            try:
+                p = int(host_port.rsplit(":", 1)[1])
+            except (IndexError, ValueError):
+                continue
+            target = ((web.get("Handlers") or {}).get("/") or {}).get("Proxy")
+            if not (PORT_MIN <= p <= PORT_MAX) or p in classic_ports():
+                continue
+            e = claimed.get(p)
+            if e and target == f"http://127.0.0.1:{e.get('port')}" and not e.get("local_port"):
+                continue  # a running stack from before the router: its wrangler is on this port; left as it is
+            if e and target == f"http://127.0.0.1:{local_port(e)}" and e.get("local_port"):
+                subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={p}", ROUTER_TARGET], capture_output=True, text=True, timeout=60)
+                done.append(f"serve :{p} -> router")
+            elif not e and target == ROUTER_TARGET:
+                subprocess.run(["sudo", "-n", "tailscale", "serve", f"--https={p}", "off"], capture_output=True, text=True, timeout=60)
+                done.append(f"serve :{p} off (no stack)")
+    return done
 
 
 def sha256_file(path: Path) -> str:
@@ -409,6 +612,17 @@ def ensure_tools() -> dict[str, str]:
         bun.chmod(0o755)
         tmp.unlink()
     return {"node": str(node / "bin"), "bun": str(bun.parent)}
+
+
+def ensure_cloudflared() -> Path:
+    path = BASE / "tools" / f"cloudflared-{CLOUDFLARED_VERSION}" / "cloudflared"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.parent / ".cloudflared.download"
+        fetch_verified(f"https://github.com/cloudflare/cloudflared/releases/download/{CLOUDFLARED_VERSION}/cloudflared-linux-amd64", CLOUDFLARED_SHA256, tmp)
+        tmp.chmod(0o755)
+        os.replace(tmp, path)
+    return path
 
 
 def tool_path() -> str:
@@ -510,29 +724,39 @@ def render_platform_config(cfg: dict[str, Any], origin: str) -> dict[str, Any]:
 
 def render_mobile_config(cfg: dict[str, Any]) -> dict[str, Any]:
     """The mobile Worker (cmux-next-ios/backend) as its shared dev deployment runs it (env `dev`): its own
-    Durable Objects (local), PS_MYSQL through the stack's Vitess connection string (run.sh), no crons. Its
-    optional secrets (TURN, APNs, Stack server key, Slack) stay unset: no relay ICE or push from a stack."""
+    Durable Objects (local), PS_MYSQL through the stack's Vitess connection string (run.sh), no crons. Its TURN key
+    is the host's (write_dev_vars), so /v1/ice relays as the shared one does; APNs, Stack server key and Slack stay
+    unset: no push or alert from a stack (membership uses the caller's own token)."""
     return flatten_env(cfg, "dev")
 
 
-def render_hub_config(cfg: dict[str, Any], hub_origin: str) -> dict[str, Any]:
-    """The device hub (workers/device-hub, a TOML config) as its dev deployment runs it (env `dev`), with its
-    signal URLs on the stack's own hub origin."""
+def render_hub_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The device hub (workers/device-hub, a TOML config) as its dev deployment runs it (env `dev`). Its signal
+    URLs come from each request's own origin (PUBLIC_BASE_URL empty): the front rewrites a request to the hub
+    origin it arrived on, the tailnet one or the public one, so each client gets URLs it can reach."""
     dev = flatten_env(cfg, "dev")
-    dev.setdefault("vars", {})["PUBLIC_BASE_URL"] = hub_origin
+    dev.setdefault("vars", {})["PUBLIC_BASE_URL"] = ""
     return dev
 
 
 def stack_origins(host: str, base: int) -> dict[str, str]:
-    """The stack's public origins, one per Worker: https://<host>:<port> on the tailnet."""
+    """The stack's tailnet origins, one per Worker: https://<host>:<port>."""
     return {svc: f"https://{host}:{port}" for svc, port in zip(SERVICES, stack_ports(base))}
 
 
-def front_routes(host: str, base: int) -> dict[str, str]:
-    """The front Worker's routes: the authority a request arrives with (Serve keeps the client's Host) to
-    the Worker that serves it. 127.0.0.1:<base> is the API, for checks on the VM itself."""
-    routes = {f"{host}:{port}".lower(): svc for svc, port in zip(SERVICES, stack_ports(base))}
-    routes[f"127.0.0.1:{base}"] = "api"
+def public_origins(slot: str, domain: str = PUBLIC_DOMAIN) -> dict[str, str]:
+    """The stack's public origins (cloud-dev-stack/gateway), one per Worker: https://<svc>.<slot>.<domain>."""
+    return {svc: f"https://{svc}.{slot}.{domain}" for svc in SERVICES}
+
+
+def front_routes(host: str, base: int, local: int | None = None, slot: str | None = None, domain: str = PUBLIC_DOMAIN) -> dict[str, list[str]]:
+    """The front Worker's routes: the authority a request arrives with (Serve, the router and the gateway keep the
+    client's Host) to the Worker that serves it and the origin family it came by (tailnet or public).
+    127.0.0.1:<local> is the API, for checks on the VM itself."""
+    routes = {f"{host}:{port}".lower(): [svc, "tailnet"] for svc, port in zip(SERVICES, stack_ports(base))}
+    routes[f"127.0.0.1:{local or base}"] = ["api", "tailnet"]
+    if slot:
+        routes.update({f"{svc}.{slot}.{domain}": [svc, "public"] for svc in SERVICES})
     return routes
 
 
@@ -547,10 +771,11 @@ const BINDINGS = { api: "API", mobile: "MOBILE", hub: "HUB" }
 export default {
   async fetch(request, env) {
     const routes = JSON.parse(env.WDEV_ROUTES)
-    const origins = JSON.parse(env.WDEV_ORIGINS)
     const url = new URL(request.url)
-    const service = routes[url.host.toLowerCase()]
+    const [service, family] = routes[url.host.toLowerCase()] ?? []
     if (!service) return new Response(`no Worker of this stack answers on ${url.host}\n`, { status: 421 })
+    // The origins of the family the request came by: a public client is told public origins, a tailnet one tailnet.
+    const origins = JSON.parse(env.WDEV_ORIGINS)[family]
     const forwarded = new Request(new URL(url.pathname + url.search, origins[service]), request)
     if (service === "api" && url.pathname === "/v1/client-config" && request.method === "GET") {
       return clientConfig(forwarded, env, origins)
@@ -606,7 +831,8 @@ def development_client_config() -> dict[str, Any]:
     return dict(FALLBACK_CLIENT_CONFIG)
 
 
-def render_front_config(names: dict[str, str], routes: dict[str, str], origins: dict[str, str], client_config: dict[str, Any]) -> dict[str, Any]:
+def render_front_config(names: dict[str, str], routes: dict[str, list[str]], origins: dict[str, dict[str, str]], client_config: dict[str, Any]) -> dict[str, Any]:
+    """origins: each family's origins ({"tailnet": {...}, "public": {...}})."""
     return {
         "name": FRONT_NAME, "main": "index.js", "compatibility_date": "2026-08-20",
         "services": [{"binding": binding, "service": names[svc]} for svc, binding in (("api", "API"), ("mobile", "MOBILE"), ("hub", "HUB"))],
@@ -658,6 +884,17 @@ def write_entry_wrapper(project: Path, cfg: dict[str, Any]) -> dict[str, Any]:
     return {**cfg, "main": "wdev-entry.generated.ts"}
 
 
+def pin_build_cwd(cfg: dict[str, Any], project: Path) -> dict[str, Any]:
+    """A Worker's custom build (`build.command`) run in its own project. wrangler passes build.cwd through as is, so
+    with none the build runs in wrangler's working directory, which for a stack is the stack's directory, not the
+    project's (the API's `bun scripts/gen-chief-vm-source.ts` failed there with Module not found). A relative cwd
+    meant the project, where a deploy runs."""
+    build = cfg.get("build")
+    if isinstance(build, dict) and build.get("command"):
+        cfg["build"] = {**build, "cwd": os.path.normpath(str(project / str(build.get("cwd") or ".")))}
+    return cfg
+
+
 def load_wrangler_config(path: Path) -> dict[str, Any]:
     if path.suffix == ".toml":
         import tomllib
@@ -675,28 +912,111 @@ def cmd_capacity(_args) -> dict[str, Any]:
         "disk_free_gib": round(disk_free_gib(), 1),
         "stacks_running": len(running),
         "max_stacks": MAX_STACKS,
-        "max_secs": MAX_SECS,
+        "retain_secs": RETAIN_SECS,
+        "stacks_stopped": sum(1 for e in entries if e.get("state") == "stopped"),
+        "max_kept": MAX_KEPT,
         "min_mem_gib": MIN_MEM_GIB,
         "min_disk_gib": MIN_DISK_GIB,
         "classic_registered": len(classic_ports()),
+        "turn_key": host_turn() is not None,
     }
 
 
-def admit(tag: str) -> None:
+def last_activity(entry: dict[str, Any]) -> int:
+    """When the stack was last used: a request (the router's heartbeat, wrangler's log), an up, a start or a touch."""
+    hb = stack_dir(entry["tag"]) / "heartbeat"
+    beat = int(hb.stat().st_mtime) if hb.exists() else 0
+    return max(entry.get("last_request_at", 0), entry.get("last_up_at", 0), entry.get("started_at", 0), beat)
+
+
+def dir_gib(path: Path) -> float:
+    """A directory's size on disk, in GiB (du; 0 when it cannot be read)."""
+    out = subprocess.run(["du", "-sk", str(path)], capture_output=True, text=True, timeout=120)
+    try:
+        return int(out.stdout.split()[0]) / 1024 / 1024
+    except (IndexError, ValueError):
+        return 0.0
+
+
+def stop_unit(tag: str) -> None:
+    """Stop the stack's workerd only: its files, Durable Object data, credentials, ports and Serve stay, and its
+    next request wakes it (the router)."""
+    systemctl("stop", unit(tag), check=False)
+    systemctl("reset-failed", unit(tag), check=False)
+
+
+def up_in_progress(entry: dict[str, Any], now: int) -> bool:
+    """An up of this tag holds its lock (prepare to up-done): its stopped stack is never released under it."""
+    return bool(entry.get("up_token")) and now - entry.get("up_started", 0) < UP_LOCK_SECS
+
+
+def park(entry: dict[str, Any], now: int, reason: str) -> None:
+    """Under the registry lock: stop a running stack's unit and keep everything else (state stopped)."""
+    stop_unit(entry["tag"])
+    entry.update({"state": "stopped", "stopped_at": now, "reason": reason})
+    for k in WAKE_KEYS:
+        entry.pop(k, None)
+    write_entry(entry)
+
+
+def release(entry: dict[str, Any], now: int, reason: str) -> list[str]:
+    """Under the registry lock: stop the stack and delete its files; the entry stays (state reaped) for the next
+    gc from a Mac, which deletes its credentials and branch."""
+    steps = stop_stack(entry["tag"], keep_files=False)
+    entry.update({"state": "reaped", "reaped_at": now, "reason": reason})
+    entry.pop("served_at", None)  # its files are gone: a later up starts a new stack
+    write_entry(entry)
+    return steps
+
+
+def admit(tag: str, now: int | None = None) -> list[str]:
     """Called under the registry lock, which also records the caller as preparing or starting, so two
     ups at once are counted against each other. A stack that is preparing or starting has not taken its
-    memory yet: it is reserved here, beside the floor."""
-    others = [e for e in all_entries() if e["tag"] != tag and e.get("state") in ("preparing", "starting", "running")]
-    pending = sum(1 for e in others if e.get("state") != "running")
-    if len(others) >= MAX_STACKS:
-        raise Refused(f"{len(others)} stacks running or starting (max {MAX_STACKS}); `cloud-dev-stack.sh status` lists them")
-    mem, disk = mem_available_gib(), disk_free_gib()
-    need_mem = MIN_MEM_GIB + PENDING_MEM_GIB * (pending + 1)
-    if mem < need_mem:
-        raise Refused(f"MemAvailable {mem:.1f} GiB < {need_mem:.1f} GiB ({MIN_MEM_GIB} floor + {PENDING_MEM_GIB} for this and each of {pending} starting stacks; the classic stacks keep a 16 GiB floor)")
-    need_disk = MIN_DISK_GIB + PENDING_DISK_GIB * (pending + 1)
-    if disk < need_disk:
-        raise Refused(f"free disk {disk:.1f} GiB < {need_disk:.1f} GiB (the classic GC starts purging at 100)")
+    memory yet: it is reserved here, beside the floor. When the stack does not fit, the least recently used
+    running stacks are stopped (they wake on their next request) until it does, and the least recently used
+    stopped ones released while free disk is short; never one that is preparing or starting. Returns what it
+    made room with."""
+    now = now or int(time.time())
+    made_room: list[str] = []
+    while True:
+        others = [e for e in all_entries() if e["tag"] != tag and e.get("state") in ("preparing", "starting", "running")]
+        pending = sum(1 for e in others if e.get("state") != "running")
+        need_mem = MIN_MEM_GIB + PENDING_MEM_GIB * (pending + 1)
+        mem = mem_available_gib()
+        if len(others) < MAX_STACKS and mem >= need_mem:
+            break
+        running = [e for e in others if e.get("state") == "running"]
+        if not made_room and len(others) < MAX_STACKS and running:
+            # Memory short: stop stacks only when all of them together would cover it (a shortfall from outside
+            # the tag stacks, the classic ones, must not stop every stack and still refuse).
+            freeable = sum(unit_memory_mib(e["tag"]) or 0 for e in running) / 1024
+            if mem + freeable < need_mem:
+                raise Refused(f"MemAvailable {mem:.1f} GiB < {need_mem:.1f} GiB and stopping every running stack frees only {freeable:.1f} GiB")
+        if not running:
+            if len(others) >= MAX_STACKS:
+                raise Refused(f"{len(others)} stacks starting (max {MAX_STACKS}); `cloud-dev-stack.sh status` lists them")
+            raise Refused(f"MemAvailable {mem:.1f} GiB < {need_mem:.1f} GiB ({MIN_MEM_GIB} floor + {PENDING_MEM_GIB} for this and each of {pending} starting stacks; the classic stacks keep a 16 GiB floor) and no running stack to stop")
+        victim = min(running, key=last_activity)
+        park(victim, now, f"stopped to make room for {tag} (least recently used)")
+        made_room.append(f"stopped {victim['tag']}")
+        time.sleep(1)  # MemAvailable takes the stopped workerd's memory back
+    while True:
+        pending = sum(1 for e in all_entries() if e["tag"] != tag and e.get("state") in ("preparing", "starting"))
+        need_disk = MIN_DISK_GIB + PENDING_DISK_GIB * (pending + 1)
+        disk = disk_free_gib()
+        if disk >= need_disk:
+            break
+        stopped = [e for e in all_entries() if e["tag"] != tag and e.get("state") == "stopped" and not up_in_progress(e, now)]
+        if not stopped:
+            raise Refused(f"free disk {disk:.1f} GiB < {need_disk:.1f} GiB (the classic GC starts purging at 100) and no stopped stack to release")
+        if not any(m.startswith("released") for m in made_room):
+            freeable = sum(dir_gib(stack_dir(e["tag"])) for e in stopped)
+            if disk + freeable < need_disk:
+                raise Refused(f"free disk {disk:.1f} GiB < {need_disk:.1f} GiB and releasing every stopped stack frees only {freeable:.1f} GiB")
+        victim = min(stopped, key=last_activity)
+        release(victim, now, f"released for disk room for {tag} (least recently used)")
+        made_room.append(f"released {victim['tag']}")
+    return made_room
 
 
 def cmd_prepare(args) -> dict[str, Any]:
@@ -716,7 +1036,15 @@ def cmd_prepare(args) -> dict[str, Any]:
         for sub in ("src", "platform", "state", "logs", "secrets", "home"):
             (d / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
         token = secrets.token_hex(8)
-        if state == "running":
+        if state in ("stopped", "running"):
+            entry.setdefault("served_at", entry.get("started_at") or now)  # an entry from before the mark served
+        waking = state == "starting" and bool(entry.get("wake_token")) and entry.get("served_at") and (d / "run.sh").exists()
+        if (state == "stopped" or waking) and (d / "run.sh").exists():
+            # A re-up of a stopped stack, or of one a request is waking: it stays as it is (and the wake settles
+            # it) until start restarts it, so a re-up that fails before start leaves it as it was, files and data
+            # included. Never a fresh stack, which a failed up would turn into one gc releases.
+            entry["reup_at"] = now
+        elif state == "running":
             # A re-up of a running stack: it stays running (and keeps serving) until start restarts it.
             # The marker keeps the reaper from treating a unit restart in progress as a crash, and a
             # re-up that fails before start leaves the stack as it was.
@@ -729,11 +1057,168 @@ def cmd_prepare(args) -> dict[str, Any]:
             if state in ("down", "reaped", "releasing"):
                 entry.pop("port", None)
                 entry.pop("ports", None)
+            entry.pop("served_at", None)  # not a stack that served (a first up, or one after a release or a failure)
             entry.update({"state": "preparing", "last_up_at": now})
         entry.update({"up_token": token, "up_started": now})
         write_entry(entry)
     (d / "heartbeat").touch()
     return {"dir": str(d), "state": entry["state"], "token": token}
+
+
+def wait_healthy(tag: str, port: int, host: str, timeout: float, local: int | None = None,
+                 log: Path | None = None, log_start: int = 0) -> tuple[bool, str]:
+    """Wait until every Worker of the stack answers /v1/health on wrangler's port (local; port for a stack from
+    before local ports), each asked as its own tailnet authority (host:port, host:port+1, ...)."""
+    authorities = [f"{host}:{p}" for p in stack_ports(port)]
+    deadline, healthy, last = time.time() + timeout, set(), ""
+    while time.time() < deadline:
+        if not unit_active(tag):
+            return False, "its unit stopped"
+        if log is not None and log.exists():  # wrangler keeps running after a failed build, waiting for a change
+            with open(log, "rb") as f:
+                f.seek(log_start)
+                if b"Build failed" in f.read():
+                    return False, "build failed"
+        for a in authorities:
+            if a not in healthy:
+                ok, body = probe(local or port, a)
+                if ok:
+                    healthy.add(a)
+                else:
+                    last = f"{a}: {body}"
+        if len(healthy) == len(authorities):
+            return True, ""
+        time.sleep(1)
+    return False, last or "timed out"
+
+
+WAKE_KEYS = ("wake_started_at", "wake_deadline", "wake_token")
+
+
+def wake_is_stale(entry: dict[str, Any], now: int) -> bool:
+    """A wake marked on the entry whose process is past its own wait and grace: it was killed or died."""
+    started = entry.get("wake_started_at")
+    return bool(started) and now > entry.get("wake_deadline", started + WAKE_STALE_SECS)
+
+
+def cmd_wake(args) -> dict[str, Any]:
+    """Start a stopped stack again (the router calls this on its first request): the same run.sh, ports, files and
+    Durable Object data, admitted like an up (the least recently used running stacks stop when it does not fit).
+    A running one returns at once; one an up or another live wake is starting is waited for. A wake that dies
+    (killed, an error) leaves the stack stopped, never starting: the next request wakes it again."""
+    tag = check_tag(args.tag)
+    now = int(time.time())
+    with registry_lock():
+        entry = read_entry(tag)
+        state = (entry or {}).get("state")
+        if state == "running" and unit_active(tag):
+            return {"tag": tag, "state": "running", "woke": False}
+        stale_wake = state == "starting" and wake_is_stale(entry, now)
+        if state in ("preparing", "starting") and not stale_wake:
+            waiting = True
+        elif state in ("stopped", "running") or stale_wake:  # running with no unit: it crashed under its entry
+            waiting = False
+            if now - entry.get("wake_failed_at", 0) < WAKE_RETRY_SECS:
+                raise Refused(f"{tag}: its last wake failed {now - entry['wake_failed_at']} s ago ({entry.get('wake_error', '')}); retry in a minute, or cloud-dev-stack.sh up --tag {tag}")
+            if not (stack_dir(tag) / "run.sh").exists():
+                raise Refused(f"{tag}: no run.sh (released); cloud-dev-stack.sh up --tag {tag}")
+            if entry.get("start_failed_at"):
+                # Its run.sh is the code whose start failed: a wake would fail the same way after up to 150 s, and
+                # might stop a healthy stack for room first. An up with a fix brings it back.
+                raise Refused(f"{tag}: its last up did not start ({entry.get('reason', '')}); fix it and run cloud-dev-stack.sh up --tag {tag}")
+            # Its tailnet ports must still be ours: a classic stack never takes one (wrangler listens on its own
+            # local port), but a hand-made Serve entry might.
+            with serve_lock():
+                cfg = serve_config()
+                foreign = [p for p in entry_ports(entry) if p in classic_ports() or serve_target(cfg, p) not in (None, ROUTER_TARGET)]
+            if foreign:
+                raise Refused(f"{tag}: its ports {foreign} now belong to something else; cloud-dev-stack.sh up --tag {tag} picks new ones")
+            made_room = admit(tag, now)
+            token = secrets.token_hex(6)
+            entry.update({"state": "starting", "wake_started_at": now, "wake_deadline": now + args.wait + WAKE_GRACE_SECS,
+                          "wake_token": token, "made_room": made_room})
+            write_entry(entry)
+        else:
+            raise Refused(f"{tag} is {state or 'absent'}; cloud-dev-stack.sh up --tag {tag} brings it back")
+    if waiting:
+        deadline = time.time() + args.wait
+        while time.time() < deadline:
+            e = read_entry(tag) or {}
+            if e.get("state") == "running":
+                return {"tag": tag, "state": "running", "woke": False, "waited": True}
+            if e.get("state") not in ("preparing", "starting"):
+                raise Refused(f"{tag}: the up or wake it waited for ended {e.get('state')}")
+            time.sleep(1)
+        raise Refused(f"{tag}: still {state} after {args.wait} s")
+
+    def settle(ok: bool, why: str = "", log_offset: int = 0) -> dict[str, Any] | None:
+        """This wake's last write, only while the entry is still this wake's (a down or an up may have taken it)."""
+        with registry_lock():
+            e = read_entry(tag)
+            if not e or e.get("state") != "starting" or e.get("wake_token") != token:
+                return None  # its new owner (a down stops the unit, an up restarts it) decides; the unit is left alone
+            t = int(time.time())
+            if ok:
+                e.update({"state": "running", "started_at": t, "last_request_at": t, "woke_at": t, "log_offset": log_offset, "served_at": t})
+                for k in ("wake_failed_at", "wake_error", "reason", "stopped_at", *WAKE_KEYS):
+                    e.pop(k, None)
+            else:
+                stop_unit(tag)
+                e.update({"state": "stopped", "wake_failed_at": t, "wake_error": why[:200]})
+                for k in WAKE_KEYS:
+                    e.pop(k, None)
+            write_entry(e)
+            return e
+
+    previous = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt("SIGTERM")))
+    log = stack_dir(tag) / "logs/wrangler.log"
+    try:
+        own_log(log)
+        log_start = log.stat().st_size
+        write_dev_vars(stack_dir(tag), bool(entry.get("platform")))
+        systemctl("reset-failed", unit(tag), check=False)
+        systemctl("start", unit(tag))
+        (stack_dir(tag) / "heartbeat").touch()
+        ok, why = wait_healthy(tag, entry["port"], entry["host"], args.wait, local=local_port(entry), log=log, log_start=log_start)
+    except BaseException as err:  # noqa: BLE001 - killed or failed: back to stopped
+        settle(False, f"the wake was interrupted: {type(err).__name__}: {err}")
+        raise
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    if not ok:
+        settle(False, why)
+        tail = redact(log.read_text(errors="replace")[log_start:][-3000:], stack_dir(tag)) if log.exists() else ""
+        raise Refused(f"{tag}: did not wake ({why})\n--- log tail ---\n{tail}")
+    e = settle(True, log_offset=log.stat().st_size if log.exists() else 0)
+    if e is None:
+        raise Refused(f"{tag}: a down or an up took the stack while it woke")
+    return {"tag": tag, "state": "running", "woke": True, "secs": int(time.time()) - now, "made_room": e.get("made_room", [])}
+
+
+def cmd_put_public(_args) -> dict[str, Any]:
+    """Store the public slots the Mac provisioned (JSON {domain, slots} on stdin) and rewrite the routes."""
+    data = json.loads(sys.stdin.read())
+    domain = str(data.get("domain") or "")
+    if domain != PUBLIC_DOMAIN:
+        raise Refused(f"public domain {domain!r}: only {PUBLIC_DOMAIN} (the gateway's and the apps' allowlist)")
+    slots = sorted({str(x) for x in data.get("slots") or [] if SLOT_RE.match(str(x))}, key=lambda x: int(x[1:]))
+    with registry_lock():
+        tmp = BASE / "public.json.tmp"
+        tmp.write_text(json.dumps({"domain": domain, "slots": slots}))
+        os.replace(tmp, BASE / "public.json")
+        write_routes()
+    return {"domain": domain, "slots": len(slots)}
+
+
+def cmd_stop(args) -> dict[str, Any]:
+    """Stop a running stack now, as an idle one is (`cloud-dev-stack.sh stop`): it wakes on its next request."""
+    tag = check_tag(args.tag)
+    with registry_lock():
+        entry = read_entry(tag)
+        if not entry or entry.get("state") != "running":
+            raise Refused(f"{tag} is {(entry or {}).get('state', 'absent')}, not running")
+        park(entry, int(time.time()), "stopped by cloud-dev-stack.sh stop; wakes on its next request")
+    return {"tag": tag, "state": "stopped"}
 
 
 def cmd_up_done(args) -> dict[str, Any]:
@@ -750,6 +1235,16 @@ def cmd_up_done(args) -> dict[str, Any]:
             entry.pop("reup_at", None)
             if entry.get("state") == "preparing":
                 entry["state"] = "failed"
+            elif (entry.get("state") == "starting" and entry.get("served_at") and not entry.get("wake_token")
+                  and (stack_dir(tag) / "run.sh").exists()):
+                # A re-up of a stack that already served, whose Mac side died after start took the stack (start may
+                # still be running on the VM, and settles the entry itself when it ends): the stack keeps its ports,
+                # Serve and data. Still up, it is running; else stopped, and its next request wakes it. Never failed,
+                # which gc would release with its data. A wake in progress settles its own entry.
+                if unit_active(tag):
+                    entry["state"] = "running"
+                else:
+                    entry.update({"state": "stopped", "stopped_at": int(time.time()), "reason": "a re-up failed; the stack wakes on its next request"})
         write_entry(entry)
     return {"tag": tag, "cleared": True, "state": entry.get("state")}
 
@@ -906,6 +1401,26 @@ HUB_KEYS_JS = """const gen = async () => { const p = await crypto.subtle.generat
 process.stdout.write(`SESSION_KEY='${await gen()}'\\nTICKET_KEY='${await gen()}'\\n`)"""
 
 
+def write_public_jwks(d: Path) -> None:
+    """The public halves of the keys the stack signs tokens with (the API's JWT_PRIVATE_JWK, the hub's SESSION_KEY
+    and TICKET_KEY), for the gateway to verify a stack-issued token (the router's GET /__wdev/jwks)."""
+    keys = []
+    texts = []
+    for name in ("jwt.jwk",):
+        if (d / "secrets" / name).exists():
+            texts.append((d / "secrets" / name).read_text())
+    if (d / "secrets/hub.vars").exists():
+        texts += re.findall(r"^[A-Z_]+='(\{.*\})'$", (d / "secrets/hub.vars").read_text(), re.M)
+    for t in texts:
+        try:
+            k = json.loads(t)
+        except ValueError:
+            continue
+        if k.get("kty") == "EC" and k.get("x") and k.get("y"):
+            keys.append({f: k[f] for f in ("kty", "crv", "x", "y", "kid") if f in k})
+    (d / "public-jwks.json").write_text(json.dumps({"keys": keys}))
+
+
 def ensure_hub_keys(d: Path, env: dict[str, str]) -> str:
     """The stack's own device hub keys (SESSION_KEY, TICKET_KEY) as .dev.vars lines, made once per stack."""
     path = d / "secrets" / "hub.vars"
@@ -913,6 +1428,152 @@ def ensure_hub_keys(d: Path, env: dict[str, str]) -> str:
         body = subprocess.run(["node", "--input-type=module", "-e", HUB_KEYS_JS], env=env, capture_output=True, text=True, check=True).stdout
         write_private(path, body)
     return path.read_text()
+
+
+# The team's Cloudflare TURN key (1Password "Cloudflare TURN Server API Key"), one per host for every stack's mobile
+# Worker: without it a stack's /v1/ice is STUN only, and a phone on another network than its Mac never links (live,
+# tag gcp-default-1121, 2026-11-21). An up sends it from 1Password over SSH stdin (put-turn) when turn-status says
+# the host has none or Cloudflare refuses the one it has, as an up makes a database credential when it lapses.
+TURN_KEY_ID_RE = re.compile(r"[0-9a-f]{32}")
+TURN_TOKEN_RE = re.compile(r"[A-Za-z0-9._-]{20,256}")
+TURN_API = "https://rtc.live.cloudflare.com/v1/turn/keys/{}/credentials/generate-ice-servers"
+# The development Stack project's server key, which this host's classic dev backend already keeps
+# (cmuxterm-hq skills/infra/dev-backend: <classic base>/secrets/runtime.json, 0600, this user's). The stack's API
+# needs it to learn a team from Stack: a stack's TeamDO never gets Stack's webhooks, so without it every
+# team-scoped /v1/auth/token is refused as "not a member of this team" (403; 78 of them from one Mac, same run).
+STACK_KEY_RE = re.compile(r"[A-Za-z0-9_-]{16,256}")
+
+
+def turn_path() -> Path:
+    return BASE / "secrets/turn.json"
+
+
+def host_turn() -> dict[str, str] | None:
+    """The host's TURN key as the mobile Worker's two secrets, or None."""
+    try:
+        data = json.loads(turn_path().read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    key_id, token = data.get("key_id"), data.get("api_token")
+    if not (isinstance(key_id, str) and TURN_KEY_ID_RE.fullmatch(key_id) and isinstance(token, str) and TURN_TOKEN_RE.fullmatch(token)):
+        return None
+    return {"TURN_KEY_ID": key_id, "TURN_KEY_API_TOKEN": token}
+
+
+def turn_probe(key_id: str, token: str) -> int | None:
+    """Cloudflare's HTTP status for one short TURN credential request with this key; None when it could not be asked."""
+    # A named User-Agent: Cloudflare answers urllib's default one with error 1010 (403), which reads as a refused key.
+    req = urllib.request.Request(TURN_API.format(key_id), data=b'{"ttl": 300}', method="POST",
+                                 headers={"authorization": f"Bearer {token}", "content-type": "application/json",
+                                          "user-agent": "cmux-wdev-stack/1 (scripts/cmux-next/cloud-dev-stack)"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            return res.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (OSError, ValueError):
+        return None
+
+
+def turn_verdict(status: int | None) -> str:
+    """ok: Cloudflare minted credentials; refused: the key is revoked or rotated (send it again); unverified: Cloudflare
+    could not say (unreachable, 429, 5xx), so the key is kept."""
+    if status is not None and 200 <= status < 300:
+        return "ok"
+    return "refused" if status in (400, 401, 403, 404) else "unverified"
+
+
+def cmd_put_turn(_args) -> dict[str, Any]:
+    """Store the team's TURN key (stdin: the key id, then its API token, one per line) at <base>/secrets/turn.json,
+    mode 0600, after Cloudflare accepts it. Anything else (a failed op pipes nothing) is refused and the key the host
+    has stays. Prints no part of it."""
+    lines = sys.stdin.read().splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if len(lines) != 2:
+        raise Refused(f"expected the TURN key id and its API token, one per line; got {len(lines)} line(s). Nothing stored (is op signed in?)")
+    key_id, token = lines[0].strip(), lines[1].strip()
+    if not TURN_KEY_ID_RE.fullmatch(key_id):
+        raise Refused("the first line is not a TURN key id (32 hex digits). Nothing stored")
+    if not TURN_TOKEN_RE.fullmatch(token):
+        raise Refused("the second line is not a TURN API token. Nothing stored")
+    status = turn_probe(key_id, token)
+    if turn_verdict(status) == "refused":
+        raise Refused(f"Cloudflare refused this TURN key (HTTP {status}). Nothing stored; check the 1Password item")
+    secrets_dir = BASE / "secrets"
+    secrets_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(secrets_dir, 0o700)
+    tmp = secrets_dir / f".turn.{os.getpid()}.tmp"
+    write_private(tmp, json.dumps({"key_id": key_id, "api_token": token, "stored_at": int(time.time())}))
+    os.replace(tmp, turn_path())
+    return {"stored": "turn", "verified": turn_verdict(status) == "ok", "status": status}
+
+
+def cmd_turn_status(_args) -> dict[str, Any]:
+    """Whether an up must send the TURN key again: missing, refused (send), ok or unverified (keep)."""
+    turn = host_turn()
+    if turn is None:
+        return {"state": "missing", "why": "no TURN key on this host"}
+    status = turn_probe(turn["TURN_KEY_ID"], turn["TURN_KEY_API_TOKEN"])
+    state = turn_verdict(status)
+    return {"state": state, "why": f"Cloudflare answered {status}" if status is not None else "Cloudflare not reached"}
+
+
+def classic_runtime() -> dict[str, Any]:
+    try:
+        data = json.loads((CLASSIC_BASE / "secrets/runtime.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def stack_server_key(project_id: str | None) -> str | None:
+    """The Stack server key the classic dev backend keeps, only when it is the key of the project the stack's API
+    runs against."""
+    data = classic_runtime()
+    key = data.get("STACK_SECRET_SERVER_KEY")
+    if not project_id or data.get("NEXT_PUBLIC_STACK_PROJECT_ID") != project_id or not isinstance(key, str) or not STACK_KEY_RE.fullmatch(key):
+        return None
+    return key
+
+
+def host_secret_values() -> list[str]:
+    """The host keys a stack's Workers hold, for redact."""
+    values = [(host_turn() or {}).get("TURN_KEY_API_TOKEN"), classic_runtime().get("STACK_SECRET_SERVER_KEY")]
+    return [x for x in values if isinstance(x, str) and len(x) > 8]
+
+
+def dotenv(values: dict[str, str]) -> str:
+    """dotenv lines; a single-quoted value is literal (a JWK's double quotes stay as they are)."""
+    return "".join(f"{k}='{val}'\n" for k, val in values.items())
+
+
+def write_dev_vars(d: Path, with_platform: bool) -> dict[str, bool]:
+    """Each Worker's .dev.vars (mode 0600, beside its generated config; wrangler dev reads it at start), from the
+    stack's own keys and the host's: the API (and the platform, which verifies the API's install tokens with the same
+    key outside production) JWT_PRIVATE_JWK and, for the API, the Stack server key; the mobile Worker the TURN key;
+    the hub its two keys. Rewritten at every start and wake, so a key the host got or lost since applies."""
+    jwk_path, hub_path = d / "secrets/jwt.jwk", d / "secrets/hub.vars"
+    jwk = jwk_path.read_text() if jwk_path.exists() else None
+    api_dir, mobile_dir, hub_dir = (d / PROJECTS[s][0] for s in ("api", "mobile", "hub"))
+    try:
+        project = json.loads((api_dir / "wrangler.wdev.generated.json").read_text()).get("vars", {}).get("STACK_PROJECT_ID")
+    except (OSError, ValueError, AttributeError):
+        project = None
+    stack_key = stack_server_key(project)
+    turn = host_turn()
+    if api_dir.is_dir():
+        write_private(api_dir / ".dev.vars", dotenv({**({"JWT_PRIVATE_JWK": jwk} if jwk else {}),
+                                                     **({"STACK_SECRET_SERVER_KEY": stack_key} if stack_key else {})}))
+    if with_platform and (d / "platform").is_dir():
+        write_private(d / "platform/.dev.vars", dotenv({"JWT_PRIVATE_JWK": jwk} if jwk else {}))
+    if mobile_dir.is_dir():
+        write_private(mobile_dir / ".dev.vars", dotenv(turn or {}))
+    if hub_dir.is_dir() and hub_path.exists():
+        write_private(hub_dir / ".dev.vars", hub_path.read_text())
+    return {"turn": turn is not None, "stack_teams": stack_key is not None}
 
 
 # Where each Worker of a stack lives in the synced tree, and how its dependencies are installed.
@@ -966,47 +1627,54 @@ def cmd_start(args) -> dict[str, Any]:
         if entry.get("state") != "running":
             admit(tag)
         taken = ports_held(tag)
+        listening = listening_ports()
+        mine = {local_port(entry)} | set(entry_ports(entry)) if entry.get("port") and unit_active(tag) else set()
         with serve_lock():
-            port = pick_port(tag, entry.get("port"), taken, classic_ports(), serve_config(), listening_ports() - (set(entry_ports(entry)) if entry.get("port") and unit_active(tag) else set()))
+            port = pick_port(tag, entry.get("port"), taken, classic_ports(), serve_config(), listening - mine)
+        local = pick_local_port(tag, entry.get("local_port"), listening - mine)
         host = dns_name()
         origins = stack_origins(host, port)
-        entry.update({"port": port, "ports": stack_ports(port), "url": origins["api"], "urls": origins, "state": "starting", "host": host,
+        slot = assign_slot(tag, entry)
+        domain = public_slots()[0]
+        public = public_origins(slot, domain) if slot else {}
+        entry.update({"slot": slot, "domain": domain if slot else None, "public_urls": public})
+        entry.update({"port": port, "ports": stack_ports(port), "local_port": local, "url": origins["api"], "urls": origins, "state": "starting", "host": host,
                       "platform": with_platform, "commit": args.commit, "dirty": bool(args.dirty), "idle_secs": args.idle or IDLE_SECS_DEFAULT,
-                      "max_secs": MAX_SECS, "last_up_at": int(time.time())})
+                      "retain_secs": RETAIN_SECS, "last_up_at": int(time.time())})
+        for k in WAKE_KEYS:  # a wake in progress is no longer the stack's owner: it leaves the stack to this start
+            entry.pop(k, None)
         write_entry(entry)
 
     configs, names, projects = ["-c", str(d / "front/wrangler.wdev.generated.json")], {}, []
     rendered = {
         "api": lambda c: render_api_config(c, tag, origins["api"], with_platform),
         "mobile": render_mobile_config,
-        "hub": lambda c: render_hub_config(c, origins["hub"]),
+        "hub": render_hub_config,
     }
     for svc, (rel, cfg_name) in PROJECTS.items():
         project = d / rel
-        cfg = write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name)))
+        cfg = pin_build_cwd(write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name))), project)
         names[svc] = cfg["name"]
         (project / "wrangler.wdev.generated.json").write_text(json.dumps(cfg, indent=1))
         configs += ["-c", str(project / "wrangler.wdev.generated.json")]
         projects.append(project)
     if with_platform:
-        pcfg = write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"]))
+        pcfg = pin_build_cwd(write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"])), d / "platform")
         (d / "platform/wrangler.wdev.generated.json").write_text(json.dumps(pcfg, indent=1))
         configs += ["-c", str(d / "platform/wrangler.wdev.generated.json")]
         projects.append(d / "platform")
     (d / "front").mkdir(mode=0o700, exist_ok=True)
     (d / "front/index.js").write_text(FRONT_JS)
-    front = render_front_config(names, front_routes(host, port), origins, development_client_config())
+    front = render_front_config(names, front_routes(host, port, local, slot, domain), {"tailnet": origins, "public": public},
+                                development_client_config())
     (d / "front/wrangler.wdev.generated.json").write_text(json.dumps(front, indent=1))
 
-    jwk = ensure_jwk(d, tag, env)
-    # dotenv: a single-quoted value is literal (the JWK's double quotes stay as they are).
-    # The platform verifies the API's install tokens with the same key outside production (its
-    # CallerAuth.ts), so each Worker of the session reads it from a .dev.vars beside its config.
-    for project in [d / PROJECTS["api"][0]] + ([d / "platform"] if with_platform else []):
-        write_private(project / ".dev.vars", f"JWT_PRIVATE_JWK='{jwk}'\n")
-    write_private(d / PROJECTS["hub"][0] / ".dev.vars", ensure_hub_keys(d, env))
+    ensure_jwk(d, tag, env)
+    ensure_hub_keys(d, env)
+    keys = write_dev_vars(d, with_platform)
+    write_public_jwks(d)
     wrangler = newest_wrangler(projects)
-    run_sh = render_run_sh(d, path, port, args.commit, wrangler, configs)
+    run_sh = render_run_sh(d, path, local, args.commit, wrangler, configs)
     write_private(d / "run.sh", run_sh)
     (d / "logs").mkdir(exist_ok=True)
     log = d / "logs/wrangler.log"
@@ -1033,7 +1701,7 @@ def cmd_start(args) -> dict[str, Any]:
                     break
         for svc in SERVICES:
             if svc not in healthy:
-                ok, body = probe(port, authorities[svc])
+                ok, body = probe(local, authorities[svc])
                 if ok:
                     healthy[svc] = body
                 else:
@@ -1042,12 +1710,9 @@ def cmd_start(args) -> dict[str, Any]:
             time.sleep(2)
     if len(healthy) < len(SERVICES):
         tail = redact(log.read_text(errors="replace")[-4000:], d) if log.exists() else ""
-        stop_stack(tag, keep_files=True)
         with registry_lock():
-            entry = read_entry(tag) or entry
-            entry["state"] = "failed"
-            write_entry(entry)
-        raise Refused(f"wrangler dev did not answer /v1/health for {', '.join(s for s in SERVICES if s not in healthy)} on 127.0.0.1:{port} ({last})\n--- log tail ---\n{tail}")
+            settle_failed_start(read_entry(tag) or entry)
+        raise Refused(f"wrangler dev did not answer /v1/health for {', '.join(s for s in SERVICES if s not in healthy)} on 127.0.0.1:{local} ({last})\n--- log tail ---\n{tail}")
 
     if not publish(stack_ports(port), port):
         # Outside the Serve lock: every path takes the registry lock before the Serve lock, never after.
@@ -1061,7 +1726,9 @@ def cmd_start(args) -> dict[str, Any]:
         entry = read_entry(tag) or entry
         entry.update({"state": "running", "started_at": int(time.time()), "log_offset": log.stat().st_size if log.exists() else 0,
                       "last_request_at": int(time.time())})
-        entry.pop("reup_at", None)
+        entry["served_at"] = entry["started_at"]
+        for k in ("reup_at", "reason", "stopped_at", "start_failed_at"):  # a running stack carries no stop reason from before
+            entry.pop(k, None)
         write_entry(entry)
     health = {}
     for svc, body in healthy.items():
@@ -1069,21 +1736,45 @@ def cmd_start(args) -> dict[str, Any]:
             health[svc] = json.loads(body)
         except ValueError:
             health[svc] = body
-    return {"tag": tag, "url": origins["api"], "urls": origins, "port": port, "health": health}
+    return {"tag": tag, "url": origins["api"], "urls": origins, "public_urls": public, "port": port, "health": health,
+            "retain_days": RETAIN_SECS // 86400, "keys": keys}
 
 
-def publish(ports: list[int], target_port: int) -> bool:
-    """Publish 127.0.0.1:target_port on the tailnet at every port of the stack, under the classic daemon's
-    Serve lock and holding nothing else. False (nothing changed) when a classic stack took one of them
-    while this one booted."""
-    target = f"http://127.0.0.1:{target_port}"
+def settle_failed_start(entry: dict[str, Any]) -> str:
+    """Under the registry lock: a start whose Workers never answered. A re-up of a stack that already served keeps
+    its ports, Serve, files and Durable Object data, stopped: its next request tries the new code again, and an up
+    with a fix brings it back. Any other start fails (Serve off, files kept), and gc releases it later."""
+    tag = entry["tag"]
+    if entry.get("served_at") and (stack_dir(tag) / "run.sh").exists() and serve_on_router(entry):
+        # served_at, not the up's re-up mark: the Mac's up-done may have cleared that while this start ran on.
+        stop_unit(tag)
+        now = int(time.time())
+        entry.update({"state": "stopped", "stopped_at": now, "start_failed_at": now, "reason": "the last up did not start; fix it and run up again"})
+        entry.pop("reup_at", None)
+    else:
+        stop_stack(tag, keep_files=True)
+        entry["state"] = "failed"
+    write_entry(entry)
+    return entry["state"]
+
+
+def publish(ports: list[int], wrangler_port: int) -> bool:
+    """Publish every port of the stack on the tailnet, to the router (ROUTER_TARGET, which proxies to wrangler on
+    wrangler_port by the client's Host and wakes a stopped stack), under the classic daemon's Serve lock and
+    holding nothing else. A port still on wrangler directly (a stack from before the router) moves. False
+    (nothing changed) when a classic stack took one of them while this one booted."""
+    own = (None, ROUTER_TARGET, f"http://127.0.0.1:{wrangler_port}")
+    if systemctl("is-active", "--quiet", f"{UNIT_PREFIX}-router.service", check=False).returncode != 0:
+        systemctl("start", f"{UNIT_PREFIX}-router.service", check=False)
+        if systemctl("is-active", "--quiet", f"{UNIT_PREFIX}-router.service", check=False).returncode != 0:
+            raise Refused(f"{UNIT_PREFIX}-router.service is not running (journalctl -u {UNIT_PREFIX}-router); the stack would be unreachable")
     with serve_lock():
         cfg = serve_config()
-        if any(port in classic_ports() or serve_target(cfg, port) not in (None, target) for port in ports):
+        if any(port in classic_ports() or serve_target(cfg, port) not in own for port in ports):
             return False
         for port in ports:
-            if serve_target(cfg, port) != target:
-                out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", target], capture_output=True, text=True, timeout=60)
+            if serve_target(cfg, port) != ROUTER_TARGET:
+                out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", ROUTER_TARGET], capture_output=True, text=True, timeout=60)
                 if out.returncode != 0:
                     raise Refused(f"tailscale serve --https={port} failed: {(out.stderr or out.stdout).strip()[-400:]}")
     return True
@@ -1135,6 +1826,8 @@ def redact(text: str, d: Path) -> str:
         for secret in (url, unquote(urlsplit(url).password or ""), urlsplit(url).password or ""):
             if len(secret) > 8:
                 text = text.replace(secret, "<redacted>")
+    for secret in host_secret_values():
+        text = text.replace(secret, "<redacted>")
     return SECRET_URL.sub(r"\1<redacted>@", text)
 
 
@@ -1151,7 +1844,7 @@ def stop_stack(tag: str, keep_files: bool, serve: bool = True) -> list[str]:
         with serve_lock():
             cfg = serve_config()
             for p in ports:
-                if serve_target(cfg, p) == f"http://127.0.0.1:{port}":  # ours only, never a classic stack's
+                if serve_target(cfg, p) in (ROUTER_TARGET, f"http://127.0.0.1:{port}"):  # ours only, never a classic stack's
                     subprocess.run(["sudo", "-n", "tailscale", "serve", f"--https={p}", "off"], capture_output=True, text=True, timeout=60)
                     actions.append(f"serve :{p} off")
     if not keep_files and stack_dir(tag).exists():
@@ -1214,7 +1907,7 @@ def cmd_forget(args) -> dict[str, Any]:
             raise Refused(f"{tag} is {entry['state']}; run down first")
         if entry:
             stop_stack(tag, keep_files=False)  # a failed stack's files, if the reaper has not cleaned them yet
-        entry_path(tag).unlink(missing_ok=True)
+        forget_entry(tag)
     return {"tag": tag, "forgotten": bool(entry)}
 
 
@@ -1239,15 +1932,17 @@ def scan_requests(entry: dict[str, Any]) -> None:
         entry["log_offset"] = 0
 
 
-def idle_verdict(entry: dict[str, Any], now: int, heartbeat: float | None, active: bool) -> str | None:
-    """Why a running stack should stop now, or None."""
+def idle_verdict(entry: dict[str, Any], now: int, heartbeat: float | None, active: bool) -> tuple[str, str] | None:
+    """What the reaper does with a running stack now, and why: ("release", why) past its retention, ("stop", why)
+    when its unit is gone (a crash, a VM reboot) or it sat idle; None to leave it running."""
+    retain = entry.get("retain_secs", RETAIN_SECS)
+    if now - entry.get("last_up_at", now) > retain:
+        return "release", f"{retain // 86400} d since the last up (retention)"
     if not active:
-        return "unit not running (crashed, VM reboot or hard cap)"
-    if now - entry.get("last_up_at", now) > entry.get("max_secs", MAX_SECS):
-        return f"older than {entry.get('max_secs', MAX_SECS) // 3600} h since the last up"
+        return "stop", "unit not running (crashed or VM reboot); wakes on its next request"
     last = max(entry.get("last_request_at", 0), int(heartbeat or 0), entry.get("started_at", 0))
     if now - last > entry.get("idle_secs", IDLE_SECS_DEFAULT):
-        return f"idle {(now - last) // 60} min (limit {entry.get('idle_secs', IDLE_SECS_DEFAULT) // 60})"
+        return "stop", f"idle {(now - last) // 60} min (limit {entry.get('idle_secs', IDLE_SECS_DEFAULT) // 60}); wakes on its next request"
     return None
 
 
@@ -1263,7 +1958,7 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
             since = entry.get("down_at") or entry.get("reaped_at") or entry.get("releasing_at") or entry.get("last_up_at") or now
             if now - since > REAPED_KEEP_SECS:
                 stop_stack(tag, keep_files=False)
-                entry_path(tag).unlink(missing_ok=True)
+                forget_entry(tag)
                 return {"tag": tag, "action": "purged old entry"}
             if state == "failed" and not entry.get("cleaned") and now - entry.get("last_up_at", now) > 3600:
                 steps = stop_stack(tag, keep_files=False)
@@ -1271,24 +1966,79 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
                 write_entry(entry)
                 return {"tag": tag, "action": "cleaned failed stack", "steps": steps}
             return None
+        if state == "stopped":
+            if up_in_progress(entry, now):
+                return None  # a re-up is syncing into it: never released under it
+            retain = entry.get("retain_secs", RETAIN_SECS)
+            if now - entry.get("last_up_at", now) > retain:
+                steps = release(entry, now, f"{retain // 86400} d since the last up (retention)")
+                return {"tag": tag, "action": "released", "reason": entry["reason"], "steps": steps}
+            return None
+        if state == "starting" and entry.get("wake_started_at"):
+            if not wake_is_stale(entry, now):
+                return None  # a wake in progress
+            park(entry, now, "a wake died before the stack answered; it wakes on its next request")
+            return {"tag": tag, "action": "stopped", "reason": entry["reason"]}
+        if state == "starting" and entry.get("reup_at") and (stack_dir(tag) / "run.sh").exists():
+            if now - entry["reup_at"] < 1800:
+                return None  # a re-up of a stopped stack in progress
+            park(entry, now, "a re-up never finished; it wakes on its next request")
+            return {"tag": tag, "action": "stopped", "reason": entry["reason"]}
         if state != "running":
             if now - entry.get("last_up_at", entry.get("created_at", now)) < 1800:
                 return None  # an up in progress
-            reason = "never started"
+            verdict = ("release", "never started")
         elif entry.get("reup_at") and now - entry["reup_at"] < 1800:
             return None  # a re-up in progress restarts the unit; it is not a crash
+        elif not serve_on_router(entry):
+            # A stack from before the router: its ports still go straight to wrangler, so it could never wake.
+            # It keeps running until idle, then it is released as before.
+            scan_requests(entry)
+            write_entry(entry)
+            hb = stack_dir(tag) / "heartbeat"
+            verdict = idle_verdict(entry, now, hb.stat().st_mtime if hb.exists() else None, unit_active(tag))
+            verdict = verdict and ("release", verdict[1].replace("; wakes on its next request", " (a stack from before the router)"))
         else:
             scan_requests(entry)
             write_entry(entry)
             hb = stack_dir(tag) / "heartbeat"
-            reason = idle_verdict(entry, now, hb.stat().st_mtime if hb.exists() else None, unit_active(tag))
-        if not reason:
+            verdict = idle_verdict(entry, now, hb.stat().st_mtime if hb.exists() else None, unit_active(tag))
+        if not verdict:
             return None
-        steps = stop_stack(tag, keep_files=False)
-        entry.update({"state": "reaped", "reaped_at": now, "reason": reason})
-        write_entry(entry)
-        print(f"reaped {tag}: {reason}", file=sys.stderr)
-        return {"tag": tag, "action": "reaped", "reason": reason, "steps": steps}
+        action, reason = verdict
+        if action == "stop":
+            park(entry, now, reason)
+            print(f"stopped {tag}: {reason}", file=sys.stderr)
+            return {"tag": tag, "action": "stopped", "reason": reason}
+        steps = release(entry, now, reason)
+        print(f"released {tag}: {reason}", file=sys.stderr)
+        return {"tag": tag, "action": "released", "reason": reason, "steps": steps}
+
+
+def serve_on_router(entry: dict[str, Any]) -> bool:
+    """Whether the stack's tailnet ports go to the router (so a request can wake it). True when Serve cannot be
+    read: the reaper then stops rather than releases."""
+    try:
+        cfg = serve_config()
+    except Refused:
+        return True
+    return all(serve_target(cfg, p) in (None, ROUTER_TARGET) for p in entry_ports(entry))
+
+
+def trim_kept(now: int) -> list[dict[str, Any]]:
+    """Release the least recently used stopped stacks beyond MAX_KEPT, and while free disk is under its floor."""
+    out = []
+    with registry_lock():
+        while True:
+            stopped = sorted((e for e in all_entries() if e.get("state") == "stopped" and not up_in_progress(e, now)), key=last_activity)
+            if not stopped or (len(stopped) <= MAX_KEPT and disk_free_gib() >= MIN_DISK_GIB):
+                return out
+            if len(stopped) <= MAX_KEPT and disk_free_gib() + sum(dir_gib(stack_dir(e["tag"])) for e in stopped) < MIN_DISK_GIB:
+                return out  # releasing every stopped stack would not lift disk over its floor: release none
+            victim = stopped[0]
+            why = f"more than {MAX_KEPT} stopped stacks" if len(stopped) > MAX_KEPT else f"free disk under {MIN_DISK_GIB} GiB"
+            release(victim, now, f"released: {why} (least recently used)")
+            out.append({"tag": victim["tag"], "action": "released", "reason": victim["reason"]})
 
 
 def cmd_reap(_args) -> dict[str, Any]:
@@ -1302,6 +2052,10 @@ def cmd_reap(_args) -> dict[str, Any]:
             print(f"reap {e['tag']}: {r['error']}", file=sys.stderr)
         if r:
             out.append(r)
+    try:
+        out += trim_kept(now)
+    except Exception as err:  # noqa: BLE001
+        print(f"reap trim: {type(err).__name__}: {err}"[:300], file=sys.stderr)
     return {"reaped": out}
 
 
@@ -1309,8 +2063,9 @@ CRED_MARGIN_SECS = 15 * 60
 
 
 def cred_fresh(entry: dict[str, Any], kind: str, mode: str, file_present: bool, now: float) -> bool:
-    """Whether an up may keep the stack's credential: same mode, its file still on the VM (a reap deletes
-    it), and valid past the hard cap this up starts (MAX_SECS from now) plus a margin."""
+    """Whether an up may keep the stack's credential: same mode, its file still on the VM (a release deletes
+    it), and valid past the retention this up starts (RETAIN_SECS from now) plus a margin, so a stopped stack
+    that wakes days later never runs on an expired credential."""
     import datetime
     c = (entry.get("db") or {}).get(kind) or {}
     exp = c.get("expires_at") or ""
@@ -1320,7 +2075,7 @@ def cred_fresh(entry: dict[str, Any], kind: str, mode: str, file_present: bool, 
         expires = datetime.datetime.fromisoformat(exp.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return False
-    return expires > now + MAX_SECS + CRED_MARGIN_SECS
+    return expires > now + RETAIN_SECS + CRED_MARGIN_SECS
 
 
 def cmd_cred_fresh(args) -> dict[str, Any]:
@@ -1354,7 +2109,7 @@ def cmd_status(args) -> dict[str, Any]:
             continue
         hb = stack_dir(e["tag"]) / "heartbeat"
         last = max(e.get("last_request_at", 0), int(hb.stat().st_mtime) if hb.exists() else 0, e.get("started_at", 0))
-        rows.append({k: e.get(k) for k in ("tag", "state", "url", "urls", "port", "ports", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
+        rows.append({k: e.get(k) for k in ("tag", "state", "url", "urls", "public_urls", "slot", "port", "ports", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
                     | {"active": unit_active(e["tag"]) if e.get("state") == "running" else False,
                        "idle_min": (now - last) // 60 if last else None, "idle_limit_min": e.get("idle_secs", IDLE_SECS_DEFAULT) // 60,
                        "mem_mib": unit_memory_mib(e["tag"]) if e.get("state") == "running" else None,
@@ -1390,6 +2145,11 @@ def main() -> int:
     s.add_argument("--wait", type=int, default=240)
     s = sub.add_parser("down"); s.add_argument("--tag", required=True); s.add_argument("--reason", default="down")
     s = sub.add_parser("claim-release"); s.add_argument("--tag", required=True)
+    s = sub.add_parser("stop"); s.add_argument("--tag", required=True)
+    sub.add_parser("put-public")
+    sub.add_parser("put-turn")
+    sub.add_parser("turn-status")
+    s = sub.add_parser("wake"); s.add_argument("--tag", required=True); s.add_argument("--wait", type=int, default=150)
     s = sub.add_parser("up-done"); s.add_argument("--tag", required=True); s.add_argument("--token", required=True); s.add_argument("--failed", action="store_true")
     s = sub.add_parser("cred-fresh"); s.add_argument("--tag", required=True); s.add_argument("--kind", required=True); s.add_argument("--mode", required=True)
     s = sub.add_parser("ledger"); s.add_argument("--drop", action="append", default=[])
@@ -1398,7 +2158,8 @@ def main() -> int:
     handlers = {"install": lambda a: install_host(), "capacity": cmd_capacity, "reap": cmd_reap, "status": cmd_status,
                 "prepare": cmd_prepare, "touch": cmd_touch, "forget": cmd_forget, "prune": cmd_prune, "put-cred": cmd_put_cred,
                 "migrate": cmd_migrate, "start": cmd_start, "down": cmd_down, "logs": cmd_logs,
-                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger}
+                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "wake": cmd_wake, "stop": cmd_stop, "put-public": cmd_put_public, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger,
+                "put-turn": cmd_put_turn, "turn-status": cmd_turn_status}
     try:
         result = handlers[args.cmd](args)
     except Refused as e:

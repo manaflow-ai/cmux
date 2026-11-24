@@ -155,12 +155,24 @@ def click_check(label, pane_key, ref, shell, prefix, opened):
         return
     rpc("debug.hangs", {"clear": True})
     rpc("debug.mouse", {"pane": pane_key, "action": "move", "modifiers": ["cmd"]})
-    time.sleep(0.3)  # test harness: hover reaches libghostty
+    # The hover reaches libghostty: the terminal reports a hovered link (debug.terminal.links).
+    tab = next((p.get("selected_tab") for p in panes() if p.get("pane") == pane_key), None)
+
+    def hovered():
+        state = rpc("debug.terminal.links", {"tab": tab})
+        if not isinstance(state, dict) or "error" in state:
+            return "unsupported"
+        return state.get("hovered")
+
+    if not wait(hovered, 5, step=0.05):
+        print(f"--- {label}: no hovered link reported before the click", flush=True)
+    elif hovered() == "unsupported":
+        time.sleep(0.3)  # sleep-ok: a build without debug.terminal.links has no hover readback; the old fixed wait
     sent = time.time()
     reply = rpc("debug.mouse", {"pane": pane_key, "action": "click", "modifiers": ["cmd"]})
     done = wait(opened, 10, step=0.05)
     elapsed = (time.time() - sent) * 1000
-    time.sleep(0.5)  # test harness: let the watchdog see the frames after the open
+    time.sleep(0.5)  # sleep-ok: a measurement window; the watchdog records stalls in the frames right after the open
     hangs = rpc("debug.hangs") or {}
     print(f"--- {label}: debug.mouse {json.dumps(reply)[:300]}", flush=True)
     print(f"debug.hangs {json.dumps({k: v for k, v in hangs.items() if k != 'records'})}", flush=True)
@@ -267,8 +279,10 @@ def main():
             break
     if not wait(lambda: (focused_pane() or {}).get("kind") == "terminal", 30):
         print("panes:", json.dumps(panes())[:1500], flush=True)
-    time.sleep(2)  # test harness: shell prompt
     pane = focused_pane() or {}
+    # The shell prompt draws.
+    if pane.get("kind") == "terminal" and not wait(lambda: viewport(pane["pane"]).strip(), 20, step=0.1):
+        print("no shell prompt in the terminal", flush=True)
     if pane.get("kind") != "terminal" or not terminal:
         row("setup", "a focused terminal", f"focused={pane.get('kind')}", False)
         return
