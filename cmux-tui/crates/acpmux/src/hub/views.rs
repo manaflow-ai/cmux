@@ -1140,6 +1140,8 @@ impl Hub {
         let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
+        let (now, evictions, rehydrations) = self.eviction_counts();
+        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations});
         json!({
             "version": VERSION,
             "build": build(),
@@ -1147,10 +1149,7 @@ impl Hub {
             "capabilities": crate::capabilities::ids(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
             // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
-            "evicted": {
-                let (now, evictions, rehydrations) = self.eviction_counts();
-                json!({"now": now, "evictions": evictions, "rehydrations": rehydrations})
-            },
+            "evicted": evicted,
             // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
             // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
             // only the live view (agent service v2, row 7b). Not one snapshot with that read.

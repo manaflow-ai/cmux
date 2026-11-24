@@ -145,6 +145,7 @@ async fn an_evicted_chat_counts_live_or_closed_as_it_did_in_memory() {
     let hub = hub_with(3);
     let open = hub.session_get("s1").unwrap();
     hub.set_status(&open, NotWaiting::Idle);
+    hub.update_live_session_index(&open);
     open.hibernated_at.store(1, Ordering::SeqCst);
     drop(open);
     std::thread::sleep(std::time::Duration::from_millis(2));
