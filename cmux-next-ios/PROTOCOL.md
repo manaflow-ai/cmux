@@ -272,11 +272,11 @@ closed with 4001 `moved`.
     has no other path: no plain UDP and no TURN allocation, so the peer
     joins at once too); absent from older peers, which never join, and
     then neither does this side. A roam's endpoint announcement
-    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?}`)
+    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
-  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?}` (API
-    0.9.0): the same endpoint announcement a roaming side sends inside the
+  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}` (API
+    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below): the same endpoint announcement a roaming side sends inside the
     tunnel (below), also sent through signaling, because the peer may not
     receive anything from the new address yet (a NAT that filters by
     address). The receiver applies the newer generation of either copy.
@@ -473,6 +473,12 @@ is forwarded, and the service never answers it.
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
+- `portmap` (optional, added 2026-11-24): `{"by":"pcp"|"nat-pmp"|"upnp"|"unknown","used":bool}`,
+  present when the Mac offered a NAT-mapped endpoint ("Mapped endpoints"): which
+  protocol mapped it, and whether the link's direct route goes to it. The
+  service logs it as `portmapBy` and `portmapUsed`; `link-stats.py` counts a
+  direct link with `portmapUsed` as path `direct-mapped`. An older service
+  drops the field.
 
 The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
 socket's text rate limit, and drops silently (no error frame: a session-less
@@ -489,6 +495,36 @@ A Worker older than the frame answers it `{"type":"error","code":"bad_request",
 "message":"unknown frame type"}` without `sessionId`. The phone takes that
 answer, within 30 s of a stat it sent, as the refusal of the stat: it never
 reaches a dial, and that socket sends no more stats.
+
+### Mapped endpoints (`mapped`; added 2026-11-24, backward compatible)
+
+The Mac asks its home router for a public UDP port that forwards to the
+session's WireGuard socket, with PCP (RFC 6887), else NAT-PMP (RFC 6886),
+else UPnP-IGD (`cmux-mobile-host/src/portmap.rs`), and offers the mapped
+address to the phone. A phone behind a NAT that maps per destination
+(symmetric NAT, a carrier's CGNAT) reaches a mapped port directly, where
+hole punching alone ends on TURN.
+
+- It never holds up a link: the Mac asks after `wg-resp`, in the
+  background, and announces the address when (if) the router grants it,
+  with the roaming announcement (`{"t":"endpoints",...}` in the tunnel and
+  `wg-endpoints` through signaling), as one more entry of `endpoints`.
+- `mapped` lists which of `endpoints` are mapped (at most 2; an entry not
+  among `endpoints` is ignored); `mappedBy` names the protocol: `pcp`,
+  `nat-pmp` or `upnp` (another word reads as unknown). Both are absent when
+  nothing is mapped.
+- Backward compatible both ways: an older phone ignores the two fields and
+  dials the address as any endpoint; a newer phone with an older Mac sees
+  neither and has nothing mapped. The phone sends neither (it maps
+  nothing).
+- The Mac renews a mapping at half its lifetime (asking for 3600 s), and
+  deletes it when the session closes or roams (a roam maps the new socket
+  and announces it), and every live one when hostd stops. A mapped address
+  that is not public (private, CGNAT 100.64/10: another NAT beyond the
+  router) is deleted and not offered. The protocol a router answered is
+  remembered per (gateway, local address), and a router that maps nothing
+  is not asked again until either changes.
+- `CMUX_MOBILE_PORTMAP=0` in hostd's environment turns it off.
 
 ## WebSocket relay (API 0.17.0)
 

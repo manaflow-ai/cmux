@@ -917,6 +917,7 @@ async fn connect_on(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,

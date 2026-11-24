@@ -42,6 +42,8 @@ const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "n
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
+/** Which protocol mapped the Mac's endpoint (PROTOCOL.md "Mapped endpoints"). */
+const LINK_STAT_PORTMAP = new Set(["pcp", "nat-pmp", "upnp", "unknown"])
 const LINK_STAT_MARKS = new Set([
   "signaling_open",
   "signaling_reused",
@@ -104,6 +106,11 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  if (typeof f.portmap === "object" && f.portmap !== null) {
+    const p = f.portmap as Record<string, unknown>
+    const by = word(p.by, LINK_STAT_PORTMAP)
+    if (by && typeof p.used === "boolean") Object.assign(line, { portmapBy: by, portmapUsed: p.used })
+  }
   Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
   return line
 }

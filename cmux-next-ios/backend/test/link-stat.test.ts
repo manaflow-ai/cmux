@@ -81,6 +81,16 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
   })
 
+  it("logs which protocol mapped the Mac's endpoint and whether the route uses it, fixed words only", () => {
+    expect(linkStatLine(stat({ path: "direct", portmap: { by: "pcp", used: true } }), "phone", ingress, null)).toMatchObject({ path: "direct", portmapBy: "pcp", portmapUsed: true })
+    expect(linkStatLine(stat({ portmap: { by: "upnp", used: false } }), "phone", ingress, null)).toMatchObject({ portmapBy: "upnp", portmapUsed: false })
+    for (const bad of [{ by: "203.0.113.7", used: true }, { by: "pcp", used: "yes" }, "pcp", null]) {
+      const line = linkStatLine(stat({ portmap: bad }), "phone", ingress, null)!
+      expect(line.portmapBy).toBeUndefined()
+      expect(line.portmapUsed).toBeUndefined()
+    }
+  })
+
   it("rejects a malformed stat", () => {
     for (const bad of [{ v: 2 }, { transport: "carrier-pigeon" }, { path: "10.0.0.1:443" }, { reason: "because" }, { pings: -1 }, { lost: "none" }, { pings: Number.NaN }]) {
       expect(linkStatLine(stat(bad), "phone", ingress, null)).toBeNull()
