@@ -52,6 +52,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     "agent-pane.composer-context": "src/agent-session/acpmux/ComposerContext.gallery.tsx",
     "agent-pane.project-chooser": "src/agent-session/acpmux/ProjectChooser.gallery.tsx",
     "agent-pane.new-tab": "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts",
+    "agent-pane.github-folders": "src/agent-session/acpmux/SourcePicker.gallery.tsx",
   };
   const stageURL = (entry: string, variant: string) =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&entryPath=${ENTRY_PATHS[entry]}&variant=${variant}`;
@@ -305,6 +306,59 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
     await page.close();
   });
+
+  // cmux#53226: GitHub ran on from the last folder, its heading wedged against it. A heading under
+  // other rows opens with a hairline across the list, the heading between it and its first row and
+  // starting at the rows' glyphs, as the Computer menu's Continue on; the list's first heading has none.
+  for (const { variant, first, after } of [
+    { variant: "this-mac-repositories", first: "atlas-web", after: "GitHub" },
+    // Cloud: GitHub first, then each machine's folders; the first machine's heading is under the repositories.
+    { variant: "cloud-folders", first: "acme/api", after: undefined },
+  ])
+    test(`the folder popover's heading under other rows has a hairline over it (${variant})`, async () => {
+      const page = await open("agent-pane.github-folders", variant, 620);
+      await page.locator(".acpmux-location-menu .acpmux-location-row").first().waitFor();
+      const measured = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-location-row")];
+        const box = (el: Element) => el.getBoundingClientRect();
+        return rows.map((row) => {
+          const item = row.closest(".acpmux-menu-item")!;
+          const line = getComputedStyle(item, "::before");
+          const heading = getComputedStyle(row, "::before");
+          const glyph = row.querySelector(".acpmux-icon, .acpmux-project-badge svg, svg");
+          const itemBox = box(item);
+          return {
+            text: (row.querySelector(".acpmux-menu-label")?.textContent ?? "").trim(),
+            section: row.dataset.section ?? null,
+            divider: row.hasAttribute("data-divider"),
+            line: line.content !== "none" && line.content !== "normal" ? parseFloat(line.borderTopWidth) : 0,
+            lineTop: itemBox.top + parseFloat(line.top),
+            headingTop: itemBox.top + parseFloat(heading.top),
+            headingBottom: itemBox.top + parseFloat(heading.top) + parseFloat(heading.lineHeight),
+            headingLeft: itemBox.left + parseFloat(heading.left),
+            glyphLeft: glyph ? box(glyph).left : null,
+            top: itemBox.top,
+            bottom: itemBox.bottom,
+          };
+        });
+      });
+      await page.close();
+      const firstRow = measured[0]!;
+      expect(firstRow.text).toBe(first);
+      expect(firstRow.divider).toBe(false);
+      const headed = measured.find((row, index) => index > 0 && row.section !== null)!;
+      expect(headed).toBeDefined();
+      if (after) expect(headed.section).toBe(after);
+      expect(headed.divider).toBe(true);
+      expect(headed.line).toBeGreaterThan(0);
+      const above = measured[measured.indexOf(headed) - 1]!;
+      // Hairline under the row above, the heading under the hairline, the heading's row under it.
+      expect(headed.lineTop).toBeGreaterThan(above.bottom + 2);
+      expect(headed.headingTop).toBeGreaterThan(headed.lineTop + 2);
+      expect(headed.headingBottom).toBeLessThanOrEqual(headed.top + 0.5);
+      // The heading starts at the rows' glyphs, not left of them.
+      expect(Math.abs(headed.headingLeft - headed.glyphLeft!)).toBeLessThanOrEqual(1);
+    });
 
   test("pinned actions leave a short pane repository list visible and keyboard-expandable", async () => {
     const page = await open("agent-pane.composer-context", "lane-checkouts", 720, undefined, 180);
