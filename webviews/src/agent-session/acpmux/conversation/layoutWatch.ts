@@ -15,11 +15,11 @@
 // I7 and I8 are browser tests (chat-fold-frame-budget, paneAncestorHas).
 //
 // This file is two halves: `judgeFrame`, a pure function over two frames' row boxes (unit tested), and
-// `startLayoutWatch`, which reads those boxes from the DOM once per frame, after the frame's layout, while it is on.
+// `startLayoutWatch`, which reads those boxes from the DOM once per frame while it is on.
 //
 // Cost and stop condition: on only in dev, while the perf watch is on, or when asked
-// (`localStorage["cmux.layoutWatch"] = "1"`); one frame callback per frame, whose ResizeObserver read of the
-// visible rows' boxes runs after that frame's layout; it stops when its stop function is called (the transcript unmounts) and pauses while the page
+// (`localStorage["cmux.layoutWatch"] = "1"`); one frame callback per frame reading the visible rows'
+// boxes; it stops when its stop function is called (the transcript unmounts) and pauses while the page
 // is hidden. First PR: warn-only (console and overlay), never a failure.
 
 /// Reader input this recent explains any move.
@@ -489,17 +489,8 @@ export function startLayoutWatch(scroller: HTMLElement, options: LayoutWatchOpti
     console.warn("[layoutWatch] unexplained layout change", flags);
     for (const listener of listeners) listener(flags);
   };
-  // The read waits for the frame's own layout. Read in the frame callback, before the frame laid the page out,
-  // every row box forced a layout of whatever the frame's other callbacks and the stream's chunks had dirtied,
-  // and the frame laid it out again after them: under a streaming tool call (2,000 lines/s) that read was the
-  // largest task after a key, 8 ms a key on a lane VM (composer-typing L1 --frames). A ResizeObserver's
-  // callback runs after the frame's layout and before its paint, and an element newly observed is reported
-  // once, so observing the scroller again in each frame callback hands this read the frame as it will be
-  // painted, laid out already. A page with no ResizeObserver reads in the frame callback, as before.
-  const Observer = (view as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
-  const afterLayout = Observer ? new Observer(() => read()) : undefined;
-  const read = () => {
-    afterLayout?.unobserve(scroller);
+  const tick = () => {
+    handle = 0;
     if (stopped) return;
     if (scroller.ownerDocument.visibilityState !== "hidden" && scroller.isConnected) {
       frameCount += 1;
@@ -516,19 +507,12 @@ export function startLayoutWatch(scroller: HTMLElement, options: LayoutWatchOpti
       raise(flags);
       prev = next;
     } else prev = undefined;
-  };
-  const tick = () => {
-    handle = 0;
-    if (stopped) return;
-    if (afterLayout) afterLayout.observe(scroller);
-    else read();
     handle = view.requestAnimationFrame(tick);
   };
   handle = view.requestAnimationFrame(tick);
   return () => {
     stopped = true;
     if (handle) view.cancelAnimationFrame(handle);
-    afterLayout?.disconnect();
     for (const name of INPUTS) view.removeEventListener(name, noteInput, { capture: true });
   };
 }
