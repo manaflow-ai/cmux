@@ -44,6 +44,13 @@ pub struct MeshControlFrom {
     /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
     #[serde(default = "lifecycle_ops")]
     pub ops: Vec<String>,
+    /// The widest permission policy a control through this entry runs under here. Omitted means
+    /// `ask`: a start settles into asking mode as a remote start does, and one asking for more is
+    /// held to this. `approve-all` makes the sender this machine's owner for the control, as the
+    /// owner's own daemon over the peer token is (cmux#50026): its start runs in the policy it
+    /// names. `host join` writes it on the person's own `sameUser` entry ([`Self::same_user`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_policy: Option<crate::config::PermissionPolicy>,
 }
 
 impl Default for MeshRelayConfig {
@@ -83,7 +90,28 @@ fn lifecycle_ops() -> Vec<String> {
 impl MeshControlFrom {
     /// The entry `host join` writes: the person's own other machines, for every lifecycle op.
     pub fn same_user() -> Self {
-        Self { daemon_id: String::new(), same_user: true, ops: lifecycle_ops() }
+        Self {
+            daemon_id: String::new(),
+            same_user: true,
+            ops: lifecycle_ops(),
+            max_policy: Some(crate::config::PermissionPolicy::ApproveAll),
+        }
+    }
+
+    /// The `sameUser` entry a join wrote before `maxPolicy` existed, untouched by its owner. A
+    /// join or `host join --status` upgrades it to [`Self::same_user`]; any other entry stays as
+    /// the owner left it.
+    pub fn is_unmarked_join_entry(&self) -> bool {
+        self.same_user
+            && self.daemon_id.is_empty()
+            && self.ops == lifecycle_ops()
+            && self.max_policy.is_none()
+    }
+
+    /// The widest policy a control through this entry runs under: [`Self::max_policy`], else
+    /// `ask`.
+    pub fn policy_cap(&self) -> crate::config::PermissionPolicy {
+        self.max_policy.unwrap_or(crate::config::PermissionPolicy::Ask)
     }
 
     /// Whether this entry lets `from` run `op` here. `from` is the hub-stamped sender (its
@@ -168,6 +196,33 @@ mod tests {
         let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
         assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
     }
+}
+
+/// How much a policy runs without asking: nothing (`ask`, `deny-all`), reads (`approve-reads`,
+/// `review`), reads and edits (`approve-edits`), everything (`approve-all`).
+pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
+    use crate::config::PermissionPolicy as P;
+    match policy {
+        P::Ask | P::DenyAll => 0,
+        P::ApproveReads | P::Review => 1,
+        P::ApproveEdits => 2,
+        P::ApproveAll => 3,
+    }
+}
+
+/// The widest cap among `entries` that grant `op` to `from` here (each entry's
+/// [`MeshControlFrom::policy_cap`]), or None when none grants it.
+pub fn control_cap(
+    entries: &[MeshControlFrom],
+    from: &crate::mesh::Sender,
+    own_user: Option<&str>,
+    op: &str,
+) -> Option<crate::config::PermissionPolicy> {
+    entries
+        .iter()
+        .filter(|entry| entry.allows(from, own_user, op))
+        .map(MeshControlFrom::policy_cap)
+        .max_by_key(|cap| policy_reach(*cap))
 }
 
 impl MeshRelayConfig {
