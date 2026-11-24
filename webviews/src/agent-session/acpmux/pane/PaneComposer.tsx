@@ -73,7 +73,8 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, sendHeldFork } from "../forkHold";
+import { clearHeldFork, heldFork, sendHeldFork } from "../forkHold";
+import { untilAcpmuxTakesSends } from "../sendWhenReady";
 import { CloudChatHint } from "../CloudChatHint";
 import { callNative } from "../callNative";
 import { editQueued, openSenderChat } from "../rows/rowActions";
@@ -312,6 +313,8 @@ export type PaneComposerDeps = {
   startingSends: StartingSends;
   individualPermission: AcpmuxPermission | undefined;
   promptLanded: React.RefObject<() => void>;
+  directSends: React.RefObject<number>;
+  directInFlight: React.RefObject<Promise<void>>;
   cancelOpenInWindow: () => void;
   connectedClients: ReturnType<typeof clientWaiter<AcpmuxDirectClient>>;
   trustAsk: ReturnType<typeof useFolderTrustAsk>;
@@ -538,6 +541,8 @@ export function drawPaneComposer({
   startingSends,
   individualPermission,
   promptLanded,
+  directSends,
+  directInFlight,
   cancelOpenInWindow,
   connectedClients,
   trustAsk,
@@ -980,7 +985,7 @@ export function drawPaneComposer({
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
             // gesture opens the setup page; onSend checks again for a send that waited for its files.
             holdsSend={(text, late) => holdsForComputerUseSetup(text, false, sendPlace(text), !late)}
-            onSend={(text, chips, steer, gesture) => {
+            onSend={(text, chips, steer, gesture, filesReady) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
@@ -992,6 +997,51 @@ export function drawPaneComposer({
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
+              // A send to this pane's own chat, which nothing else (a Cloud start or wake, the
+              // sandbox, the folder's trust, a held fork, Start Agent, a View Only chat) takes first:
+              // it may leave the composer at once and wait in the pane, in order, for its files still
+              // being read (`filesReady`), for acpmux to connect, or for the sends before it.
+              const waitsInPane =
+                Boolean(snapshot.sessionId) &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !cloudPicked &&
+                !sandboxPickedNotOffered &&
+                !sandboxing &&
+                !(cloudWakeChat && cloudRecovery.state !== "deleted" && !quick) &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId);
+              // Only that send can go before its files: any other keeps it in the composer meanwhile.
+              if (filesReady && !waitsInPane) return false;
+              /// Puts the prompt in the pane's queue (startingSends.ts): its row shows now, as sent
+              /// when the agent is idle, and it goes once its files are chips, acpmux takes prompts
+              /// here and every prompt sent before it was taken, so none overtakes another (Leo,
+              /// 2026-11-17: "WHEN I SEND A MESSAGE AND IT GETS QUEUED, THE NEXT ONE SHOULD NOT GO
+              /// BEFORE THE PREVIOUS").
+              const sendInTurn = () => {
+                const before = directInFlight.current;
+                startingSends.add(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  async (words, attachments, held) => {
+                    await before;
+                    await untilAcpmuxTakesSends();
+                    return sendWhenTaken(steer === true)(
+                      words,
+                      shellContextAttachments(attachments, (id) => shellRuns.get(id)),
+                      held,
+                    );
+                  },
+                  gesture,
+                  gesture?.promptId,
+                  { ...(filesReady ? { ready: filesReady } : {}), asSent: !snapshot.isWorking },
+                );
+                return true;
+              };
+              if (waitsInPane && (filesReady || !window.cmuxAcpmuxActions?.["chat.send"])) return sendInTurn();
               if (cloudPicked) {
                 if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
@@ -1152,19 +1202,36 @@ export function drawPaneComposer({
                 !projectDraft &&
                 !snapshot.summary?.watching
               ) {
-                // Prompts sent while the chat started still wait to go: this one goes after them.
-                if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
-                  return true;
-                }
+                // Prompts sent before it still wait to go, or one is still on its way to acpmux: this
+                // one goes after them (`sendInTurn`).
+                if (startingSends.busy || directSends.current > 0) return sendInTurn();
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
                 // A typed reply while the chat's own question waits answers it in the chat: the
                 // question is declined first, so the agent reads the reply instead of waiting on it
                 // (question/hatModel.ts, relevance fade). Its record then says "Answered in chat".
-                withdrawForTypedReply(individualPermission, sentOn, () =>
-                  callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }),
-                ).then(
+                // Until acpmux takes it (or refuses it), a prompt sent after it waits behind it.
+                directSends.current += 1;
+                let landed!: () => void;
+                directInFlight.current = new Promise<void>((resolve) => (landed = resolve));
+                let took = false;
+                const tookIt = () => {
+                  if (took) return;
+                  took = true;
+                  directSends.current -= 1;
+                  landed();
+                };
+                const direct = withdrawForTypedReply(individualPermission, sentOn, () =>
+                  callNative("chat.send", {
+                    text,
+                    attachments,
+                    steer,
+                    taken: tookIt,
+                    ...(gesture ? { gesture } : {}),
+                  }),
+                );
+                direct.then(tookIt, tookIt);
+                direct.then(
                   () => {
                     rememberStart();
                     promptLanded.current();

@@ -5687,6 +5687,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       () => undefined,
     );
   };
+  /// The prompts sent straight to the chat that acpmux has not taken (or refused) yet, and the wait
+  /// for the last of them: a prompt sent meanwhile goes after it, never before (`sendInTurn`).
+  const directSends = useRef(0);
+  const directInFlight = useRef<Promise<void>>(Promise.resolve());
   const promptLanded = useRef(() => {});
   promptLanded.current = () => {
     handOff.current.landed = true;
@@ -9628,6 +9632,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     startingSends,
     individualPermission,
     promptLanded,
+    directSends,
+    directInFlight,
     cancelOpenInWindow,
     connectedClients,
     trustAsk,
