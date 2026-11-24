@@ -122,13 +122,19 @@ pub struct VideoPlan {
 #[uniffi::export]
 pub fn video_plan(width: u32, height: u32, duration_ms: u64, bytes: u64, codec: String) -> VideoPlan {
     let long_side = width.max(height);
-    let original = |reason: String| VideoPlan { reencode: false, max_long_side: long_side, preset: String::new(), reason };
+    let original = |reason: String| VideoPlan {
+        reencode: false,
+        max_long_side: long_side,
+        preset: String::new(),
+        reason,
+    };
     if bytes <= MAX_VIDEO_BYTES_ORIGINAL {
         return original(format!("{bytes} bytes is small enough to send as is"));
     }
-    let bits_per_second =
-        (duration_ms > 0).then(|| u128::from(bytes) * 8 * 1000 / u128::from(duration_ms));
-    if long_side <= MAX_LONG_SIDE && bits_per_second.is_some_and(|b| b <= u128::from(MAX_ORIGINAL_BITS_PER_SECOND)) {
+    let bits_per_second = (duration_ms > 0).then(|| u128::from(bytes) * 8 * 1000 / u128::from(duration_ms));
+    if long_side <= MAX_LONG_SIDE
+        && bits_per_second.is_some_and(|b| b <= u128::from(MAX_ORIGINAL_BITS_PER_SECOND))
+    {
         return original(format!("already {long_side}px {codec} at a modest bitrate"));
     }
     let why = match bits_per_second {
@@ -218,7 +224,9 @@ impl Upload {
             }
             st.progress.clone()
         };
-        let _ = self.result.send(Some(outcome.map_err(|(code, message)| CmuxMobileError::Refused { code, message })));
+        let _ = self
+            .result
+            .send(Some(outcome.map_err(|(code, message)| CmuxMobileError::Refused { code, message })));
         self.observer.on_progress(snapshot);
         true
     }
@@ -274,12 +282,7 @@ impl AttachmentUploads {
     #[doc(hidden)]
     pub fn with_timings(observer: Arc<dyn UploadObserver>, timings: Timings) -> Arc<Self> {
         Arc::new(Self {
-            core: Arc::new(Core {
-                observer,
-                timings,
-                links: Mutex::default(),
-                uploads: Mutex::default(),
-            }),
+            core: Arc::new(Core { observer, timings, links: Mutex::default(), uploads: Mutex::default() }),
         })
     }
 
@@ -298,15 +301,24 @@ impl AttachmentUploads {
     /// The Mac's current link (or none). Call on every link change; uploads waiting for the
     /// Mac resume, and one running on a replaced link restarts on the new one.
     pub fn set_link(&self, mac_id: String, link: Option<Arc<LinkHandle>>) {
-        self.core.link_channel(&mac_id).send_replace(link);
+        if link.is_some() {
+            self.core.link_channel(&mac_id).send_replace(link);
+            return;
+        }
+        // No link: an entry nothing waits on goes (one-shot keys never pile up).
+        let mut links = lock(&self.core.links);
+        if let Some(sender) = links.get(&mac_id) {
+            sender.send_replace(None);
+            if sender.receiver_count() == 0 {
+                links.remove(&mac_id);
+            }
+        }
     }
 
     /// Registers an upload in stage `Compressing` and returns its id.
     pub fn reserve(&self, spec: UploadSpec) -> String {
-        let id = spec
-            .upload_id
-            .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let id =
+            spec.upload_id.filter(|id| !id.is_empty()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let progress = UploadProgress {
             upload_id: id.clone(),
             stage: UploadStage::Compressing,
@@ -393,10 +405,8 @@ impl AttachmentUploads {
     /// waiters get `Refused { code: "cancelled" }`.
     pub fn cancel(&self, upload_id: String) {
         let Some(upload) = self.get(&upload_id) else { return };
-        let ended = upload.finish(
-            Err(("cancelled".into(), "The upload was cancelled.".into())),
-            UploadStage::Cancelled,
-        );
+        let ended = upload
+            .finish(Err(("cancelled".into(), "The upload was cancelled.".into())), UploadStage::Cancelled);
         if let Some(task) = lock(&upload.task).take() {
             task.abort();
         }
@@ -450,7 +460,9 @@ fn unreadable(name: &str) -> Outcome {
 async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
     let size = match tokio::fs::metadata(&path).await {
         Ok(meta) => meta.len(),
-        Err(_) => return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name)),
+        Err(_) => {
+            return upload.fail("unreadable", &format!("Couldn't read {} on this iPhone.", upload.name));
+        }
     };
     upload.edit(true, |st| {
         st.progress.total_bytes = size;
@@ -508,7 +520,8 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
             (st.epoch != epoch, st.last_advance.elapsed())
         };
         if idle >= timings.give_up {
-            return upload.fail("stalled", "The upload stopped making progress, so it gave up. Try sending it again.");
+            return upload
+                .fail("stalled", "The upload stopped making progress, so it gave up. Try sending it again.");
         }
         if progressed {
             backoff = timings.backoff_start;
@@ -631,7 +644,12 @@ fn read_chunk(mut file: std::fs::File, want: usize) -> (std::fs::File, std::io::
     (file, read)
 }
 
-async fn attempt(upload: &Arc<Upload>, link: &Arc<LinkHandle>, path: &PathBuf, total: u64) -> Outcome {
+async fn attempt(
+    upload: &Arc<Upload>,
+    link: &Arc<LinkHandle>,
+    path: &std::path::Path,
+    total: u64,
+) -> Outcome {
     let timings = &upload.timings;
     let (offset, use_cwd) = {
         let st = lock(&upload.state);
@@ -654,7 +672,12 @@ async fn attempt(upload: &Arc<Upload>, link: &Arc<LinkHandle>, path: &PathBuf, t
         }
         None => false,
     };
-    let channel = match tokio::time::timeout(timings.open, link.open_channel("upload".into(), args.to_string())).await {
+    let channel = match tokio::time::timeout(
+        timings.open,
+        link.open_channel("upload".into(), args.to_string()),
+    )
+    .await
+    {
         Ok(Ok(channel)) => channel,
         _ => return Outcome::Retry,
     };
@@ -663,7 +686,7 @@ async fn attempt(upload: &Arc<Upload>, link: &Arc<LinkHandle>, path: &PathBuf, t
     let _reader = AbortOnDrop(runtime().spawn(reader(Arc::clone(&channel), tx)));
     let mut state = Attempt { sent_cwd, got_have: false, last_ack: Instant::now() };
 
-    let file_path = path.clone();
+    let file_path = path.to_path_buf();
     let opened = tokio::task::spawn_blocking(move || {
         let mut file = std::fs::File::open(file_path)?;
         file.seek(SeekFrom::Start(offset))?;
@@ -699,7 +722,10 @@ async fn attempt(upload: &Arc<Upload>, link: &Arc<LinkHandle>, path: &PathBuf, t
                 let st = lock(&upload.state);
                 (st.have_seen, st.acked)
             };
-            if have_seen && position.saturating_sub(acked) >= STALL_WINDOW && state.last_ack.elapsed() > timings.ack_stall {
+            if have_seen
+                && position.saturating_sub(acked) >= STALL_WINDOW
+                && state.last_ack.elapsed() > timings.ack_stall
+            {
                 return Outcome::Retry;
             }
             let want = CHUNK.min(usize::try_from(total - position).unwrap_or(CHUNK));

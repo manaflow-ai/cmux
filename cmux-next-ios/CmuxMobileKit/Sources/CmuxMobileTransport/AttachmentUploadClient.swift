@@ -118,6 +118,10 @@ public final class AttachmentUploadClient {
         case .data(let data): start(data, name: name, to: destination)
         case .file(let url): start(url, name: name, to: destination)
         }
+        defer {
+            engine.forget(uploadId: id)
+            progress[id] = nil
+        }
         return try await withTaskCancellationHandler {
             try await wait(id)
         } onCancel: {

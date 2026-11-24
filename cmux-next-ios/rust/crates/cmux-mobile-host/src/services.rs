@@ -2192,8 +2192,38 @@ async fn receive_upload(
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
+    let upload_id = match args.get("upload_id") {
+        Some(value) => Some(
+            value
+                .as_str()
+                .filter(|id| {
+                    id.len() == 36 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'-'))
+                })
+                .ok_or_else(|| {
+                    Refusal::new(
+                        "bad_request",
+                        "upload_id must be 36 lowercase hexadecimal or '-' characters",
+                    )
+                })?,
+        ),
+        None => None,
+    };
+    let offset = if upload_id.is_some() {
+        match args.get("offset") {
+            None => 0,
+            Some(Value::Number(number)) => {
+                number.as_u64().ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?
+            }
+            Some(Value::String(text)) => {
+                text.parse().map_err(|_| Refusal::new("bad_request", "invalid offset"))?
+            }
+            Some(_) => return Err(Refusal::new("bad_request", "invalid offset")),
+        }
+    } else {
+        0
+    };
     let folder = upload_folder(config, peer, cwd).await?;
-    let Some(upload_id) = args.get("upload_id") else {
+    let Some(upload_id) = upload_id else {
         let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
         let mut file = tokio::fs::OpenOptions::new()
             .write(true)
@@ -2213,35 +2243,12 @@ async fn receive_upload(
         return Ok((path, size));
     };
 
-    let upload_id = upload_id
-        .as_str()
-        .filter(|id| {
-            id.len() == 36
-                && id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase() || byte == b'-')
-        })
-        .ok_or_else(|| {
-            Refusal::new("bad_request", "upload_id must be 36 lowercase hexadecimal or '-' characters")
-        })?;
-    let offset = match args.get("offset") {
-        None => 0,
-        Some(Value::Number(number)) => {
-            number.as_u64().ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?
-        }
-        Some(Value::String(text)) => {
-            text.parse().map_err(|_| Refusal::new("bad_request", "invalid offset"))?
-        }
-        Some(_) => return Err(Refusal::new("bad_request", "invalid offset")),
-    };
-    if offset > size {
-        return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
-    }
     cleanup_stale_upload_parts(&folder);
     let part = folder.join(format!(".{upload_id}.part"));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(false)
         .open(&part)
         .await
         .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
@@ -2290,7 +2297,7 @@ async fn receive_upload_bytes(
     let resumable = initial.is_some();
     let mut received = initial.unwrap_or(0);
     let mut acknowledged = received;
-    let received = async {
+    async {
         while received < size {
             let event = if resumable {
                 match timeout(stall_timeout.expect("resumable uploads have a stall timeout"), receiver.recv())
@@ -2329,17 +2336,16 @@ async fn receive_upload_bytes(
                 }
             }
         }
-        if let Some(sender) = sender {
-            if acknowledged != received {
-                send_upload_ack(sender, received).await;
-            }
+        if let Some(sender) = sender
+            && acknowledged != received
+        {
+            send_upload_ack(sender, received).await;
         }
         file.flush().await.map_err(|e| Refusal::new("io", e.to_string()))?;
         file.sync_all().await.map_err(|e| Refusal::new("io", e.to_string()))?;
         Ok(())
     }
-    .await;
-    received
+    .await
 }
 
 fn upload_stall_timeout(args: &Value) -> Duration {

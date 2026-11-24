@@ -1098,17 +1098,19 @@ async fn resumable_upload_reopens_from_the_last_ack() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn resumable_upload_reports_a_resume_gap() {
+    const PART: usize = 1 << 20;
     let fixture = fixture(FakeOptions::default()).await;
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
     let upload_id = "33333333-3333-3333-3333-333333333333";
     let mut first = connected
         .link
-        .open("upload", serde_json::json!({"name": "gap.bin", "size": 4, "upload_id": upload_id}))
+        .open("upload", serde_json::json!({"name": "gap.bin", "size": PART + 1, "upload_id": upload_id}))
         .await
         .unwrap();
     let mut buffer = Vec::new();
     assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
-    first.send(Bytes::from_static(b"abc")).await.unwrap();
+    first.send(Bytes::from(vec![0x61; PART])).await.unwrap();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"ack": PART}));
     first.close("cancelled", "retry").await;
     let _ = drain(&mut first).await;
 
@@ -1116,14 +1118,14 @@ async fn resumable_upload_reports_a_resume_gap() {
         .link
         .open(
             "upload",
-            serde_json::json!({"name": "gap.bin", "size": 4, "upload_id": upload_id, "offset": 4}),
+            serde_json::json!({"name": "gap.bin", "size": PART + 1, "upload_id": upload_id, "offset": PART + 1}),
         )
         .await
         .unwrap();
     let mut buffer = Vec::new();
     assert_eq!(
         next_line(&mut retry, &mut buffer).await,
-        serde_json::json!({"error": "resume_gap", "have": 3})
+        serde_json::json!({"error": "resume_gap", "have": PART})
     );
     let (reply, code) = drain(&mut retry).await;
     assert_eq!(reply, b"");
@@ -1145,17 +1147,19 @@ async fn old_phone_upload_reply_has_legacy_framing() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn resumable_upload_offset_truncates_existing_part() {
+    const PART: usize = 1 << 20;
     let fixture = fixture(FakeOptions::default()).await;
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
     let upload_id = "44444444-4444-4444-4444-444444444444";
     let mut first = connected
         .link
-        .open("upload", serde_json::json!({"name": "truncate.bin", "size": 10, "upload_id": upload_id}))
+        .open("upload", serde_json::json!({"name": "truncate.bin", "size": PART + 1, "upload_id": upload_id}))
         .await
         .unwrap();
     let mut buffer = Vec::new();
     assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"have": 0}));
-    first.send(Bytes::from_static(b"abcdefgh")).await.unwrap();
+    first.send(Bytes::from(vec![0x61; PART])).await.unwrap();
+    assert_eq!(next_line(&mut first, &mut buffer).await, serde_json::json!({"ack": PART}));
     first.close("cancelled", "retry").await;
     let _ = drain(&mut first).await;
 
@@ -1178,7 +1182,7 @@ async fn resumable_upload_offset_truncates_existing_part() {
         .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
         .find_map(|line| line.get("path").and_then(serde_json::Value::as_str).map(std::path::PathBuf::from))
         .expect("path");
-    assert_eq!(std::fs::read(path).unwrap(), b"abcXYZ");
+    assert_eq!(std::fs::read(path).unwrap(), b"aaaXYZ");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -6,9 +6,9 @@
 //! The engine under test is `AttachmentUploads`. The Mac side is cmux-mobile-host's real `upload` service.
 
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use std::path::Path;
 
 use std::sync::Arc;
 
@@ -185,7 +185,8 @@ async fn a_20_mb_file_uploads_whole_with_monotone_progress() {
     assert_eq!(last.mac_path.as_deref(), Some(path.as_str()));
     assert_eq!((last.acked_bytes, last.total_bytes), (size, size));
     let events = recorder.events.lock().unwrap().clone();
-    let acked: Vec<u64> = events.iter().filter(|p| p.stage != UploadStage::Compressing).map(|p| p.acked_bytes).collect();
+    let acked: Vec<u64> =
+        events.iter().filter(|p| p.stage != UploadStage::Compressing).map(|p| p.acked_bytes).collect();
     assert!(acked.windows(2).all(|w| w[0] <= w[1]), "acked went back: {acked:?}");
     let sent: Vec<u64> = events.iter().map(|p| p.sent_bytes).collect();
     assert!(sent.windows(2).all(|w| w[0] <= w[1]), "sent went back: {sent:?}");
@@ -207,11 +208,13 @@ async fn cancel_mid_upload_returns_at_once_and_wakes_the_waiter() {
         let (uploads, id) = (uploads.clone(), id.clone());
         async move { uploads.wait(id).await }
     });
-    until("some bytes to move", || uploads.progress(id.clone()).is_some_and(|p| p.sent_bytes > 2 * MIB)).await;
+    until("some bytes to move", || uploads.progress(id.clone()).is_some_and(|p| p.sent_bytes > 2 * MIB))
+        .await;
     let started = Instant::now();
     uploads.cancel(id.clone());
     assert!(started.elapsed() < Duration::from_millis(50), "cancel took {:?}", started.elapsed());
-    let answer = tokio::time::timeout(Duration::from_secs(2), waiter).await.expect("the waiter woke").unwrap();
+    let answer =
+        tokio::time::timeout(Duration::from_secs(2), waiter).await.expect("the waiter woke").unwrap();
     match answer {
         Err(cmux_mobile_link_ffi::CmuxMobileError::Refused { code, .. }) => assert_eq!(code, "cancelled"),
         other => panic!("expected cancelled, got {other:?}"),
@@ -261,7 +264,10 @@ async fn with_no_link_it_waits_for_the_mac_then_finishes() {
     uploads.compress_progress(id.clone(), 0.5);
     assert_eq!(uploads.progress(id.clone()).unwrap().acked_bytes, 500);
     uploads.file_ready(id.clone(), source.to_str().unwrap().into());
-    until("waiting for the Mac", || uploads.progress(id.clone()).unwrap().stage == UploadStage::WaitingForMac).await;
+    until("waiting for the Mac", || {
+        uploads.progress(id.clone()).unwrap().stage == UploadStage::WaitingForMac
+    })
+    .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(uploads.progress(id.clone()).unwrap().stage, UploadStage::WaitingForMac);
     uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
@@ -269,7 +275,10 @@ async fn with_no_link_it_waits_for_the_mac_then_finishes() {
     assert_eq!(sha256(Path::new(&path)), sha256(&source));
     let stages = recorder.stages();
     assert_eq!(stages.first(), Some(&UploadStage::Compressing));
-    assert!(stages.contains(&UploadStage::WaitingForMac) && stages.last() == Some(&UploadStage::Done), "{stages:?}");
+    assert!(
+        stages.contains(&UploadStage::WaitingForMac) && stages.last() == Some(&UploadStage::Done),
+        "{stages:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -298,7 +307,9 @@ fn video_plan_sends_small_or_modest_originals_and_reencodes_the_rest() {
     assert!(!plan(1080, 1920, 60, 60_000_000).reencode);
     // 1080p at 20 Mbit/s: heavy.
     let heavy = plan(1920, 1080, 60, 150_000_000);
-    assert!(heavy.reencode && heavy.max_long_side == 1920 && heavy.preset == "AVAssetExportPresetHEVC1920x1080");
+    assert!(
+        heavy.reencode && heavy.max_long_side == 1920 && heavy.preset == "AVAssetExportPresetHEVC1920x1080"
+    );
     // A minute of 4K.
     let uhd = plan(3840, 2160, 60, 170_000_000);
     assert!(uhd.reencode && !uhd.reason.is_empty());

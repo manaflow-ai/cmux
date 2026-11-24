@@ -163,7 +163,9 @@ fn engine(name: &str) -> Engine {
         // `AttachmentUploads::start/wait` here with the same contract: update `job.progress.acked` as
         // bytes are acknowledged, set `last_byte_ms`, `open_ms`, `reply_ms`, return Ok(()) once the
         // Mac holds `job.size` bytes. Then: NETEM_ENGINE=new upload-netem-bench.sh.
-        "new" => |_job| Box::pin(async { Err("engine new is not wired yet (see TODO in upload_netem.rs)".into()) }),
+        "new" => {
+            |_job| Box::pin(async { Err("engine new is not wired yet (see TODO in upload_netem.rs)".into()) })
+        }
         other => panic!("unknown NETEM_ENGINE {other}"),
     }
 }
@@ -176,7 +178,8 @@ fn ms(since: Instant) -> u64 {
 /// disk, a failed send means the Mac answered early, then wait for the reply.
 async fn upload_current(job: UploadJob) -> Result<(), String> {
     let UploadJob { handle, source, size, root, started, progress } = job;
-    let args = serde_json::json!({"name": "big.bin", "size": size.to_string(), "cwd": root.to_str().unwrap()});
+    let args =
+        serde_json::json!({"name": "big.bin", "size": size.to_string(), "cwd": root.to_str().unwrap()});
     let channel = handle
         .open_channel("upload".into(), args.to_string())
         .await
@@ -272,7 +275,18 @@ async fn upload_netem_cell() {
     let mac_id = uuid::Uuid::new_v4().to_string();
     let exe = std::env::current_exe().unwrap();
     let mut child = Command::new("sudo")
-        .args(["-n", "ip", "netns", "exec", &env("NETEM_NS", ""), "sudo", "-n", "-u", &env("USER", "cmux"), "env"])
+        .args([
+            "-n",
+            "ip",
+            "netns",
+            "exec",
+            &env("NETEM_NS", ""),
+            "sudo",
+            "-n",
+            "-u",
+            &env("USER", "cmux"),
+            "env",
+        ])
         .arg("NETEM_ROLE=host")
         .arg(format!("NETEM_SIGNALING=http://{}:{port}", env("NETEM_HOST_IP", "")))
         .arg(format!("NETEM_MAC_ID={mac_id}"))
@@ -326,9 +340,8 @@ async fn upload_netem_cell() {
         Ok(Ok(handle)) => {
             if load == "duress" {
                 for _ in 0..4 {
-                    yes_workers.push(
-                        Command::new("sh").args(["-c", "exec yes > /dev/null"]).spawn().expect("yes"),
-                    );
+                    yes_workers
+                        .push(Command::new("sh").args(["-c", "exec yes > /dev/null"]).spawn().expect("yes"));
                 }
                 tokio::spawn(background_bulk(Arc::clone(&handle), root.clone(), Arc::clone(&stop)));
                 tokio::time::sleep(Duration::from_millis(500)).await;
@@ -379,7 +392,9 @@ async fn upload_netem_cell() {
             };
             match tokio::time::timeout(cap, engine(&engine_name)(job)).await {
                 Ok(Ok(())) => (finished, code) = (true, "ok".into()),
-                Ok(Err(error)) => code = error.split(':').next().unwrap_or("error").to_owned() + &format!(" [{error}]"),
+                Ok(Err(error)) => {
+                    code = error.split(':').next().unwrap_or("error").to_owned() + &format!(" [{error}]")
+                }
                 Err(_) => (capped, code) = (true, format!("cap {} s", cap.as_secs())),
             }
             total_ms = ms(started);
@@ -401,7 +416,13 @@ async fn upload_netem_cell() {
     );
     print!("NETEM-ROW {csv_line}");
     if let Ok(path) = std::env::var("NETEM_CSV") {
-        std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap().write_all(csv_line.as_bytes()).unwrap();
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap()
+            .write_all(csv_line.as_bytes())
+            .unwrap();
     }
     for worker in &mut yes_workers {
         let _ = worker.kill();
