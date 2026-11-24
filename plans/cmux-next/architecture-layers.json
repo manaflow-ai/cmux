@@ -45,6 +45,7 @@
     "CmuxNextBrowserAutomation": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextBrowserHost": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextKeepAwake": {"layer": "service"},
+    "CmuxNextLaunchImages": {"layer": "ui"},
     "CmuxNextPhoneAccess": {"layer": "service"},
     "CmuxNextComputerUse": {"layer": "service"},
     "CmuxNextComputerUsePreview": {"layer": "ui"},
