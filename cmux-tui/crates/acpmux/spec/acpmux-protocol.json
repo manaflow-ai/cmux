@@ -229,6 +229,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/felt_snapshot",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -554,6 +560,14 @@
       "name": "_acpmux/subagent_transcript",
       "params": {
         "$ref": "#/types/SubagentTranscriptParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
       },
       "result": true
     },
@@ -1017,6 +1031,18 @@
     {
       "kind": "request",
       "name": "_acpmux/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
       "params": true,
       "result": true
     },
@@ -1868,6 +1894,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_preflight",
       "params": true,
       "result": true
     },
@@ -8650,6 +8682,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,

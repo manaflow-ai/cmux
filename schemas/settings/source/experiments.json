@@ -234,6 +234,32 @@
           ]
         },
         {
+          "key": "experiments.attachmentTypeIcons",
+          "note": "Taste prototype: while the App looks up a dropped or pasted file's local path, its composer chip shows a file or image icon instead of the loading mark, and an image keeps its image icon until its thumbnail arrives (webviews experimentSwitchOn(\"attachmentTypeIcons\"), composer/attachmentIntakeModel.ts resolvingPath). Off by default; off keeps the loading mark. The path-first attach itself is not behind this switch.",
+          "title": {
+            "key": "settings.experiments.attachmentTypeIcons",
+            "text": "Attachment Type Icons"
+          },
+          "help": {
+            "key": "settings.experiments.attachmentTypeIcons.help",
+            "text": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "attachment",
+            "attachments",
+            "icon",
+            "file",
+            "image",
+            "loading",
+            "chip"
+          ]
+        },
+        {
           "key": "experiments.foldSummaryCounts",
           "note": "Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed \"Worked for\" names the work it hides after its time, as the tool runs name theirs: \"Worked for 36s · ran 4 commands, edited 2 files\", failed calls as the runs' \"(1 failed)\" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch(\"foldSummaryCounts\")). Off by default until Leo picks; off keeps today's duration-only line.",
           "title": {
