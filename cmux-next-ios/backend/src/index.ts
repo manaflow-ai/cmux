@@ -117,7 +117,7 @@ class HttpError extends Error {
  * scripts/lib/mobile-attach.sh), and stable and nightly builds send nothing (space ""). Each space sees only
  * its own devices, hubs, pushes and prefs.
  */
-export const BUILD_SPACE_HEADER = "x-cmux-build-space"
+const BUILD_SPACE_HEADER = "x-cmux-build-space"
 /** The `ENVIRONMENT` values (wrangler.jsonc vars, vitest.config.ts) whose Worker serves dev spaces. */
 const DEV_SPACE_ENVIRONMENTS: ReadonlySet<string> = new Set(["dev", "test", "local"])
 const BUILD_SPACE = /^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/

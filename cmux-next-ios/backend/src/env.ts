@@ -61,6 +61,8 @@ export interface Env {
   readonly STACK_TEST_JWKS?: string
   /** JSON {userId: [teamId]} for primary-project users, {"<projectId>:<userId>": [teamId]} for the others; replaces Stack membership calls. */
   readonly STACK_TEST_TEAMS?: string
+  /** netlab (ENVIRONMENT=test only): JSON list of {urls, username?, credential?} appended to GET /v1/ice. */
+  readonly STACK_TEST_ICE_SERVERS?: string
   /** A fake MySQL connection: the store is the MySQL store on it instead of the memory store (test/schema-probe.test.ts). */
   readonly TEST_MYSQL_CONN?: import("./store-mysql.ts").MysqlConn
   /** JSON {dev, prod}: each deployed environment's APNS_TOPICS from wrangler.jsonc (vitest.config.ts). */

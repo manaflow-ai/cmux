@@ -38,6 +38,9 @@ struct Args {
     daemon: bool,
     pings: usize,
     stock_ice_waits: bool,
+    chat_id: Option<String>,
+    chat_at_ms: u64,
+    chat_wait_s: u64,
 }
 
 fn parse() -> Result<Args> {
@@ -48,6 +51,7 @@ fn parse() -> Result<Args> {
     let (mut stock_ice_waits, mut block_udp) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let mut no_input_lane = false;
+    let (mut chat_id, mut chat_at_ms, mut chat_wait_s) = (None, 0u64, 30u64);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -69,6 +73,9 @@ fn parse() -> Result<Args> {
             "--no-input-lane" => no_input_lane = true,
             "--daemon" => daemon = true,
             "--stock-ice-waits" => stock_ice_waits = true,
+            "--chat-id" => chat_id = Some(value()?),
+            "--chat-at-ms" => chat_at_ms = value()?.parse()?,
+            "--chat-wait-s" => chat_wait_s = value()?.parse()?,
             other => bail!("unknown argument {other}"),
         }
     }
@@ -92,12 +99,17 @@ fn parse() -> Result<Args> {
         daemon,
         pings,
         stock_ice_waits,
+        chat_id,
+        chat_at_ms,
+        chat_wait_s,
     })
 }
 
 fn millis(duration: Duration) -> f64 {
     (duration.as_secs_f64() * 10_000.0).round() / 10.0
 }
+
+static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
@@ -112,6 +124,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     }
     let turn_urls = cmux_mobile_link::dial::turn_url_count(&ice_servers);
     let device = uuid::Uuid::new_v4().to_string();
+    let register_started = Instant::now();
     // The backend admits a signaling socket only for a registered device.
     api.register_device(&cmux_mobile_link::api::DeviceRegistration {
         device_id: device.clone(),
@@ -124,6 +137,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     })
     .await
     .context("POST /v1/devices")?;
+    let register_ms = register_started.elapsed();
     let started = Instant::now();
     let timeline = cmux_mobile_link::Timeline::starting_at(started);
     let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await?;
@@ -142,6 +156,8 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let connected =
         cmux_mobile_link::dial::connect(&signaling, &args.mac, kind, &options, LinkConfig::default()).await?;
     let connect = started.elapsed();
+    // netlab: link up as the app counts it with its device registered at sign-in: process start to the link, no register.
+    let link_up = PROCESS_START.get().map(|t| t.elapsed().saturating_sub(register_ms));
     let link = &connected.link;
     // The app's first request: a `daemon` channel and its first answer.
     let first_daemon = if args.daemon {
@@ -156,6 +172,39 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         None
     };
     let _ = first_daemon;
+    // netlab sleep scenario: after the link is up, wait until --chat-at-ms since process start, send one keyed request on a
+    // `daemon` channel (a chat message), wait up to --chat-wait-s for its answer, and report what happened.
+    if let Some(id) = &args.chat_id {
+        let at = Duration::from_millis(args.chat_at_ms);
+        if let Some(t) = PROCESS_START.get() {
+            tokio::time::sleep(at.saturating_sub(t.elapsed())).await;
+        }
+        let sent = Instant::now();
+        let outcome: String = async {
+            let mut channel = match link.open("daemon", json!({})).await {
+                Ok(c) => c,
+                Err(e) => return format!("open_failed: {e}"),
+            };
+            let line = format!("{{\"id\":\"{id}\",\"cmd\":\"send\",\"surface\":1,\"text\":\"hello\"}}\n");
+            if let Err(e) = channel.send(Bytes::from(line)).await {
+                return format!("send_failed: {e}");
+            }
+            match tokio::time::timeout(Duration::from_secs(args.chat_wait_s), channel.recv()).await {
+                Ok(Some(ChannelEvent::Data(_))) => "answered".to_owned(),
+                Ok(other) => format!("channel_ended: {other:?}"),
+                Err(_) => "no_answer".to_owned(),
+            }
+        }
+        .await;
+        let path = format!("{:?}", *connected.path.borrow()).to_lowercase();
+        println!(
+            "{}",
+            json!({"chat": {"id": id, "outcome": outcome, "sent_epoch": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs_f64() - sent.elapsed().as_secs_f64(), "waited_ms": millis(sent.elapsed())}, "path": path, "link_up_ms": link_up.map(millis)})
+        );
+        link.close("done");
+        signaling.close();
+        return Ok(json!({"transport": format!("{kind:?}").to_lowercase(), "path": path}));
+    }
     let marks: serde_json::Map<String, serde_json::Value> =
         timeline.marks().into_iter().map(|(name, at)| (name, json!(millis(at)))).collect();
 
@@ -228,6 +277,8 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "ice_fetch_ms": millis(ice_fetch),
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),
+        "register_ms": millis(register_ms),
+        "link_up_ms": link_up.map(millis),
         "timings": marks,
         "ice_turn_urls": turn_urls,
         "pings": rtts.len(),
@@ -249,6 +300,7 @@ async fn main() -> Result<()> {
         )
         .with_writer(std::io::stderr)
         .init();
+    PROCESS_START.get_or_init(Instant::now);
     let args = parse()?;
     let mut failed = false;
     for kind in args.transports.clone() {
