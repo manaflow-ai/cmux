@@ -10,9 +10,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/activity/last_user_input_at_ms": {
@@ -12162,6 +12174,10 @@
         "ty": "uint32",
         "nullable": true
       },
+      "/api_version": {
+        "ty": "string",
+        "nullable": true
+      },
       "/capabilities": {
         "ty": "array",
         "nullable": true
@@ -18028,6 +18044,10 @@
         "ty": "uint32",
         "nullable": true
       },
+      "/data/api_version": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/app": {
         "ty": "literal",
         "required": true,
@@ -18118,6 +18138,10 @@
       },
       "/data/min_api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/data/min_api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/data/pid": {
@@ -22221,7 +22245,14 @@
         "required": true
       }
     },
-    "response:set-client-info": {},
+    "response:set-client-info": {
+      "/data/api_revision": {
+        "ty": "uint32"
+      },
+      "/data/api_version": {
+        "ty": "string"
+      }
+    },
     "response:set-client-sizing": {},
     "response:set-column-dock": {
       "/data": {
@@ -22659,9 +22690,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/data/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/data/activity/last_user_input_at_ms": {

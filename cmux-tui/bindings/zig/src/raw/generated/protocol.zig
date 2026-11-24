@@ -7,11 +7,14 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110";
+pub const ir_sha256 = "91fecf89725707985cbdda0aa3979e11c9becb1ed10ec089fd557e65cde718c8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
+    echo_at_ms: wire.Field(u64) = .absent,
+    echo_input_at_ms: wire.Field(u64) = .absent,
     last_agent_action_at_ms: wire.Nullable(u64),
+    last_person_attach_at_ms: wire.Field(u64) = .absent,
     last_user_input_at_ms: wire.Nullable(u64),
     live_agents: u32,
 };
@@ -1207,6 +1210,7 @@ pub const IdMapping = struct {
 
 pub const IdentifyResult = struct {
     api_revision: wire.Field(u32) = .absent,
+    api_version: wire.Field([]const u8) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
     build_id: wire.Field([]const u8) = .absent,
@@ -1227,6 +1231,7 @@ pub const IdentifyResult = struct {
     machine_platform: ?MachinePlatform = null,
     machine_symbol: ?[]const u8 = null,
     min_api_revision: wire.Field(u32) = .absent,
+    min_api_version: wire.Field([]const u8) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -2350,6 +2355,16 @@ pub const ServerStatsWriterPhase = enum {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const SetClientInfoResult = struct {
+    api_revision: ?u32 = null,
+    api_version: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "api_revision",
+        "api_version",
+    };
 };
 
 pub const SetHostSizePolicyResult = struct {
@@ -9493,6 +9508,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 
 pub const SetClientInfoRequest = struct {
     api_revision: wire.Field(u32) = .absent,
+    api_version: wire.Field([]const u8) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
@@ -9506,8 +9522,6 @@ pub const SetClientInfoRequest = struct {
     version: wire.Field([]const u8) = .absent,
 };
 
-pub const SetClientInfoResult = EmptyResult;
-
 pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decoded(SetClientInfoResult) {
     return client.callTyped(
         SetClientInfoResult,
@@ -9518,6 +9532,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .capability = null,
             .fields = &.{
                 .{ .name = "api_revision", .since = 12, .capability = null },
+                .{ .name = "api_version", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },

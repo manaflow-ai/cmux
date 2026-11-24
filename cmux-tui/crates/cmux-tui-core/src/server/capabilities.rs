@@ -121,6 +121,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.extend_from_slice(agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES);
         capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
     }
     #[cfg(unix)]
@@ -164,6 +165,7 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(mobile_chat::CLOUD_CHAT_RELAY_CAPABILITY);
     capabilities.push(activity::CAPABILITY);
+    capabilities.push(activity::ECHO_CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]

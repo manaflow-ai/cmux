@@ -1087,6 +1087,8 @@ Params:
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
+| `api_revision` | `uint32` | default none | The API revision the client reads and writes; absent: revision 12 |
+| `api_version` | `string` | default none | A dated API version, `YYYY-MM-DD`; see [api-versioning.md](api-versioning.md) |
 
 `set-client-info` labels a connection; it never sets the `client-hello` role
 or the request origin. Identity fields are clamped like `name`. A connection that sends
@@ -1103,9 +1105,12 @@ receives `linux`, `windows` and any later kind as they are in every size state
 SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
 the real kind for every connection.
 
-Result: `object{}`.
+Result: `object{}`; with `api_version`, `object{api_version:string,api_revision:uint32}`: the dated
+version that serves the connection and its revision. The promise behind it (no breaking change
+without a new dated version, 12 months of overlap): [api-versioning.md](api-versioning.md).
 
-Errors: `bad request: ...` for wrong JSON types.
+Errors: `bad request: ...` for wrong JSON types; a malformed `api_version`, one older than the
+oldest version served, or one that disagrees with `api_revision`.
 
 CLI mapping:
 
@@ -1242,7 +1247,7 @@ Example:
 | since | protocol 12 additive extension; capability `vm-activity-v1` |
 | profile | local-admin (trusted Unix socket connections only) |
 
-Opens a stream of the daemon's activity facts for the cmux Cloud VM agent, which forwards them in `cloud.vm.status.report` so the idle pause acts on real activity (plans/cmux-next/cloud-automation.md 27). The reply carries the current snapshot; then `activity-changed` events follow each change, at most one per second (leading edge plus one trailing event), never on a timer. Times and counts only: no content and no surface ids. `attached_clients` counts attached connections whose `set-client-info` kind is `tui`, `web`, `mac` or `frontend`; `live_agents` counts agents that are working or blocked; `last_user_input_at_ms` is the newest keyboard, paste or mouse input from an attached client (a one-shot `send` from an unattached connection does not count); `last_agent_action_at_ms` is the newest agent hook commit or agent state report. At most 16 subscribers; closing the connection ends the subscription. Servers advertise `vm-activity-v1` in `identify.capabilities`.
+Opens a stream of the daemon's activity facts for the cmux Cloud VM agent, which forwards them in `cloud.vm.status.report` so the idle pause acts on real activity (plans/cmux-next/cloud-automation.md 27). The reply carries the current snapshot; then `activity-changed` events follow each change, at most one per second (leading edge plus one trailing event), never on a timer. Times and counts only: no content and no surface ids. `attached_clients` counts attached connections whose `set-client-info` kind is `tui`, `web`, `mac` or `frontend`; `live_agents` counts agents that are working or blocked; `last_user_input_at_ms` is the newest keyboard, paste or mouse input from an attached client (a one-shot `send` from an unattached connection does not count); `last_agent_action_at_ms` is the newest agent hook commit or agent state report. Servers that also advertise `vm-activity-echo-v1` add three optional fields, so the Cloud agent times a wake to its first echo (hq#21300): `last_person_attach_at_ms` is when a person's client (`tui`, `web`, `mac` or `frontend`) last attached; `echo_input_at_ms` and `echo_at_ms` pair that client's first input after the attach with the first output of the same terminal after it (null until measured; the next person attach resets them). Older servers omit them, and a consumer that reads only the fields above reads as before. At most 16 subscribers; closing the connection ends the subscription. Servers advertise `vm-activity-v1` in `identify.capabilities`. Echo-timing servers also advertise `vm-activity-echo-v1`.
 
 Params: none.
 
@@ -1254,7 +1259,10 @@ object{
     attached_clients:uint32,
     live_agents:uint32,
     last_user_input_at_ms:uint64|null,
-    last_agent_action_at_ms:uint64|null
+    last_agent_action_at_ms:uint64|null,
+    last_person_attach_at_ms?:uint64|null,
+    echo_input_at_ms?:uint64|null,
+    echo_at_ms?:uint64|null
   }
 }
 ```

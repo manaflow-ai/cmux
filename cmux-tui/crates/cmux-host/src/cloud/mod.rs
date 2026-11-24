@@ -75,6 +75,7 @@ pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
 pub mod page_cache;
+pub mod resume_prefetch;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -82,6 +83,9 @@ pub mod session;
 pub mod trajectory;
 #[cfg(unix)]
 pub mod trajectory_thread;
+pub mod wake_echo;
+#[cfg(test)]
+mod wake_echo_tests;
 pub mod wire;
 pub mod workload;
 
