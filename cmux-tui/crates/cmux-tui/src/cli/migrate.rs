@@ -452,7 +452,10 @@ fn load_ledger() -> Result<Ledger, String> {
     match Ledger::load(&path) {
         Load::None => Ok(Ledger::new()),
         Load::Ledger(ledger) => Ok(ledger),
-        Load::Newer => Err(format!("{} was written by a newer cmux: update cmux", path.display())),
+        Load::Newer => Err(format!(
+            "{} was written by a newer cmux migrate; run `cmux migrate status` from that cmux, or move the file aside to start a new ledger",
+            path.display()
+        )),
         Load::Unreadable(why) => Err(format!("{}: {why}", path.display())),
     }
 }
@@ -478,38 +481,42 @@ fn bounded(program: &str, args: &[&str], stdin: Option<&str>) -> Result<String, 
     if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
         let _ = pipe.write_all(text.as_bytes());
     }
-    let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_string(&mut text);
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    // Scoped readers: both are joined before this returns, so neither outlives the call.
+    let (status, out, err) = std::thread::scope(|scope| {
+        let out = scope.spawn(move || read_all(stdout));
+        let err = scope.spawn(move || read_all(stderr));
+        let deadline = Instant::now() + READER_BOUND;
+        let status = loop {
+            if child.exited_within(Duration::from_millis(200)).unwrap_or(true) {
+                break child.wait().map_err(|e| format!("{program}: {e}"));
             }
-            text
-        })
-    };
-    let out = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let err = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let deadline = Instant::now() + READER_BOUND;
-    loop {
-        if child.exited_within(Duration::from_millis(200)).unwrap_or(true) {
-            break;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "{program} took over {} s and was stopped",
-                READER_BOUND.as_secs()
-            ));
-        }
-    }
-    let status = child.wait().map_err(|e| format!("{program}: {e}"))?;
-    let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(format!(
+                    "{program} took over {} s and was stopped",
+                    READER_BOUND.as_secs()
+                ));
+            }
+        };
+        (status, out.join().unwrap_or_default(), err.join().unwrap_or_default())
+    });
+    let status = status?;
     if status.success() {
         Ok(out)
     } else {
         Err(format!("{program} {}: {}", args.first().unwrap_or(&""), tail(&err, 400)))
     }
+}
+
+fn read_all(pipe: Option<impl std::io::Read>) -> String {
+    let mut text = String::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_string(&mut text);
+    }
+    text
 }
 
 /// The signed-in app's Cloud verbs, each as this binary with `--json`.
