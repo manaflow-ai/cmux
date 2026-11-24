@@ -233,3 +233,17 @@ if [[ "$EVENT_NAME" == pull_request ]]; then
   python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
     --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"
 fi
+# Why: docs/ci/cmux-next-workflow-notes.md#note-556
+# Leo, 2026-11-21: "help 100x ci speed ... while maintaining a partial semblance of checks. and we can infrequenrly
+# have fuller checks." A pull request into feat-cmux-next runs only the Linux fast tier here; every Mac job, the
+# cargo fast tier, web bundles and the tests and compiles they feed run in the feat-cmux-next push run (the batched
+# tier), where a red is fixed forward. full-ci runs everything; dev-build keeps its scheme compile;
+# vars.CI_PR_FAST_ONLY=0 turns this off. Last, so these lines win over every route above.
+if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "${PR_FAST_ONLY:-true}" == true \
+  && ",$labels," != *,full-ci,* ]]; then
+  deferred=(swift_canary cmuxnext_swift mac_release macos generated swift daemon full fast_tier fast_tier_cargo)
+  [[ ",$labels," == *,dev-build,* ]] || deferred+=(scheme)
+  printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
+  echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"
+  echo "- PR fast tier (vars.CI_PR_FAST_ONLY): deferred to the feat-cmux-next push run: ${deferred[*]}. The full-ci label runs every tier here." >> "$GITHUB_STEP_SUMMARY"
+fi

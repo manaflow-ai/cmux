@@ -5002,3 +5002,33 @@ fleet_gateway() still keeps the job only with an idle gateway runner of its own,
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
 no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
 spill off; unset or any other value leaves it on.
+
+## note-556
+
+Above `path_route: PR_FAST_ONLY` in `.github/workflows/cmux-next.yml` (the last block of
+scripts/ci/cmux-next-steps/classify-pull-request-paths.sh).
+
+Leo, 2026-11-21: "help 100x ci speed and the decrease of needed minutes aka lower resources and lower wall time and
+lower machine time while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."
+(cmuxterm-hq goals/ci-verdict-wall-100x.md: PR verdict p50 at most 0.64 min.)
+
+A pull request into feat-cmux-next runs only the PR fast tier in this workflow: the push head preflight, path
+routing (its same-tree cmux-tui probe no longer runs, since no daemon or scheme tier is routed), the PR red-checks
+comment and the compile-status job, which on a same-repository head hands cmux-next/compile to the build-fleet
+controller and ends (it compiles nothing here). The route writes `false` for swift_canary, cmuxnext_swift,
+mac_release, macos, generated, swift, daemon, full, fast_tier, fast_tier_cargo and scheme after every other route,
+so each job they feed skips through its existing `if:`: macOS placement, the Mac fast tier and its fleet jobs, the
+Swift canary, the app compile placement and fleet app compile, web bundles, swift test, daemon tests, generated
+files, the Release compile, the scheme compile and crash-ends-app, and the cargo fast tier (10 to 17 min on
+2026-11-24 PR runs). All of them still run on the feat-cmux-next push run and the base tier (the batched tier); a
+red there is fixed forward.
+
+Skipped is a passing verdict to land-judge (PASSING: success, neutral, skipped; a skip with no cancel in its run is
+a routed skip, not "skipped by a cancel") and to next-autoland, whose Swift-package rule still dispatches
+cmux-next.yml on the branch for a missing swift test (swift_dispatch) as before, and whose cmux-next/compile rule is
+answered by the controller status that compile-status still requests. No check goes missing: each skipped job keeps
+its check run.
+
+The full-ci label runs every tier on the PR as before (labeling a PR full-ci re-runs this workflow). The dev-build
+label keeps its scheme compile. `vars.CI_PR_FAST_ONLY` set to `0` turns the whole block off; unset or any other
+value leaves it on.
