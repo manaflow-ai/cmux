@@ -189,6 +189,33 @@ async fn forcing_the_relay_without_one_fails_fast() {
     assert!(started.elapsed() < Duration::from_secs(1));
 }
 
+/// A join presents this device's own relay ticket, as the service stamped
+/// it on the session's signals to this device: without it (an older
+/// service, or a device that never received it) the relay refuses the join.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_join_without_its_ticket_is_refused() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    let session = uuid::Uuid::new_v4().to_string();
+    let peer = uuid::Uuid::new_v4().to_string();
+    for ticket in [None, Some("not-the-ticket")] {
+        let failure = cmux_mobile_link::dial::relay::RelayCarrier::join(&endpoint, &session, &peer, ticket)
+            .await
+            .err()
+            .expect("refused");
+        assert!(
+            matches!(failure, cmux_mobile_link::dial::relay::RelayFailure::Refused { status: 403, .. }),
+            "{failure:?}"
+        );
+    }
+    assert_eq!(server.relay_joins(), 0);
+}
+
 /// A working network never touches the relay: direct UDP wins, nobody joins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_network_that_passes_udp_never_joins_the_relay() {

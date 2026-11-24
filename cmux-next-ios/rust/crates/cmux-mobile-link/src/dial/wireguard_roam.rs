@@ -104,6 +104,10 @@ pub(super) struct RelayPlan {
     pub endpoint: super::super::relay::RelayEndpoint,
     /// Join at once: one side said it has no other path.
     pub now: bool,
+    /// This device's relay ticket for the session, as the service stamped it
+    /// on a signal to this device (`relayTicket`); `None` from a service that
+    /// stamps none, whose join is then refused.
+    pub ticket: Option<String>,
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
@@ -1259,8 +1263,13 @@ async fn run_relay_watch(session: Weak<Session>) {
         let decided = Instant::now();
         tracing::info!(session = session.session_id, reason, "WireGuard joins cmux's relay");
         let host = plan.endpoint.host();
-        match super::super::relay::RelayCarrier::join(&plan.endpoint, &session.session_id, &session.peer)
-            .await
+        match super::super::relay::RelayCarrier::join(
+            &plan.endpoint,
+            &session.session_id,
+            &session.peer,
+            plan.ticket.as_deref(),
+        )
+        .await
         {
             Ok(carrier) => {
                 failures = 0;

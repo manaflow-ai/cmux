@@ -34,6 +34,9 @@ use crate::class_queue::{ClassQueue, Queued, SendClass};
 
 /// The WebSocket subprotocol a join offers (the Worker selects it).
 pub const SUBPROTOCOL: &str = "cmux-relay.v1";
+/// The header a join presents this device's relay ticket in: the
+/// `relayTicket` the service stamped on the session's signals to this device.
+pub const TICKET_HEADER: &str = "x-cmux-relay-ticket";
 /// The relay's stand-in for the peer's address: a route through the relay
 /// names no real address, and this one is never a peer endpoint.
 pub const RELAY_PEER: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 443);
@@ -213,12 +216,14 @@ impl std::fmt::Debug for RelayCarrier {
 }
 
 impl RelayCarrier {
-    /// Join session `session_id`'s relay as `endpoint`'s device; only frames
-    /// that name `peer_device` (the relay stamps the sender) are taken.
+    /// Join session `session_id`'s relay as `endpoint`'s device, with its
+    /// `ticket` for the session; only frames that name `peer_device` (the
+    /// relay stamps the sender) are taken.
     pub async fn join(
         endpoint: &RelayEndpoint,
         session_id: &str,
         peer_device: &str,
+        ticket: Option<&str>,
     ) -> Result<Self, RelayFailure> {
         crate::install_crypto_provider();
         let url = relay_url(&endpoint.base_url, session_id, &endpoint.device_id)
@@ -233,6 +238,9 @@ impl RelayCarrier {
         };
         headers.insert("authorization", header(&format!("Bearer {token}"))?);
         headers.insert("sec-websocket-protocol", header(SUBPROTOCOL)?);
+        if let Some(ticket) = ticket {
+            headers.insert(TICKET_HEADER, header(ticket)?);
+        }
         if let Some(space) = &endpoint.build_space {
             headers.insert(crate::build_space::HEADER, header(space.as_str())?);
         }

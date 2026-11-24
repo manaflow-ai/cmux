@@ -166,6 +166,11 @@ pub struct SignalEnvelope {
     /// sender. Clients never set it (the backend overwrites it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_user_id: Option<String>,
+    /// Stamped by the backend on forwarded `wg-*` signals (API 0.17.0): this
+    /// device's own ticket for the session's WebSocket relay, which a relay
+    /// join presents (PROTOCOL.md "WebSocket relay"). Clients never set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_ticket: Option<String>,
 }
 
 /// One sealed reply the backend held for this Mac (PROTOCOL.md "Reply
@@ -692,6 +697,7 @@ impl SignalingClient {
             session_id: session_id.to_owned(),
             payload,
             from_user_id: None,
+            relay_ticket: None,
         });
         let text = serde_json::to_string(&message).expect("signal serializes");
         self.shared.out.push_signal(Signal::Text(text))
@@ -969,6 +975,7 @@ mod tests {
                 sdp_m_line_index: Some(0),
             },
             from_user_id: None,
+            relay_ticket: None,
         });
         let json: serde_json::Value = serde_json::to_value(&offer).unwrap();
         assert_eq!(

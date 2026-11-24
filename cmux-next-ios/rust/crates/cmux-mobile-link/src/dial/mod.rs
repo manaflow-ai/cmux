@@ -734,6 +734,7 @@ mod tests {
             session_id: "new".into(),
             payload: SignalPayload::Bye { reason: "test".into() },
             from_user_id: None,
+            relay_ticket: None,
         };
         session_tx.send(SessionEvent::Signal(bye)).unwrap();
         assert!(matches!(events.next().await, Ok(SessionEvent::Signal(_))));

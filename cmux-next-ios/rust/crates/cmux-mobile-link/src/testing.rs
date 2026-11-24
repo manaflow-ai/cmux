@@ -68,6 +68,9 @@ struct State {
     forwarded: Vec<(String, String, std::time::Instant)>,
     /// The relay's joined sockets: sessionId → device → its socket.
     relays: HashMap<String, HashMap<String, mpsc::UnboundedSender<Message>>>,
+    /// Each device's relay ticket per session, stamped on the `wg-*` signals
+    /// sent to it (team-hub.ts `relayTicket`): (sessionId, device) → ticket.
+    tickets: HashMap<(String, String), String>,
     relay_joins: u64,
     relay_frames: u64,
 }
@@ -299,9 +302,21 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 match (admitted, target) {
                     (true, Some(target)) => {
                         let kind = value["payload"]["kind"].as_str().unwrap_or_default().to_owned();
-                        state.forwarded.push((session.clone(), kind, std::time::Instant::now()));
+                        state.forwarded.push((session.clone(), kind.clone(), std::time::Instant::now()));
                         if existing.is_none() {
-                            state.sessions.insert(session, (device.clone(), to));
+                            state.sessions.insert(session.clone(), (device.clone(), to.clone()));
+                        }
+                        // The recipient's own relay ticket, never a client's value.
+                        if let Some(object) = value.as_object_mut() {
+                            object.remove("relayTicket");
+                        }
+                        if kind.starts_with("wg-") {
+                            let ticket = state
+                                .tickets
+                                .entry((session, to))
+                                .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
+                                .clone();
+                            value["relayTicket"] = Value::String(ticket);
                         }
                         let _ = target.send(Message::Text(value.to_string().into()));
                     }
@@ -371,6 +386,10 @@ async fn serve_relay(
             .starts_with("authorization: bearer user:")
             .then(|| line["authorization: bearer user:".len()..].trim().to_owned())
     });
+    let presented = head.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim().eq_ignore_ascii_case(crate::dial::relay::TICKET_HEADER).then(|| value.trim().to_owned())
+    });
     let offered = head.lines().any(|line| {
         let lower = line.to_ascii_lowercase();
         lower.starts_with("sec-websocket-protocol:") && lower.contains(crate::dial::relay::SUBPROTOCOL)
@@ -386,7 +405,12 @@ async fn serve_relay(
                 return None;
             };
             let same_user = state.devices.get(&device).is_none_or(|d| Some(&d.user) == user.as_ref());
-            same_user.then(|| other.clone())
+            // The joining device's own ticket, as the Worker requires.
+            let ticket_ok = state
+                .tickets
+                .get(&(session.clone(), device.clone()))
+                .is_some_and(|ticket| presented.as_deref() == Some(ticket.as_str()));
+            (same_user && ticket_ok).then(|| other.clone())
         })
     };
     use tokio_tungstenite::tungstenite::http::StatusCode;

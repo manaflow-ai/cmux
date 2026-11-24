@@ -388,13 +388,18 @@ fn diagnose_gather(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnC
 /// This session's relay, when this side has one and the peer offered it
 /// (`relay` in its `wg-init` / `wg-resp`); else the diagnosis says the peer
 /// cannot relay.
-fn relay_plan(options: &DialOptions, own_now: bool, peer: Option<&str>) -> Option<roam::RelayPlan> {
+fn relay_plan(
+    options: &DialOptions,
+    own_now: bool,
+    peer: Option<&str>,
+    ticket: Option<String>,
+) -> Option<roam::RelayPlan> {
     let endpoint = options.relay.clone()?;
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
         return None;
     };
-    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW })
+    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket })
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
@@ -2445,6 +2450,8 @@ impl Dialer for WireGuardDialer {
             let video_agreed;
             let webrtc_media_agreed;
             let liveness_agreed;
+            // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
+            let mut relay_ticket = None;
             let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
@@ -2467,6 +2474,7 @@ impl Dialer for WireGuardDialer {
                             video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                             webrtc_media_agreed =
                                 video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
+                            relay_ticket = envelope.relay_ticket;
                             break (
                                 parse_key(&public_key)?,
                                 endpoints,
@@ -2491,7 +2499,7 @@ impl Dialer for WireGuardDialer {
             if peer_ip == DIALER_OVERLAY {
                 return Err(DialError::Unexpected("peer overlay address collides".into()));
             }
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref());
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
             if relay.is_none() && no_plain_udp(options) && turn.is_none() {
                 // The relay was this side's only way, and the Mac has none.
                 return Err(options.diagnosis.blocked());
@@ -2596,6 +2604,8 @@ impl Dialer for WireGuardDialer {
         Box::pin(async move {
             let effective = effective_options(options);
             let options: &DialOptions = &effective;
+            // This side's relay ticket comes stamped on the phone's `wg-init` (`relayTicket`).
+            let relay_ticket = first.relay_ticket.clone();
             let SignalPayload::WgInit {
                 public_key,
                 endpoints: peer_endpoints,
@@ -2644,7 +2654,7 @@ impl Dialer for WireGuardDialer {
                 .relay
                 .as_ref()
                 .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref());
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
