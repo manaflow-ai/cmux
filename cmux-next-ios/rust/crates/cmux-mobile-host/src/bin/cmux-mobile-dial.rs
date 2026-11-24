@@ -2,6 +2,7 @@
 //!
 //!   cmux-mobile-dial --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
 //!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
+//!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
@@ -14,6 +15,11 @@
 //! over UDP, only TURN over TLS on 443 (path `turn-tls`). `--no-turn` drops
 //! the TURN servers `/v1/ice` returned (with `--relay-only` or
 //! `--block-udp` the dial then fails: there is no backend relay any more).
+//! `--drop-wireguard` acts as behind a firewall that drops WireGuard (STUN
+//! and TURN answer, WireGuard over UDP is dropped), so the link falls through
+//! to TURN over TLS; `--proxy-only` blocks UDP and lets TURN over TLS out only
+//! through the system's proxy (`CMUX_MOBILE_DEV_PROXY=http://host:port` sets
+//! one). PROTOCOL.md "Corporate networks".
 
 use std::time::{Duration, Instant};
 
@@ -31,6 +37,9 @@ struct Args {
     transports: Vec<TransportKind>,
     relay_only: bool,
     block_udp: bool,
+    /// The corporate network simulations (PROTOCOL.md "Corporate networks").
+    drop_wireguard: bool,
+    proxy_only: bool,
     no_turn: bool,
     no_input_lane: bool,
     exclude_cgnat: bool,
@@ -46,6 +55,7 @@ fn parse() -> Result<Args> {
     let mut transports = Vec::new();
     let (mut relay_only, mut exclude_cgnat, mut daemon, mut no_turn) = (false, false, false, false);
     let (mut stock_ice_waits, mut block_udp) = (false, false);
+    let (mut drop_wireguard, mut proxy_only) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let mut no_input_lane = false;
     while let Some(arg) = args.next() {
@@ -64,6 +74,8 @@ fn parse() -> Result<Args> {
             "--pings" => pings = value()?.parse()?,
             "--relay-only" | "--force-relay" => relay_only = true,
             "--block-udp" => block_udp = true,
+            "--drop-wireguard" => drop_wireguard = true,
+            "--proxy-only" => proxy_only = true,
             "--exclude-cgnat" => exclude_cgnat = true,
             "--no-turn" => no_turn = true,
             "--no-input-lane" => no_input_lane = true,
@@ -85,6 +97,8 @@ fn parse() -> Result<Args> {
         transports,
         relay_only,
         block_udp,
+        drop_wireguard,
+        proxy_only,
         no_turn,
         no_input_lane,
         exclude_cgnat,
@@ -133,7 +147,9 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
         relay_only: args.relay_only,
-        block_udp: args.block_udp,
+        block_udp: args.block_udp || args.proxy_only,
+        drop_wireguard_udp: args.drop_wireguard,
+        egress: cmux_mobile_link::egress::Egress { require_proxy: args.proxy_only, ..Default::default() },
         input_lane: !args.no_input_lane,
         timeline: timeline.clone(),
         stock_ice_waits: args.stock_ice_waits,

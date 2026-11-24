@@ -56,7 +56,8 @@ import Testing
 
     @Test func storedKeysCoverTheDeveloperPage() {
         let keys = Set(DeveloperOptions.storedKeys)
-        #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey]))
+        #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey,
+                                     DeveloperOptions.proxyOnlyKey, DeveloperOptions.dropWireGuardKey]))
     }
 
     #if DEBUG
