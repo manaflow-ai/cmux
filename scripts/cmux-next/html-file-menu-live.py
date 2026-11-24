@@ -12,7 +12,10 @@ NX_APP_TAG, NX_APP_STOP, NX_ARTIFACTS). Writes PNGs and html-file-menu-live.json
 Exit 0 all checks passed; 1 a check failed; 2 the app did not come up.
 Usage: html-file-menu-live.py [--tag TAG] [--app APP] [--out DIR] [--only send,text] [--reduce-motion]
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, socket, subprocess, sys, tempfile, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
@@ -73,6 +76,37 @@ def wait(predicate, timeout):
             return value
         time.sleep(0.2)  # test harness poll, not app code
     return None
+
+
+def pixels():
+    """A hash of a fresh window snapshot (scratch file), for changes no socket state reports (the menu's highlight)."""
+    path = os.path.join(SCRATCH, "settle.png")
+    if (rpc("debug.window_snapshot", {"path": path}) or {}).get("error"):
+        return None
+    with open(path, "rb") as handle:
+        return hashlib.sha1(handle.read()).hexdigest()
+
+
+# The captures are best effort: a wait that times out says what never happened and the run goes on.
+def until(predicate, what, timeout=15):
+    value = wait_until(predicate, what, timeout=timeout, interval=0.1, raise_on_timeout=False)
+    if not value:
+        say(f"wait: {what} did not happen in {timeout} s; going on")
+    return value
+
+
+def settle(get, what, timeout=10, reads=4):
+    return wait_stable(get, what, timeout=timeout, interval=0.1, reads=reads, raise_on_timeout=False)
+
+
+def changed_then_settled(before, get, what, timeout=15):
+    """Until `get()` moved off `before`, then until it holds still."""
+    until(lambda: get() != before, what, timeout)
+    return settle(get, what)
+
+
+def surfaces_json(text=False):
+    return json.dumps((rpc("debug.surfaces", {"text": True} if text else {}) or {}).get("windows"), sort_keys=True)
 
 
 def snapshot(name, desktop=True):
@@ -138,9 +172,11 @@ def launch():
     if not wait(lambda: os.path.exists(SOCK) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         say("FAIL the tagged app did not come up")
         finish(2)
-    time.sleep(2)  # test harness: the window settles
+    settle(surfaces_json, "the first window's surfaces")
+    before = surfaces_json(text=True)
     say("workspace new:", json.dumps(rpc("action.run", {"action": "workspace new", "args": {"cwd": FIXTURE, "focus": True}, "origin": "script"}))[:200])
-    time.sleep(2)  # test harness: the shell starts
+    # The new workspace shows, then its terminal's text holds still (the shell's prompt drew).
+    changed_then_settled(before, lambda: surfaces_json(text=True), "the new workspace's shell")
 
 
 def open_index():
@@ -197,9 +233,11 @@ def run_menu():
     """u9489: right-click my index.html attachment in the Home chat, close the menu, send a message."""
     say("fixture:", json.dumps(rpc("debug.home_native_fixture.open", {"new": True}))[:300])
     wait(lambda: drive("geometry").get("ok"), 30)
-    time.sleep(1)  # test harness: the transcript paints
+    settle(lambda: drive("rows"), "the transcript's rows")
+    before = drive("geometry")
     say("attach:", json.dumps(rpc("debug.home.attach", {"path": INDEX, "via": "drop"})))
-    time.sleep(0.8)  # test harness: the tile lands in the field
+    # The tile grows the field: the geometry changes, then holds.
+    changed_then_settled(before, lambda: drive("geometry"), "the index.html tile in the field")
     say("send attachment:", json.dumps(drive("send")))
     row_, rows = wait(lambda: (lambda r: r if r[0] else None)(attachment_row()), 20) or (None, drive("rows"))
     say("rows:", json.dumps(rows)[:1500])
@@ -211,8 +249,9 @@ def run_menu():
     b = row_["balloon"]
     # rows: window points, bottom-left origin; debug.mouse: window points, top-left origin.
     x, y = b["x"] + b["width"] / 2, rows["windowHeight"] - (b["y"] + b["height"] / 2)
+    before = pixels()
     say("right click:", json.dumps(rpc("debug.mouse", {"x": x, "y": y, "action": "click", "button": "right"}, timeout=5)))
-    time.sleep(1.5)  # test harness: the menu opens and the highlight fades in
+    open_pixels = changed_then_settled(before, pixels, "the menu's highlight to fade in")
     cap = os.environ.get("NX_CAPTURE")
     if cap:
         r = subprocess.run(["bash", cap, "shot", "--pid", str(pid), "--with-popups", "--out", os.path.join(opts.out, "menu-1-open.png")],
@@ -220,7 +259,7 @@ def run_menu():
         say("capture menu-1-open:", r.returncode, r.stderr.strip()[:200])
     say("debug.menu:", json.dumps(drive("menu"))[:600])
     rpc("debug.key", {"key": "escape"}, timeout=5)
-    time.sleep(0.8)  # test harness: the menu and its highlight close
+    changed_then_settled(open_pixels, pixels, "the menu and its highlight to close")
     snapshot("menu-2-closed")
     drive("focus")
     drive("type", text="Sending a message after the right-click.")
@@ -243,11 +282,14 @@ def run_held():
         return
     b = row_["balloon"]
     x, y = b["x"] + b["width"] / 2, rows["windowHeight"] - (b["y"] + b["height"] / 2)
+    before = pixels()
     rpc("debug.mouse", {"x": x, "y": y, "action": "click", "button": "right"}, timeout=5)
-    time.sleep(1.0)  # test harness: the menu opens and the highlight fades in
+    changed_then_settled(before, pixels, "the held menu's highlight to fade in")
     # A reply from the Chief lands while the menu is open: the rows move up.
+    before_rows = drive("rows")
     say("stream:", json.dumps(rpc("debug.home.drive", {"action": "stream", "text": "Got it, opening the page now.", "done": True})))
-    time.sleep(1.2)  # test harness: the row lands and the transcript moves
+    changed_then_settled(before_rows, lambda: drive("rows"), "the reply's row to land")
+    open_pixels = settle(pixels, "the transcript to stop moving")
     cap = os.environ.get("NX_CAPTURE")
     if cap:
         r = subprocess.run(["bash", cap, "shot", "--pid", str(launched[0].pid), "--with-popups", "--out",
@@ -255,8 +297,17 @@ def run_held():
         say("capture held:", r.returncode, r.stderr.strip()[:200])
     cua("get_desktop_state", {"screenshot_out_file": os.path.join(opts.out, "held-1-menu-open-after-reply-desktop.png")})
     rpc("debug.key", {"key": "escape"}, timeout=5)
-    time.sleep(0.8)  # test harness: the menu closes
+    changed_then_settled(open_pixels, pixels, "the held menu to close")
     snapshot("held-2-closed")
+
+
+def editor_text():
+    """The text of every live code editor page."""
+    texts = []
+    for entry in (rpc("debug.page", {"page": "cmux.editor", "action": "list"}) or {}).get("pages") or []:
+        if not entry.get("parked"):
+            texts.append((rpc("debug.page", {"page": "cmux.editor", "action": "state", "instance": entry.get("instance")}) or {}).get("text") or "")
+    return "\n".join(texts).replace("\u00a0", " ")  # the code editor draws spaces as no-break spaces
 
 
 def run_text():
@@ -267,7 +318,9 @@ def run_text():
     editor = wait(lambda: next((x for x in (rpc("debug.filepages") or {}).get("tabs", [])
                                 if x.get("kind") == "editor" and x.get("file") == INDEX and x.get("has_page")), None), 30)
     row("index.html shows as text in the code editor", editor is not None, editor)
-    time.sleep(2)  # test harness: Monaco paints
+    # Monaco drew the file's source, then the window holds still.
+    until(lambda: "Gallery index" in editor_text(), "the code editor to show index.html's source", 30)
+    settle(pixels, "the code editor page")
     snapshot("text-editor")
 
 

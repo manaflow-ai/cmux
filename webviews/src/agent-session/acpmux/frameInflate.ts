@@ -96,4 +96,9 @@ export class OrderedFrames {
       }
     });
   }
+
+  /// Resolves once every frame pushed so far has been handed on or refused.
+  drained(): Promise<void> {
+    return this.tail;
+  }
 }
