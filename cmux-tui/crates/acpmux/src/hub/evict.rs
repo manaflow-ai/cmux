@@ -56,6 +56,8 @@ pub(crate) struct Tier {
     after_ns: AtomicU64,
     pub(super) evictions: AtomicU64,
     pub(super) rehydrations: AtomicU64,
+    /// The last pass stopped at [`EVICT_AT_ONCE`]: due chats remain that nothing kept.
+    pub(super) more_due: AtomicBool,
 }
 
 impl Default for Tier {
@@ -66,6 +68,7 @@ impl Default for Tier {
             after_ns: AtomicU64::new(secs.unwrap_or(0).saturating_mul(1_000_000_000)),
             evictions: AtomicU64::new(0),
             rehydrations: AtomicU64::new(0),
+            more_due: AtomicBool::new(false),
         }
     }
 }
@@ -248,13 +251,22 @@ impl Hub {
 
     /// When the first resident chat's eviction falls due, on the hub clock (the idle reaper sleeps
     /// until then). None when eviction is off or no chat is a candidate.
+    ///
+    /// A chat already past its deadline that is still here was kept (`kept_because`, another
+    /// holder, a failed barrier): it is tried again one `after` later, not now, or the reaper wakes
+    /// at once, finds it kept and sleeps until the same past deadline, in a loop (98% CPU and 330
+    /// wakeups/s idle in the n=100 bench). Only when the last pass stopped at [`EVICT_AT_ONCE`] do
+    /// past deadlines wake it at once.
     pub(super) fn next_evict_deadline(&self) -> Option<std::time::Duration> {
         let after = self.evicted.after()?;
+        let now = std::time::Duration::from_nanos(self.clock_now());
+        let retry = if self.evicted.more_due.load(Ordering::Relaxed) { now } else { now + after };
         self.session_handles()
             .iter()
             .filter(|s| s.child.try_lock().is_ok_and(|c| c.is_none()))
             .filter(|s| s.attached.load(Ordering::Relaxed) == 0)
             .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + after)
+            .map(|due| if due > now { due } else { retry })
             .min()
     }
 
@@ -269,6 +281,7 @@ impl Hub {
             .filter(|s| self.evictable(s, now, after))
             .take(EVICT_AT_ONCE)
             .collect();
+        self.evicted.more_due.store(due.len() == EVICT_AT_ONCE, Ordering::Relaxed);
         // Each handle moves into `evict`: a clone kept here would count as a third holder.
         due.into_iter().map(|s| self.evict(s, now, after)).filter(Result::is_ok).count()
     }

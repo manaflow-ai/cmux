@@ -160,3 +160,22 @@ async fn an_evicted_chat_counts_live_or_closed_as_it_did_in_memory() {
     assert_eq!(hub.session_counts(), before, "the hidden closed count does not move");
     assert_eq!(hub.eviction_counts(), (3, 3, 0));
 }
+
+/// A chat past its deadline that stays (held here) must not leave the reaper a deadline in the
+/// past: it would wake at once, find it kept, and loop (98% CPU idle in the n=100 bench).
+#[tokio::test]
+async fn a_kept_chat_past_its_deadline_is_retried_later_not_at_once() {
+    let hub = hub_with(1);
+    let after = std::time::Duration::from_millis(1);
+    hub.evicted.set_after(Some(after));
+    let held = hub.session_get("s0").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let now = std::time::Duration::from_nanos(hub.clock_now());
+    let due = std::time::Duration::from_nanos(held.last_active.load(Ordering::SeqCst)) + after;
+    assert!(due < now, "s0 is past its deadline");
+    assert_eq!(hub.evict_idle_chats(), 0, "the handle keeps it");
+    let next = hub.next_evict_deadline().expect("a candidate");
+    assert!(next > now, "a kept chat's retry is in the future: {next:?} <= {now:?}");
+    drop(held);
+    assert_eq!(hub.evict_idle_chats(), 1);
+}
