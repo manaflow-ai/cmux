@@ -60,6 +60,9 @@ final class ShellModel {
     /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] {
         didSet {
+            if let workspace = workspacesPath.last {
+                lastWorkspace.save(store.resolvedWorkspaceID(workspace.id))
+            }
             updateInteractiveOpen()
             updateShownMacs()
         }
@@ -143,6 +146,8 @@ final class ShellModel {
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
     @ObservationIgnored let lastOpen: LastOpenMemory
+    /// The workspace last visited, kept when the user backs out to the list.
+    @ObservationIgnored let lastWorkspace: LastWorkspaceMemory
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.
@@ -163,8 +168,10 @@ final class ShellModel {
         let surface: Int
     }
 
-    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
+    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel,
+         lastOpen: LastOpenMemory = .standard, lastWorkspace: LastWorkspaceMemory = .standard) {
         self.lastOpen = lastOpen
+        self.lastWorkspace = lastWorkspace
         self.store = store
         self.auth = auth
         // New Message names this account and its team by the Cloud's own ids, derived from the project.
