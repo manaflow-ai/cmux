@@ -78,8 +78,9 @@ export function SheetPage({
       <main aria-labelledby="cls-title" ref={main}>
         <header className="cls-masthead">
           <h1 className="cls-title" id="cls-title">
-            {strings.t("changelog.page.title")}
+            {strings.t("changelog.page.releaseNotes")}
           </h1>
+          <p className="cls-lede">{strings.t("changelog.page.releaseNotesLede")}</p>
         </header>
         {s.failed && <p className="cl-error">{s.failed}</p>}
         {s.builds.length === 0 && !s.failed && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}

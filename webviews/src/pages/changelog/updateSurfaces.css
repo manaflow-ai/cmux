@@ -1166,30 +1166,15 @@
   outline-offset: 2px;
 }
 
-/* The Updated card as news (Lawrence 2026-11-23, "drastically improve" the What's New toast, with
-   Conductor's and Linear's changelogs): an accent tile with a sparkle leads the card, the title is
-   the strong line and the top change reads under it in the quiet color, its area label strong.
-   The tile takes the text color, so it reads in every theme (a theme's accent can be its background). The words take the room right of the tile; the card's box and glass stay the composer's. */
-.wn-updated {
-  --wn-badge: calc(var(--grid-base, 4px) * 7);
+/* The descriptive title (CardTitleLook): the change's words take the strong line, so they may be
+   long; one line, cut with an ellipsis. The version line under it is quiet. */
+.wn-updated .wn-card-title[data-look="headline"],
+.wn-updated .wn-card-title[data-look="kind"],
+.wn-updated .wn-card-title[data-look="areas"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.wn-updated .wn-card-rest {
-  padding-inline-start: calc(var(--wn-side) + var(--wn-badge) + var(--grid-base, 4px) * 2.5);
+.wn-card-meta {
+  color: var(--page-text-3);
 }
-.wn-card-badge {
-  position: absolute;
-  inset-inline-start: var(--wn-side);
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: var(--wn-badge);
-  height: var(--wn-badge);
-  border-radius: var(--ds-radius-lg);
-  background: color-mix(in srgb, var(--page-text) 12%, transparent);
-  color: var(--page-text);
-  transform: translateY(-50%);
-}
-.wn-card-badge svg { fill: currentColor; }
-.wn-updated .wn-card-title { font-weight: 600; }
-.wn-updated .wn-card-note { color: var(--page-text-2); }
-.wn-updated[data-decoration] .wn-card-badge { display: none; }

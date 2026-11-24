@@ -805,6 +805,12 @@ html[data-cmux-page="changelog"] {
   column-gap: var(--ds-space-6);
   margin-bottom: var(--ds-space-6);
 }
+.cls-lede {
+  grid-column: 2;
+  margin: var(--ds-space-2) 0 0;
+  color: var(--page-text-2);
+  font-size: 1.1em;
+}
 .cls-title {
   grid-column: 2;
   margin: 0;
@@ -899,7 +905,8 @@ html[data-cmux-page="changelog"] {
 @media (max-width: 760px) {
   .cls-masthead,
   .cls .cls-day { grid-template-columns: minmax(0, 1fr); }
-  .cls-title { grid-column: 1; }
+  .cls-title,
+  .cls-lede { grid-column: 1; }
   .cls-rail { position: static; flex-direction: row; align-items: center; margin-bottom: var(--ds-space-3); }
   .cls-rail .cl-installed,
   .cls-rail .cls-versions-toggle { margin-inline-start: 0; }

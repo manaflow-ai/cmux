@@ -17,6 +17,7 @@ import {
   UpdateReadyHighlights,
   type BriefLayout,
   type NoteLoadingLook,
+  type CardTitleLook,
   type PreviewLayout,
   type ReadyLayout,
   type WhatsNewPlacement,
@@ -98,6 +99,7 @@ type Props = {
   /** The Updated card's notes still loading: the title, and a loading change line in its look. */
   notesLoading?: boolean;
   loadingLook?: NoteLoadingLook;
+  titleLook?: CardTitleLook;
   /** The card's glass with no words: what the sidebar drew while the card's page loaded, before. */
   blankGlass?: boolean;
 };
@@ -147,15 +149,30 @@ const lawrenceShot: UpdateHighlights = {
   source: "whatsNew",
   language: "en",
   items: [
-    { id: "dictation", title: "Show when another app is dictating into a chat", summary: null, category: "new" },
+    {
+      id: "dictation",
+      title: "Show when another app is dictating into a chat",
+      summary: null,
+      category: "new",
+    },
     {
       id: "new-tab",
       title: "New Browser Tab always opens a blank page beside the current one",
       summary: null,
       category: "improved",
     },
-    { id: "tool-calls", title: "Show grouped tool calls as an iOS-style stack", summary: null, category: "improved" },
-    { id: "pins", title: "Pinned rows line up under Home's icon", summary: null, category: "fixed" },
+    {
+      id: "tool-calls",
+      title: "Show grouped tool calls as an iOS-style stack",
+      summary: null,
+      category: "improved",
+    },
+    {
+      id: "pins",
+      title: "Pinned rows line up under Home's icon",
+      summary: null,
+      category: "fixed",
+    },
   ],
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.4230000000001", to: "1.0.0-nightly.4241815985601" },
@@ -168,7 +185,14 @@ const spanData: UpdateHighlights = {
   fromBuild: "3912500000000",
   date: span[0]!.date,
   source: "summary",
-  items: [{ id: "summary-0", title: "A static status look, on under Reduce Motion", summary: null, category: "new" }],
+  items: [
+    {
+      id: "summary-0",
+      title: "A static status look, on under Reduce Motion",
+      summary: null,
+      category: "new",
+    },
+  ],
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.3912500000000", to: span[0]!.shortVersion },
 };
@@ -307,7 +331,12 @@ const leoData: UpdateHighlights = {
   fromBuild: "4210546000001",
   source: "whatsNew",
   items: [
-    { id: "rollback", title: "Go back to any recent version from What's New", summary: rollbackLine, category: "new" },
+    {
+      id: "rollback",
+      title: "Go back to any recent version from What's New",
+      summary: rollbackLine,
+      category: "new",
+    },
   ],
   rest: [],
   moreCount: 0,
@@ -339,7 +368,12 @@ const leoSpan: ReleaseNotes[] = [
     build: "4211300000001",
     shortVersion: "1.0.0-nightly.4211300000001",
     date: "2026-11-05",
-    highlights: skipped.map(([title, body, category], index) => ({ id: `skipped-${index}`, title, body, category })),
+    highlights: skipped.map(([title, body, category], index) => ({
+      id: `skipped-${index}`,
+      title,
+      body,
+      category,
+    })),
     changes: [],
   },
 ];
@@ -353,7 +387,11 @@ function doodleFontLoaded(doc: Document): boolean {
   return loaded;
 }
 
-const photoSrc = { dusk: photoDusk, clouds: photoClouds, "bright-clouds": photoBrightClouds } as const;
+const photoSrc = {
+  dusk: photoDusk,
+  clouds: photoClouds,
+  "bright-clouds": photoBrightClouds,
+} as const;
 
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
@@ -477,6 +515,7 @@ function UpdateSurfacesGallery({
   notesHead,
   notesLoading,
   loadingLook,
+  titleLook,
   blankGlass = false,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
@@ -489,7 +528,11 @@ function UpdateSurfacesGallery({
         padding: 10,
         ...(theme ? themeStyle(theme) : {}),
         ...(photo
-          ? { backgroundImage: `url(${photoSrc[photo]})`, backgroundSize: "cover", backgroundPosition: "center" }
+          ? {
+              backgroundImage: `url(${photoSrc[photo]})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
           : onWallpaper
             ? { backgroundImage: wallpaper }
             : {}),
@@ -556,6 +599,7 @@ function UpdateSurfacesGallery({
                 previewMode={previewOpen === undefined ? undefined : "above"}
                 notesLoading={notesLoading}
                 loadingLook={loadingLook}
+                titleLook={titleLook}
               />
             )}
           </div>
@@ -620,7 +664,13 @@ export default componentEntry<Props>({
     },
     "notes-sections-mono": {
       note: "Variant: under area headers, each area's symbol from the app's own set (Settings' SF Symbol glyphs, 16 pt, never filled) in the label's quiet color, on one grid column with its name and count; each change's text starts on the name's line; jargon folds into a Maintenance and fixes header.",
-      props: { surface: "notes", data: leoNightlyData, span: leoSpanNightly, theme: "dark", notesLook: "sections" },
+      props: {
+        surface: "notes",
+        data: leoNightlyData,
+        span: leoSpanNightly,
+        theme: "dark",
+        notesLook: "sections",
+      },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".wn-notes-area svg.icon").length > 1);
       },
@@ -704,11 +754,23 @@ export default componentEntry<Props>({
     },
     "card-loading-dots": {
       note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
-      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "dots" },
+      props: {
+        surface: "card",
+        data: leoFirstPaint,
+        theme: "dark",
+        notesLoading: true,
+        loadingLook: "dots",
+      },
     },
     "card-loading-dots-light": {
       note: "The shipped loading line in the light theme.",
-      props: { surface: "card", data: leoFirstPaint, theme: "light", notesLoading: true, loadingLook: "dots" },
+      props: {
+        surface: "card",
+        data: leoFirstPaint,
+        theme: "light",
+        notesLoading: true,
+        loadingLook: "dots",
+      },
     },
     "card-loading-before": {
       note: 'Before (Leo 2026-11-09: "instead of just having a blank glass bit"): the sidebar drew the card\'s glass at its room while its page loaded, empty for up to a second after a relaunch, then the title and the change came in together.',
@@ -720,15 +782,33 @@ export default componentEntry<Props>({
     },
     "card-loading-glyph": {
       note: "Variant: the ellipsis glyph in the quiet color. As quiet as the dots, but at the note's size it reads as a line cut short, not as words on their way.",
-      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "glyph" },
+      props: {
+        surface: "card",
+        data: leoFirstPaint,
+        theme: "dark",
+        notesLoading: true,
+        loadingLook: "glyph",
+      },
     },
     "card-loading-bar": {
       note: "Variant: a bar the line's height that a light crosses (a skeleton line, cf. claude/live/settings-loading-skeleton). Says where the words go, but the sweep is the busiest motion on the glass for a line that loads in about a second.",
-      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "bar" },
+      props: {
+        surface: "card",
+        data: leoFirstPaint,
+        theme: "dark",
+        notesLoading: true,
+        loadingLook: "bar",
+      },
     },
     "card-loading-words": {
       note: 'Variant: "Loading what\'s new…" in the quiet color. Plain, but it is words that are then replaced by other words, a text swap that reads as a change of content (cf. cmux/live/session-info-context-breakdown-loading).',
-      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "words" },
+      props: {
+        surface: "card",
+        data: leoFirstPaint,
+        theme: "dark",
+        notesLoading: true,
+        loadingLook: "words",
+      },
     },
     "card-photo-dusk": {
       note: "The card over a real photograph (repo frame_assets, dusk, dark top): dark theme, for the ink's contrast over a picture.",
@@ -758,6 +838,54 @@ export default componentEntry<Props>({
       note: 'The shipped card beside a one-line composer box in the same material: one height (48), one corner, one edge and one fill (Leo 2026-11-07: "it becomes the exact same height as the composer").',
       props: { surface: "card", data: base, theme: "dark", besideComposer: true, width: 640 },
     },
+    "card-title-headline": {
+      note: '(Lawrence 2026-11-23: "updated to nightly can likely be more descriptive about what the update is actually about"): the lead change is the title; "Updated to Nightly" and the areas it touches sit under it, quiet.',
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        besideComposer: true,
+        width: 640,
+        titleLook: "headline",
+      },
+    },
+    "card-title-kind": {
+      note: "The lead change after its kind (New, Improved, Fixed), version and areas under it.",
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        besideComposer: true,
+        width: 640,
+        titleLook: "kind",
+      },
+    },
+    "card-title-areas": {
+      note: "The areas the update touches as the title, the lead change under it.",
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        besideComposer: true,
+        width: 640,
+        titleLook: "areas",
+      },
+    },
+    "card-title-version": {
+      note: "The look before: Updated to Nightly, the top change under it.",
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        besideComposer: true,
+        width: 640,
+        titleLook: "version",
+      },
+    },
     "card-beside-composer-light": {
       note: "The same in a light theme.",
       props: { surface: "card", data: base, theme: "light", besideComposer: true, width: 640 },
@@ -776,11 +904,23 @@ export default componentEntry<Props>({
     },
     "card-hover-preview-header-bottom": {
       note: "Variant: the same parts with the header kept at the card's resting edge, under the pointer, and the changes above it (the order before).",
-      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true, previewLayout: "header-bottom" },
+      props: {
+        surface: "card",
+        data: lawrenceShot,
+        theme: "dark",
+        previewOpen: true,
+        previewLayout: "header-bottom",
+      },
     },
     "card-hover-preview-titles": {
       note: "Variant: the header leads and the changes are their titles alone, on up to three lines.",
-      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true, previewLayout: "titles" },
+      props: {
+        surface: "card",
+        data: lawrenceShot,
+        theme: "dark",
+        previewOpen: true,
+        previewLayout: "titles",
+      },
     },
     "card-hover-preview-light": {
       note: "The open preview in a light theme, from the host's own items (before the span's notes load).",
@@ -788,16 +928,37 @@ export default componentEntry<Props>({
     },
     "card-hover-preview-top-right": {
       note: "The open preview with the top-right What's New variant.",
-      props: { surface: "card", data: spanData, span, theme: "dark", placement: "top-right", previewOpen: true },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        placement: "top-right",
+        previewOpen: true,
+      },
     },
     "card-preview-over-rows": {
       // motion-allow: Leo's card curve, the native glass's fixed twin (updateSurfaces.css --wn-preview-motion)
       note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 180 ms.",
-      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "glass",
+      },
     },
     "card-preview-over-rows-light": {
       note: "Shipped, in a light theme.",
-      props: { surface: "card", data: spanData, span, theme: "light", previewOpen: true, overRows: "glass" },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "light",
+        previewOpen: true,
+        overRows: "glass",
+      },
     },
     "card-preview-scrolled": {
       note: "Shipped: the open list scrolls in place, and the glass frosts the rows under it while it does.",
@@ -808,15 +969,36 @@ export default componentEntry<Props>({
         scroller.scrollTop = Math.round((scroller.scrollHeight - scroller.clientHeight) / 2);
         if (scroller.scrollTop <= 0) throw new Error("The open preview's list must scroll");
       },
-      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "glass",
+      },
     },
     "card-preview-over-rows-tint": {
       note: 'Rejected: the tint alone, with no frost under it (what the page paints over native rows when the host draws no glass). Every row stays legible through the list (Lawrence 2026-11-07: "this ui transparency looks bad now").',
-      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "tint" },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "tint",
+      },
     },
     "card-preview-over-rows-solid": {
       note: 'Before (a72c0fd5c542, f1d36c5f77e3): the open preview turned solid over the rows, so the card swapped from glass to opaque as it opened (Leo 2026-11-08: "it turns from glass when it\'s unhovered into opaque when it does get hovered").',
-      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "solid" },
+      props: {
+        surface: "card",
+        data: spanData,
+        span,
+        theme: "dark",
+        previewOpen: true,
+        overRows: "solid",
+      },
     },
     "card-doodle": {
       note: 'Leo 2026-11-05, on the Yab browser\'s after-update note: "They have that little line thing, which is kind of cutesy quirky." The doodle in the card\'s decoration slot (Debug Settings "Doodle on the Updated card", off by default): "you\'re on nightly 3845050!" with a check, a curved arrow from "have a look" to What\'s New with a loop around it, and "got it" (hides the card for this version, as its x does). Drawn, on a light theme.',
@@ -888,7 +1070,11 @@ export default componentEntry<Props>({
     },
     "card-maintenance": {
       note: "An update whose builds hold only internal work (CI, autofixes): Maintenance and fixes, no count.",
-      props: { surface: "card", data: { ...spanData, items: [], source: "none" }, span: internalOnly },
+      props: {
+        surface: "card",
+        data: { ...spanData, items: [], source: "none" },
+        span: internalOnly,
+      },
     },
     "card-wallpaper": {
       note: "The same card on a wallpaper: the composer's material, frosting what is behind it as the composer does over art.",
@@ -904,7 +1090,11 @@ export default componentEntry<Props>({
     },
     "card-no-highlights-wallpaper": {
       note: "The same on a wallpaper.",
-      props: { surface: "card", data: { ...base, source: "none", items: [], moreCount: 0 }, wallpaper: true },
+      props: {
+        surface: "card",
+        data: { ...base, source: "none", items: [], moreCount: 0 },
+        wallpaper: true,
+      },
     },
     "card-long-title": {
       note: "A long localized change title ends in an ellipsis on its one line.",
@@ -980,7 +1170,11 @@ export default componentEntry<Props>({
     },
     "popover-empty-inline": {
       note: "Variant: See release notes at the end of the from line, two lines in all.",
-      props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0 }, briefLayout: "inline" },
+      props: {
+        surface: "popover",
+        data: { ...base, source: "none", items: [], moreCount: 0 },
+        briefLayout: "inline",
+      },
     },
     "popover-empty-title-row": {
       note: "Variant: See release notes at the end of the title line, the from line under both.",
@@ -992,7 +1186,10 @@ export default componentEntry<Props>({
     },
     "popover-empty-same-version": {
       note: "No highlights and no from line: the title and the link under it.",
-      props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0, fromVersion: "" } },
+      props: {
+        surface: "popover",
+        data: { ...base, source: "none", items: [], moreCount: 0, fromVersion: "" },
+      },
     },
   },
 });
