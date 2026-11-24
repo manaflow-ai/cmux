@@ -13,6 +13,9 @@ on:
       runs:
         description: "How many forks to time (1 to 10)"
         default: "10"
+      paused_runs:
+        description: "Forks of a paused parent after the timed runs (0 to 10)"
+        default: "10"
       duress:
         description: "Forks of one parent at once after the timed runs (0 to 8)"
         default: "5"
@@ -40,7 +43,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -58,10 +61,11 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           RUNS: ${{ inputs.runs || '10' }}
           DURESS: ${{ inputs.duress || '5' }}
+          PAUSED_RUNS: ${{ inputs.paused_runs || '10' }}
           SPLIT: ${{ inputs.split || '' }}
         run: |
           set -o pipefail
-          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" ${SPLIT:+--split} --duress "$DURESS" --out "$RUNNER_TEMP/fork-placement.json"
+          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --paused-runs "$PAUSED_RUNS" ${SPLIT:+--split} --duress "$DURESS" --out "$RUNNER_TEMP/fork-placement.json"
       - name: Verdict in the summary
         if: always()
         run: |

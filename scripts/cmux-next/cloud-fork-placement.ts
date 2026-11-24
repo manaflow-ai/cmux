@@ -11,7 +11,12 @@
 // Prints one JSON verdict line at the end (and writes it to --out when given).
 //
 //   bun scripts/cmux-next/cloud-fork-placement.ts [--backend staging] [--sign-in password|oidc]
-//       [--team TEAM] [--runs N] [--duress N] [--out FILE]
+//       [--team TEAM] [--runs N] [--paused-runs N] [--duress N] [--out FILE]
+//
+// --paused-runs N: N more runs after the timed ones, each pausing its parent (cloud.machine.pause, until it reads
+// paused) after the setup and forking the paused parent. The split drill measured the provider's own fork of a
+// paused parent at p95 4.0 s against 15.9 s for a running one (cmuxterm-hq docs/findings/2026-11-24-split-drill.md);
+// this arm asks whether the platform's fork sees the same. The verdict carries it as `paused` beside the running arm.
 //
 // Credentials: CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent test
 // account), or --sign-in oidc in a GitHub Actions job the API trusts.
@@ -57,6 +62,9 @@ export type RunRow = {
   agent: string;
   error: string | null;
   cleanup: string[];
+  /** --paused-runs: the parent was paused before the fork; pause_ms is the pause op until it read paused. */
+  parent_paused?: boolean;
+  pause_ms?: number | null;
   /** --split: the fork's steps done one at a time on the same parent (see splitPhases). */
   split?: SplitRow | null;
   /** The copy's create trace (GET /v1/machines/{id}?include=trace): where its restore's time went. */
@@ -139,6 +147,12 @@ const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.floor((s.length - 1) / 2)];
 };
+
+/** One arm's numbers without its rows (the rows are in the verdict's own list): the paused-parent arm. */
+export function armSummary(rows: RunRow[]) {
+  const { kind: _k, rows: _r, ...rest } = verdict(rows, {});
+  return { ...rest, pause_ms: { median: median(rows.map((r) => r.pause_ms).filter((v): v is number => typeof v === "number")) }, rows };
+}
 
 export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
   const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean));
@@ -249,6 +263,7 @@ async function splitPhases(api: Api, parent: string, tag: string, run: number, j
 async function main(): Promise<number> {
   const backend = resolveBackend(arg("--backend", "staging")!);
   const runs = Math.max(1, Math.min(10, Number(arg("--runs", "1"))));
+  const pausedRuns = Math.max(0, Math.min(10, Number(arg("--paused-runs", "0"))));
   const team = arg("--team") || undefined;
   const secrets: string[] = [];
   const api = new Api(backend.api, team);
@@ -279,7 +294,8 @@ async function main(): Promise<number> {
   const platformHeaders = () => ({ authorization: `Bearer ${bearer}`, ...(team ? { "x-cmux-team": team } : {}) });
   const journey = { secrets };
   const rows: RunRow[] = [];
-  for (let run = 1; run <= runs; run++) {
+  for (let run = 1; run <= runs + pausedRuns; run++) {
+    const paused = run > runs;
     const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [] };
     try {
       if (run > 1) await renewToken();
@@ -296,6 +312,13 @@ async function main(): Promise<number> {
       const before = facts(setup.stdout);
       const expect = createHash("sha256").update(nonce).digest("hex");
       if (before.marker !== expect) throw new Error(`the parent's marker is not the nonce's sha256 (${before.marker})`);
+      if (paused) {
+        row.parent_paused = true;
+        const p0 = Date.now();
+        await api.op("cloud.machine.pause", { machine: row.parent }, `${tag}-pause-${run}`);
+        await waitMachine(api, row.parent, (m) => m?.status === "paused", 180_000);
+        row.pause_ms = Date.now() - p0;
+      }
       const f0 = Date.now();
       const forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey: `${tag}-fork-${run}` }, platformHeaders(), 180_000, true);
       row.fork_call_ms = Date.now() - f0;
@@ -371,12 +394,16 @@ async function main(): Promise<number> {
     duress = d;
   }
   await api.op("install.revoke", { install: install.id }, `${tag}-install-revoke`).catch((e) => say(`install ${install.id} not revoked: ${String((e as Error).message).slice(0, 200)}`));
-  const v = { ...verdict(rows, { backend: backend.name, platform, at: new Date().toISOString() }), ...(duress ? { duress: { ...duress, fork_call_p50: median(duress.fork_call_ms), fork_call_p95: p95(duress.fork_call_ms), first_exec_p50: median(duress.fork_to_first_exec_ms), first_exec_p95: p95(duress.fork_to_first_exec_ms) } } : {}) };
+  const running = rows.filter((r) => !r.parent_paused);
+  const pausedRows = rows.filter((r) => r.parent_paused);
+  const v = {
+    ...verdict(running, { backend: backend.name, platform, at: new Date().toISOString() }),
+    ...(pausedRows.length ? { paused: armSummary(pausedRows) } : {}), ...(duress ? { duress: { ...duress, fork_call_p50: median(duress.fork_call_ms), fork_call_p95: p95(duress.fork_call_ms), first_exec_p50: median(duress.fork_to_first_exec_ms), first_exec_p95: p95(duress.fork_to_first_exec_ms) } } : {}) };
   const line = scrub(JSON.stringify(v), secrets);
   const out = arg("--out");
   if (out) writeFileSync(out, `${line}\n`);
   console.log(line);
-  return v.pass ? 0 : 1;
+  return v.pass && (!pausedRows.length || armSummary(pausedRows).pass) ? 0 : 1;
 }
 
 if (import.meta.main) process.exit(await main());

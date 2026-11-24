@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { facts, p95, parity, parityCommand, setupCommand, verdict, type RunRow } from "./cloud-fork-placement.ts";
+import { armSummary, facts, p95, parity, parityCommand, setupCommand, verdict, type RunRow } from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
   run: 1, parent: "vm_p", child: "vm_c", parent_ready_ms: 1, fork_call_ms: 6000, fork_status: 200,
@@ -32,6 +32,15 @@ describe("cloud fork placement", () => {
     expect(v.parity_ok).toBe(1);
     expect(v.fork_call_ms.median).toBe(6000);
     expect(verdict([], {}).pass).toBe(false);
+  });
+
+  test("the paused arm is summarised on its own, with its pause time", () => {
+    const a = armSummary([row({ parent_paused: true, pause_ms: 900, fork_call_ms: 3000 }), row({ run: 2, parent_paused: true, pause_ms: 1100, fork_call_ms: 4000 })]);
+    expect(a.pass).toBe(true);
+    expect(a.runs).toBe(2);
+    expect(a.fork_call_ms.median).toBe(3000);
+    expect(a.pause_ms.median).toBe(900);
+    expect(armSummary([row({ parent_paused: true, parity: null })]).pass).toBe(false);
   });
 
   test("the commands name the marker, repo and counter", () => {
