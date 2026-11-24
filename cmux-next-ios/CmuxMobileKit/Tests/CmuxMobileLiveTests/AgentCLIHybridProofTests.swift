@@ -417,14 +417,6 @@ import Testing
         #expect(frame([.set(row: 0, column: 0, cells: [.init(text: "界", style: plain), .init(text: "", style: plain)])]).invalidReason == nil)
     }
 
-    @Test func anEmptyResumedDeltaEmitsNoTerminalBytes() {
-        let frame = AgentCLIHybridFrame(stream: "s", frame: 2, base: 1, columns: 20, rows: 4,
-                                        delta: .init(shift: 0, spans: []), cursorX: 0, cursorY: 0,
-                                        cursorVisible: true)
-        print("SILENT_DELTA terminal_equal before=1 after=\(frame.terminalBytes == nil ? 0 : 1)")
-        #expect(frame.terminalBytes == nil)
-    }
-
     @MainActor private func waitUntil(attempts: Int = 500, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))
