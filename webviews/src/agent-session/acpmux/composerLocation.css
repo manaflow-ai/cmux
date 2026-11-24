@@ -2172,3 +2172,22 @@
   align-items: center;
   gap: var(--ds-space-1);
 }
+
+/* A new chat's list wraps its rows so the pointer over one can open or close a cascade; the wrapper
+   draws nothing. */
+.acpmux-env-hover { display: contents; }
+/* A cascade (ui/CascadeMenu.tsx) opens beside its row: the list's own look, a little narrower, its
+   short list of options rows of the same height. */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover.acpmux-env-cascade { min-width: 220px; }
+.ui-cascade-options { display: flex; flex-direction: column; }
+.ui-cascade-options .ui-cascade-option {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  width: 100%;
+}
+.ui-cascade-options .ui-cascade-option:is(:hover, :focus-visible) { background: var(--acpmux-menu-hover); outline: none; }
+.acpmux-env-machines-cascade .acpmux-env-heading { margin-bottom: 2px; }

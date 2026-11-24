@@ -629,6 +629,32 @@ impl Hub {
         }
     }
 
+    /// The refusal for a second parent-less start on a provisioned VM (`agent_vm::one_parent_refusal`).
+    pub fn one_parent_check(
+        &self,
+        peer: &crate::peer::Peer,
+        asks_parent: bool,
+    ) -> Option<RpcError> {
+        let leased =
+            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&peer.name);
+        let group = super::agent_vm::group_of(&super::agent_vm::GroupFacts {
+            set: peer.group_override(),
+            vm_boundary: peer.vm_boundary(),
+            leased,
+            registry_agent_vm: super::agent_vm::registry_agent_vm(&peer.name, &peer.url),
+        });
+        if group != "agent" || asks_parent {
+            return None;
+        }
+        let rows: Vec<Value> = self
+            .remote_sessions
+            .read()
+            .live_of_peer(&peer.name)
+            .map(|r| r.summary.value())
+            .collect();
+        super::agent_vm::one_parent_refusal(&peer.name, group, asks_parent, rows)
+    }
+
     pub fn peers(&self) -> Vec<Value> {
         // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
         let leased: std::collections::HashSet<String> =

@@ -9,6 +9,7 @@ import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
+import { AutoIcon, type AutoGlyph } from "./AutoIcon";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -159,6 +160,8 @@ export function ComposerContext({
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
   peerInfo = NO_PEER_INFO,
+  autoPick = "this Mac",
+  autoGlyph,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -228,6 +231,11 @@ export function ComposerContext({
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's group and live sessions (`AcpmuxSnapshot.peerInfo`): which list a machine is in.
   peerInfo?: Record<string, PeerInfo>;
+  /// Where Auto puts a new chat now, as the chip says it ("Auto · this Mac", "Auto · Cloud (Mac busy)"): the
+  /// placement itself is decided elsewhere (the Hybrid start); this is its answer, "this Mac" until it says.
+  autoPick?: string;
+  /// Auto's glyph geometry (AutoIcon.tsx); the gallery compares them.
+  autoGlyph?: AutoGlyph;
   /// The computer control is the environment picker (EnvironmentPicker.tsx), with Local, SSH and
   /// Cloud sections and ⌥⌘1–9. The agent page always passes it (not behind Labs, Leo 2026-10-30);
   /// off, the plain Computer menu, for surfaces that pass nothing.
@@ -1072,6 +1080,27 @@ export function ComposerContext({
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
+  // Auto (Leo, 2026-11-23: "i think so. i think this is good as a start."): a new chat starts on Auto, and
+  // a manual pick (This Mac, a machine, Cloud only) holds for this chat only, never the next one's default.
+  const [autoChosen, setAutoChosen] = useState(true);
+  const autoOffered = !readOnly && !moves && environmentsShown && layout !== "cloud-toggle";
+  const autoSelected =
+    autoOffered &&
+    autoChosen &&
+    selectedComputer === "local" &&
+    !savedPick &&
+    !cloudPicked &&
+    !sandboxPicked &&
+    !pageOnCloud;
+  const autoValue = t("composer.autoPlacePick", { pick: autoPick });
+  const autoPlace = {
+    pick: autoPick,
+    selected: autoSelected,
+    onSelect: () => setAutoChosen(true),
+    onManual: () => setAutoChosen(false),
+    ...(autoGlyph ? { glyph: autoGlyph } : {}),
+  };
+  const autoFace = <LocationFace icon={<AutoIcon glyph={autoGlyph} />} value={autoValue} chevron />;
   const combinedFace =
     waiting && waitingName ? (
       <LocationFace icon={<EnvironmentIcon kind="cloud" name={waiting.name} />} value={waitingName} chevron />
@@ -1205,11 +1234,17 @@ export function ComposerContext({
                 label={t(CONTEXT_LABELS.environment)}
                 menu="Computer"
                 value={
-                  sandboxPicked || cloudPicked ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud") : placeName
+                  autoSelected
+                    ? autoValue
+                    : sandboxPicked || cloudPicked
+                      ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
+                      : placeName
                 }
                 face={
                   // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
-                  sandboxPicked || cloudPicked ? (
+                  autoSelected ? (
+                    autoFace
+                  ) : sandboxPicked || cloudPicked ? (
                     <LocationFace
                       icon={<EnvironmentIcon kind="cloud" />}
                       value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
@@ -1222,6 +1257,7 @@ export function ComposerContext({
                 environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
                 // A new chat that can still choose its machine: Other devices after Cloud (Austin, 2026-11-12).
                 otherDevices={!readOnly && !moves}
+                {...(!readOnly && !moves ? { auto: autoPlace } : {})}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
                 {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
@@ -1243,12 +1279,13 @@ export function ComposerContext({
                   {...pickerProps}
                   label={t(CONTEXT_LABELS.environment)}
                   menu="Computer"
-                  value={wherePlace}
-                  face={<LocationFace icon={whereIcon} value={whereName} chevron />}
+                  value={autoSelected ? autoValue : wherePlace}
+                  face={autoSelected ? autoFace : <LocationFace icon={whereIcon} value={whereName} chevron />}
                   rows="where"
                   // Other devices opens the person's own machines in place; a pick there is the
                   // machine chip's pick (Austin, 2026-11-12: it was Remote, which opened that chip).
                   otherDevices
+                  auto={autoPlace}
                 />
                 {machineShown && (
                   <EnvironmentPicker

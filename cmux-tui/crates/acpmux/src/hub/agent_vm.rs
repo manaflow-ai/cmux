@@ -20,7 +20,7 @@
 //! peer called after a lane VM that dials somewhere else, or `lane.evil.example`, does not. With
 //! no registry (acpmux outside the fleet) nothing changes.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The host an `ssh://[user@]host[:port][/...]` peer url dials, lowercased; `None` for any
 /// other scheme.
@@ -116,9 +116,47 @@ pub(crate) fn group_of(f: &GroupFacts) -> &'static str {
     if f.vm_boundary || f.leased || f.registry_agent_vm { "agent" } else { "own" }
 }
 
+/// One parent session per provisioned VM (Leo: "we are opinoinated-ing to not allow more than 1
+/// parent agent session per vm. you can have your sepatealy controlled remote machines, but
+/// that's not our regular thing."). `rows` are the peer's sessions as it lists them; a root is a
+/// live row no agent started (no `startedBy`). A start that names a parent is a sub-session and
+/// never counts. Returns the refusal for a second parent-less start on an `agent` machine.
+pub(crate) fn one_parent_refusal(
+    peer: &str,
+    group: &str,
+    asks_parent: bool,
+    rows: impl IntoIterator<Item = Value>,
+) -> Option<crate::rpc::RpcError> {
+    if group != "agent" || asks_parent {
+        return None;
+    }
+    let held = rows.into_iter().find(|r| {
+        r.get("status").and_then(Value::as_str) != Some("closed")
+            && r.get("stale") != Some(&Value::Bool(true))
+            && r.get("startedBy").is_none_or(Value::is_null)
+    })?;
+    let existing = held.get("name").and_then(Value::as_str).unwrap_or("a session");
+    Some(
+        crate::rpc::RpcError::new(
+            -32000,
+            format!(
+                "{peer} is a provisioned VM and already holds a parent session ({existing}); \
+                 a VM holds one. Start this chat on Cloud (or Auto), or attach to or move the \
+                 existing session. To use {peer} as a machine of your own, set its `group` to \
+                 \"own\" in config.json."
+            ),
+        )
+        .with_data(json!({"reason": ONE_PARENT_PER_VM, "peer": peer, "existing": existing})),
+    )
+}
+
+/// `data.reason` of [`one_parent_refusal`].
+pub const ONE_PARENT_PER_VM: &str = "one_parent_per_vm";
+
 #[cfg(test)]
 mod group_tests {
-    use super::{GroupFacts, group_of};
+    use super::{GroupFacts, group_of, one_parent_refusal};
+    use serde_json::json;
 
     fn facts(set: Option<&str>, vm: bool, leased: bool, reg: bool) -> GroupFacts {
         GroupFacts { set: set.map(str::to_owned), vm_boundary: vm, leased, registry_agent_vm: reg }
@@ -137,6 +175,24 @@ mod group_tests {
         assert_eq!(group_of(&facts(Some("own"), true, true, true)), "own");
         assert_eq!(group_of(&facts(Some("agent"), false, false, false)), "agent");
         assert_eq!(group_of(&facts(Some("bogus"), false, false, true)), "agent");
+    }
+
+    #[test]
+    fn a_provisioned_vm_holds_one_parent_session() {
+        let root = json!({"name": "lead", "status": "idle"});
+        let child = json!({"name": "kid", "startedBy": {"id": "s1"}});
+        let closed = json!({"name": "old", "status": "closed"});
+        assert!(one_parent_refusal("vm-1", "agent", false, [root.clone()]).is_some());
+        assert!(
+            one_parent_refusal("vm-1", "agent", false, [child, closed]).is_none(),
+            "children and closed rows"
+        );
+        assert!(
+            one_parent_refusal("vm-1", "agent", true, [root.clone()]).is_none(),
+            "a sub-session start"
+        );
+        assert!(one_parent_refusal("big-red", "own", false, [root]).is_none(), "own machines");
+        assert!(one_parent_refusal("vm-1", "agent", false, []).is_none(), "the first parent");
     }
 
     #[test]
