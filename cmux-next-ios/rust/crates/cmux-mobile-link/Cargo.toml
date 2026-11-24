@@ -24,6 +24,7 @@ cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 reqwest.workspace = true
