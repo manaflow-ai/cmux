@@ -1507,6 +1507,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Active outbox attempts share a budget across replay, retries and reconnects. Waiters
+    /// park before taking the journal lock or starting a blocking SSH carrier.
+    pub(crate) outbox_attempts: tokio::sync::Semaphore,
     /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
     /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
     /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
@@ -1893,6 +1896,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            outbox_attempts: tokio::sync::Semaphore::new(8),
             mesh: Default::default(),
             mesh_relay: Default::default(),
             join_transition: Default::default(),

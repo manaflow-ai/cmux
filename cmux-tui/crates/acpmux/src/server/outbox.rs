@@ -630,6 +630,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
     // When it first found its chat mid-move (`Next::Moving`).
     let mut moving_since: Option<std::time::Instant> = None;
     loop {
+        let Ok(permit) = hub.outbox_attempts.acquire().await else { return };
         let Some(delivery) = hub.outbox.get(id) else { return };
         if delivery.settled() {
             return;
@@ -668,6 +669,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         tokio::pin!(changed);
         changed.as_mut().enable();
         if delivery.waits_behind(&hub.outbox).is_some() {
+            drop(permit);
             let _ = tokio::time::timeout(AFTER_RECHECK, changed).await;
             continue;
         }
@@ -854,7 +856,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     // Moved to a sibling daemon here: its outbox takes the delivery over. A
                     // daemon that does not answer is tried again on the back-off.
                     Next::MovedToSocket { socket, session } => {
-                        match hand_to_socket(&delivery, &socket, &session).await {
+                        let handoff = hand_to_socket(&delivery, &socket, &session);
+                        match tokio::time::timeout(ATTEMPT_WAIT, handoff).await.unwrap_or_else(
+                            |_| {
+                                Err(format!(
+                                    "the daemon at {socket} did not answer within {} s",
+                                    ATTEMPT_WAIT.as_secs()
+                                ))
+                            },
+                        ) {
                             // Its attachment files stay: the request the sibling took may name
                             // them, and the settled sweep removes them with the record.
                             Ok(accepted) => {
@@ -881,6 +891,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                                 d.error = Some(error.clone());
                             }
                         });
+                        drop(permit);
                         tokio::time::sleep(MOVING_RETRY).await;
                         continue;
                     }
@@ -945,6 +956,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
                     None => own,
                 };
+                drop(permit);
                 let sleep = tokio::time::sleep(wait);
                 tokio::pin!(sleep);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
@@ -961,6 +973,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                             // between is not missed.
                             ready.set(hub.outbox.peer_ready.notified());
                             ready.as_mut().enable();
+                            let Ok(_permit) = hub.outbox_attempts.acquire().await else { return };
                             if hub.peer_down_for(&delivery.target).is_none() {
                                 break;
                             }
@@ -1009,7 +1022,16 @@ pub(crate) fn redeliver_open(
         let one = |d: Delivery| {
             let (hub, peer, ends, since) = (hub.clone(), peer.clone(), &ends, &since);
             async move {
-                redeliver_one(&hub, &d, link, (ends, since)).await;
+                let Ok(_permit) = hub.outbox_attempts.acquire().await else { return };
+                if !hub.peer_on_link(&peer, link) {
+                    return;
+                }
+                if let Some(live) = hub.outbox.get(&d.id)
+                    && live.open_on_peer
+                    && live.pin == d.pin
+                {
+                    redeliver_one(&hub, &live, link, (ends, since)).await;
+                }
                 cursor(&hub).insert(peer, (d.created_at, d.id.clone()));
             }
         };
@@ -1082,7 +1104,8 @@ async fn redeliver_one(
     let Some(pin) = d.pin.clone() else { return };
     let mut step = od::step_after_restore(d, (now, link), (ends, since), hub.at_27f3());
     if step == Step::Check {
-        step = od::checked(hub.proof_held(d, link).await);
+        let held = tokio::time::timeout(ATTEMPT_WAIT, hub.proof_held(d, link)).await;
+        step = od::checked(held.unwrap_or(None));
     }
     match step {
         Step::Lapse => {
@@ -1297,6 +1320,18 @@ pub(super) async fn attempt_once(
     request: Value,
     origin: Origin,
 ) -> Result<Value, (String, Next)> {
+    tokio::time::timeout(ATTEMPT_WAIT, attempt(hub, caller, request, origin)).await.unwrap_or_else(
+        |_| Err((format!("no answer within {} s", ATTEMPT_WAIT.as_secs()), Next::Retry)),
+    )
+}
+
+/// The attempt deadline includes waking the machine before opening a connection.
+async fn attempt(
+    hub: &Arc<Hub>,
+    caller: Option<Caller<'_>>,
+    request: Value,
+    origin: Origin,
+) -> Result<Value, (String, Next)> {
     let target = request.get("sessionId").and_then(Value::as_str).unwrap_or_default();
     let summary = hub
         .resolve(target)
@@ -1352,19 +1387,8 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
-    let deadline = tokio::time::sleep(ATTEMPT_WAIT);
-    tokio::pin!(deadline);
     loop {
-        let line = tokio::select! {
-            line = out_rx.recv() => line,
-            () = &mut deadline => {
-                return Err((
-                    format!("no answer within {} s", ATTEMPT_WAIT.as_secs()),
-                    Next::Retry,
-                ));
-            }
-        };
-        let Some(line) = line else {
+        let Some(line) = out_rx.recv().await else {
             return Err(("this daemon's connection closed".into(), Next::Retry));
         };
         match Message::parse(&line) {
@@ -1450,7 +1474,7 @@ async fn hand_to_socket(delivery: &Delivery, socket: &str, session: &str) -> Res
     let path = std::path::Path::new(socket);
     let own = crate::config::socket_path();
     let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
-    if canonical(path) == canonical(&own) {
+    if crate::qos::off_worker(|| canonical(path) == canonical(&own)) {
         return Err("the chat's move names this daemon's own socket".into());
     }
     let client = crate::client::Client::connect_without_caller(path)
