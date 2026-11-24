@@ -59,38 +59,6 @@ pub struct Client {
 }
 
 impl Client {
-    /// Send one local request without the initialize handshake.
-    ///
-    /// Hook renewals do not need a caller token or feature negotiation. Sending the
-    /// registration as the first frame avoids a second socket request and lets the daemon
-    /// capture the caller's pid as soon as the connection is accepted.
-    pub async fn request_without_initialize(
-        path: &Path,
-        method: &str,
-        params: Value,
-    ) -> Result<Value> {
-        let stream = crate::local_stream::connect(path)
-            .await
-            .with_context(|| format!("connect {}", path.display()))?;
-        let (rd, mut wr) = crate::local_stream::split(stream);
-        wr.write_all(Message::request(1, method, params).to_line().as_bytes())
-            .await
-            .context("send request")?;
-        let mut lines = BufReader::new(rd).lines();
-        while let Some(line) = lines.next_line().await.context("read response")? {
-            let message = Message::parse(&line).map_err(DaemonError)?;
-            if let Message::Response { id, result, error } = message {
-                if id == Value::from(1) {
-                    return match error {
-                        Some(error) => Err(DaemonError(error).into()),
-                        None => Ok(result.unwrap_or(Value::Null)),
-                    };
-                }
-            }
-        }
-        Err(anyhow::anyhow!("daemon closed before answering {method}"))
-    }
-
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
         Self::connect_with_caller(path, true).await
     }

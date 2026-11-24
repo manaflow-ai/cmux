@@ -225,9 +225,6 @@ pub struct Conn {
     /// own outbox: where a send's process chain is walked from and whose check is carried
     /// (`sender_harness::check_trust`), provenance only, never a proof.
     pub(super) socket_peer: crate::sender_harness::SocketPeer,
-    /// A renewal's process chain captured before its request is dispatched. Most connections
-    /// never need this, while a timed-out hook may exit before its worker walks the pid.
-    pub(super) renew_ancestry: std::sync::OnceLock<Vec<u32>>,
     /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
     /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
     /// Only a Cloud machine's daemon, not dumpable since its start, has one.
@@ -1899,7 +1896,6 @@ async fn serve_connection_from(
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
-        renew_ancestry: std::sync::OnceLock::new(),
         provisioner,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
