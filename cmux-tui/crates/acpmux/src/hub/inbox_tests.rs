@@ -670,7 +670,9 @@ async fn a_thread_read_finds_the_surge_held_messages_that_left_memory() {
     assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
     let receipt = hub.hold_surge_message(&session, "held", "cli", &body, &opts).unwrap().unwrap();
     let thread = receipt["threadId"].as_str().unwrap().to_owned();
-    // A burst of other unread messages: `trim` lets the held one go first.
+    // Triage decided it, then a burst of other unread messages: `trim` lets the decided held
+    // one go first (a pending one stays listed until triage decides it).
+    hub.persist_surge_triage(&session, json!({"items": [{"promptId": "held"}]}), 0).unwrap();
     {
         let mut inbox = session.inbox();
         for n in 0..KEEP {
