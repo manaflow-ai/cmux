@@ -17,8 +17,7 @@ on:
         description: "placement, or risky (Fork first before a risky step, RFD 0163 row 25)"
         default: "placement"
   pull_request:
-    # lane/autocloud-fork-1: the stacked Fork first PR (RFD 0163 row 25) measures before #53969 lands.
-    branches: [feat-cmux-next, lane/autocloud-fork-1]
+    branches: [feat-cmux-next]
     paths:
       - scripts/cmux-next/cloud-fork-placement.ts
       - scripts/cmux-next/cloud-fork-placement.test.ts
