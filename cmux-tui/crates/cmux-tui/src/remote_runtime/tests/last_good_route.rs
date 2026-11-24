@@ -184,12 +184,12 @@ fn a_remembered_route_no_longer_a_candidate_or_stale_is_ignored() {
 
     // An entry older than the staleness bound reads as none.
     let path = state.path().join(route_last_good::FILE_NAME);
-    let text = std::fs::read_to_string(&path).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
     let mut file: serde_json::Value = serde_json::from_str(&text).unwrap();
     for entry in file["daemons"].as_object_mut().unwrap().values_mut() {
         entry["at"] = serde_json::json!(1_000);
     }
-    std::fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+    fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
     assert_eq!(
         LastGoodRoute::open(Some(state.path()), Some([8; 32])).unwrap().first(&routes, false),
         None
@@ -197,7 +197,7 @@ fn a_remembered_route_no_longer_a_candidate_or_stale_is_ignored() {
 
     // No pinned daemon key: nothing is kept. Garbage reads as empty.
     assert!(LastGoodRoute::open(Some(state.path()), None).is_none());
-    std::fs::write(&path, b"not json").unwrap();
+    fs::write(&path, b"not json").unwrap();
     assert_eq!(
         LastGoodRoute::open(Some(state.path()), Some([8; 32])).unwrap().first(&routes, false),
         None
@@ -209,7 +209,7 @@ fn a_remembered_route_no_longer_a_candidate_or_stale_is_ignored() {
         LastGoodRoute::open(Some(state.path()), Some(DAEMON))
             .unwrap()
             .connected(&routes[0].endpoint);
-        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
     }
 }

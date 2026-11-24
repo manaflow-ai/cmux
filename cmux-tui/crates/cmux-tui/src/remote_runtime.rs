@@ -1097,9 +1097,9 @@ pub(crate) async fn select_initial_route_from<T: Send, E: RouteFailure>(
     let mut last = None;
     let mut retryable = false;
     let first = first.filter(|&first| !upgrade && first < routes.len());
-    let order = first.into_iter().chain((0..routes.len()).filter(|&index| Some(index) != first));
-    for index in order {
-        let candidate = &routes[index];
+    let remembered = first.and_then(|first| Some((first, routes.get(first)?)));
+    let rest = routes.iter().enumerate().filter(|&(index, _)| Some(index) != first);
+    for (index, candidate) in remembered.into_iter().chain(rest) {
         let display_endpoint = sanitized_route(&candidate.endpoint);
         if !candidate.supports_client_auth(auth) {
             failures.push(format!(
