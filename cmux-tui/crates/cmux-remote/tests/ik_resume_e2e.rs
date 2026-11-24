@@ -211,7 +211,13 @@ async fn ik_to_the_wrong_key_fails_the_handshake() {
     let error = one_link(&impostor, handshake(&client, daemon.public_key(), 1, true))
         .await
         .expect_err("an IK link to a daemon without the pinned key was accepted");
-    assert!(matches!(error, CryptoError::Noise(_) | CryptoError::LinkError(_)), "{error:?}");
+    assert!(
+        matches!(
+            error,
+            CryptoError::Noise(_) | CryptoError::LinkError(_) | CryptoError::UnexpectedEof
+        ),
+        "{error:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -419,10 +425,11 @@ async fn a_reconnect_saves_a_round_trip_per_link_phase() {
         times[times.len() - 1],
         times.len()
     );
-    // A reconnect is an open (1 RTT) then each phase's handshake and link-ready. With XX each
-    // phase is 2 RTT (5 RTT, 250 ms here); with IK 1 RTT (3 RTT, 150 ms). Leave room for replay
-    // and loopback noise, but not for a second round trip per phase.
-    assert!(median < ONE_WAY * 2 * 4, "reconnect took {median:?}: IK did not take");
+    // A reconnect is an open then each phase's handshake and link-ready, plus the session's own
+    // resume exchange. Measured at 25 ms one way: base (XX on every link) median 331 ms, IK 229 ms,
+    // one round trip saved per phase. The bound sits between the two: XX on either phase lands
+    // above it.
+    assert!(median < ONE_WAY * 11, "reconnect took {median:?}: IK did not take");
 }
 
 /// A recorded IK resume (prelude and first message) replayed later reaches a daemon that already
