@@ -76,7 +76,7 @@ class SupersededGateTest(unittest.TestCase):
         self.assertEqual(gate["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                         "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}")
+                         "'ubuntu-24.04' || 'cmux-linux' }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")
