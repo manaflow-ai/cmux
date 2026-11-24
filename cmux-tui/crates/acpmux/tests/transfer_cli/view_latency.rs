@@ -37,12 +37,26 @@ async fn linked_pair(tag: &str, one_way_ms: u64) -> [Side; 2] {
     let (a, b) = (format!("{tag}a"), format!("{tag}b"));
     let delay = one_way_ms.to_string();
     let vars = [("FAKE_SSH_DELAY_MS", delay.as_str())];
-    let first =
-        Daemon::spawn_full(&a, Some(Daemon::place(&b)), json!({}), true, &vars, "approve-all")
-            .await;
-    let second =
-        Daemon::spawn_full(&b, Some(Daemon::place(&a)), json!({}), true, &vars, "approve-all")
-            .await;
+    let first = Daemon::spawn_full(
+        &a,
+        Some(Daemon::place(&b)),
+        json!({}),
+        "fake",
+        true,
+        &vars,
+        "approve-all",
+    )
+    .await;
+    let second = Daemon::spawn_full(
+        &b,
+        Some(Daemon::place(&a)),
+        json!({}),
+        "fake",
+        true,
+        &vars,
+        "approve-all",
+    )
+    .await;
     [first, second].map(|daemon| {
         let folder = daemon.home.join("project");
         std::fs::create_dir(&folder).unwrap();
