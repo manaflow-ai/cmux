@@ -83,8 +83,9 @@ struct TabStacksTests {
         #expect(r.b == r.c && r.b.maxX == layout.card(2).maxX + 6)
         let pieces = r.pieces(maxGap: OverviewLayout.rowGap + 2)
         // One bridge across the row gap, as wide as the left column.
-        #expect(pieces.count == 4)
-        #expect(abs(pieces[3].width - r.c.width) < 0.01)
+        #expect(pieces.rows.count == 2)
+        #expect(pieces.bridges.count == 1)
+        #expect(abs(pieces.bridges[0].width - r.c.width) < 0.01)
     }
 
     @Test func threeRowsKeepTheMiddleWhole() {

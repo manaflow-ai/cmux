@@ -135,18 +135,20 @@ struct StackOutlineRects: Equatable, Sendable {
     /// The pieces to union: the three rects, plus a bridge across the gap
     /// between two that overlap side to side (rows of one stack never touch
     /// otherwise: the row gap is wider than twice the padding).
-    func pieces(maxGap: CGFloat) -> [CGRect] {
-        var out = all
-        let list = all
+    func pieces(maxGap: CGFloat) -> (rows: [CGRect], bridges: [CGRect]) {
+        // Distinct rows only: a shape of one or two rows repeats a rect.
+        var list: [CGRect] = []
+        for r in all where !list.contains(where: { $0.equalTo(r) }) { list.append(r) }
+        var bridges: [CGRect] = []
         for i in 0..<list.count {
             for j in (i + 1)..<list.count {
                 let (top, bottom) = list[i].minY <= list[j].minY ? (list[i], list[j]) : (list[j], list[i])
                 let gap = bottom.minY - top.maxY
                 let x0 = max(top.minX, bottom.minX), x1 = min(top.maxX, bottom.maxX)
                 guard gap > 0, gap <= maxGap, x1 - x0 > 1 else { continue }
-                out.append(CGRect(x: x0, y: top.maxY - 1, width: x1 - x0, height: gap + 2))
+                bridges.append(CGRect(x: x0, y: top.maxY - 1, width: x1 - x0, height: gap + 2))
             }
         }
-        return out
+        return (list, bridges)
     }
 }

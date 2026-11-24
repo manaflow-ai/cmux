@@ -32,20 +32,20 @@ struct StackOutlineShape: Shape {
 
     // perf-hot: three rounded rects and at most three bridges, a few CGPath boolean ops per stack per frame while it morphs
     static func outline(_ rects: StackOutlineRects, radius: CGFloat, innerRadius: CGFloat, maxGap: CGFloat) -> CGPath {
-        let pieces = rects.pieces(maxGap: maxGap)
+        let (rows, bridges) = rects.pieces(maxGap: maxGap)
         var shape: CGPath?
-        // Distinct pieces only: a folded stack repeats one rect three times.
-        var seen: [CGRect] = []
-        for (i, r) in pieces.enumerated() where r.width > 0.5 && r.height > 0.5 {
-            if seen.contains(where: { $0.equalTo(r) }) { continue }
-            seen.append(r)
+        for r in rows where r.width > 0.5 && r.height > 0.5 {
             let rr = min(radius, r.width / 2, r.height / 2)
-            let piece = i < 3 ? CGPath(roundedRect: r, cornerWidth: rr, cornerHeight: rr, transform: nil) : CGPath(rect: r, transform: nil)
+            let piece = CGPath(roundedRect: r, cornerWidth: rr, cornerHeight: rr, transform: nil)
+            shape = shape.map { $0.union(piece) } ?? piece
+        }
+        for r in bridges {
+            let piece = CGPath(rect: r, transform: nil)
             shape = shape.map { $0.union(piece) } ?? piece
         }
         guard let shape else { return CGMutablePath() }
         // One piece: nothing to smooth.
-        guard seen.count > 1, innerRadius > 0 else { return shape }
+        guard rows.count > 1, innerRadius > 0 else { return shape }
         // Closing (grow, then shrink by the same amount) rounds the inner
         // corners where a row meets a bridge, and leaves the outer ones.
         let band = { (p: CGPath) in p.copy(strokingWithWidth: innerRadius * 2, lineCap: .round, lineJoin: .round, miterLimit: 1) }
