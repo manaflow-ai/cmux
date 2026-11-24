@@ -19,11 +19,16 @@ pub use error::AutoCloudError;
 
 use crate::wire::{
     Assignment, CreateRequest, EventsAppend, EventsPage, Fence, InboxAck, InboxMessage, InboxPost,
-    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, PutRequest, SessionList, SessionView,
-    SnapshotAnswer, SnapshotPost,
+    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, MoveRequest, PutRequest, SessionList,
+    SessionView, SnapshotAnswer, SnapshotPost,
 };
 
 pub type CloudResult<T> = Result<T, AutoCloudError>;
+
+/// What a transport without the route answers: not retryable, and no `auto.*` code.
+fn unrouted(route: &str) -> AutoCloudError {
+    AutoCloudError::http(405, "method_not_allowed", format!("this transport has no {route} route"))
+}
 
 /// The Cloud store's routes. `id` is the chat's session id.
 pub trait AutoCloud: Send + Sync {
@@ -161,6 +166,41 @@ pub trait AutoCloud: Send + Sync {
         id: &str,
         keep_in_cloud: bool,
     ) -> impl Future<Output = CloudResult<SessionView>> + Send;
+
+    /// `POST /:id/move` (owner): the person moves the chat now, to the Cloud machine or to a
+    /// laptop that stands by. The answer's `session.move` is the wish its holder reads at its
+    /// next renewal ([`LeaseAnswer::move_to`]) and answers with [`give`](Self::give); the chat
+    /// is kept in the Cloud (`to: cloud`) or not (`to: local`) from the same write. A parked
+    /// chat goes at once, and a chat that is already there only has its wish dropped. Refused
+    /// `auto.no_machine`, or with a [`MoveRefusal`](crate::wire::MoveRefusal): `auto.off`,
+    /// `auto.no_laptop`, `auto.not_copied` (a parked chat with no snapshot, to the Cloud).
+    ///
+    /// A transport that has not built the route yet answers 405 from the default body.
+    fn move_(
+        &self,
+        id: &str,
+        request: &MoveRequest,
+    ) -> impl Future<Output = CloudResult<SessionView>> + Send {
+        let _unused = (id, request);
+        std::future::ready(Err(unrouted("move")))
+    }
+
+    /// `POST /:id/give` (holder): hand the chat over as the person asked. The epoch grows by
+    /// one, the wish goes, and the chat is the Auto machine's (a `takeover` to pick up) or the
+    /// laptop's, which imports the Cloud copy first. Refused like every holder write, and
+    /// `auto.no_machine`, or with a [`MoveRefusal`](crate::wire::MoveRefusal): `auto.no_move`
+    /// (nobody asked, or the wish is over), `auto.not_copied` (store the events and a snapshot
+    /// that covers the last one, then give again), `auto.no_laptop`.
+    ///
+    /// A transport that has not built the route yet answers 405 from the default body.
+    fn give(
+        &self,
+        id: &str,
+        fence: &Fence,
+    ) -> impl Future<Output = CloudResult<SessionView>> + Send {
+        let _unused = (id, fence);
+        std::future::ready(Err(unrouted("give")))
+    }
 
     /// `GET /assignments?timeoutMs=` (machine): this machine's assignments, held until one
     /// exists or the deadline.

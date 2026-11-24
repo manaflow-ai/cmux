@@ -7,9 +7,22 @@ use super::FakeAutoCloud;
 use crate::cloud::{AutoCloud, CloudResult};
 use crate::wire::{
     Assignment, CreateRequest, EventsAppend, EventsPage, Fence, InboxAck, InboxMessage, InboxPost,
-    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, PutRequest, SessionList, SessionView,
-    SnapshotAnswer, SnapshotPost,
+    InboxPosted, LeaseAnswer, LeaseRequest, MachineSetting, MoveRequest, PutRequest, SessionList,
+    SessionView, SnapshotAnswer, SnapshotPost,
 };
+
+impl FakeAutoCloud {
+    /// `POST /` with the request's `keepInCloud`: a chat started with no laptop, made in Cloud
+    /// mode when `keep_in_cloud` is true. [`AutoCloud::create`] is this with `false`. It counts
+    /// as a `create` call.
+    pub fn create_kept(
+        &self,
+        request: &CreateRequest,
+        keep_in_cloud: bool,
+    ) -> CloudResult<SessionView> {
+        self.call("create", |store, caller| store.create(caller, request, keep_in_cloud))
+    }
+}
 
 impl AutoCloud for FakeAutoCloud {
     async fn machine(&self) -> CloudResult<MachineSetting> {
@@ -25,7 +38,7 @@ impl AutoCloud for FakeAutoCloud {
     }
 
     async fn create(&self, request: &CreateRequest) -> CloudResult<SessionView> {
-        self.call("create", |store, caller| store.create(caller, request))
+        self.call("create", |store, caller| store.create(caller, request, false))
     }
 
     async fn list(&self, limit: Option<u32>, cursor: Option<&str>) -> CloudResult<SessionList> {
@@ -100,6 +113,14 @@ impl AutoCloud for FakeAutoCloud {
 
     async fn keep(&self, id: &str, keep_in_cloud: bool) -> CloudResult<SessionView> {
         self.call("keep", |store, caller| store.keep(caller, id, keep_in_cloud))
+    }
+
+    async fn move_(&self, id: &str, request: &MoveRequest) -> CloudResult<SessionView> {
+        self.call("move", |store, caller| store.move_to(caller, id, request))
+    }
+
+    async fn give(&self, id: &str, fence: &Fence) -> CloudResult<SessionView> {
+        self.call("give", |store, caller| store.give(caller, id, fence))
     }
 
     async fn assignments(&self, timeout_ms: u64) -> CloudResult<Vec<Assignment>> {

@@ -31,8 +31,14 @@
 //!   waits, parked and blocked `no_machine`, until one is set. The epoch grows by one at
 //!   every change of holder and never otherwise.
 //! - A parked chat: the laptop whose lease ran out takes it back as it is with a renewal that
-//!   names the epoch it held. Any laptop takes it with a standby's renewal, unless it is kept
-//!   in the Cloud.
+//!   names the epoch it held, unless the chat is kept in the Cloud and has a snapshot. Any
+//!   laptop takes it with a standby's renewal, unless it is kept in the Cloud.
+//! - The person moves a chat by hand with `move` (`moves.rs`, the real store's `move.ts`): a
+//!   wish in the chat's view and in its holder's lease answer, and the chat kept in the Cloud
+//!   or not from the same write. The holder answers with `give` once a snapshot covers the
+//!   last event (`auto.not_copied` until then): the chat goes to the Auto machine as a
+//!   `takeover`, or to the laptop, which imports first. A parked chat goes at once. The wish
+//!   ends at any change of holder and after 120 s.
 //! - A machine's chat goes home at the machine's own renewal: `needsRun: false`, the inbox and
 //!   the assignment acked, the newest snapshot covering the last event, a laptop standing by
 //!   and the chat not kept in the Cloud. The machine is answered `lost`. A machine that said
@@ -69,6 +75,7 @@ mod check;
 mod copy;
 mod inbox;
 mod lease;
+mod moves;
 mod owner;
 mod record;
 mod routes;
@@ -167,7 +174,9 @@ impl FakeAutoCloud {
     }
 
     /// Every machine start the store asked for, oldest first, by machine id: one for each
-    /// `takeover`, `create` and `deliver` assignment it made.
+    /// `takeover`, `create` and `deliver` assignment it made, and one for each wish to move a
+    /// chat that waits on a machine (the Auto machine a laptop's chat goes to, or the machine
+    /// that holds the chat and has to read the wish).
     pub fn machine_starts(&self) -> Vec<String> {
         self.lock().starts.clone()
     }
@@ -175,7 +184,8 @@ impl FakeAutoCloud {
     /// Every call that reached the store, oldest first, by route name: `machine`,
     /// `set_machine`, `put`, `create`, `list`, `get`, `wait`, `lease`, `release`,
     /// `append_events`, `events`, `put_chunk`, `chunk`, `post_snapshot`, `snapshot`,
-    /// `post_inbox`, `inbox`, `ack_inbox`, `keep`, `assignments`, `ack_assignment`.
+    /// `post_inbox`, `inbox`, `ack_inbox`, `keep`, `move`, `give`, `assignments`,
+    /// `ack_assignment`.
     pub fn calls(&self) -> Vec<&'static str> {
         self.lock().calls.clone()
     }

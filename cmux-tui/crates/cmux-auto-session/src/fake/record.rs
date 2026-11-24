@@ -1,6 +1,6 @@
 //! One chat's record and the view every route answers: the real store's `model.ts`.
 
-use crate::wire::{AssignmentKind, Blocked, Holder, Repo, SessionView, State};
+use crate::wire::{AssignmentKind, Blocked, Holder, MoveTo, MoveWish, Repo, SessionView, State};
 
 /// Laptops remembered as waiting for one chat.
 pub(super) const MAX_STANDBY: usize = 8;
@@ -18,6 +18,18 @@ pub(super) const MAX_MANIFEST_CHUNKS: usize = 4096;
 pub(super) struct Standby {
     pub holder: Holder,
     pub expires_at: u64,
+}
+
+/// The person asked to move the chat by hand, and its holder has not given it yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Wish {
+    pub to: MoveTo,
+    /// The laptop that was named, if one was.
+    pub device: Option<Holder>,
+    pub at: u64,
+    /// The machine the store keeps started while the wish waits: the Auto machine the chat goes
+    /// to, or the machine that holds it and has to read the wish.
+    pub wake: Option<String>,
 }
 
 /// One chat's record. The rules of `rules.rs` take one and answer the next.
@@ -54,6 +66,9 @@ pub(super) struct Record {
     /// may be in the Cloud copy alone. Auto off is refused until it has, and its lease running
     /// out parks the chat as the Cloud's, not as that laptop's.
     pub owes_import: bool,
+    /// The wish to move the chat by hand, until its holder gives the chat, the holder changes
+    /// another way, or `MOVE_MS` passes.
+    pub wish: Option<Wish>,
     pub last_seq: u64,
     /// The newest snapshot's number, and the `lastSeq` its manifest names (at most the
     /// chat's).
@@ -110,6 +125,11 @@ pub(super) fn view_of(r: &Record, now: u64) -> SessionView {
         blocked: r.blocked,
         needs_run: r.needs_run,
         standby: live_standby(r, now).map(|standby| standby.holder.clone()).collect(),
+        moving: r.wish.as_ref().map(|wish| MoveWish {
+            to: wish.to,
+            device: wish.device.clone(),
+            at: wish.at,
+        }),
         last_seq: r.last_seq,
         snapshot: r.snapshot,
         inbox: r.inbox,

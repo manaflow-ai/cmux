@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use super::check;
 use super::record::{Record, view_of};
-use super::rules::{Decision, Refuse, Step, next_due, tick};
+use super::rules::{Code, Decision, Refuse, Step, next_due, tick};
 use crate::cloud::{AutoCloudError, CloudResult};
 use crate::consts::SNAPSHOT_MAX_BYTES;
 use crate::wire::{Delivery, ErrorCode, Holder, MachineSetting, Manifest, SessionView};
@@ -101,11 +101,16 @@ pub(super) fn size_of(bytes: &[u8]) -> u64 {
     u64::try_from(bytes.len()).unwrap_or(u64::MAX)
 }
 
-/// A rule's refusal as the route answers it: with the chat as it is now.
+/// A rule's refusal as the route answers it: with the chat as it is now. A code only `move`
+/// and `give` use goes out as the raw code ([`AutoCloudError::move_refusal`] reads it).
 fn refused(refuse: Refuse, session: SessionView) -> AutoCloudError {
+    let code = match refuse.code {
+        Code::Auto(code) => Some(code),
+        Code::Move(_) => None,
+    };
     AutoCloudError::Http {
         status: refuse.code.status(),
-        code: Some(refuse.code),
+        code,
         raw_code: refuse.code.as_str().to_owned(),
         message: refuse.message,
         session: Some(Box::new(session)),
@@ -234,6 +239,7 @@ impl Store {
         let now = self.now;
         let chat = self.chats.get_mut(id).ok_or_else(not_found)?;
         let before = (chat.rec.assignment, chat.rec.epoch);
+        let woken = chat.rec.wish.as_ref().and_then(|wish| wish.wake.clone());
         let Step { out, rec, loud } = match decide(&mut *chat, now) {
             Ok(step) => step,
             Err(refuse) => return Err(refused(refuse, view_of(&chat.rec, now))),
@@ -251,6 +257,14 @@ impl Store {
             && after != before
         {
             self.starts.push(machine.clone());
+        }
+        // A wish to move the chat starts the machine it waits on: the Auto machine the chat
+        // goes to, or the machine that holds it and may be paused.
+        let wake = chat.rec.wish.as_ref().and_then(|wish| wish.wake.clone());
+        if let Some(machine) = wake
+            && woken.as_ref() != Some(&machine)
+        {
+            self.starts.push(machine);
         }
         self.wake();
         Ok((out, view))
