@@ -97,9 +97,9 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    # Twice this stays within the leaked-machine sweep's age bound (STALE_JOURNEY_MS, 3 h), so the sweep never takes a
-    # drill's live machine: 24 cells take about 65 min.
-    timeout-minutes: 180
+    # Below the leaked-machine sweep's age bound (STALE_JOURNEY_MS, 3 h), so the sweep never takes a drill's live
+    # machine: 24 cells took 50 to 90+ min in run 45389153532 (source-side kills wait out a resume each).
+    timeout-minutes: 170
     continue-on-error: true
     strategy:
       fail-fast: false
