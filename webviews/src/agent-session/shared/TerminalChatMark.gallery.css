@@ -1,7 +1,9 @@
 /* TerminalChatMark.gallery.tsx: three lists side by side. The Mac and iOS lists are web replicas of native rows;
    their numbers are the native ones (points as px). The web list is pages/sidebar-chats' own stylesheet. */
 .tcm-gallery {
-  --tcm-selected-ground: linear-gradient(var(--cmux-selection), var(--cmux-selection)) var(--cmux-surface-background);
+  /* A selected row's ground as one opaque colour (a knocked-out mark is painted in it): the selection fill is the
+     text ink at 6% (light) or 8% (dark) over the surface. */
+  --tcm-selected-ground: color-mix(in srgb, var(--cmux-text) 6%, var(--cmux-surface-background));
   --tcm-ios-ground: var(--cmux-surface-background);
   display: flex;
   flex-wrap: wrap;
@@ -220,4 +222,72 @@
    titles right by its width (the chevron's own advance at 14 px plus its 2 px gap, 11 px with SF Mono). */
 .tcm-gallery[data-look="chevron"] .tcm-web .sc-row[data-terminal] .sc-title {
   margin-left: calc(var(--sc-text-x) + 11px);
+}
+
+:root[data-theme="dark"] .tcm-gallery {
+  --tcm-selected-ground: color-mix(in srgb, var(--cmux-text) 8%, var(--cmux-surface-background));
+}
+
+/* Mac placement: a row with no leading glyph and the agent mark as its trailing status glyph (12), and a tab strip
+   (36 tall, tabs 201 at most, 9 corner, 16.5 icon box, 7 to the 14 title). */
+.tcm-place {
+  width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tcm-place-status {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  color: var(--cmux-text-secondary);
+}
+
+.tcm-place-status[data-status="waiting"] {
+  color: var(--cmux-app-warning, #ff9f0a);
+}
+
+.tcm-tabs {
+  display: flex;
+  gap: 3px;
+  height: 36px;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--cmux-sidebar-line);
+}
+
+.tcm-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  max-width: 201px;
+  min-width: 0;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: var(--cmux-text-secondary);
+}
+
+.tcm-tab[data-selected] {
+  background: var(--cmux-selection);
+  color: var(--cmux-text);
+}
+
+.tcm-tab > :first-child {
+  width: 16.5px;
+  justify-content: center;
+}
+
+.tcm-tab-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  color: var(--cmux-text);
 }

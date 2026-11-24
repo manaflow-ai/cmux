@@ -10,6 +10,11 @@
 // - tile: the mark in the terminal's foreground on a rounded square in the terminal's background
 //   (WebTheme.swift `terminal.background` / `.foreground`, which the page has as `--cmux-surface-token`
 //   and `--cmux-text`), filling the slot the bare mark takes. Corner: min(8, floor4(side / 3)).
+//   `tileStyle` picks the tile's colours: `surface` (the terminal's background token; in the default themes
+//   it equals the sidebar's ground, so the tile shows only on a selected row), `ink` (a solid tile of the
+//   row's primary text ink, the mark knocked out in the row's ground; it inverts with the theme) or
+//   `black` (the terminal's black, ANSI 0, in both themes, the mark in the terminal's foreground, a 1 px
+//   inner hairline in the separator colour so it keeps its edge on a dark sidebar).
 // - chevron: a monospace prompt chevron before the mark.
 // - badge: the icon pack's `terminal` glyph on a cutout plate at the slot's bottom-right corner.
 import type { CSSProperties } from "react";
@@ -17,6 +22,13 @@ import { Icon } from "../acpmux/icons/Icon";
 import { AgentMark } from "./AgentMark";
 
 export type TerminalChatMarkVariant = "label" | "tile" | "chevron" | "badge";
+export type TerminalTileStyle = "surface" | "ink" | "black";
+
+/// The `black` tile's colours. The page's theme has no ANSI palette variables today; the gallery sets these
+/// two from the default terminal theme (Apple System Colors: ANSI 0 #1a1a1a, ANSI 15 #ffffff). Without them
+/// the tile falls back to the terminal background token and the text ink.
+export const TERMINAL_BLACK = "var(--cmux-terminal-ansi-0, var(--cmux-surface-token, var(--cmux-surface-background)))";
+export const TERMINAL_BLACK_INK = "var(--cmux-terminal-ansi-15, var(--cmux-text))";
 
 export type TerminalChatMarkProps = {
   agent?: string;
@@ -32,6 +44,8 @@ export type TerminalChatMarkProps = {
   onDark?: boolean;
   /** The colour under the row (its fill when selected), for the badge's cutout ring. */
   ground?: string;
+  /** The tile's colours (the `tile` variant only); `surface` when omitted. */
+  tileStyle?: TerminalTileStyle;
 };
 
 /// The tile's corner for a square of `side` px: the design scale's control corner rule, min(8, floor4(side / 3)):
@@ -66,6 +80,7 @@ export function TerminalChatMark({
   tint,
   onDark,
   ground,
+  tileStyle = "surface",
 }: TerminalChatMarkProps) {
   const side = slot ?? size;
   const box: CSSProperties = {
@@ -81,15 +96,21 @@ export function TerminalChatMark({
   if (!terminal || variant === "label") return <span style={box}>{bare}</span>;
 
   if (variant === "tile") {
+    const colours: CSSProperties =
+      tileStyle === "ink"
+        ? { background: "var(--cmux-text)", color: ground ?? "var(--cmux-surface-background)" }
+        : tileStyle === "black"
+          ? {
+              background: TERMINAL_BLACK,
+              color: TERMINAL_BLACK_INK,
+              boxShadow: "inset 0 0 0 1px var(--cmux-sidebar-line)",
+            }
+          : { background: "var(--cmux-surface-token, var(--cmux-surface-background))", color: "var(--cmux-text)" };
     return (
       <span
         data-terminal-chat="tile"
-        style={{
-          ...box,
-          borderRadius: terminalTileRadius(side),
-          background: "var(--cmux-surface-token, var(--cmux-surface-background))",
-          color: "var(--cmux-text)",
-        }}
+        data-tile-style={tileStyle}
+        style={{ ...box, borderRadius: terminalTileRadius(side), ...colours }}
       >
         <AgentMark agent={agent} size={terminalTileMarkSize(side)} tint reserve />
       </span>

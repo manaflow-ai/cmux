@@ -10,9 +10,23 @@ import type { CSSProperties, ReactNode } from "react";
 import { componentEntry } from "../../gallery/format";
 import { FIXTURE_METRICS } from "../../pages/sidebar-chats/fixtures";
 import { AgentMark } from "./AgentMark";
-import { TerminalChatMark, terminalChatDetail, type TerminalChatMarkVariant } from "./TerminalChatMark";
+import {
+  TerminalChatMark,
+  terminalChatDetail,
+  type TerminalChatMarkVariant,
+  type TerminalTileStyle,
+} from "./TerminalChatMark";
 
-export type Look = TerminalChatMarkVariant | "today";
+/** `tile` is the tile on the terminal background token; `tile-ink` and `tile-black` are its two revisions. */
+export type Look = TerminalChatMarkVariant | "today" | "tile-ink" | "tile-black";
+
+function tileStyleOf(look: Look): TerminalTileStyle | undefined {
+  return look === "tile-ink" ? "ink" : look === "tile-black" ? "black" : look === "tile" ? "surface" : undefined;
+}
+
+function isTile(look: Look): boolean {
+  return tileStyleOf(look) !== undefined;
+}
 export type Platform = "mac" | "web" | "ios";
 
 export type SampleChat = {
@@ -89,7 +103,8 @@ function Mark(props: {
       agent={chat.harness}
       size={size}
       slot={slot}
-      variant={look}
+      variant={isTile(look) ? "tile" : (look as TerminalChatMarkVariant)}
+      tileStyle={tileStyleOf(look)}
       tint={tint}
       onDark={onDark}
       ground={ground}
@@ -179,7 +194,7 @@ function IOSList({ look, chats, dark }: { look: Look; chats: SampleChat[]; dark?
   return (
     <div className="tcm-ios" data-platform="ios">
       {chats.map((chat) => {
-        const circle = look === "today" || !chat.terminal || look !== "tile";
+        const circle = look === "today" || !chat.terminal || !isTile(look);
         return (
           <div
             key={chat.title}
@@ -205,6 +220,9 @@ function IOSList({ look, chats, dark }: { look: Look; chats: SampleChat[]; dark?
   );
 }
 
+const PLACEMENT_CAPTION =
+  "Mac, where the agent mark is drawn today: the row's trailing status glyph (12), shown only when Debug Settings › Agent mark (sidebar.agentMark) is “Replaces the status glyph” (default Off), and a tab-strip tab's icon (16). Web replica.";
+
 const CAPTIONS: Record<Platform, string> = {
   mac: "Mac sidebar row: a web replica of the native AppKit row (Default density metrics)",
   web: "Web sidebar chat history row (pages/sidebar-chats markup and stylesheet, 14 px glyph)",
@@ -213,17 +231,85 @@ const CAPTIONS: Record<Platform, string> = {
 
 export type TerminalChatMarkGalleryProps = {
   look: Look;
-  platforms?: Platform[] /** The theme side for the iOS brand marks; the page's own when omitted. */;
+  platforms?: Platform[];
+  /** The theme side for the iOS brand marks; the page's own when omitted. */
   dark?: boolean;
   chats?: SampleChat[];
+  /** The Mac placement strip (trailing status glyph, tab-strip tab) instead of the three lists. */
+  placement?: boolean;
 };
+
+/// Where the Mac draws an agent mark today, as a web replica: a workspace row's trailing status glyph
+/// (`SidebarStyle.statusGlyphSize`, 12 at Default: smallIconSize 14 less space1 2), shown only when Debug Settings
+/// `sidebar.agentMark` (Agent mark) is "Replaces the status glyph" (default Off), and a tab-strip tab's icon
+/// (`tabIconSize` 16.5 at Default, drawn here at 16) beside its 14 title, 7 apart, in a 36 strip.
+export function MacPlacement({ look, chats = SAMPLE_CHATS }: { look: Look; chats?: SampleChat[] }) {
+  return (
+    <div className="tcm-place" data-platform="mac-placement">
+      <div className="tcm-mac">
+        {chats.map((chat) => (
+          <div
+            key={chat.title}
+            className="tcm-mac-row tcm-place-row"
+            data-selected={chat.selected || undefined}
+            data-terminal={chat.terminal || undefined}
+          >
+            <span className="tcm-mac-text">
+              <span className="tcm-mac-title">{chat.title}</span>
+              <span className="tcm-mac-detail">{chat.folder}</span>
+            </span>
+            <span className="tcm-place-status" data-status={chat.status}>
+              <Mark
+                look={look}
+                chat={chat}
+                size={12}
+                tint
+                ground={chat.selected ? "var(--tcm-selected-ground)" : undefined}
+              />
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="tcm-tabs">
+        {chats.slice(0, 3).map((chat) => (
+          <div
+            key={chat.title}
+            className="tcm-tab"
+            data-selected={chat.selected || undefined}
+            data-terminal={chat.terminal || undefined}
+          >
+            <Mark
+              look={look}
+              chat={chat}
+              size={16}
+              tint
+              ground={chat.selected ? "var(--tcm-selected-ground)" : undefined}
+            />
+            <span className="tcm-tab-title">{chat.title}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function TerminalChatMarkGallery({
   look,
   platforms = ["mac", "web", "ios"],
   dark,
   chats = SAMPLE_CHATS,
+  placement,
 }: TerminalChatMarkGalleryProps) {
+  if (placement) {
+    return (
+      <div className="tcm-gallery" data-look={look}>
+        <figure className="tcm-panel" data-panel="mac-placement">
+          <figcaption className="tcm-caption">{PLACEMENT_CAPTION}</figcaption>
+          <MacPlacement look={look} chats={chats} />
+        </figure>
+      </div>
+    );
+  }
   const panel = (platform: Platform, body: ReactNode) => (
     <figure key={platform} className="tcm-panel" data-panel={platform}>
       <figcaption className="tcm-caption">{CAPTIONS[platform]}</figcaption>
@@ -265,6 +351,22 @@ export default componentEntry<TerminalChatMarkGalleryProps>({
     tile: {
       note: "(b) Terminal chats: the mark in the terminal's foreground on a tile of the terminal's background.",
       props: { look: "tile" },
+    },
+    "tile-ink": {
+      note: "(b1) Terminal chats: a solid tile of the row's text ink, the mark knocked out in the row's ground.",
+      props: { look: "tile-ink" },
+    },
+    "tile-black": {
+      note: "(b2) Terminal chats: the terminal's black (ANSI 0) tile, the mark in its foreground, a separator hairline.",
+      props: { look: "tile-black" },
+    },
+    "placement-tile-ink": {
+      note: "(b1) on the Mac's real agent-mark places: the trailing status glyph and a tab-strip tab.",
+      props: { look: "tile-ink", placement: true },
+    },
+    "placement-tile-black": {
+      note: "(b2) on the Mac's real agent-mark places: the trailing status glyph and a tab-strip tab.",
+      props: { look: "tile-black", placement: true },
     },
     chevron: { note: "(c) Terminal chats: a monospace prompt chevron before the mark.", props: { look: "chevron" } },
     badge: {
