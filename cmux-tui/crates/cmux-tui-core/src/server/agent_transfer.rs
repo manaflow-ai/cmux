@@ -1053,7 +1053,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                 }
             };
             if let Some(shares) = export_transferred_chat_shares(mux, &source_session) {
-                manifest.insert(TRANSFER_FIELD.to_owned(), shares);
+                manifest.insert(TRANSFER_FIELD, shares);
             }
             let entry =
                 Move { files, epoch, touched: Instant::now(), session_id: source_session.clone() };
