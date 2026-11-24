@@ -174,8 +174,7 @@
         "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes",
         "ci-guard-group": "33 runs on 52 merged pull requests, 12 with a red, 1 of them the pull request's own (#46253): Tier B, fixed forward on the push; 814 job-minutes",
         "own-change-checks": "46 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46652): Tier B, fixed forward on the push; 253 job-minutes; the miss is #46652: 28 untranslated strings it added",
-        "pinned-asset-store": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 43 job-minutes",
-        "signing-runner-variables": "43 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 3 job-minutes"
+        "pinned-asset-store": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 43 job-minutes"
       },
       ".github/workflows/cmux-tui-spec.yml": {
         "acpmux-tests": "9 runs on 28 merged pull requests (their check runs, 11-15 to 11-23; the router skipped it on 20 more), 0 with a red, 0 of them the pull request's own; the timing feed for 11-13Z on 2026-11-23 has 111 runs on 96 open pull requests, 2,611 job-minutes (1,288 success, 554 failure, 769 cancelled, many at the 40 min cap), and of 14 reds sampled about 3 were the pull request's own (#52025, #52008, #47706): Tier B, fixed forward on the push; the post-merge batch (suite cmux-tui-spec) runs it. Off: repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on",

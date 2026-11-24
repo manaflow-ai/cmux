@@ -173,6 +173,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 900_000,
     ownPart: true,
   },
+  // One orchestrator chat with 16 sub-sessions (8 local worktrees, 8 Cloud) all streaming (RFD 0167 row 12, goal
+  // competitive-orchestrator-16): every frame's work at 60 Hz; the p99 is NOW's
+  // competitive.orchestrator.p99_frame_ms_16_children. perf-cron.py's web-ui-orchestrator part runs it.
+  {
+    name: "orchestrator-16",
+    file: "orchestrator-16.bench.ts",
+    args: ["16", "30"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.
@@ -263,6 +273,18 @@ export const BENCHES: readonly Bench[] = [
     file: "sidebar-chats-fling.bench.ts",
     args: ["200", "500", "1000", "10000"],
     timeoutMs: 600_000,
+    ownPart: true,
+  },
+  // The power-user input stress harness's long seed (Leo, 2026-11-22: "we need to test like power users more often"):
+  // test/power-user-bursts.browser.test.ts with a random seed and 150 waves of overlapping scroll flicks, resizes,
+  // pointer sweeps, 15-60 key/s typing, large pastes and chat switches mid-stream, in Chromium and WebKit; its numbers
+  // per input class as webui.power_user.* rows and each breach with its replay seed. perf-cron.py's web-ui-power-user
+  // part runs it.
+  {
+    name: "power-user-bursts",
+    file: "power-user-bursts.bench.ts",
+    args: ["--waves", "150", "--seed", "random", "--engines", "chromium,webkit"],
+    timeoutMs: 1_500_000,
     ownPart: true,
   },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
