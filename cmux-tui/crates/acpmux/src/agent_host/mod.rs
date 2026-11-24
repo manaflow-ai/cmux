@@ -142,6 +142,8 @@ pub enum HostFrame {
         host_build: String,
         incarnation: String,
         harness_pid: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        harness_start: Option<u64>,
         /// Last entry sequence assigned.
         last_h: u64,
         /// Last entry the controller acknowledged.
@@ -281,9 +283,12 @@ impl SpawnSpec {
 
     /// The per-launch key's index in the existing environment, for output redaction.
     fn launch_key_index(&self) -> Option<usize> {
-        let (_, name) =
-            self.env.iter().find(|(name, _)| name == crate::agent_credentials::MARKER)?;
-        if !crate::agent_credentials::NAMES.contains(&name.as_str()) {
+        let name = self
+            .env
+            .iter()
+            .find(|(name, _)| name == crate::agent_credentials::MARKER)
+            .map_or(crate::byo_endpoint::OPENAI_KEY_ENV, |(_, name)| name.as_str());
+        if !crate::agent_credentials::NAMES.contains(&name) {
             return None;
         }
         self.env.iter().position(|(key, value)| key == name && !value.is_empty())

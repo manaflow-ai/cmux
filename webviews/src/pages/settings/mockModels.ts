@@ -205,6 +205,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         ...state,
         deviceProvider: run.provider ?? "chatgpt",
         deviceRegion: run.region,
+        deviceTarget: run.id,
         chatgptDevice: mockChatGPTDevice(undefined, run.provider),
       };
     case "openChatGPTDevice":
@@ -223,7 +224,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     case "checkClaudeLogin":
       return state;
     case "connectClaude":
-      if (run.cloud) return { ...state, cloudClaudeLogin: { phase: "preparing", error: null } };
+      if (run.cloud) return { ...state, cloudClaudeLogin: { phase: "preparing", error: null, machine: run.machine } };
       return { ...state, claudeLogin: { phase: "approving", error: null } };
     case "finishClaudeLogin":
       return { ...state, [run.cloud ? "cloudClaudeLogin" : "claudeLogin"]: { phase: "approving", error: null } };

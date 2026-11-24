@@ -136,32 +136,35 @@ export function useCloudServed(
   const [served, setServed] = useState<CloudServed>();
   const reads = useRef(0);
   const pendingReturn = useRef<CloudReturn>(undefined);
+  const returned = useRef<CloudReturn>(undefined);
   const callRef = useRef(call);
   useLayoutEffect(() => {
     callRef.current = call;
   }, [call]);
-  const read = useCallback(
-    (wanted?: CloudReturn) => {
-      const id = ++reads.current;
-      const machine = readMachine?.();
-      void callRef.current("cloud.setup.state", machine ? { machine } : {}).then(
-        (reply) => {
-          if (id !== reads.current) return;
-          const next = readCloudServed(reply);
-          setServed(next);
-          const state = wanted && cloudPickerState(next, wanted.family);
-          if (wanted && (state === "ready" || state === "pending")) wanted.onReady();
-        },
-        () => {
-          if (id === reads.current) setServed(undefined);
-        },
-      );
-    },
-    [readMachine],
-  );
+  const read = useCallback(() => {
+    const id = ++reads.current;
+    const machine = readMachine?.();
+    void callRef.current("cloud.setup.state", machine ? { machine } : {}).then(
+      (reply) => {
+        if (id !== reads.current) return;
+        const next = readCloudServed(reply);
+        setServed(next);
+        const wanted = returned.current;
+        returned.current = undefined;
+        const state = wanted && cloudPickerState(next, wanted.family);
+        if (wanted && (state === "ready" || state === "pending")) wanted.onReady();
+      },
+      () => {
+        if (id !== reads.current) return;
+        returned.current = undefined;
+        setServed(undefined);
+      },
+    );
+  }, [readMachine]);
   const disarm = useCallback(() => {
     pendingReturn.current?.unwatch();
     pendingReturn.current = undefined;
+    returned.current = undefined;
   }, []);
   useEffect(() => {
     if (!active) {
@@ -189,7 +192,8 @@ export function useCloudServed(
         unwatch: watchKey(() => {
           if (!isKey() || pendingReturn.current !== wanted) return;
           disarm();
-          read(wanted);
+          returned.current = wanted;
+          read();
         }),
       };
       pendingReturn.current = wanted;

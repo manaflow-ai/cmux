@@ -51,7 +51,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const { open } = search;
   const fromSend = cloud && search.fromSend;
   const family = cloud ? search.provider?.trim().toLowerCase() : undefined;
-  const request = JSON.stringify([focus, family, open, fromSend]);
+  const machine = family === "claude" ? search.machine : undefined;
+  const request = JSON.stringify([focus, family, open, fromSend, machine]);
   const add = cloud ? CLOUD_MODELS_ADD_FOCUS : MODELS_ADD_FOCUS;
   const addFocus = focus?.startsWith(add + ".") ? focus.slice(add.length + 1).split(".", 1)[0] : undefined;
 
@@ -100,13 +101,19 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     : // The old Claude token only ever served Cloud: it lives in Cloud models.
       [...routeRows.filter((c) => c.kind !== "claude-token"), ...localRows.filter((c) => c.kind === "native-login")];
   const claudeAvailable = models?.claudeCodeAvailable;
-  const cloudUnavailable = models?.cloudClaudeLogin?.phase === "disabled";
-  const cloudClaudeMachine = models?.cloudClaudeLogin?.machineName;
+  const cloudClaude = models?.cloudClaudeLogin;
+  const claudeLogin = cloud
+    ? !machine || !cloudClaude?.machine || cloudClaude.machine === machine
+      ? cloudClaude
+      : undefined
+    : models?.claudeLogin;
+  const cloudUnavailable = cloud && claudeLogin?.phase === "disabled";
+  const cloudClaudeMachine = cloud && claudeLogin?.machineName;
   useEffect(() => {
     if (available && (cloud ? !cloudUnavailable : claudeAvailable !== false)) {
-      void store.runModels({ action: "checkClaudeLogin", cloud });
+      void store.runModels({ action: "checkClaudeLogin", cloud, ...(machine ? { machine } : {}) });
     }
-  }, [available, cloud, claudeAvailable, cloudUnavailable, cloudClaudeMachine, store]);
+  }, [available, cloud, claudeAvailable, cloudUnavailable, cloudClaudeMachine, machine, store]);
   const now = Date.now();
   const cloudRunnerStatus = (connection: ModelConnection): "updating" | "offline" | "notReady" | undefined => {
     const runner = connection.launchHarness;
@@ -124,7 +131,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const canToggleCloud = (c: ModelConnection) =>
     (c.canServeCloud ?? c.servesCloud) && (c.kind === "api-key" || (c.kind === "endpoint" && !!c.endpoint));
   const cloudOff =
-    family && !ready.some((c) => servesFamily(c, family))
+    family && !machine && !ready.some((c) => servesFamily(c, family))
       ? cloudRows.find((c) => canToggleCloud(c) && !c.servesCloud && usable(c) && servesFamily(c, family))
       : undefined;
   const targetFor = (id: string) => {
@@ -147,7 +154,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const device = models?.chatgptDevice?.phase;
   const deviceProvider = models?.deviceProvider ?? "chatgpt";
   const devicePreset = deviceProvider === "kimi" ? "kimi-code" : deviceProvider;
-  const claudeLogin = cloud ? models?.cloudClaudeLogin : models?.claudeLogin;
   const capture = claudeLogin?.phase;
   const devicePending = device === "starting" || device === "waiting" || device === "cancelling";
   const claudePending =
@@ -171,7 +177,11 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
             ? "claude"
             : undefined;
     const resumingDevice = id === devicePreset && devicePending;
-    setSelection(id ? { id, target: family && !resumingDevice ? targetFor(id) : undefined } : null);
+    setSelection(
+      id
+        ? { id, target: resumingDevice ? (models?.deviceTarget ?? undefined) : family ? targetFor(id) : undefined }
+        : null,
+    );
     setSetupVisit(open && family ? { request, ids: new Set(ready.map(({ id }) => id)), connected: false } : null);
   }
   const currentVisit = setupVisit?.request === request ? setupVisit : null;
@@ -241,6 +251,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   };
   const panelRun: Run = (gesture) => {
     setFormError(true);
+    if (gesture.action === "connectClaude" && machine) return run({ ...gesture, machine });
     if (gesture.action !== "connectChatGPTDevice") return run(gesture);
     startingDevice.current = true;
     return run(gesture).finally(() => {
@@ -352,7 +363,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         visit={request}
         cloud={cloud}
         provider={available ? active : undefined}
-        models={models ?? undefined}
+        models={models && cloud ? { ...models, cloudClaudeLogin: claudeLogin } : (models ?? undefined)}
         busy={locked}
         setSaving={setSaving}
         error={formError ? error : null}

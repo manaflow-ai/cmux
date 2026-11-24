@@ -85,6 +85,8 @@ final class TabContentCache {
     var onProfileHistoryDropped: ((BrowserProfileID) -> Void)?
     /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
     var incognitoMemory = IncognitoPageMemory()
+    /// Claude's loopback callback uses a separate in-memory Chromium context.
+    private lazy var signInCallbackProfile = cef.stores.offTheRecord.begin()
     let pageInstalls = PageInstallCounter()
     /// Tab `key`'s browser profile: an incognito window's, else nil (default).
     var browserProfile: ((String) -> BrowserProfileID?)?
@@ -355,7 +357,16 @@ final class TabContentCache {
     /// failed proxy start leaves the page blank, never on this Mac's localhost.
     func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
         guard let tab, let configureBrowser else { return base }
-        if let configured = await configureBrowser(tab, base.initialURL, base) { return configured }
+        let localhost = pageRequests.services?.remoteLocalhost
+        let approval = localhost?.isSignInApprovalTab(tab.id) == true
+        if var configured = await configureBrowser(tab, base.initialURL, base) {
+            if !approval || configured.machineStore == nil { return configured }
+            if let url = configured.initialURL, localhost?.allowsSignInCallback(url, in: tab.id) == true {
+                configured.profile = signInCallbackProfile
+                configured.restoreState = nil
+                return configured
+            }
+        }
         var blank = base
         blank.initialURL = nil
         blank.restoreState = nil
@@ -385,7 +396,12 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         Task {
             defer { pendingBrowsers.remove(key) }
-            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
+            let localhost = pageRequests.services?.remoteLocalhost
+            let callback = localhost?.allowsSignInCallback(url, in: key) == true
+            let configuration = await chromiumConfiguration(for: tab, key: key, url: url)
+            guard let page = try? await makeCEFTab(configuration) else { return }
+            guard tabModel(key) != nil else { page.close(); return }
+            if callback, localhost?.allowsSignInCallback(url, in: key) != true { page.close(); return }
             install(page, for: key)
             browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
@@ -432,9 +448,10 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
+        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)
         let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
-        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
-                                 history: incognito?.history ?? history(for: page.profileID))
+        let history = browserTabs.isSignInApprovalTab(key) ? nil : (incognito?.history ?? history(for: page.profileID))
+        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page), history: history)
         pageRequests.routeOmnibarOpens(of: entry.state, page: page)
         mount(entry, as: key)
         return entry
@@ -459,7 +476,6 @@ final class TabContentCache {
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
-        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)  // a chat's sign-in page (ChatMachineSignInTab)
         pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }

@@ -119,7 +119,7 @@ extension TabContentCache {
     /// A browser page that is not incognito.
     func keepsFrameOnDisk(_ key: String) -> Bool {
         guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab else { return false }
-        return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && !browserTabs.isIncognitoTab(key)
+        return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && !browserTabs.isIncognitoTab(key) && !browserTabs.isSignInApprovalTab(key)
     }
     func keepFrameOnDisk(_ image: CGImage, for key: String) {
         guard keepsFrameOnDisk(key), let width = browsers[key]?.tab.contentView.bounds.width else { return }

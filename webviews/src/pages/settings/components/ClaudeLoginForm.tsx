@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ModelsState } from "../ops";
 import { t } from "../strings";
 import { ConnectionError, ConnectionFooter, SecretField, SignInWaiting } from "./ModelConnectionFields";
@@ -49,11 +49,22 @@ export function ClaudeLoginForm({
   const login = cloud ? models.cloudClaudeLogin : models.claudeLogin;
   const phase = login?.phase ?? "idle";
   const [code, setCode] = useState("");
-  const [started, setStarted] = useState(phase === "preparing" || phase === "approving" || phase === "code");
+  const active = phase === "preparing" || phase === "approving" || phase === "code";
+  const attempt = useRef({ requested: active, sawActive: active, previous: login?.completion });
+  const completion = login?.completion;
   const close = useEffectEvent(onClose);
   useEffect(() => {
-    if (phase === "connected" && started) close();
-  }, [phase, started]);
+    if (active) {
+      attempt.current.sawActive = true;
+    } else if (
+      phase === "connected" &&
+      attempt.current.requested &&
+      (completion ? completion !== attempt.current.previous : attempt.current.sawActive)
+    ) {
+      attempt.current.requested = false;
+      close();
+    }
+  }, [active, completion, phase]);
 
   const fallback = phase === "code";
   const disabled = phase === "disabled" || (phase === "connected" && !replace);
@@ -76,7 +87,7 @@ export function ClaudeLoginForm({
           setCode("");
           void run({ action: "finishClaudeLogin", cloud, code: value });
         } else {
-          setStarted(true);
+          attempt.current = { requested: true, sawActive: false, previous: completion };
           void run({ action: "connectClaude", cloud, ...(replace ? { replace } : {}) });
         }
       }}

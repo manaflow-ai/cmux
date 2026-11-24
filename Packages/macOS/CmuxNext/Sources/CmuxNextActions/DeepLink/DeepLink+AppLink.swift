@@ -202,10 +202,12 @@ extension DeepLink {
     }
 
     /// Cloud models opens the form on every click. A held send gets its own confirmation.
-    public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false) -> String {
+    public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false, machine: String? = nil) -> String {
         let provider = family.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
         let route = "#/settings/cloud?focus=card.cloudModels&provider=\(provider)&open=\(UUID().uuidString)"
-        return fromSend ? route + "&fromSend=1" : route
+        let machineQuery = machine.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&machine=\($0)" } ?? ""
+        return route + machineQuery + (fromSend ? "&fromSend=1" : "")
     }
 
     /// The settings link path that turns Start Agent from Any App on.

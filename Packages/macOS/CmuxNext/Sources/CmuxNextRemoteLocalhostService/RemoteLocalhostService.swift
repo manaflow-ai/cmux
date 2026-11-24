@@ -178,11 +178,11 @@ public final class RemoteLocalhostService {
 
     private struct SignInBinding {
         enum Callback {
-            case active(port: UInt16, current: @MainActor () -> Bool)
+            case active(port: UInt16, owner: String?, current: @MainActor () -> Bool)
             case restored
 
             func allows(_ url: URL) -> Bool {
-                guard case .active(let port, let current) = self else { return false }
+                guard case .active(let port, _, let current) = self else { return false }
                 return url.scheme == "http" && url.host == "localhost" && url.port == Int(port)
                     && url.path == "/callback" && url.user == nil && url.password == nil && current()
             }
@@ -198,7 +198,7 @@ public final class RemoteLocalhostService {
     }
 
     /// Pages made for a chat's machine (``expectPage(_:machine:)``) that no tab holds yet.
-    private var expectedPages: [ObjectIdentifier: (binding: SignInBinding, until: ContinuousClock.Instant)] = [:]
+    private var expectedPages: [ObjectIdentifier: (binding: SignInBinding, until: ContinuousClock.Instant, close: (@MainActor () -> Void)?)] = [:]
     /// Tabs whose localhost is a chat's machine, by tab id, whatever machine's tree holds them:
     /// a Cloud chat's sign-in page (Claude's automatic page, AgentPaneSignInPage.swift), whose
     /// approve redirects to `http://localhost:<port>/callback` on the chat's machine. Kept in
@@ -220,15 +220,40 @@ public final class RemoteLocalhostService {
         expectPage(page, binding: SignInBinding(machine: machine))
     }
 
-    /// A Settings approval can reach only its active machine's callback.
-    package func expectCallbackPage(_ page: AnyObject, machine: String, port: UInt16, current: @escaping @MainActor () -> Bool) {
-        expectPage(page, binding: SignInBinding(machine: machine, callback: .active(port: port, current: current)))
+    /// An approval can reach only its active machine's callback.
+    package func expectCallbackPage(_ page: AnyObject, machine: String, port: UInt16, owner: String? = nil,
+                                    current: @escaping @MainActor () -> Bool, closePending: (@MainActor () -> Void)? = nil) {
+        expectPage(page, binding: SignInBinding(machine: machine, callback: .active(port: port, owner: owner, current: current)),
+                   close: closePending)
     }
 
-    private func expectPage(_ page: AnyObject, binding: SignInBinding) {
+    package func isSignInApprovalTab(_ key: String) -> Bool { boundTabs[key]?.callback != nil }
+
+    package func allowsSignInCallback(_ url: URL, in key: String) -> Bool {
+        boundTabs[key]?.callback?.allows(url) == true
+    }
+
+    /// Invalidate the callback before closing its live tab, including one still being adopted.
+    package func endSignInApproval(owner: String) -> [String] {
+        let pending = expectedPages.filter { Self.isApproval($0.value.binding, ownedBy: owner) }
+        for key in pending.keys { expectedPages[key] = nil }
+        for page in pending.values { page.close?() }
+        let keys = boundTabs.compactMap { Self.isApproval($0.value, ownedBy: owner) ? $0.key : nil }
+        for key in keys {
+            if let binding = boundTabs[key] { boundTabs[key] = SignInBinding(machine: binding.machine, callback: .restored) }
+        }
+        return keys
+    }
+
+    private static func isApproval(_ binding: SignInBinding, ownedBy owner: String) -> Bool {
+        if case .active(_, let boundOwner, _) = binding.callback { return boundOwner == owner }
+        return false
+    }
+
+    private func expectPage(_ page: AnyObject, binding: SignInBinding, close: (@MainActor () -> Void)? = nil) {
         let now = ContinuousClock.now
         expectedPages = expectedPages.filter { $0.value.until > now }
-        expectedPages[ObjectIdentifier(page)] = (binding, now + .seconds(60))
+        expectedPages[ObjectIdentifier(page)] = (binding, now + .seconds(60), close)
     }
 
     /// A page installed for tab `key`: the tab takes the machine a page made for it was expected

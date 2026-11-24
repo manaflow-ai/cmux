@@ -1248,10 +1248,10 @@ fn import_chatgpt(
 }
 
 /// The listed connection `id`, as `chatgpt.wait` answers a finished sign-in.
-fn connection_state(dir: Option<&Path>, home: &Path, id: &str) -> Result<Value, RpcError> {
+fn connection_state(dir: Option<&Path>, home: &Path, id: &str, sources: &ProfileSources) -> Value {
     let b = routes::bindings(home);
-    let found = list(dir, home, &b).into_iter().find(|c| c.id == id);
-    Ok(json!({"connection": found}))
+    let found = list(dir, home, &b, sources).into_iter().find(|c| c.id == id);
+    json!({"connection": found})
 }
 
 async fn places(hub: &Hub) -> (Option<PathBuf>, PathBuf, ProfileSources) {
@@ -1690,7 +1690,7 @@ pub(super) async fn handle(
             let id =
                 blocking(move || import_chatgpt(origin, enabled, d, h, &secret_file)).await??;
             announce_later(hub);
-            blocking(move || connection_state(dir.as_deref(), &home, &id)).await?
+            blocking(move || connection_state(dir.as_deref(), &home, &id, &sources)).await
         }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;
@@ -2440,11 +2440,13 @@ mod tests {
         let route = routes::find(Some(&d.routes), &id).unwrap();
         assert_eq!(route.file.kind, RouteKind::ChatgptPlan);
         assert_eq!(route.file.families, vec!["codex".to_owned()]);
-        let list = list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
-        let plan = list.iter().find(|c| c.id == "chatgpt").unwrap();
-        assert_eq!(plan.kind, "chatgpt-plan");
-        assert!(plan.serves_cloud && plan.signed_in);
-        assert_eq!(plan.email.as_deref(), Some("ci@example.com"));
+        let response = connection_state(Some(&d.routes), &d.home, &id, &ProfileSources::default());
+        let plan = &response["connection"];
+        assert_eq!(plan["id"], "chatgpt");
+        assert_eq!(plan["kind"], "chatgpt-plan");
+        assert_eq!(plan["serves_cloud"], true);
+        assert_eq!(plan["signed_in"], true);
+        assert_eq!(plan["email"], "ci@example.com");
         // Importing the same account again replaces its record: no second connection.
         let again = import(&d, Origin::Local, true, &codex_auth(Some("rt-2"))).unwrap();
         assert_eq!(again, "chatgpt");

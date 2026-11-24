@@ -673,7 +673,9 @@ final class AppServices {
         cache.onRelease = { [weak self] key in
             self?.home.releaseTabView(key)
             self?.madeAgentTabs?.releaseIfGone(key)
-            self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
+            if let cache = self?.cache, !cache.browserTabs.isSignInApprovalTab(key) {
+                cache.pageRequests.closedHistories.save(cache.existingBrowser(key)?.tab)
+            }
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages

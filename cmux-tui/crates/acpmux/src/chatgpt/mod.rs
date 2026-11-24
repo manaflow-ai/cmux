@@ -378,7 +378,7 @@ impl Service {
     /// when needed. One refresh per account at a time: concurrent callers wait for it and
     /// read its result.
     pub async fn token(&self, home: &Path, id: &str) -> Result<(String, i64), Failure> {
-        self.token_lasting(home, id, REFRESH_MARGIN_SECS).await
+        self.refresh_token(home, id, REFRESH_MARGIN_SECS, 0).await
     }
 
     /// `token`, good for at least `margin` seconds (a machine launch asks for
@@ -388,6 +388,16 @@ impl Service {
         home: &Path,
         id: &str,
         margin: i64,
+    ) -> Result<(String, i64), Failure> {
+        self.refresh_token(home, id, margin, margin).await
+    }
+
+    async fn refresh_token(
+        &self,
+        home: &Path,
+        id: &str,
+        refresh_margin: i64,
+        minimum_lifetime: i64,
     ) -> Result<(String, i64), Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
@@ -408,16 +418,16 @@ impl Service {
                 match &observed {
                     Ok(stored) if stored == &pending.previous || stored == &pending.current => {
                         if let Err(error) = self.persist(&key, &pending.current, _save).await {
-                            return live_token(pending.current).ok_or(error);
+                            return live_token(pending.current, minimum_lifetime).ok_or(error);
                         }
                         self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
-                        if let Some(token) = live_token(pending.current.clone()) {
-                            return Ok(token);
-                        }
-                        observed = Ok(pending.current);
+                        return live_token(pending.current, minimum_lifetime).ok_or_else(|| {
+                            Failure::new("network", "the refreshed ChatGPT token expires too soon")
+                        });
                     }
                     Err(error) if error.code != "signed_out" => {
-                        return live_token(pending.current).ok_or_else(|| error.clone());
+                        return live_token(pending.current, minimum_lifetime)
+                            .ok_or_else(|| error.clone());
                     }
                     _ => {}
                 }
@@ -428,7 +438,7 @@ impl Service {
                 return Err(Failure::new("signed_out", "sign in with ChatGPT again"));
             }
             if !record.access_token.is_empty()
-                && record.expires_at.saturating_sub(now_unix()) > margin
+                && record.expires_at.saturating_sub(now_unix()) > refresh_margin
             {
                 return Ok((record.access_token, record.expires_at));
             }
@@ -458,7 +468,7 @@ impl Service {
                         self.persist(&key, &cleared, _save).await?;
                         return Err(failure);
                     }
-                    return live_token(record).ok_or(failure);
+                    return live_token(record, minimum_lifetime).ok_or(failure);
                 }
             }
         }
@@ -519,7 +529,8 @@ impl Service {
     }
 }
 
-fn live_token(record: store::Record) -> Option<(String, i64)> {
-    (!record.access_token.is_empty() && record.expires_at > now_unix())
+fn live_token(record: store::Record, minimum_lifetime: i64) -> Option<(String, i64)> {
+    (!record.access_token.is_empty()
+        && record.expires_at.saturating_sub(now_unix()) > minimum_lifetime)
         .then_some((record.access_token, record.expires_at))
 }

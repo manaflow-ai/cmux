@@ -557,16 +557,26 @@ fn recovered_in(vars: &BTreeMap<&str, &str>) -> Option<AgentCredential> {
 /// [`recovered`] for the running process `pid` (this daemon's adopted agent), read through the
 /// one-pid env reader `agent_host::tree::environ` (the env its exec was given). Linux only:
 /// elsewhere (and when its env cannot be read) None.
-pub fn recovered_from_pid(pid: u32) -> Option<AgentCredential> {
+pub(crate) fn recovered_from_pid(pid: u32, start: u64, session: &str) -> Option<AgentCredential> {
     #[cfg(target_os = "linux")]
     {
+        let process_start = crate::owner_exit::process_start;
+        if process_start(pid) != Some(start) {
+            return None;
+        }
         let pairs = crate::agent_host::tree::environ(pid)?;
+        if process_start(pid) != Some(start) {
+            return None;
+        }
         let vars: BTreeMap<_, _> = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        if vars.get(crate::agent_tools::AGENT_SESSION_ENV).copied() != Some(session) {
+            return None;
+        }
         recovered_in(&vars)
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = pid;
+        let _ = (pid, start, session);
         None
     }
 }
@@ -1030,7 +1040,7 @@ mod tests {
         assert_eq!(recovered(&environ(&[(MARKER, CLAUDE_OAUTH), (CLAUDE_OAUTH, "a b")])), None);
         assert_eq!(recovered(&environ(&[(MARKER, CLAUDE_OAUTH)])), None);
         assert_eq!(recovered(b""), None);
-        assert_eq!(recovered_from_pid(u32::MAX), None);
+        assert_eq!(recovered_from_pid(u32::MAX, 1, "chat"), None);
     }
 
     #[test]

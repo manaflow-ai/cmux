@@ -224,20 +224,51 @@ import Testing
             guard ready else { return .connectable }
             return .ready(preferred == machine.id ? machine : other)
         }
-        models.prepareCloudClaudeLogin = {
+        models.prepareCloudClaudeLogin = { preferred in
+            #expect(preferred == "owner")
             ready = true
             return machine
         }
         #expect(models.state["cloudClaudeLogin"]?["phase"] == "idle")
-        _ = try await models.run(["action": "connectClaude", "cloud": true], context: click)
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "owner"], context: click)
         #expect(models.state["cloudClaudeLogin"]?["phase"] == "preparing")
         await models.claudeLoginTasks[.cloud]?.value
         #expect(opened.urls.first?.host == "claude.ai")
         #expect(daemon.calls.withLock { $0 }.contains(Call(method: "finish", params: ["loginId": "cloud-id"])))
         #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+        #expect(models.state["cloudClaudeLogin"]?["completion"]?.stringValue != nil)
         #expect(presented.count == 1)
         #expect(dismissed == presented)
         #expect(!models.state.compactText.contains("cloud-id"))
+    }
+
+    @Test func unavailableAutomaticCloudCallbackUsesTheManualCodeOnTheSameMachine() async throws {
+        let daemon = Daemon()
+        daemon.committedClaudeToken.withLock { $0 = true }
+        let opened = Opened()
+        let models = make(daemon: daemon, opened: opened)
+        _ = await models.loadedState()
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", request: { op, fields in
+            daemon.calls.withLock { $0.append(Call(method: op, params: fields)) }
+            if op == "start" {
+                return Data(#"{"loginId":"manual-id","url":"https://claude.ai/oauth/manual","callbackPort":1234,"autoUrl":"https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1234%2Fcallback"}"#.utf8)
+            }
+            return Data(#"{"signedIn":true}"#.utf8)
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { $0 == machine.id ? .ready(machine) : .connectable }
+        models.prepareCloudClaudeLogin = { $0 == machine.id ? machine : nil }
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "replace": "claude-token-1"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "code")
+        #expect(opened.urls.map(\.path) == ["/oauth/manual"])
+        #expect(daemon.committedClaudeToken.withLock { $0 })
+        #expect(daemon.calls.withLock { $0 }.filter { ["finish", "cancel"].contains($0.method) }.isEmpty)
+
+        _ = try await models.run(["action": "finishClaudeLogin", "cloud": true, "code": "fixture"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "finish", params: ["loginId": "manual-id", "code": "fixture"])))
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+        #expect(!daemon.committedClaudeToken.withLock { $0 })
     }
 
     @Test func cloudClaudeMachinePickPrefersReadyThenPausedOrOfflineThenCreate() {
@@ -259,6 +290,8 @@ import Testing
 
         #expect(SettingsCloudClaudeLogin.pickMachine([later, shared, paused, ready], owner: owner, personal: false) == .ready(ready.record.id))
         #expect(SettingsCloudClaudeLogin.pickMachine([later, ready], owner: owner, personal: false, preferred: later.record.id) == .ready(later.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([ready, paused], owner: owner, personal: false, preferred: paused.record.id, requirePreferred: true) == .link(paused.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([ready, shared], owner: owner, personal: false, preferred: shared.record.id, requirePreferred: true) == .unavailable)
         #expect(SettingsCloudClaudeLogin.pickMachine([offline, outdated, shared, paused], owner: owner, personal: false) == .link(paused.record.id))
         #expect(SettingsCloudClaudeLogin.pickMachine([offline], owner: owner, personal: true) == .link(offline.record.id))
         #expect(SettingsCloudClaudeLogin.pickMachine([outdated], owner: owner, personal: true) == .link(outdated.record.id))
@@ -280,7 +313,7 @@ import Testing
         let (waiting, releaseWait) = AsyncStream<Void>.makeStream()
         models.observeCloudClaudeAccount { account.scope }
         models.cloudClaudeLogin = { _ in .connectable }
-        models.prepareCloudClaudeLogin = {
+        models.prepareCloudClaudeLogin = { _ in
             reportStarted.finish()
             for await _ in waiting {}
             try Task.checkCancellation()
@@ -466,6 +499,28 @@ import Testing
         await models.refresh()
         let afterLogout = try #require(models.state["personal"]?["connections"]?.arrayValue)
         #expect(!afterLogout.contains { $0["id"]?.stringValue == "\(provider)-native-login" })
+    }
+
+    @Test func deviceReauthenticationReportsItsTargetWithTheChallenge() async throws {
+        let daemon = Daemon()
+        daemon.signedInPlan.withLock { $0 = true }
+        let (entered, onWait) = AsyncStream<Void>.makeStream()
+        let (outcomes, finish) = AsyncStream<Data>.makeStream()
+        let models = make(daemon: daemon, waitForDevice: {
+            onWait.finish()
+            for await reply in outcomes { return reply }
+            return Data()
+        })
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "connectChatGPTDevice", "id": "chatgpt-1"], context: click)
+        let task = models.chatgptDeviceTask
+        for await _ in entered {}
+        #expect(models.state["deviceTarget"] == "chatgpt-1")
+        #expect(models.state["chatgptDevice"]?["phase"] == "waiting")
+        finish.yield(Data(#"{"status":"failed","error":"different_account","actual":"other@example.com","expected":"first@example.com"}"#.utf8))
+        await task?.value
+        #expect(models.state["deviceTarget"] == "chatgpt-1")
+        #expect(models.state["chatgptDevice"]?["error"] == "different_account")
     }
 
     @Test(arguments: [false, true])

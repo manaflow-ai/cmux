@@ -764,6 +764,8 @@ export type ClaudeLogin = {
   apiKey?: boolean;
   signedIn?: boolean | null;
   machineName?: string | null;
+  machine?: string | null;
+  completion?: string | null;
 };
 
 /** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
@@ -792,6 +794,7 @@ export type ModelsState = {
   chatgptDevice?: ChatGPTDeviceState;
   deviceProvider?: ModelDeviceProvider;
   deviceRegion?: string | null;
+  deviceTarget?: string | null;
   claudeLogin?: ClaudeLogin;
   cloudClaudeLogin?: ClaudeLogin;
 };
@@ -823,8 +826,9 @@ export type ModelsRun =
     }
   | { action: "openChatGPTDevice" }
   | { action: "closeKeyPage"; url: string }
-  | { action: "checkClaudeLogin" | "cancelClaudeLogin" | "signOutClaude"; cloud: boolean }
-  | { action: "connectClaude"; cloud?: boolean; replace?: string }
+  | { action: "checkClaudeLogin"; cloud: boolean; machine?: string }
+  | { action: "cancelClaudeLogin" | "signOutClaude"; cloud: boolean }
+  | { action: "connectClaude"; cloud?: boolean; replace?: string; machine?: string }
   | { action: "finishClaudeLogin"; cloud: boolean; code: string }
   | { action: "cancelChatGPTDevice" }
   | { action: "setCloud"; id: string; on: boolean }

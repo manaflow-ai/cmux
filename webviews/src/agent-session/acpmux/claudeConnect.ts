@@ -46,6 +46,13 @@ export function connectDetailKey(brand: string | undefined) {
     : ("picker.connectClaude.detail" as const);
 }
 
+export function openClaudeCloudSettings(
+  native: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  machine: string,
+) {
+  return () => void native("cloud.connect", { family: "claude", machine }).catch(() => undefined);
+}
+
 export const ClaudeConnectContext = createContext<ClaudeConnect | undefined>(undefined);
 
 export const useClaudeConnect = () => useContext(ClaudeConnectContext);

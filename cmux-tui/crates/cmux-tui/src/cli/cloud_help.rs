@@ -595,11 +595,10 @@ set reads the value from a hidden prompt or stdin, never a command argument.
 
 MODEL CONNECTIONS (what a Cloud session runs on; secrets go into this Mac's Keychain)
   cmux cloud connections
-  cmux cloud connect claude [--label L]
   cmux cloud connect api-key --provider anthropic|openai [--label L]
   cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
-claude runs `claude setup-token` and captures its token without showing it; api-key reads
-the key from a hidden prompt or stdin; chatgpt prints a link to open in a browser on this Mac.
+Sign in to Claude Code on its Cloud machine from `cmux://settings/cloud/claude`.
+api-key reads the key from a hidden prompt or stdin; chatgpt prints a link to open in a browser on this Mac.
 
 TEAM KEYS (one shared key per agent for the team; owners and admins)
   cmux cloud team-keys status --team TEAM_ID --json
@@ -631,11 +630,10 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 
 モデル接続（Cloud セッションが使うもの。シークレットはこの Mac のキーチェーンに保存）
   cmux cloud connections
-  cmux cloud connect claude [--label L]
   cmux cloud connect api-key --provider anthropic|openai [--label L]
   cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
-claude は `claude setup-token` を実行し、トークンを表示せずに取り込みます。api-key はキーを
-非表示の入力プロンプトまたは標準入力から読み取ります。chatgpt はこの Mac のブラウザで開くリンクを表示します。
+`cmux://settings/cloud/claude` から Cloud マシン上の Claude Code にサインインします。
+api-key はキーを非表示の入力プロンプトまたは標準入力から読み取ります。chatgpt はこの Mac のブラウザで開くリンクを表示します。
 
 チームキー（チームでエージェントごとに 1 つの共有キー、オーナーと管理者）
   cmux cloud team-keys status --team TEAM_ID --json

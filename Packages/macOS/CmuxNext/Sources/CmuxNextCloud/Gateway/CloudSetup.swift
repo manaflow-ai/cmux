@@ -204,7 +204,7 @@ public final class CloudSetup {
     /// The owner's Claude chat can start before Claude Code has a login on its machine.
     public var canSignInToClaudeOnMachine: (@MainActor (String?) async -> Bool)?
     /// Opens Settings > Cloud > Cloud models for the family selected in the picker.
-    public var openConnectionSettings: (@MainActor (String) -> Void)?
+    public var openConnectionSettings: (@MainActor (String, String?) -> Void)?
 
     /// One wait's wake: fired once, by a change or by its task's cancel, whichever comes first.
     private final class Wake: Sendable {
@@ -365,8 +365,8 @@ public final class CloudSetup {
     }
 
     /// The picker's Connect shows the family's Settings destination.
-    public func connect(family: String) {
-        openConnectionSettings?(family)
+    public func connect(family: String, machine: String? = nil) {
+        openConnectionSettings?(family, machine)
     }
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).

@@ -31,6 +31,7 @@ export type SettingsSearch = {
   q?: string;
   changed?: true;
   provider?: string;
+  machine?: string;
   open?: string;
   fromSend?: true;
 };
@@ -50,6 +51,7 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
   if (provider) out.provider = provider;
+  if (typeof raw.machine === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.machine)) out.machine = raw.machine;
   if (open) out.open = open;
   if (raw.fromSend === true || raw.fromSend === "1") out.fromSend = true;
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;

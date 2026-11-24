@@ -18,13 +18,19 @@ impl Hub {
     /// already held (one the Mac sent since) stays. Its family was checked when it was applied, and
     /// is again at the next spawn (`agent_credentials::apply`). Names only are logged. Whether one
     /// was taken.
-    pub(crate) fn recover_credential(&self, session: &Session, harness_pid: Option<u32>) -> bool {
-        let Some(pid) = harness_pid else { return false };
+    pub(crate) fn recover_credential(
+        &self,
+        session: &Session,
+        identity: Option<(u32, u64)>,
+    ) -> bool {
+        let Some((pid, start)) = identity else { return false };
         let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
         if held.is_some() {
             return false;
         }
-        let Some(credential) = crate::agent_credentials::recovered_from_pid(pid) else {
+        let Some(credential) =
+            crate::agent_credentials::recovered_from_pid(pid, start, &session.id)
+        else {
             return false;
         };
         let names: Vec<&str> = credential.names().collect();
@@ -255,17 +261,31 @@ mod tests {
         let session = hub.new_session(req).await.unwrap();
         let child = hub.child_for(&session).await.unwrap();
         let pid = child.pid.expect("the agent's pid");
+        let start = crate::owner_exit::process_start(pid).unwrap();
+        let identity = Some((pid, start));
+        let other = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        assert!(
+            !hub.recover_credential(&other, identity),
+            "same-family chat cannot take the credential"
+        );
         // What a new daemon has of the session: no credential.
         *session.credential.lock().unwrap() = None;
-        assert!(hub.recover_credential(&session, Some(pid)));
+        assert!(
+            !hub.recover_credential(&session, Some((pid, start + 1))),
+            "a reused PID is refused"
+        );
+        assert!(hub.recover_credential(&session, identity));
         assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
         // One the Mac sent since stays.
         *session.credential.lock().unwrap() = Some(credential(SECOND));
-        assert!(!hub.recover_credential(&session, Some(pid)));
+        assert!(!hub.recover_credential(&session, identity));
         assert_eq!(*session.credential.lock().unwrap(), Some(credential(SECOND)));
         // The next start runs on the held credential.
         *session.credential.lock().unwrap() = None;
-        assert!(hub.recover_credential(&session, Some(pid)));
+        assert!(hub.recover_credential(&session, identity));
         let before = child.generation;
         let only = std::collections::BTreeSet::from([session.id.clone()]);
         hub.restart_harnesses(None, Some(&only)).await;
@@ -284,7 +304,8 @@ mod tests {
             .await
             .unwrap();
         let pid = hub.child_for(&session).await.unwrap().pid.expect("the agent's pid");
-        assert!(!hub.recover_credential(&session, Some(pid)));
+        let identity = Some((pid, crate::owner_exit::process_start(pid).unwrap()));
+        assert!(!hub.recover_credential(&session, identity));
         assert!(session.credential.lock().unwrap().is_none());
         assert!(!hub.recover_credential(&session, None));
     }

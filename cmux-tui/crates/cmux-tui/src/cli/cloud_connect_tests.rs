@@ -6,11 +6,7 @@ use acpmux::rpc::method;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
-use super::capture::{self, TokenFilter};
 use super::{Chatgpt, Command, Daemon, Io, Keychain, parse, run};
-
-const TOKEN: &str =
-    "sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
 
 fn strings(args: &[&str]) -> Vec<String> {
     args.iter().map(|s| (*s).to_owned()).collect()
@@ -31,17 +27,13 @@ impl Daemon for FakeDaemon {
         let state = |list: &Vec<Value>| json!({ "connections": list, "spread": false, "order_explicit": false });
         match m {
             method::MUX_CONNECTIONS => Ok(state(&self.connections.borrow())),
-            method::MUX_CONNECTIONS_KEY_ADD | method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD => {
+            method::MUX_CONNECTIONS_KEY_ADD => {
                 if self.refuse_add {
                     return Err("secret_unresolved: no such Keychain item".into());
                 }
-                let (id, kind, cloud) = if m == method::MUX_CONNECTIONS_KEY_ADD {
-                    (format!("{}-key", params["provider"].as_str().unwrap()), "api-key", true)
-                } else {
-                    ("claude-token".to_owned(), "claude-token", true)
-                };
+                let id = format!("{}-key", params["provider"].as_str().unwrap());
                 self.connections.borrow_mut().push(
-                    json!({"id": id, "kind": kind, "serves_cloud": cloud, "signed_in": true}),
+                    json!({"id": id, "kind": "api-key", "serves_cloud": true, "signed_in": true}),
                 );
                 Ok(state(&self.connections.borrow()))
             }
@@ -87,7 +79,6 @@ fn io<'a>(daemon: &'a FakeDaemon, keychain: &'a FakeKeychain) -> Io<'a> {
     Io {
         daemon,
         keychain,
-        claude_token: &|| Ok(Zeroizing::new(TOKEN.to_owned())),
         api_key: &|_| Ok(Zeroizing::new("sk-proj-0123456789abcdef\n".to_owned())),
     }
 }
@@ -95,11 +86,6 @@ fn io<'a>(daemon: &'a FakeDaemon, keychain: &'a FakeKeychain) -> Io<'a> {
 #[test]
 fn parses_every_verb() {
     assert_eq!(parse("connections", &[]).unwrap(), Command::Connections);
-    assert_eq!(parse("connect", &strings(&["claude"])).unwrap(), Command::Claude { label: None });
-    assert_eq!(
-        parse("connect", &strings(&["claude", "--label", " Work "])).unwrap(),
-        Command::Claude { label: Some("Work".into()) }
-    );
     assert_eq!(
         parse("connect", &strings(&["api-key", "--provider=openai"])).unwrap(),
         Command::ApiKey { provider: "openai".into(), label: None }
@@ -145,64 +131,33 @@ fn refuses_bad_usage_and_never_takes_a_secret_in_argv() {
 }
 
 #[test]
+fn claude_setup_tokens_cannot_be_added_from_the_cloud_cli() {
+    assert!(parse("connect", &strings(&["claude"])).is_err());
+    assert!(parse("connect", &strings(&["claude", "--label", "Work"])).is_err());
+    let help =
+        run(&Command::Help, &io(&FakeDaemon::default(), &FakeKeychain::default()), &mut |_| {})
+            .unwrap();
+    assert!(!help["usage"].as_str().unwrap().contains("connect claude"));
+}
+
+#[test]
 fn run_if_requested_ignores_other_cloud_verbs() {
     assert_eq!(super::run_if_requested(&strings(&["cloud", "secret", "ls"])), None);
     assert_eq!(super::run_if_requested(&strings(&["cloud", "ls"])), None);
 }
 
 #[test]
-fn claude_stores_the_token_and_adds_only_its_reference() {
-    let daemon = FakeDaemon::default();
-    let keychain = FakeKeychain::default();
-    let command = Command::Claude { label: Some("Work".into()) };
-    let value = run(&command, &io(&daemon, &keychain), &mut |_| {}).unwrap();
-    let stored = keychain.stored.borrow();
-    let (account, label, secret) = &stored[0];
-    assert!(
-        account.starts_with("claude-token-") && account.len() == "claude-token-".len() + 8,
-        "{account}"
-    );
-    assert_eq!(label, "cmux claude-token API key");
-    assert_eq!(secret, TOKEN);
-    let calls = daemon.calls.borrow();
-    let (m, params) =
-        calls.iter().find(|(m, _)| m == method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD).unwrap();
-    assert_eq!(m, method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD);
-    assert_eq!(params["secret"], json!(format!("keychain:cmux-model-key/{account}")));
-    assert_eq!(params["label"], json!("Work"));
-    assert_eq!(value["connection"]["id"], json!("claude-token"));
-    assert_eq!(value["keychain"], json!({"service": "cmux-model-key", "account": account}));
-    // The token is nowhere in what the daemon got or what the verb answers.
-    assert!(!format!("{calls:?}").contains("sk-ant-oat01"));
-    assert!(!value.to_string().contains("sk-ant-oat01"));
-    assert!(super::human(&command, &value).contains("It serves Cloud sessions."));
-}
-
-#[test]
 fn a_refused_add_removes_the_keychain_item() {
     let daemon = FakeDaemon { refuse_add: true, ..FakeDaemon::default() };
     let keychain = FakeKeychain::default();
-    let error =
-        run(&Command::Claude { label: None }, &io(&daemon, &keychain), &mut |_| {}).unwrap_err();
+    let error = run(
+        &Command::ApiKey { provider: "anthropic".into(), label: None },
+        &io(&daemon, &keychain),
+        &mut |_| {},
+    )
+    .unwrap_err();
     assert!(error.contains("Keychain item was removed"), "{error}");
     assert_eq!(*keychain.deleted.borrow(), vec![keychain.stored.borrow()[0].0.clone()]);
-}
-
-#[test]
-fn claude_refuses_what_is_not_a_setup_token() {
-    let daemon = FakeDaemon::default();
-    let keychain = FakeKeychain::default();
-    for bad in ["sk-ant-api03-abc", "sk-ant-oat01 with space", ""] {
-        let io = Io {
-            daemon: &daemon,
-            keychain: &keychain,
-            claude_token: &|| Ok(Zeroizing::new(bad.to_owned())),
-            api_key: &|_| unreachable!(),
-        };
-        assert!(run(&Command::Claude { label: None }, &io, &mut |_| {}).is_err(), "{bad}");
-    }
-    assert!(keychain.stored.borrow().is_empty());
-    assert!(daemon.calls.borrow().is_empty());
 }
 
 #[test]
@@ -331,101 +286,7 @@ fn connections_lists_which_serve_cloud() {
     assert!(lines[2].starts_with("claude-token") && lines[2].ends_with("yes"), "{table}");
     assert!(!table.contains('\u{1b}'));
     let empty = super::human(&Command::Connections, &json!({"connections": []}));
-    assert!(empty.contains("cmux cloud connect claude"));
-}
-
-fn filtered(chunks: &[&[u8]]) -> (Vec<u8>, Option<String>) {
-    let mut filter = TokenFilter::default();
-    let mut shown = Vec::new();
-    for chunk in chunks {
-        shown.extend(filter.push(chunk));
-    }
-    let (rest, token) = filter.finish();
-    shown.extend(rest);
-    (shown, token.map(|t| t.to_string()))
-}
-
-#[test]
-fn the_filter_takes_the_token_out_at_every_chunk_boundary() {
-    let text = format!(
-        "Visit https://claude.ai/oauth?code=1\r\nPaste code here: CODE\r\n\x1b[32m{TOKEN}\x1b[0m\r\nStore this token\r\n"
-    );
-    let bytes = text.as_bytes();
-    let before = text.find(TOKEN).unwrap();
-    for split in 0..bytes.len() {
-        let (shown, token) = filtered(&[&bytes[..split], &bytes[split..]]);
-        assert_eq!(token.as_deref(), Some(TOKEN), "split {split}");
-        assert_eq!(shown, &bytes[..before], "split {split}");
-    }
-    let singles: Vec<&[u8]> = bytes.chunks(1).collect();
-    assert_eq!(filtered(&singles).1.as_deref(), Some(TOKEN));
-}
-
-#[test]
-fn the_filter_shows_everything_when_no_token_comes() {
-    let text = b"Error: not signed in. sk-ant- is not it, s";
-    let (shown, token) = filtered(&[&text[..20], &text[20..]]);
-    assert_eq!(shown, text);
-    assert_eq!(token, None);
-}
-
-/// A stand-in for `claude setup-token`: prints a link and a prompt, reads the code, prints a token.
-fn fake_claude(dir: &std::path::Path, body: &str) -> String {
-    let path = dir.join("claude");
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
-    path.to_string_lossy().into_owned()
-}
-
-fn pipe_with(input: &[u8]) -> std::os::fd::RawFd {
-    let mut fds = [0; 2];
-    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-    assert_eq!(
-        unsafe { libc::write(fds[1], input.as_ptr().cast(), input.len()) },
-        input.len() as isize
-    );
-    unsafe { libc::close(fds[1]) };
-    fds[0]
-}
-
-#[test]
-fn the_pty_run_shows_the_link_and_prompt_and_captures_the_token() {
-    let dir = tempfile::tempdir().unwrap();
-    let program = fake_claude(
-        dir.path(),
-        &format!(
-            "[ \"$1\" = setup-token ] || exit 9\nprintf 'Browser: https://claude.ai/oauth/authorize?x=1\\n'\nprintf 'Paste code here if prompted > '\nread code\nprintf 'got %s\\n' \"$code\"\nprintf '{TOKEN}\\n'\nprintf 'Store this token securely\\n'\nsleep 30"
-        ),
-    );
-    let input = pipe_with(b"CODE-123\n");
-    let mut out = Vec::new();
-    let started = std::time::Instant::now();
-    let token = capture::run(&program, &["setup-token"], Some(input), 200, &mut out).unwrap();
-    unsafe { libc::close(input) };
-    assert_eq!(&*token, TOKEN);
-    let shown = String::from_utf8_lossy(&out);
-    assert!(shown.contains("https://claude.ai/oauth/authorize?x=1"), "{shown}");
-    assert!(shown.contains("Paste code here if prompted"), "{shown}");
-    assert!(shown.contains("got CODE-123"), "{shown}");
-    assert!(!shown.contains("sk-ant-oat"), "{shown}");
-    assert!(!shown.contains("Store this token"), "{shown}");
-    // The child that keeps running after the token is stopped, not waited for.
-    assert!(started.elapsed() < Duration::from_secs(20));
-}
-
-#[test]
-fn the_pty_run_fails_with_no_token_and_names_a_missing_claude() {
-    let dir = tempfile::tempdir().unwrap();
-    let program = fake_claude(dir.path(), "echo 'Error: login failed'\nexit 1");
-    let mut out = Vec::new();
-    let error = capture::run(&program, &["setup-token"], None, 200, &mut out).unwrap_err();
-    assert!(error.contains("without printing a token"), "{error}");
-    assert!(String::from_utf8_lossy(&out).contains("login failed"));
-
-    let missing = dir.path().join("no-such-claude");
-    let error =
-        capture::run(missing.to_str().unwrap(), &["setup-token"], None, 200, &mut out).unwrap_err();
-    assert!(error.contains("not installed"), "{error}");
+    assert!(empty.contains("cmux://settings/cloud/claude"));
 }
 
 #[test]

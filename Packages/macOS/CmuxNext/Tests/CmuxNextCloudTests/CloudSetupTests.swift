@@ -254,10 +254,11 @@ struct CloudSetupTests {
         let connections = Connections(.init(personal: [], organization: []))
         let setup = setup(connections)
         var opened: [String] = []
-        setup.openConnectionSettings = { opened.append($0) }
+        setup.openConnectionSettings = { family, machine in opened.append(machine.map { "\(family):\($0)" } ?? family) }
         setup.connect(family: "codex")
         setup.connect(family: "gemini")
-        #expect(opened == ["codex", "gemini"])
+        setup.connect(family: "claude", machine: "vm_b")
+        #expect(opened == ["codex", "gemini", "claude:vm_b"])
         #expect(connections.ran.isEmpty)
     }
 

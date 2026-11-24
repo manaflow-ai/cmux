@@ -788,7 +788,7 @@ impl Hub {
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
         if adopted.exited.is_none() {
-            self.recover_credential(session, adopted.harness_pid);
+            self.recover_credential(session, adopted.harness_pid.zip(adopted.harness_start));
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with

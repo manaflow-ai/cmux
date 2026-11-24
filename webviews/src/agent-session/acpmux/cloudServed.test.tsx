@@ -182,6 +182,43 @@ test("Connect arms one return read and drops a superseded return", async () => {
   expect(reads).toHaveLength(3);
 });
 
+test("reopening the picker keeps the pending return selection on the latest read", async () => {
+  const container = installDom();
+  let watcher: (() => void) | undefined;
+  const watchKey = (run: () => void) => {
+    watcher = run;
+    return () => {
+      watcher = undefined;
+    };
+  };
+  const isKey = () => true;
+  const reads: ReturnType<typeof Promise.withResolvers<unknown>>[] = [];
+  const call = (method: string) => {
+    if (method === "cloud.connect") return Promise.resolve({});
+    const read = Promise.withResolvers<unknown>();
+    reads.push(read);
+    return read.promise;
+  };
+  let seen!: ReturnType<typeof useCloudServed>;
+  function Probe() {
+    seen = useCloudServed(call, true, { watchKey, isKey });
+    return null;
+  }
+  root = createRoot(container);
+  await act(async () => root!.render(<Probe />));
+  let selected = 0;
+  await act(async () => seen.openSettings("claude", () => selected++));
+  await act(async () => watcher?.());
+  await act(async () => seen.refresh());
+  await act(async () => reads[1]!.resolve(reply({ claude: false })));
+  expect(selected).toBe(0);
+  await act(async () => reads[2]!.resolve(reply({ claude: true })));
+  expect(selected).toBe(1);
+  await act(async () => seen.refresh());
+  await act(async () => reads[3]!.resolve(reply({ claude: true })));
+  expect(selected).toBe(1);
+});
+
 test("the host's endpoint support is exact and overrides family prefixes", () => {
   const served = readCloudServed({
     runnableFamilies: ["claude"],

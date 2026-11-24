@@ -160,7 +160,7 @@ export const LEVELS: Record<Level, { title: string; section: string; steps: Leve
       { kind: "command", by: "agent", step: CHAT_HARNESS, ops: "chat" },
       { kind: "command", by: "agent", step: "cmux chat send SESSION_ID 'Say it once more, shorter.' --wait", ops: "send" },
       { kind: "command", by: "agent", step: "cmux cloud connections", ops: "none", when: "the start is refused for a model connection" },
-      { kind: "command", by: "agent", step: "cmux cloud connect claude (or open cmux://settings/cloud/claude)", ops: "none", when: "no connection serves Cloud" },
+      { kind: "command", by: "agent", step: "open cmux://settings/cloud/claude", ops: "none", when: "no connection serves Cloud" },
       { kind: "physical", by: "person", step: "open the connect link and paste the code back", ops: "none", when: "no connection serves Cloud" },
       { kind: "physical", by: "person", step: "do the one card or Settings page for a Cloud plan or GitHub", ops: "none", when: "the start is refused for a Cloud plan or GitHub" },
       { kind: "command", by: "agent", step: `${CHAT_HARNESS} (again)`, ops: "none", when: REFUSED },

@@ -28,33 +28,35 @@ package struct SettingsCloudClaudeLogin {
         case ready(String)
         case link(String)
         case create
+        case unavailable
     }
 
     package static func pickMachine(_ candidates: [Candidate], owner: String?, personal: Bool,
-                            preferred: String? = nil) -> MachineChoice {
+                            preferred: String? = nil, requirePreferred: Bool = false) -> MachineChoice {
         let owned = candidates.filter { candidate in
             let record = candidate.record
             if personal { return CloudTransferRules.isOwner(record, user: owner) }
             // A record with no creator id may be the person's own: the link's owner answer decides after it connects.
             return CloudCallerOwnership(creator: record.createdBy, caller: owner) != .team
         }.sorted { $0.record.id < $1.record.id }
-        let linked = owned.filter { $0.status == .running && $0.linked && $0.supportsLogin }
+        let candidates = requirePreferred ? owned.filter { $0.record.id == preferred } : owned
+        let linked = candidates.filter { $0.status == .running && $0.linked && $0.supportsLogin }
         if let ready = linked.first(where: { $0.record.id == preferred }) ?? linked.first {
             return .ready(ready.record.id)
         }
         // Paused, offline, or linked on an older daemon: connecting resumes it and waits out its update.
-        if let offline = owned.first(where: {
+        if let offline = candidates.first(where: {
             [.paused, .running, .starting, .provisioning, .unknown].contains($0.status)
         }) {
             return .link(offline.record.id)
         }
         // Only teammates' machines (or none): the person gets their own.
-        return .create
+        return requirePreferred ? .unavailable : .create
     }
 
     package func install(on models: SettingsModels) {
         models.cloudClaudeLogin = { preferred in state(preferred: preferred) }
-        models.prepareCloudClaudeLogin = { try await prepare() }
+        models.prepareCloudClaudeLogin = { try await prepare(preferred: $0) }
         models.observeCloudClaudeAccount { host.account() }
     }
 
@@ -66,25 +68,28 @@ package struct SettingsCloudClaudeLogin {
         return .ready(machine(session, account: account))
     }
 
-    private func prepare() async throws -> SettingsModels.CloudClaudeMachine? {
+    private func prepare(preferred: String?) async throws -> SettingsModels.CloudClaudeMachine? {
         guard let account = host.account() else { throw CancellationError() }
         let check: @MainActor () throws -> Void = {
             try Task.checkCancellation()
             guard host.account() == account else { throw CancellationError() }
         }
+        let choose = { choice(preferred: preferred, requirePreferred: preferred != nil) }
         do {
             try check()
-            if !host.hasLoadedMachines() || choice() == .create {
+            if !host.hasLoadedMachines() || [.create, .unavailable].contains(choose()) {
                 guard await host.refreshMachines() else { throw Self.startFailure }
                 try check()
             }
             guard host.hasLoadedMachines() else { throw Self.startFailure }
 
             let session: SettingsCloudClaudeMachineLink
-            switch choice() {
+            switch choose() {
             case .ready(let id), .link(let id):
                 guard let existing = host.machine(id) else { throw Self.startFailure }
                 session = existing
+            case .unavailable:
+                throw Self.startFailure
             case .create:
                 guard let created = try await host.createMachine(check) else { return nil }
                 session = created
@@ -113,9 +118,9 @@ package struct SettingsCloudClaudeLogin {
         PageError(code: "cmux.models.machine_start_failed", message: "Cloud machine start failed")
     }
 
-    private func choice(preferred: String? = nil) -> MachineChoice {
+    private func choice(preferred: String? = nil, requirePreferred: Bool = false) -> MachineChoice {
         Self.pickMachine(host.machineIDs().compactMap { host.machine($0)?.candidate },
-                         owner: host.caller(), personal: host.personal(), preferred: preferred)
+                         owner: host.caller(), personal: host.personal(), preferred: preferred, requirePreferred: requirePreferred)
     }
 
     private func machine(_ session: SettingsCloudClaudeMachineLink, account: [String?]) -> SettingsModels.CloudClaudeMachine {

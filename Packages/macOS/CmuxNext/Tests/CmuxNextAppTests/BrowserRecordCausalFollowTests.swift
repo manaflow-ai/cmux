@@ -84,6 +84,21 @@ struct BrowserRecordCausalFollowTests {
         }
     }
 
+    @Test func aSignInCallbackDoesNotWriteTheBrowserRecordOrSessionHistory() async throws {
+        let daemon = Daemon()
+        let (service, page, tab) = Self.tracked(daemon)
+        let callback = try #require(URL(string: "http://localhost:8100/callback?code=fixture"))
+        service.untrack(tab.id)
+        service.isSignInApprovalTab = { $0 == tab.id }
+        service.track(page, for: tab)
+        page.simulate(.urlChanged(callback))
+        service.writeRecordURL(callback, for: tab)
+        await service.flushRecords()
+        #expect(daemon.writes.isEmpty)
+        #expect(service.historyWriters[tab.id] == nil)
+        #expect(tab.url == Self.a.absoluteString)
+    }
+
     @Test func thePagesOwnWritesSeenLateNeverReloadIt() async throws {
         let daemon = Daemon()
         let (service, page, tab) = Self.tracked(daemon)

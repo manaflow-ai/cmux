@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
@@ -23,13 +24,15 @@ enum ChatMachineSignInTab {
         let services = pane.services
         guard let (tab, _) = services.locateTab(key, onMachine: pane.daemon.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
-        guard isAvailable(on: daemon, services: services) else { return nil }
+        guard let port = AgentPaneSignInPage.callbackPort(url), isAvailable(on: daemon, services: services) else { return nil }
         return { [weak pane] in
             guard pane != nil else { return false }
             // task-owner: one page made and one tab asked for; ends once the tab is asked for.
             Task { @MainActor [weak pane] in
                 guard let pane else { return }
-                _ = await open(url, daemon: daemon, from: pane, checking: { true })
+                _ = await open(url, daemon: daemon, from: pane, callbackPort: port, owner: chatOwner(key), checking: { [weak services] in
+                    services?.locateTab(key) != nil
+                })
             }
             return true
         }
@@ -42,7 +45,7 @@ enum ChatMachineSignInTab {
 
     /// Opens the approval page using the chat machine's existing browser placement and callback route.
     static func open(_ url: URL, daemon: DaemonService, from source: PaneController,
-                     callbackPort: UInt16? = nil, checking current: @escaping @MainActor () -> Bool,
+                     callbackPort: UInt16, owner: String, checking current: @escaping @MainActor () -> Bool,
                      onOpened: (@MainActor (@escaping @MainActor () -> Void) -> Void)? = nil) async -> Bool {
         let services = source.services
         guard current(), isAvailable(on: daemon, services: services) else { return false }
@@ -54,22 +57,39 @@ enum ChatMachineSignInTab {
         let configuration = BrowserTabConfiguration(profile: profile, initialURL: url, navigationGuard: .noLoopback)
         guard let page = try? await services.cache.makeCEFTab(configuration) else { return false }
         guard !Task.isCancelled, current() else { page.close(); return false }
-        if let callbackPort {
-            let back = services.linkOpener.openSignInPage(url, from: source, adopting: page, profile: wire, prepare: {
-                guard current() else { return false }
-                services.remoteLocalhost.expectCallbackPage(page, machine: daemon.machineID, port: callbackPort, current: current)
-                return true
+        let prepare: @MainActor () -> Bool = { [weak services, weak page] in
+            guard let services, let page, current() else { return false }
+            services.remoteLocalhost.expectCallbackPage(page, machine: daemon.machineID, port: callbackPort, owner: owner,
+                                                        current: current, closePending: { [weak services, weak page] in
+                guard let page else { return }
+                services?.cache.pageRequests.browserTab(page, didRequest: .close)
+                page.close()
             })
-            guard let back else { page.close(); return false }
-            onOpened?(back)
             return true
         }
-        return services.linkOpener.open(from: source, kind: .browser) { target, placed in
-            services.remoteLocalhost.expectPage(page, machine: daemon.machineID)
-            let made = target.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page,
-                                            background: placed != nil, profile: wire, placementOwner: placed != nil, then: placed)
-            if !made { page.close() }
-            return made
+        guard let onOpened else {
+            return services.linkOpener.open(from: source, kind: .browser) { target, placed in
+                guard prepare() else { page.close(); return false }
+                let made = target.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page,
+                                                background: placed != nil, profile: wire, placementOwner: placed != nil, then: placed)
+                if !made { page.close() }
+                return made
+            }
+        }
+        guard let back = services.linkOpener.openSignInPage(url, from: source, adopting: page, profile: wire, prepare: prepare)
+        else { page.close(); return false }
+        onOpened { [weak services] in
+            back()
+            if let services { closeApproval(owner: owner, services: services) }
+        }
+        return true
+    }
+
+    static func chatOwner(_ key: String) -> String { "chat:" + key }
+
+    static func closeApproval(owner: String, services: AppServices) {
+        for key in services.remoteLocalhost.endSignInApproval(owner: owner) {
+            services.cache.pageRequests.closeTab(key)
         }
     }
 }

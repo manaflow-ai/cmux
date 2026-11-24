@@ -417,6 +417,12 @@ fn build_harness_command(
         codex => (launch, codex),
     };
     cmd.args(launch).envs(env.iter());
+    // Recovery trusts the daemon's session stamp on a marked launch.
+    if env.contains_key(crate::agent_credentials::MARKER)
+        && let Some((id, _)) = session
+    {
+        cmd.env(crate::agent_tools::AGENT_SESSION_ENV, id);
+    }
     // The subagent mark is the daemon's to give (a workflow runner a subagent started,
     // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
     cmd.env_remove(crate::sender_env::SUBAGENT_ENV);

@@ -41,10 +41,13 @@ export function ChatGPTDeviceForm({
   target?: string;
   error: string | null;
 }) {
-  const state = (models.deviceProvider ?? "chatgpt") === signIn ? models.chatgptDevice : undefined;
+  const state =
+    (models.deviceProvider ?? "chatgpt") === signIn && (models.deviceTarget ?? undefined) === target
+      ? models.chatgptDevice
+      : undefined;
   const phase = state?.phase;
   const initialState = useRef(state);
-  const [started, setStarted] = useState(phase === "starting" || phase === "waiting");
+  const [started, setStarted] = useState(phase === "starting" || phase === "waiting" || phase === "cancelling");
   const close = useEffectEvent(onClose);
   const connected = state?.phase === "connected" && started && state !== initialState.current;
   const account = models.personal.connections.find(

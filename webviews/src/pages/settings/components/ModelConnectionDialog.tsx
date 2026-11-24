@@ -72,11 +72,14 @@ export function ModelConnectionDialog({
   }, []);
   const connection = rowAction?.connection;
   const directClaude = provider?.kind === "claude-login" || (provider?.id === "claude-login" && !target);
+  const standaloneChatGPT = models?.personal.connections.some(
+    (row) => row.id === target && row.kind === "chatgpt-plan",
+  );
   const accountFamily =
     !cloud && accountSignIn.inPlace
       ? directClaude
         ? "claude"
-        : provider?.id === "chatgpt" || provider?.id === "codex-login"
+        : (provider?.id === "chatgpt" && !standaloneChatGPT) || provider?.id === "codex-login"
           ? "codex"
           : undefined
       : undefined;

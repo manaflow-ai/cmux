@@ -4,6 +4,7 @@
 // a new Claude account (as the host's `connectClaude` picks); a daemon without the in-place
 // sign-in, or a host that does not list the accounts, keeps `connectClaude` (its terminal sign-in).
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { act } from "react";
 import { mockModels } from "./mockModels";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -102,4 +103,19 @@ test("a finished in-place sign-in reads Models again, so the row shows it", asyn
   expect(
     rendered.container.querySelector('[data-card="models"] [data-connection="claude-login"]')?.textContent,
   ).toContain("signed-in@example.com");
+});
+
+test("Sign In Again renews a standalone ChatGPT plan through its device flow on an in-place host", async () => {
+  const rendered = await open();
+  const models = structuredClone(mockModels.macLogins);
+  const plan = models.personal.connections.find((row) => row.kind === "chatgpt-plan")!;
+  plan.signedIn = false;
+  plan.expiresAt = Math.floor(Date.now() / 1000) - 1;
+  await act(async () => rendered.provider.setModels(models));
+  await click(rendered.container.querySelector('[data-menu="connection-chatgpt"]')!);
+  await click(document.querySelector('[role="menuitem"][data-value="signInAgain"]')!);
+  const form = document.querySelector("[data-models-dialog]")!;
+  await click(form.querySelector('[data-models-action="connectChatGPTDevice"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", openBrowser: true, id: plan.id }]);
+  expect(rendered.provider.accountRuns).toEqual([]);
 });

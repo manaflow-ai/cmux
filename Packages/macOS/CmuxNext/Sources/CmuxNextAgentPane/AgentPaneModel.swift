@@ -179,9 +179,9 @@ public final class AgentPaneModel {
     /// Per family a Cloud chat runs, readiness and the reason when disconnected (``CloudSetup/served()``); nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudServed: (@MainActor (String?) async -> CloudSetup.Readiness)?
     /// Opens Settings > Cloud > Cloud models for the picker's Connect (``CloudSetup/connect(family:)``); nil when Cloud is unavailable.
-    @ObservationIgnored public var onCloudConnect: (@MainActor (String) -> Void)?
+    @ObservationIgnored public var onCloudConnect: (@MainActor (String, String?) -> Void)?
     /// Proves the current tab's connection to its own Cloud machine before opening Models for recovery.
-    @ObservationIgnored public var mayRecoverCloudConnection: (@MainActor (String) async -> Bool)?
+    @ObservationIgnored public var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
     @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
@@ -788,7 +788,7 @@ public final class AgentPaneModel {
         case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
         // A read for the model picker: needs no gesture and changes nothing.
         case .cloudSetupState(let machine): return await cloudSetupState(machine: machine)
-        case .cloudConnect(let family): return await connectCloud(family: family)
+        case .cloudConnect(let family, let machine): return await connectCloud(family: family, machine: machine)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
         // Opens the plan's checkout in the browser on the person's click (one gesture).

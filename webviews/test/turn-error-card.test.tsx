@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../src/agent-session/acpmux/failureCopy";
 import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
+import { openClaudeCloudSettings } from "../src/agent-session/acpmux/claudeConnect";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 import { teardownDom } from "./support/domTeardown";
@@ -245,15 +246,17 @@ test("a Cloud 401 names the rejected credentials, never the machine's host", asy
   expect(card().textContent).not.toContain("private.internal");
 });
 
-test("a Claude Cloud setup token rejection opens Models on the user's click", async () => {
-  let opened = 0;
+test("a Claude Cloud setup token rejection opens Models for the affected machine on the user's click", async () => {
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
   let transferred = 0;
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider
         value={{
           route: { name: "Claude", harness: "claude", hostKind: "cloud" },
-          openClaudeCloudSettings: () => opened++,
+          openClaudeCloudSettings: openClaudeCloudSettings(async (method, params) => {
+            calls.push({ method, params });
+          }, "vm_b"),
           transferCloudCredentials: async () => {
             transferred++;
           },
@@ -266,9 +269,9 @@ test("a Claude Cloud setup token rejection opens Models on the user's click", as
   );
   const renewal = button("Set up Claude for Cloud again");
   expect(renewal?.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(opened).toBe(0);
+  expect(calls).toEqual([]);
   await act(async () => renewal!.click());
-  expect(opened).toBe(1);
+  expect(calls).toEqual([{ method: "cloud.connect", params: { family: "claude", machine: "vm_b" } }]);
   expect(transferred).toBe(0);
 });
 

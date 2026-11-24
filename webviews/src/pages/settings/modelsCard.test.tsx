@@ -798,6 +798,73 @@ test("a legacy Claude row is Claude Code with only Reconnect, which opens machin
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaude", cloud: true, replace: "claude-token" }]);
 });
 
+test("Reconnect waits for the new Claude result when the previous login was connected", async () => {
+  const initial = { phase: "connected", error: null, completion: "previous-login" } as const;
+  const models = { ...mockModels.claudeTokenOnly, cloudClaudeLogin: initial };
+  const rendered = await render(models, "/settings/cloud");
+  const reconnect = row(rendered, "claude-token").querySelector<HTMLButtonElement>(
+    '[data-connection-action="reconnect"]',
+  )!;
+  await click(reconnect);
+  const held = Promise.withResolvers<void>();
+  rendered.provider.modelsReadHold = held.promise;
+  await click(action(panel()!, "connectClaude")!);
+  expect(panel()).not.toBeNull();
+  await act(async () => rendered.provider.setModels({ ...models, cloudClaudeLogin: { ...initial } }));
+  expect(panel()).not.toBeNull();
+  await act(async () => {
+    rendered.provider.setModels({ ...models, cloudClaudeLogin: { ...initial, completion: "new-login" } });
+    held.resolve();
+  });
+  expect(panel()).toBeNull();
+});
+
+test("a second ChatGPT plan never displays the first plan's wrong-account error", async () => {
+  const models = structuredClone(mockModels.chatgptForCloud);
+  const first = models.personal.connections.find((connection) => connection.kind === "chatgpt-plan")!;
+  first.signedIn = false;
+  models.personal.connections.push({ ...first, id: "chatgpt-2", email: "second@example.com" });
+  const rendered = await render(models);
+  await chooseAction(rendered, first.id, "signInAgain");
+  await click(action(panel()!, "connectChatGPTDevice")!);
+  await act(async () =>
+    rendered.provider.setModels({
+      ...models,
+      deviceTarget: first.id,
+      chatgptDevice: {
+        phase: "failed",
+        error: "different_account",
+        actual: "wrong@example.com",
+        expected: "first@example.com",
+      },
+    }),
+  );
+  expect(panel()?.querySelector("[role=alert]")?.textContent).toContain("wrong@example.com");
+  await press(panel()!.querySelector("h2")!, "Escape");
+  await chooseAction(rendered, "chatgpt-2", "signInAgain");
+  expect(panel()?.querySelector("[role=alert]")).toBeNull();
+  expect(panel()?.textContent).not.toContain("wrong@example.com");
+  await click(action(panel()!, "connectChatGPTDevice")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({
+    action: "connectChatGPTDevice",
+    openBrowser: true,
+    id: "chatgpt-2",
+  });
+});
+
+test("a Cloud Claude recovery link signs in on the affected machine", async () => {
+  const rendered = await render(
+    { ...mockModels.claudeTokenOnly, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_a" } },
+    "/settings/cloud?focus=card.cloudModels&provider=claude&machine=vm_b&open=1",
+  );
+  const form = panel()!;
+  expect(form.querySelector("[data-models-claude-form]")?.getAttribute("data-login")).toBe("idle");
+  await click(action(form, "connectClaude")!);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "connectClaude", cloud: true, replace: "claude-token", machine: "vm_b" },
+  ]);
+});
+
 test.each(["claude-login", "codex-login"])("focus on %s reveals the detected row in Models", async (id) => {
   const rendered = await render(mockModels.macOnly, `/settings/models?focus=${id}&open=picker`);
   expect(panel()).toBeNull();

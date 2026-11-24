@@ -496,7 +496,7 @@ import { cloudStartStalled, watchCloudStartStall, type CloudStartProgress } from
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
 import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
-import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
+import { ClaudeConnectContext, openClaudeCloudSettings, setupConnect } from "./claudeConnect";
 import { useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
 import { type QuickActionMode } from "./header/quickActions";
 import {
@@ -3694,7 +3694,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(connected &&
         cloudMachineID &&
         !cloudTeamMachine && {
-          openClaudeCloudSettings: () => void callNative("cloud.connect", { family: "claude" }).catch(() => undefined),
+          openClaudeCloudSettings: openClaudeCloudSettings(callNative, cloudMachineID),
         }),
       cloudSignIn:
         cloudSignIn && owner

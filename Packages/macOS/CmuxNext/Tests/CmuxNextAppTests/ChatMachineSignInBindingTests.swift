@@ -47,13 +47,18 @@ struct ChatMachineSignInBindingTests {
         let wrongPort = try #require(URL(string: "http://localhost:8101/callback"))
         let wrongPath = try #require(URL(string: "http://localhost:8100/other"))
         var current = true
-        service.expectCallbackPage(page, machine: "vm-1", port: 8100) { current }
+        service.expectCallbackPage(page, machine: "vm-1", port: 8100, owner: "approval", current: { current })
         service.adoptPage(page, key: tab.id)
         #expect(service.storePlan(for: tab, url: callback) == .derived)
         #expect(service.storePlan(for: tab, url: wrongPort) == .blank)
         #expect(service.storePlan(for: tab, url: wrongPath) == .blank)
 
         current = false
+        #expect(service.storePlan(for: tab, url: callback) == .blank)
+        current = true
+        #expect(service.endSignInApproval(owner: "other").isEmpty)
+        #expect(service.endSignInApproval(owner: "approval") == [tab.id])
+        #expect(service.isSignInApprovalTab(tab.id))
         #expect(service.storePlan(for: tab, url: callback) == .blank)
         let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
         #expect(relaunched.boundMachine(ofTab: tab.id) == "vm-1")

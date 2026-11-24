@@ -429,7 +429,12 @@ extension AgentPaneRequest {
         case "cloud.connect":
             // The picker lists catalog families even when the Cloud gateway cannot run them yet.
             if let family = params?["family"] as? String, CloudSetup.isConnectionID(family) {
-                self = .cloudConnect(family: family)
+                let machine = params?["machine"] as? String
+                if params?["machine"] == nil || machine.map(CloudSetup.isConnectionID) == true {
+                    self = .cloudConnect(family: family, machine: machine)
+                } else {
+                    self = .unsupported(method)
+                }
             } else {
                 self = .unsupported(method)
             }

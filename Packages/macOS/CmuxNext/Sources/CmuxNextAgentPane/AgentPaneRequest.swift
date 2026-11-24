@@ -200,7 +200,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudSetupState(machine: String?)
     /// `cloud.connect {family}`: the picker's Connect row opens Settings > Cloud > Cloud models on its click.
     /// Unlike `cloud.setUp` it belongs to no start: it keeps no click and waits for nothing.
-    case cloudConnect(family: String)
+    case cloudConnect(family: String, machine: String?)
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)

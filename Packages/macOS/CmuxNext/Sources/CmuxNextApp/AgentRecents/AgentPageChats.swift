@@ -42,7 +42,7 @@ final class AgentPageChats {
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
-    var mayRecoverCloudConnection: (@MainActor (String) async -> Bool)?
+    var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
     var cloudSetup: CloudSetup? // Cloud first use: Set up Cloud's ways in and the picker's Connect rows (``AgentPaneModel/useCloudSetup(_:)``)
     var gitHub: AgentPaneGitHub? // the new chat folder picker's GitHub section (``AgentPaneGitHub``)
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
@@ -158,8 +158,8 @@ final class AgentPageChats {
         tabs.pageChats.mayRecoverCloudConnection = { [weak services] tabID in
             guard let services, let (tab, _) = services.locateTab(tabID),
                   let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
-                  let machine = services.machines.session(daemon.machineID) else { return false }
-            return await CloudMove.ownerAnswer(machine).vmKind == "owner"
+                  let machine = services.machines.session(daemon.machineID) else { return nil }
+            return await CloudMove.ownerAnswer(machine).vmKind == "owner" ? machine.machineID : nil
         }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }

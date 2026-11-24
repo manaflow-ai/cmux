@@ -7,28 +7,69 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Default)]
+enum KeychainProbe {
+    #[default]
+    Unchecked,
+    RetryAt(std::time::Instant),
+    Available,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl KeychainProbe {
+    fn available(&mut self, now: std::time::Instant, probe: impl FnOnce() -> bool) -> bool {
+        match self {
+            Self::Available => return true,
+            Self::RetryAt(deadline) if now < *deadline => return false,
+            _ => {}
+        }
+        let available = probe();
+        *self = if available {
+            Self::Available
+        } else {
+            Self::RetryAt(std::time::Instant::now().max(now) + std::time::Duration::from_secs(1))
+        };
+        available
+    }
+}
+
 #[cfg(not(test))]
 struct Vault;
 
 #[cfg(not(test))]
+impl Vault {
+    fn store() -> Result<std::sync::Arc<dyn crate::vault::store::SecretStore>, Error> {
+        use crate::vault::store;
+        #[cfg(target_os = "macos")]
+        {
+            static PROBE: std::sync::Mutex<KeychainProbe> =
+                std::sync::Mutex::new(KeychainProbe::Unchecked);
+            let mut state = PROBE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !state.available(std::time::Instant::now(), || {
+                store::probe_as(&store::OsStore, &format!("{}.subscription", store::probe_name()))
+            }) {
+                return Err(Error::KeychainLocked);
+            }
+            Ok(std::sync::Arc::new(store::OsStore))
+        }
+        #[cfg(not(target_os = "macos"))]
+        Ok(store::for_daemon())
+    }
+}
+
+#[cfg(not(test))]
 impl Keychain for Vault {
     fn read(&self, scope: &str, account: &str) -> Result<Option<Vec<u8>>, Error> {
-        if cfg!(target_os = "macos") && !crate::vault::store::os_usable() {
-            return Err(Error::KeychainLocked);
-        }
-        let store = crate::vault::store::for_daemon();
-        store
+        Self::store()?
             .get(&format!(".subscription/{scope}/{account}"))
             .map(|value| value.map(|value| value.as_bytes().to_vec()))
             .map_err(|_| Error::KeychainLocked)
     }
 
     fn write(&self, scope: &str, account: &str, value: &[u8]) -> Result<bool, Error> {
-        if cfg!(target_os = "macos") && !crate::vault::store::os_usable() {
-            return Err(Error::KeychainLocked);
-        }
         let name = format!(".subscription/{scope}/{account}");
-        let store = crate::vault::store::for_daemon();
+        let store = Self::store()?;
         let created = store.get(&name).map_err(|_| Error::KeychainLocked)?.is_none();
         let value = std::str::from_utf8(value).map_err(|_| Error::Storage)?;
         store.put(&name, value).map_err(|_| Error::KeychainLocked)?;
@@ -36,10 +77,7 @@ impl Keychain for Vault {
     }
 
     fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
-        if cfg!(target_os = "macos") && !crate::vault::store::os_usable() {
-            return Err(Error::KeychainLocked);
-        }
-        crate::vault::store::for_daemon()
+        Self::store()?
             .delete(&format!(".subscription/{scope}/{account}"))
             .map_err(|_| Error::KeychainLocked)
     }

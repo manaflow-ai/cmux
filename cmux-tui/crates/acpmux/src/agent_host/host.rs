@@ -420,6 +420,7 @@ struct State {
     record: HostRecord,
     spec: SpawnSpec,
     launch_key_index: Option<usize>,
+    harness_start: Option<u64>,
     /// Retained entries as their encoded frames: encoded once in `push`, sent as is
     /// (live and on resume), weighed by their size.
     entries: VecDeque<Retained>,
@@ -593,6 +594,12 @@ impl Started {
         let ring_reader = |pipe: OwnedFd, holder: &Holder| -> Result<Reader> {
             let ring = holder.fds.ring.clone();
             Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from)?))
+        };
+        let harness_start = match &harness {
+            Harness::Spawned(_) => record.harness_pid.and_then(crate::owner_exit::process_start),
+            Harness::Adopted { .. } => {
+                holder.as_ref().and_then(|h| h.adopt.as_ref()?.harness_start)
+            }
         };
         let (stdin, stdout, stderr, pgid, exit): (
             Writer,
@@ -823,6 +830,7 @@ impl Started {
         let mut state = State {
             record,
             launch_key_index: spec.launch_key_index(),
+            harness_start,
             spec,
             entries: VecDeque::new(),
             weight: 0,
@@ -1612,6 +1620,7 @@ impl State {
                 host_build: self.record.host_build.clone(),
                 incarnation: self.record.incarnation.clone(),
                 harness_pid: self.record.harness_pid,
+                harness_start: self.harness_start,
                 last_h: self.next_h,
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
@@ -1933,6 +1942,26 @@ mod tests {
 #[cfg(test)]
 mod launch_key_redaction_tests {
     use super::*;
+
+    #[test]
+    fn local_kimi_grants_are_redacted_without_a_cloud_recovery_marker() {
+        let grant = "fixture-kimi-grant";
+        let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
+            "session_id": "chat",
+            "program": "opencode",
+            "args": [],
+            "env": [[crate::byo_endpoint::OPENAI_KEY_ENV, grant]],
+            "cwd": "/",
+            "hosts_dir": "/",
+            "socket": "/unused",
+            "buffer_cap": 1024
+        }))
+        .unwrap();
+        let key = spec.launch_key(spec.launch_key_index()).expect("the host registers the grant");
+        let mut entry = Entry::Err { line: format!("provider refused {grant}") };
+        redact_launch_key(&mut entry, key);
+        assert_eq!(entry, Entry::Err { line: "provider refused [redacted]".into() });
+    }
 
     #[test]
     fn endpoint_launch_credentials_are_redacted_from_host_entries() {

@@ -870,6 +870,21 @@ async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
     assert!(expires_at - now() >= super::CREDENTIAL_MARGIN_SECS);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_refresh_cannot_supply_a_short_machine_credential() {
+    let s = setup().await;
+    sign_in(&s, &[("code", "c1")]).await;
+    expire(&s);
+    s.fake.state.lock().unwrap().refresh_error = Some((503, json!({"error": "unavailable"})));
+    let failure = s
+        .service
+        .token_lasting(&s.places.home, "chatgpt", super::CREDENTIAL_MARGIN_SECS)
+        .await
+        .unwrap_err();
+    assert_ne!(failure.code, "reauth_required");
+    assert!(store::read(&s.places.home, "chatgpt").unwrap().unwrap().signed_in());
+}
+
 /// A `chatgpt-plan` route this acpmux home holds no sign-in for (the route folder is shared by every
 /// cmux on the Mac; another build, or the retired token-sharing client, wrote it): the row reads
 /// signed out, and its Sign In signs in on that same route instead of failing `not_found` (cmux#45774).

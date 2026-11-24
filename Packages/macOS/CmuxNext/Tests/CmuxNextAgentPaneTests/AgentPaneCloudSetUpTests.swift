@@ -115,7 +115,7 @@ struct AgentPaneCloudSetUpTests {
         let model = AgentPaneModel(host: NoHost(), sessionId: "local-empty")
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
         var opened: [String] = []
-        model.onCloudConnect = { opened.append($0) }
+        model.onCloudConnect = { family, _ in opened.append(family) }
         let connect = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "codex"]])
         #expect(Self.code(await model.respond(to: connect)) == "transport.gesture_required")
         #expect(opened.isEmpty)
@@ -135,7 +135,7 @@ struct AgentPaneCloudSetUpTests {
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
         let setup = CloudSetup()
         var opened: [String] = []
-        setup.openConnectionSettings = { opened.append($0) }
+        setup.openConnectionSettings = { family, _ in opened.append(family) }
         model.useCloudSetup(setup)
         let request = { (family: String) in AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": family]]) }
         #expect(Self.code(await model.respond(to: request("google"))) == "transport.gesture_required")
@@ -153,17 +153,21 @@ struct AgentPaneCloudSetUpTests {
         model.tabKey = { "cloud-tab" }
         var opened: [String] = []
         var authorized = false
-        model.onCloudConnect = { opened.append($0) }
-        model.mayRecoverCloudConnection = { $0 == "cloud-tab" && authorized }
-        let connect = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude"]])
+        model.onCloudConnect = { family, machine in opened.append("\(family):\(machine ?? "")") }
+        model.mayRecoverCloudConnection = { $0 == "cloud-tab" && authorized ? "vm_b" : nil }
+        let connect = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude", "machine": "vm_b"]])
         #expect(Self.code(await model.respond(to: connect)) == "transport.gesture_required")
         model.transport.gestures.record()
         #expect(Self.code(await model.respond(to: connect)) == "unsupported")
         #expect(opened.isEmpty)
         authorized = true
+        let wrongMachine = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude", "machine": "vm_a"]])
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: wrongMachine)) == "unsupported")
+        #expect(opened.isEmpty)
         model.transport.gestures.record()
         #expect(await model.respond(to: connect)["ok"] as? Bool == true)
-        #expect(opened == ["claude"])
+        #expect(opened == ["claude:vm_b"])
     }
 
     @Test func setupRequiresAnActionAndAValidFamily() {

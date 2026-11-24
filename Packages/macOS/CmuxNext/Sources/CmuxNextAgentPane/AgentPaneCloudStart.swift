@@ -467,24 +467,26 @@ extension AgentPaneModel {
         }
         onCloudSetUp = { @MainActor (action: CloudSetup.Action, family: String) async -> Bool in await setup.setUp(action, family: family) }
         onCloudServed = { await setup.served(machine: $0) }
-        onCloudConnect = { @MainActor (family: String) -> Void in setup.connect(family: family) }
+        onCloudConnect = { @MainActor family, machine in setup.connect(family: family, machine: machine) }
     }
 
     /// Opens Settings > Cloud > Cloud models for the named family. The picker reads `cloud.setup.state` again when reopened.
-    func connectCloud(family: String) async -> [String: Any] {
+    func connectCloud(family: String, machine: String?) async -> [String: Any] {
         guard let onCloudConnect else { return Self.unsupported("cloud.connect") }
+        let recoveryMachine: String?
         if chatIsElsewhere {
             guard family == "claude", let mayRecoverCloudConnection, let tab = tabKey(),
                   let session = sessionId else { return Self.unsupported("cloud.connect") }
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-            guard await mayRecoverCloudConnection(tab), tab == tabKey(), session == sessionId else {
-                return Self.unsupported("cloud.connect")
-            }
+            guard let owned = await mayRecoverCloudConnection(tab), tab == tabKey(), session == sessionId,
+                  machine == nil || machine == owned else { return Self.unsupported("cloud.connect") }
+            recoveryMachine = owned
         } else {
-            guard onCloudStartChat != nil else { return Self.unsupported("cloud.connect") }
+            guard machine == nil, onCloudStartChat != nil else { return Self.unsupported("cloud.connect") }
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            recoveryMachine = nil
         }
-        onCloudConnect(family)
+        onCloudConnect(family, recoveryMachine)
         return AgentPaneReply.success()
     }
 

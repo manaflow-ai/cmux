@@ -188,7 +188,7 @@ extension AgentTabStore {
         let family = harness ?? "codex"
         existingView(tab, machine: machine)?.showModelConnectionNotice(title,
             button: String(localized: "cloud.modelConnection.settings", defaultValue: "Settings", bundle: .module.inAppLanguage)) { [weak self] in
-                self?.cloudCredentials?.setup?.openConnectionSettings?(family)
+                self?.cloudCredentials?.setup?.connect(family: family)
             }
     }
 

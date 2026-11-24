@@ -462,8 +462,11 @@ extension AgentTabStore {
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
             if let ownerLink = links?.ownerLink {
+                let chat = key.key
                 host.claudeSignedIn = { [weak services] in
-                    guard await ownerLink() != nil, let services, let environment = await QuitAgents.environment(services) else { return }
+                    guard let services else { return }
+                    await ChatMachineSignInTab.closeApproval(owner: ChatMachineSignInTab.chatOwner(chat), services: services)
+                    guard await ownerLink() != nil, let environment = await QuitAgents.environment(services) else { return }
                     await SettingsModels.retireLegacyClaudeConnections(environment: environment)
                 }
             }

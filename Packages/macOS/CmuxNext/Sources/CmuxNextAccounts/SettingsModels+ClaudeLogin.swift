@@ -43,11 +43,14 @@ extension SettingsModels {
         var signedIn: Bool?
         var machine: String?
         var machineName: String?
+        var completion: String?
 
         var pageState: JSONValue {
             ["phase": .string(phase), "error": error.map(JSONValue.string) ?? .null, "apiKey": .bool(apiKey),
              "signedIn": signedIn.map(JSONValue.bool) ?? .null,
-             "machineName": machineName.map(JSONValue.string) ?? .null]
+             "machineName": machineName.map(JSONValue.string) ?? .null,
+             "machine": machine.map(JSONValue.string) ?? .null,
+             "completion": completion.map(JSONValue.string) ?? .null]
         }
     }
 
@@ -92,7 +95,7 @@ extension SettingsModels {
             return state?.machine == nil ? state ?? .init() : .init()
         case .ready(let machine):
             guard let state, state.machine == machine.id || (state.machine == nil && state.phase == "failed") else {
-                return .init(machineName: machine.name)
+                return .init(machine: machine.id, machineName: machine.name)
             }
             return state
         }
@@ -102,27 +105,29 @@ extension SettingsModels {
         cloudClaudeStateAccount == cloudClaudeAccount?() ? claudeLogins[.cloud] : nil
     }
 
-    private func claudeMachine(_ target: ClaudeLoginTarget) throws -> CloudClaudeMachine? {
+    private func claudeMachine(_ target: ClaudeLoginTarget, preferred: String? = nil) throws -> CloudClaudeMachine? {
         guard target == .cloud else { return nil }
-        guard case .ready(let machine) = cloudClaudeLogin?(currentCloudClaudeState?.machine) else {
+        guard case .ready(let machine) = cloudClaudeLogin?(preferred ?? currentCloudClaudeState?.machine),
+              preferred == nil || machine.id == preferred else {
             throw PageError.unavailable("Claude Code is unavailable on this Cloud machine")
         }
         return machine
     }
 
-    func checkClaudeLogin(_ target: ClaudeLoginTarget) async {
-        let phase = claudeLoginState(target).phase
+    func checkClaudeLogin(_ target: ClaudeLoginTarget, machine preferred: String?) async {
+        let phase = target == .cloud && preferred != nil && currentCloudClaudeState?.machine != preferred
+            ? "idle" : claudeLoginState(target).phase
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil,
               phase != "disabled", target == .mac || phase != "failed" else { return }
         let account = cloudClaudeAccount?()
-        let machine = try? claudeMachine(target)
+        let machine = try? claudeMachine(target, preferred: preferred)
         guard target == .mac || machine != nil else { return }
         let previous = claudeLogins[target]
         let stillChecking = {
             self.claudeLoginTasks[target] == nil && self.claudeLoginAttempts[target] == nil &&
                 (target == .mac || (self.cloudClaudeAccount?() == account &&
                     self.claudeLogins[target] == previous &&
-                    (try? self.claudeMachine(target))?.id == machine?.id))
+                    (try? self.claudeMachine(target, preferred: preferred))?.id == machine?.id))
         }
         do {
             let reply = try await claudeCall(.claudeLoginStatus, "status", ["agent": "claude"], machine: machine)
@@ -135,13 +140,15 @@ extension SettingsModels {
         }
     }
 
-    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?) throws {
+    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine preferred: String?) throws {
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil else { return }
         let prepare = target == .cloud ? prepareCloudClaudeLogin : nil
-        let initial = prepare == nil ? try claudeMachine(target) : nil
+        let initial = prepare == nil ? try claudeMachine(target, preferred: preferred) : nil
         let account = cloudClaudeAccount?()
         if target == .cloud {
-            guard cloudClaudeAccount == nil || account != nil, claudeLoginState(target).phase != "disabled" else { return }
+            guard cloudClaudeAccount == nil || account != nil else { return }
+            if (preferred == nil || currentCloudClaudeState?.machine == preferred),
+               claudeLoginState(target).phase == "disabled" { return }
         }
         setClaudeLogin(target, initial, prepare == nil ? "approving" : "preparing")
         // task-owner: the Settings model owns the preparation and sign-in until they settle.
@@ -152,9 +159,10 @@ extension SettingsModels {
             do {
                 if let prepare {
                     try checkClaudeAccount(target, account)
-                    machine = try await prepare()
+                    machine = try await prepare(preferred)
                     try checkClaudeAccount(target, account)
                     guard let machine else { return setClaudeLogin(target, nil, "idle") }
+                    guard preferred == nil || preferred == machine.id else { throw SettingsCloudClaudeLogin.startFailure }
                     setClaudeLogin(target, machine, "approving")
                 }
                 let started = try await claudeCall(.claudeLoginStart, "start", ["agent": "claude"], machine: machine)
@@ -174,43 +182,45 @@ extension SettingsModels {
                 if claudeLogins[target]?.phase == "cancelling" {
                     return await settleClaudeCancellation(target)
                 }
-                let automatic = started["autoUrl"]?.stringValue
-                guard let link = (automatic ?? started["url"]?.stringValue).flatMap(URL.init(string:)),
-                      AgentPaneSignInPage().allowed(link, forClaude: true) else { throw PageError.unavailable("Claude sign-in link is unavailable") }
                 let browserOwner = "claude:\(id)"
-                if automatic != nil {
-                    guard let port = AgentPaneSignInPage.callbackPort(link),
-                          started["callbackPort"]?.intValue == Int(port) else {
-                        throw PageError.unavailable("Claude sign-in callback is unavailable")
-                    }
+                if let automatic = started["autoUrl"]?.stringValue.flatMap(URL.init(string:)),
+                   let port = AgentPaneSignInPage.callbackPort(automatic),
+                   started["callbackPort"]?.intValue == Int(port) {
+                    let opened: Bool
                     if let machine {
                         let current: CloudClaudeMachine.CallbackScope = { [weak self] in
                             self?.claudeLoginAttempts[target]?.id == id && self?.claudeLogins[target]?.phase == "approving"
                         }
-                        guard await machine.openCallback(link, browserOwner, current) else {
-                            throw PageError.unavailable("Cloud browser callback is unavailable")
-                        }
+                        opened = await machine.openCallback(automatic, browserOwner, current)
                     } else {
-                        try await openSignIn(link, owner: browserOwner)
+                        try await openSignIn(automatic, owner: browserOwner)
+                        opened = true
                     }
-                    try await finishClaudeAttempt(target, code: nil, replacing: replacing)
-                } else {
-                    try await openSignIn(link, owner: browserOwner)
-                    guard claudeLoginAttempts[target]?.id == id else { return }
-                    claudeLoginReplacements[target] = replacing
-                    setClaudeLogin(target, machine, "code")
-                    let remaining = started["expiresAtMs"]?.intValue.map { Double($0) / 1000 - Date.now.timeIntervalSince1970 }
-                    let timer = DemandTimer(owner: "settings.models.claudeLogin")
-                    claudeLoginTimers[target] = timer
-                    timer.schedule(after: .seconds(max(0, min(900, remaining ?? 900)))) { @MainActor [weak self] in
-                        guard let self, claudeLoginAttempts[target]?.id == id,
-                              target == .mac || cloudClaudeAccount?() == account else { return }
-                        dismissSignInPage?(browserOwner)
-                        claudeLoginAttempts[target] = nil
-                        claudeLoginReplacements[target] = nil
-                        claudeLoginTimers[target] = nil
-                        setClaudeLogin(target, machine, "failed", error: "expired")
-                    }
+                    try checkClaudeAccount(target, account)
+                    guard claudeLoginAttempts[target]?.id == id, claudeLogins[target]?.phase == "approving" else { return }
+                    if opened { return try await finishClaudeAttempt(target, code: nil, replacing: replacing) }
+                }
+                guard let manual = started["url"]?.stringValue.flatMap(URL.init(string:)),
+                      AgentPaneSignInPage().allowed(manual, forClaude: true),
+                      AgentPaneSignInPage.callbackPort(manual) == nil else {
+                    throw PageError.unavailable("Claude sign-in link is unavailable")
+                }
+                try await openSignIn(manual, owner: browserOwner)
+                try checkClaudeAccount(target, account)
+                guard claudeLoginAttempts[target]?.id == id, claudeLogins[target]?.phase == "approving" else { return }
+                claudeLoginReplacements[target] = replacing
+                setClaudeLogin(target, machine, "code")
+                let remaining = started["expiresAtMs"]?.intValue.map { Double($0) / 1000 - Date.now.timeIntervalSince1970 }
+                let timer = DemandTimer(owner: "settings.models.claudeLogin")
+                claudeLoginTimers[target] = timer
+                timer.schedule(after: .seconds(max(0, min(900, remaining ?? 900)))) { @MainActor [weak self] in
+                    guard let self, claudeLoginAttempts[target]?.id == id,
+                          target == .mac || cloudClaudeAccount?() == account else { return }
+                    dismissSignInPage?(browserOwner)
+                    claudeLoginAttempts[target] = nil
+                    claudeLoginReplacements[target] = nil
+                    claudeLoginTimers[target] = nil
+                    setClaudeLogin(target, machine, "failed", error: "expired")
                 }
             } catch {
                 guard target == .mac || cloudClaudeAccount?() == account,
@@ -291,7 +301,7 @@ extension SettingsModels {
         try checkClaudeAccount(target, account)
         await refresh()
         try checkClaudeAccount(target, account)
-        setClaudeLogin(target, machine, "connected", signedIn: true)
+        setClaudeLogin(target, machine, "connected", signedIn: true, completion: UUID().uuidString)
     }
 
     private func checkClaudeAccount(_ target: ClaudeLoginTarget, _ account: [String?]?) throws {
@@ -362,13 +372,14 @@ extension SettingsModels {
     }
 
     private func setClaudeLogin(_ target: ClaudeLoginTarget, _ machine: CloudClaudeMachine?, _ phase: String,
-                                error: String? = nil, apiKey: Bool? = nil, signedIn: Bool? = nil) {
+                                error: String? = nil, apiKey: Bool? = nil, signedIn: Bool? = nil, completion: String? = nil) {
         let account = cloudClaudeAccount?()
         let previous = claudeLogins[target].flatMap {
             $0.machine == machine?.id && (target == .mac || cloudClaudeStateAccount == account) ? $0 : nil
         }
         if target == .cloud { cloudClaudeStateAccount = account }
         claudeLogins[target] = .init(phase: phase, error: error, apiKey: apiKey ?? previous?.apiKey ?? false,
-                                    signedIn: signedIn ?? previous?.signedIn, machine: machine?.id, machineName: machine?.name)
+                                    signedIn: signedIn ?? previous?.signedIn, machine: machine?.id, machineName: machine?.name,
+                                    completion: completion ?? previous?.completion)
     }
 }

@@ -44,6 +44,7 @@ public final class SettingsModels {
     var chatgptDevice = ChatGPTDeviceState.idle
     var deviceProvider = ModelDeviceProvider.chatgpt
     var deviceRegion: String?
+    var deviceTarget: String?
     @ObservationIgnored var chatgptDeviceRunID = UUID()
     @ObservationIgnored var chatgptDeviceTask: Task<Void, Never>?
     @ObservationIgnored var chatgptDeviceEnvironment: AcpmuxEnvironment?
@@ -55,7 +56,7 @@ public final class SettingsModels {
     /// The current owner machine, keeping the machine this dialog used while it is still ready.
     @ObservationIgnored public var cloudClaudeLogin: (@MainActor (_ preferredMachine: String?) -> CloudClaudeLogin)?
     /// Prepares an owned machine for Connect. Nil means the Cloud create card handled the request.
-    @ObservationIgnored public var prepareCloudClaudeLogin: (@MainActor () async throws -> CloudClaudeMachine?)?
+    @ObservationIgnored public var prepareCloudClaudeLogin: (@MainActor (String?) async throws -> CloudClaudeMachine?)?
     @ObservationIgnored var cloudClaudeAccount: (@MainActor @Sendable () -> [String?]?)?
     @ObservationIgnored var cloudClaudeAccountWatch: Task<Void, Never>?
     @ObservationIgnored var cloudClaudeStateAccount: [String?]?
@@ -156,6 +157,7 @@ public final class SettingsModels {
             "chatgptDevice": chatgptDevice.pageState,
             "deviceProvider": .string(deviceProvider.rawValue),
             "deviceRegion": deviceRegion.map(JSONValue.string) ?? .null,
+            "deviceTarget": deviceTarget.map(JSONValue.string) ?? .null,
         ]
     }
 
@@ -335,7 +337,7 @@ public final class SettingsModels {
             return .object([:])
         }
         if action == "checkClaudeLogin" {
-            await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac)
+            await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac, machine: params["machine"]?.stringValue)
             return .object([:])
         }
         if action == "closeKeyPage", let url = params["url"]?.stringValue {
@@ -388,7 +390,7 @@ public final class SettingsModels {
                   id == nil || connections.contains(where: {
                       $0["id"]?.stringValue == id && $0["kind"]?.stringValue == provider.connectionKind
                   }) else { throw PageError.invalidParams("sign-in needs a matching subscription") }
-            if case .waiting(let challenge) = chatgptDevice,
+            if case .showingChallenge(let challenge) = chatgptDevice,
                Double(challenge.expiresAt) <= Date.now.timeIntervalSince1970 {
                 await cancelChatGPTDevice()
             }
@@ -397,7 +399,7 @@ public final class SettingsModels {
                 region: params["region"]?.stringValue, servesCloud: params["servesCloud"]?.boolValue
             )
         case "openChatGPTDevice":
-            if case .waiting(let challenge) = chatgptDevice,
+            if case .showingChallenge(let challenge) = chatgptDevice,
                Double(challenge.expiresAt) > Date.now.timeIntervalSince1970 {
                 try await openSignIn(challenge.url, owner: "device:\(chatgptDeviceRunID)")
             }
@@ -407,7 +409,7 @@ public final class SettingsModels {
             let target: ClaudeLoginTarget = params["cloud"]?.boolValue == true ? .cloud : .mac
             switch action {
             case "connectClaude":
-                try beginClaudeLogin(target, replacing: claudeReplacement(params))
+                try beginClaudeLogin(target, replacing: claudeReplacement(params), machine: params["machine"]?.stringValue)
             case "finishClaudeLogin":
                 finishClaudeLogin(target, code: params["code"]?.stringValue ?? "")
             case "cancelClaudeLogin":

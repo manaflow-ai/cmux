@@ -272,3 +272,14 @@ fn subscription_migration_ignores_a_different_providers_item_left_after_removal(
     let original = keychain.read(&removed.service(), id).unwrap().unwrap();
     assert!(decode::<Value>(&original).is_ok_and(|record| record == grok));
 }
+
+#[test]
+fn a_locked_keychain_is_probed_again_after_backoff() {
+    use std::time::{Duration, Instant};
+    let now = Instant::now();
+    let mut probe = KeychainProbe::default();
+    assert!(!probe.available(now, || false));
+    assert!(!probe.available(now, || panic!("a burst must not repeat the probe")));
+    assert!(probe.available(now + Duration::from_secs(2), || true));
+    assert!(probe.available(now + Duration::from_secs(3), || panic!("success is cached")));
+}

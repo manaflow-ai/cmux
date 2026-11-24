@@ -67,6 +67,7 @@ extension SettingsModels {
         let runID = UUID()
         deviceProvider = provider
         deviceRegion = provider == .kimi ? region : nil
+        deviceTarget = id
         chatgptDeviceRunID = runID
         chatgptDevice = .starting
         // task-owner: SettingsModels.chatgptDeviceTask owns the daemon attempt until it ends.
