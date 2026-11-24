@@ -211,6 +211,11 @@ async function launchChrome(): Promise<{
       exe,
       ...(shell ? [] : ["--headless=new"]),
       "--remote-debugging-port=0",
+      // Ubuntu 24.04 runners restrict unprivileged user namespaces with AppArmor, so Chrome's sandbox cannot start and
+      // Chrome exits before it prints a DevTools endpoint (web-ui-ladder and web-ui-fidelity's `exit 1` on the perf
+      // cron, run 45408142192). The bench loads only its own local pages; every Playwright launch the other benches
+      // use passes the same flag.
+      "--no-sandbox",
       `--user-data-dir=${profile}`,
       "--no-first-run",
       "--no-default-browser-check",

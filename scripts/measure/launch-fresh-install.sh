@@ -3,7 +3,7 @@
 # point is a fresh launch somebody installing and launching from scratch"). On a fleet Mac's console session, one DMG:
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-fresh-install.sh --ref <sha> [--arg=dmg=nightly|URL|sha256:HEX] [--arg=reps=5] \
-#     [--arg=rows=n,q,m,p] [--arg=trace=1] --artifact .build/launch-fresh-install/report.tgz --timeout 5400
+#     [--arg=rows=n,q,m,p] [--arg=trace=1] [--arg=load=N] --artifact .build/launch-fresh-install/report.tgz --timeout 5400
 # dmg= is as launch-premain.sh takes it (sha256:HEX: the fleet store, a pull request's signed candidate). Rows, each
 # launch the first open of a copy nothing has run, with an empty home (a person's first launch), opened through
 # LaunchServices as a double-click opens it:
@@ -37,12 +37,14 @@
 set -uo pipefail
 
 LF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# load=N (duress): N busy-loop processes run across every launch (no load wait; each row carries its load1), for the
+# same rows on a busy Mac. 0, the default, measures an idle one.
 # store_fetch, gate, checker_cpu, load1, wait_load from the pre-main study's harness (its main does not run).
 source "$LF_DIR/launch-premain.sh"
 
 main() {
   cd "$LF_DIR/../.." || exit 3
-  local out="$PWD/.build/launch-fresh-install" dmg=nightly reps=5 rows="n,q,m,p" trace=0 arg rc=0 rep row
+  local out="$PWD/.build/launch-fresh-install" dmg=nightly reps=5 rows="n,q,m,p" trace=0 load=0 arg rc=0 rep row
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
@@ -50,11 +52,13 @@ main() {
       reps=*) reps="${arg#reps=}" ;;
       rows=*) rows="${arg#rows=}" ;;
       trace=0|trace=1) trace="${arg#trace=}" ;;
+      load=*) load="${arg#load=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
   [[ "$rows" =~ ^[nqmpsx](,[nqmpsx])*$ ]] || { echo "rows= takes n,q,m,p,s,x" >&2; exit 2; }
+  [[ "$load" =~ ^([0-9]|[12][0-9]|3[0-2])$ ]] || { echo "load= must be 0 to 32" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LF root yes" || echo "LF root no (trace=1 needs it for fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -96,9 +100,17 @@ main() {
   PROMPT_BASELINE="$(prompts ids 2>/dev/null)"
   # Rows q and m raise Gatekeeper's prompt on purpose: say so to the fleet's dialog alarm for this run, and take the
   # word back on every exit, after a last sweep of any prompt the job left.
-  trap 'sweep_prompts Cancel exit; marker_remove' EXIT
+  LOAD_PIDS=""
+  # shellcheck disable=SC2086 # LOAD_PIDS is a space-separated pid list.
+  trap 'sweep_prompts Cancel exit; marker_remove; [[ -n "$LOAD_PIDS" ]] && kill $LOAD_PIDS 2>/dev/null' EXIT
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   [[ ",$rows," == *,q,* || ",$rows," == *,m,* ]] && marker_write
+  if [[ "$load" -gt 0 ]]; then
+    local j; for ((j = 0; j < load; j++)); do (while :; do :; done) & LOAD_PIDS="$LOAD_PIDS $!"; done
+    wait_load() { :; }
+    sleep 5
+    echo "LF load $load busy loops, load1 $(load1)"
+  fi
   if [[ "$trace" == 1 ]]; then
     for row in "${list[@]}"; do wait_load "$row" T; first "$row" T || rc=1; done
   fi

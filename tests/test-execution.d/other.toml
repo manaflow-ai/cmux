@@ -66,10 +66,6 @@ path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_benchmark_dev_fleet_warm_slots.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_browser_host_release_package.py"
 lane = "linux-guard"
 
@@ -158,6 +154,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_rust_panic_ratchet_base_broken.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
 
 [[test]]
 path = "tests/test_dead_code_stripping.py"
@@ -406,6 +407,11 @@ lane = "manual"
 reason = "Run by the lane that changes the live code xcodebuild args (scripts/live-code/lib/xcodebuild-args.sh; kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_live_code_ldflags_quoting.py; needs only bash and python3."
 
 [[test]]
+path = "tests/test_live_code_patch_commands.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_live_code_patch_commands.py"
+
+[[test]]
 path = "tests/test_live_code_patch_tree.py"
 lane = "manual"
 reason = "Run by the lane that changes scripts/live-code/patch.py's --tree mapping (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_live_code_patch_tree.py; needs only python3 and git."
@@ -554,6 +560,11 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_outbound_hosts.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pack_webviews_chunks.py"
+lane = "manual"
+reason = "No workflow step runs it; the serving side is covered in CI by test-cmux-page-path-cpp.sh. Run python3 tests/test_pack_webviews_chunks.py after changing scripts/cmux-next/pack-webviews-chunks.py (seconds, Linux)."
 
 [[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
