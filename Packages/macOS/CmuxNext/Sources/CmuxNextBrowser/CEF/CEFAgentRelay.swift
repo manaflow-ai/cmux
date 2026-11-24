@@ -140,6 +140,7 @@ public final class CEFAgentRelay {
         switch message.channel {
         case .media: media?.report(message.payload)
         case .protectedMedia: media?.refused(message.payload)
+        case .webNotification: media?.notified(message.payload)
         case .verification: verification?.report(message.payload)
         case .firstPaint: firstPaint?.painted()
         case .scrollReport:

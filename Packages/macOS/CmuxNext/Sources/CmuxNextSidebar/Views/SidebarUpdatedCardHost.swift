@@ -461,7 +461,7 @@ final class SidebarUpdatedCardHost: NSView {
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
         glass.isHidden = card == nil || tall <= 0 || !drawn
         // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
-        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
+        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1) // concentric-allow: the composer's own corner under the page's card, which wears it too
         guard next != glassFrame else { return }
         defer { pointerHover?.refresh() }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty

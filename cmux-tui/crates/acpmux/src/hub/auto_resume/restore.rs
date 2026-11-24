@@ -81,6 +81,7 @@ impl Hub {
         }
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
         let mut not_before = None::<u64>;
+        let mut slash = None::<String>;
         let mut manual = None::<Value>;
         let mut manual_recorded = false;
         let mut has_retry_marker = false;
@@ -104,79 +105,86 @@ impl Hub {
             "auto_resume_exhausted",
             "turn_stop_requested",
         ];
-        let scanned = self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
-            if matches!(e.kind.as_str(), "queued" | "user_message")
-                && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
-                && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str)
-                    == Some(turn_id.as_str())
-            {
-                manual_recorded = true;
-            }
-            let is_cut = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id.as_str());
-            match e.kind.as_str() {
-                "turn_started" if is_cut => {
-                    // A stop record has no turn id. It belongs to the turn that was
-                    // active when it was written; an earlier stop must not suppress
-                    // recovery for this failed turn.
-                    has_retry_marker = false;
-                    control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
-                    trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
-                    cloud_mobile =
-                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
-                    ended = false;
-                    floor_cancelled = false;
+        // Unindexed kinds: the whole log, off the runtime's workers (`qos::off_worker`).
+        let scanned = crate::qos::off_worker(|| {
+            self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
+                if matches!(e.kind.as_str(), "queued" | "user_message")
+                    && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
+                    && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str)
+                        == Some(turn_id.as_str())
+                {
+                    manual_recorded = true;
                 }
-                "user_message" if is_cut => {
-                    let p = e.msg.pointer("/_meta/provenance");
-                    if super::super::subsession_guard::is_family(p) {
-                        from = p.and_then(|p| p["from"].as_str()).map(str::to_owned);
+                let is_cut = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id.as_str());
+                match e.kind.as_str() {
+                    "turn_started" if is_cut => {
+                        // A stop record has no turn id. It belongs to the turn that was
+                        // active when it was written; an earlier stop must not suppress
+                        // recovery for this failed turn.
+                        has_retry_marker = false;
+                        control =
+                            Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                        trust_gate =
+                            e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
+                        cloud_mobile =
+                            e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
+                        ended = false;
+                        floor_cancelled = false;
                     }
+                    "user_message" if is_cut => {
+                        let p = e.msg.pointer("/_meta/provenance");
+                        if super::super::subsession_guard::is_family(p) {
+                            from = p.and_then(|p| p["from"].as_str()).map(str::to_owned);
+                        }
+                    }
+                    "auto_resume_manual" if is_cut && !manual_recorded => manual = Some(e.msg),
+                    "turn_control"
+                        if is_cut
+                            && e.msg.get("control").and_then(Value::as_str) == Some("web") =>
+                    {
+                        control = Control::Web
+                    }
+                    "remote_control_ended" => ended = true,
+                    "remote_control_restored" => ended = false,
+                    "remote_floor_cancel" if is_cut => floor_cancelled = true,
+                    // daemon_restart and moved records are queued continuations, not waiting
+                    // retries.
+                    "auto_resume_scheduled"
+                        if is_cut
+                            && !super::Cut::queued(e.msg.get("reason").and_then(Value::as_str)) =>
+                    {
+                        has_retry_marker = true;
+                        not_before = e.msg.get("notBefore").and_then(Value::as_u64);
+                        slash = e.msg.get("slash").and_then(Value::as_str).map(str::to_owned);
+                        retry = serde_json::from_value(e.msg).ok();
+                    }
+                    // Old stop records had no id; the turn boundary reset scopes those. New
+                    // records explicitly name the cut turn, including a Stop before failure.
+                    "auto_resume_stopped"
+                        if is_cut || e.msg.get("turnId").is_none_or(Value::is_null) =>
+                    {
+                        turn_stopped |= is_cut;
+                        has_retry_marker = true;
+                        retry = None;
+                        manual = None;
+                    }
+                    "turn_stop_requested" if is_cut => {
+                        turn_stopped = true;
+                        has_retry_marker = true;
+                        retry = None;
+                        manual = None;
+                    }
+                    "auto_resume_skipped" | "auto_resume_settled" | "auto_resume_exhausted"
+                        if is_cut =>
+                    {
+                        has_retry_marker = true;
+                        retry = None;
+                        manual = None;
+                    }
+                    _ => {}
                 }
-                "auto_resume_manual" if is_cut && !manual_recorded => manual = Some(e.msg),
-                "turn_control"
-                    if is_cut && e.msg.get("control").and_then(Value::as_str) == Some("web") =>
-                {
-                    control = Control::Web
-                }
-                "remote_control_ended" => ended = true,
-                "remote_control_restored" => ended = false,
-                "remote_floor_cancel" if is_cut => floor_cancelled = true,
-                // daemon_restart and moved records are queued continuations, not waiting
-                // retries.
-                "auto_resume_scheduled"
-                    if is_cut
-                        && !super::Cut::queued(e.msg.get("reason").and_then(Value::as_str)) =>
-                {
-                    has_retry_marker = true;
-                    not_before = e.msg.get("notBefore").and_then(Value::as_u64);
-                    retry = serde_json::from_value(e.msg).ok();
-                }
-                // Old stop records had no id; the turn boundary reset scopes those. New
-                // records explicitly name the cut turn, including a Stop before failure.
-                "auto_resume_stopped"
-                    if is_cut || e.msg.get("turnId").is_none_or(Value::is_null) =>
-                {
-                    turn_stopped |= is_cut;
-                    has_retry_marker = true;
-                    retry = None;
-                    manual = None;
-                }
-                "turn_stop_requested" if is_cut => {
-                    turn_stopped = true;
-                    has_retry_marker = true;
-                    retry = None;
-                    manual = None;
-                }
-                "auto_resume_skipped" | "auto_resume_settled" | "auto_resume_exhausted"
-                    if is_cut =>
-                {
-                    has_retry_marker = true;
-                    retry = None;
-                    manual = None;
-                }
-                _ => {}
-            }
-            true
+                true
+            })
         });
         if scanned.is_err() {
             return;
@@ -244,6 +252,9 @@ impl Hub {
             let Some(_error) = text("error") else { return };
             let from = text("from").map(str::to_owned);
             let full_access_device = text("fullAccessDevice").map(str::to_owned);
+            // Recorded since the rate-limit gate (`retry_turn.rs` `retry_rate_gate`); an older
+            // record says nothing, and counts as no person's.
+            let person = saved.get("person").and_then(Value::as_bool).unwrap_or(false);
             let wake = Arc::new(Notify::new());
             pending.replace(Mark::Waiting {
                 turn: turn_id.clone(),
@@ -258,6 +269,7 @@ impl Hub {
                 trust_gate,
                 full_access_device,
                 from,
+                person,
             };
             tokio::spawn(async move {
                 let _ = hub.retry_turn_restored(&session, by).await;
@@ -290,13 +302,19 @@ impl Hub {
             } else {
                 delays.clone()
             };
+            // A capacity outage never uses its attempts up (`super::capacity_wait`).
+            let unbounded = reason == RetryReason::Capacity && !delays.is_empty();
+            let delay = if unbounded {
+                Some(super::capacity_wait(done, &delays, &session.id))
+            } else {
+                delays.get(done).map(|&d| staggered(d, &session.id))
+            };
             if !root.is_empty()
-                && let Some(&delay) = delays.get(done)
+                && let Some(delay) = delay
             {
-                let delay = staggered(delay, &session.id);
                 let recovered = RetrySummary {
                     attempt: done.saturating_add(1) as u64,
-                    of: delays.len() as u64,
+                    of: if unbounded { delays.len().max(done + 1) } else { delays.len() } as u64,
                     reason,
                     next_at: last.at.saturating_add(delay),
                     prompt_id: root.to_owned(),
@@ -398,6 +416,7 @@ impl Hub {
                 trust_gate: trust_gate || control == Control::Web,
                 error: &error,
                 not_before,
+                slash: slash.as_deref(),
             };
             let attempt = usize::try_from(retry.attempt).unwrap_or(usize::MAX);
             hub.resume_or_compact(&session, cut, attempt).await;

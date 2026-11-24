@@ -11,7 +11,7 @@ use std::time::Duration;
 
 pub(crate) mod exe_path;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-mod exe_swap;
+pub(crate) mod exe_swap;
 mod lock;
 #[cfg(unix)]
 mod log_cap;
@@ -28,11 +28,14 @@ use lock::{
 mod running;
 pub use running::connect_running;
 mod snapshot_clear;
+pub(crate) mod start_exe;
 pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+#[cfg(unix)]
+pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -261,6 +264,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
     // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
     let _ = cmux_usage_patterns::install("acpmux");
+    // Opt-in install-count sharing (`install_share.rs`): sends nothing until the person turns on
+    // `diagnostics.shareInstallCounts`, and never calls the platform for a person who never did.
+    crate::install_share::start();
     // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
     // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
     // ids, never prompt, tool or file text.
@@ -1062,6 +1068,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         hub.finish_clone_boot(&home());
                         // Once every log is read: a pass reads only chats whose log is loaded.
                         let _worker = hub.retention_worker();
+                        // A chat's sealed segments go cold as they seal (`cold_segments.rs`).
+                        let _cold_segments = hub.cold_segments_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
                     });
@@ -1102,6 +1110,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
         Hub::desktop_bridge_loop(weak.clone())
     });
+    // How late this runtime wakes a task (`gauges.workerLag` in `daemon status`): a worker held by
+    // blocking work shows here before requests time out. Ended with the hub's scope.
+    let _worker_lag = hub.scope.spawn_until_cancelled(
+        "worker-lag-canary",
+        crate::gauges::worker_lag_canary(crate::gauges::worker_lag()),
+    );
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
@@ -1115,7 +1129,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let _exe_watch = hub.scope.spawn_until_cancelled("exe-swap-watch", exe_watch);
 
     #[cfg(all(unix, feature = "tailnet"))]
-    let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
+    let tailnet = crate::server::tailnet_service::Service::spawn(hub.clone());
     // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
     // event journal checkpoint, whose logs only the next start's replay writes again.
     let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.clone()));
@@ -1316,6 +1330,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
     }
     hub.stop_idle_reaper();
+    let cleanup_took = shutdown_started.elapsed();
     // New clients get "connection refused" instead of a dying daemon. Only the socket this
     // daemon bound: one replaced since is another daemon's.
     recheck_home();
@@ -1344,6 +1359,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         })
     };
     let mut unfinished_sessions = None;
+    let sessions_started = tokio::time::Instant::now();
     let kept = match tokio::time::timeout_at(cleanup_deadline, &mut sessions).await {
         Ok(Ok(kept)) => kept,
         _ => {
@@ -1354,11 +1370,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             usize::MAX
         }
     };
+    let sessions_took = sessions_started.elapsed();
     // The requests still in flight are answered as restarting before the close cancels their
     // connections, within a bound inside the deadline (`server/shutdown_drain.rs`).
     crate::server::shutdown_drain::drain_in_flight(&hub, cleanup_deadline).await;
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
     hub.close_owned_tasks_until(cleanup_deadline).await;
+    let persistence_started = tokio::time::Instant::now();
     let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
     let mut persistence = {
         let hub = hub.clone();
@@ -1420,6 +1438,20 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             "persistence still draining at the shutdown deadline; waiting for it with the home locked"
         );
         let _ = persistence.await;
+    }
+    // Where the handover's dark time went (the successor binds once the lock goes, right here).
+    let took = shutdown_started.elapsed();
+    let phases = format!(
+        "shutdown took {} ms: cleanup {} ms, agents {} ms, persistence and release {} ms",
+        took.as_millis(),
+        cleanup_took.as_millis(),
+        sessions_took.as_millis(),
+        persistence_started.elapsed().as_millis(),
+    );
+    if took > shutdown_budget(hub.ends_agents_at_shutdown()) {
+        tracing::warn!("{phases}");
+    } else {
+        tracing::info!("{phases}");
     }
     tracing::info!("stopped");
     Ok(())
@@ -1742,9 +1774,11 @@ pub(crate) const STARTER_SESSION_MARKS: [&str; 4] =
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
-    let this = crate::self_command::SelfCommand::current()?;
+    let choice = start_exe::current(&home())?;
+    let this = &choice.this;
     crate::config::private_state_dir(&home())?;
-    let log = open_daemon_log(&home().join("daemon.log"))?;
+    let mut log = open_daemon_log(&home().join("daemon.log"))?;
+    log_start_choice(&mut log, &choice);
     let log_err = log.try_clone()?;
     // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
     // a child another thread forks meanwhile never inherits either end, and
@@ -1762,7 +1796,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = daemon_command(&this);
+    let mut cmd = daemon_command(this);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -1828,6 +1862,21 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
             .spawn(move || hand_key(ours, &key));
     }
     Ok((reader, child_pid))
+}
+
+/// Name the binary a start runs and why, in the daemon log the new daemon writes to and in this
+/// command's own log, so a daemon that came back from an unexpected build says who chose it.
+#[cfg(unix)]
+pub(crate) fn log_start_choice(log: &mut std::fs::File, choice: &start_exe::Choice) {
+    use std::io::Write as _;
+    let line = format!(
+        "acpmux: starting the daemon from {} (pid {} asked): {}",
+        choice.this.exe.display(),
+        std::process::id(),
+        choice.why
+    );
+    tracing::info!("{line}");
+    let _ = writeln!(log, "{line}");
 }
 
 /// Write the key on the daemon's key socket after the daemon said it is

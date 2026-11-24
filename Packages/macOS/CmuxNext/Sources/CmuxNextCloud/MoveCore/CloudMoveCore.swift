@@ -61,7 +61,7 @@ public nonisolated final class CloudRefuseRedirects: NSObject, URLSessionTaskDel
 
 extension Duration {
     /// Whole milliseconds, rounded down.
-    nonisolated var wholeMilliseconds: Int64 {
+    public nonisolated var wholeMilliseconds: Int64 {
         let (seconds, attoseconds) = components
         return seconds * 1000 + attoseconds / 1_000_000_000_000_000
     }
