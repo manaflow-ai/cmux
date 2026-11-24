@@ -635,6 +635,12 @@
 .nt-input[data-split] > .nt-field-slot {
   margin-inline-end: calc(-1 * min(var(--cmux-scroller-size, 8px), var(--acpmux-composer-lead-gap)));
 }
+/* + stands on the last line too, beside the mic and Send: the field's padding is symmetric, so a one-line
+   box keeps + exactly where its first line put it. */
+.nt-input[data-split] .nt-split-plus {
+  align-self: end;
+  margin: 0 0 var(--nt-input-pad-block);
+}
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
   padding-top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
