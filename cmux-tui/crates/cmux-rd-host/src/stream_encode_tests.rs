@@ -152,6 +152,7 @@ fn cfg() -> SessionCfg {
     SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 1000,

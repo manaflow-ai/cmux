@@ -90,6 +90,11 @@ impl FakeDaemon {
                                         subscribed = true;
                                         json!({"id": id, "ok": true})
                                     }
+                                    // One process: a restart is a new generation.
+                                    "identify" => {
+                                        let generation = *run.borrow();
+                                        json!({"id": id, "ok": true, "data": {"pid": 4242, "registry_id": "main", "generation": generation}})
+                                    }
                                     "list-workspaces" => {
                                         json!({"id": id, "ok": true, "data": tree.lock().unwrap().clone()})
                                     }
@@ -353,6 +358,34 @@ async fn a_new_daemon_run_is_a_new_epoch_and_no_old_surface_survives() {
     back.send(Message::Viewport(Viewport::default())).await;
     back.until(|m| ids(m) == ["8", "11"]).await;
     assert_eq!(back.mirror.epoch(), epoch);
+}
+
+/// A phone that leaves and comes back while the daemon runs on finds every picture it had: the
+/// feeder stops with the last phone and connects again, which is not a new run of the daemon.
+/// Taken for one, every thumbnail went and nothing sent them again, so the grid's browser cards
+/// showed only the globe after any reconnect (Leo, 2026-11-24: "there are too many empty
+/// previews in the safari grid thing").
+#[tokio::test]
+async fn a_phone_back_on_the_same_daemon_run_keeps_every_picture() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8"] && m.rows()[1].thumb_hash.is_some()).await;
+    p.channel.close("eof", "").await;
+    drop(p);
+    eventually("the feeder stopped", || !tabs.feeder_running()).await;
+    eventually("its daemon connections closed", || daemon.open.load(Ordering::SeqCst) == 0).await;
+
+    let mut back = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    back.send(Message::Viewport(Viewport::default())).await;
+    back.until(|m| ids(m) == ["7", "8"]).await;
+    back.drain(Duration::from_millis(300)).await;
+    assert_eq!(tabs.feeds_started(), 2, "the feeder connected again");
+    assert_eq!(tabs.epoch(), "run-a", "the same run keeps its epoch");
+    assert_eq!(back.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb8")), "8 keeps its thumbnail");
 }
 
 fn config(dir: &Path) -> Arc<ServiceConfig> {

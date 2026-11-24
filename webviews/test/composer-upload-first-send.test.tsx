@@ -7,7 +7,9 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { KnownPaths } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { setExperimentSwitches } from "../src/experiments/switches";
 import {
   useAttachmentIntake,
   useSendWhenAttached,
@@ -43,6 +45,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  setExperimentSwitches({});
   restoreInput?.();
   act(() => root?.unmount());
   root = undefined;
@@ -74,13 +77,56 @@ async function until(check: () => boolean, within = 2_000) {
   expect(check()).toBe(true);
 }
 
-function mount(upload: AttachmentIntakeOptions["upload"]) {
-  const options: AttachmentIntakeOptions = { allowImages: true, scope: "chat", pasteTarget: () => undefined, upload };
+function mount(upload: AttachmentIntakeOptions["upload"], localPaths?: AttachmentIntakeOptions["localPaths"]) {
+  const options: AttachmentIntakeOptions = {
+    allowImages: true,
+    scope: "chat",
+    pasteTarget: () => undefined,
+    upload,
+    localPaths,
+  };
   const handle: { current: Probe | null } = { current: null };
   root = createRoot(host);
   act(() => root!.render(<Harness options={options} handle={handle} />));
   return handle;
 }
+
+test("a delayed native lookup keeps the loading mark while Attachment Type Icons is off (the default)", async () => {
+  const lookup = Promise.withResolvers<KnownPaths>();
+  const handle = mount(
+    () => Promise.resolve({ paths: [] }),
+    () => lookup.promise,
+  );
+  await act(() => void handle.current!.attach([new File(["bytes"], "local.txt")], true, "drop"));
+  expect(handle.current!.pending.map((chip) => chip.resolvingPath)).toEqual([undefined]);
+  await act(async () => lookup.resolve([{ path: "/tmp/local.txt", folder: false }]));
+  expect(handle.current!.attachments.map((chip) => chip.path)).toEqual(["/tmp/local.txt"]);
+});
+
+test("a delayed native lookup keeps its chips local until one file actually needs bytes", async () => {
+  setExperimentSwitches({ attachmentTypeIcons: true });
+  const lookup = Promise.withResolvers<KnownPaths>();
+  const upload = Promise.withResolvers<UploadResult>();
+  const batches: string[][] = [];
+  const handle = mount(
+    (files, _, progress) => {
+      batches.push(files.map((file) => file.name));
+      progress?.(0, 0.5);
+      return upload.promise;
+    },
+    () => lookup.promise,
+  );
+  const files = ["local.txt", "clipboard.bin"].map((name) => new File(["bytes"], name));
+  await act(() => void handle.current!.attach(files, true, "drop"));
+  expect(handle.current!.pending.map((chip) => chip.resolvingPath)).toEqual([true, true]);
+  expect(batches).toEqual([]);
+  await act(async () => lookup.resolve([{ path: "/tmp/local.txt", folder: false }, undefined]));
+  expect(handle.current!.attachments.map((chip) => chip.path)).toEqual(["/tmp/local.txt"]);
+  expect(batches).toEqual([["clipboard.bin"]]);
+  expect(handle.current!.pending).toMatchObject([{ name: "clipboard.bin", resolvingPath: false, progress: 0.5 }]);
+  await act(async () => upload.resolve({ paths: ["/saved/clipboard.bin"] }));
+  expect(handle.current!.pending).toEqual([]);
+});
 
 test("a send made while a pasted video uploads waits for it, then goes once with it", async () => {
   let finish: (result: UploadResult) => void = () => {};

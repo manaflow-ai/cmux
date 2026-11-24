@@ -159,18 +159,19 @@ fn home_ensure_creates_one_home_first_and_replays() {
     mux.shutdown();
 }
 
-/// Only the store writes `kind`: `workspace.create` refuses the field.
+/// Only the store writes `kind`: `workspace.create` does not declare the field, so it is
+/// dropped unread and the workspace made is a plain one, never a home.
 #[test]
-fn home_workspace_create_refuses_kind() {
+fn home_workspace_create_ignores_kind() {
     let session = Session::new("create-kind");
     let mux = session.open();
-    let refused = send(
+    send(
         &mux,
         "workspace.create",
         json!({"name": "fake", "initial_content": "empty", "kind": "home"}),
         Some("create-fake-home"),
-    );
-    assert_eq!(error_code(refused), "validation.invalid");
+    )
+    .expect("an unknown param is ignored");
     assert!(workspaces(&mux).iter().all(|value| value["extra"].get("kind").is_none()));
     mux.shutdown();
 }
