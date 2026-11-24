@@ -1032,7 +1032,10 @@ async fn bench_relay_first_dial() {
         ("fast gather, (b) Mac early join only", true, false, false),
         ("fast gather, (c) both", true, true, false),
     ];
-    eprintln!("{:<38} {:>14} {:>14} {:>14} {:>14}", "p50 / p95 ms", "link up", "phone join", "Mac join", "wg-init");
+    eprintln!(
+        "{:<38} {:>14} {:>14} {:>14} {:>14}",
+        "p50 / p95 ms", "link up", "phone join", "Mac join", "wg-init"
+    );
     for (name, early, ticket, slow) in configs {
         let mut dials = Vec::new();
         for _ in 0..RUNS {
