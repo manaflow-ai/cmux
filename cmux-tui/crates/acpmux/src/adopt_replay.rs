@@ -576,7 +576,8 @@ mod line_origin_tests {
     fn the_chats_page_and_a_page_before_any_prompt_leave_harness_lines_out() {
         assert!(fold(false, &transcript())[0].harness.is_empty());
         // A page that starts after the prompt has no turn for the line to join.
-        assert!(fold(true, &transcript()[2..])[0].harness.is_empty());
+        // (`finish` keeps no turn at all then: the answer has none to join either.)
+        assert!(fold(true, &transcript()[2..]).iter().all(|t| t.harness.is_empty()));
     }
 
     #[test]
