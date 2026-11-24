@@ -51,9 +51,9 @@ public nonisolated struct GooTuning: Sendable, Equatable {
     }
 
     /// Off: critically damped, no stretch, lean, neck or wobble (the strip keeps its motion tokens).
-    public static let off = GooTuning(cmux_goo_tuning_for_level(0))
-    public static let subtle = GooTuning(cmux_goo_tuning_for_level(1))
-    public static let full = GooTuning(cmux_goo_tuning_for_level(2))
+    public static let off = GooTuning(cmux_goo_tuning_for_level(CmuxGooLevelOff))
+    public static let subtle = GooTuning(cmux_goo_tuning_for_level(CmuxGooLevelSubtle))
+    public static let full = GooTuning(cmux_goo_tuning_for_level(CmuxGooLevelFull))
 }
 
 /// The gooey tabs' knobs (plans/cmux-next/gooey-tabs.md, "Knobs"): every goo spring and goo parameter of each level as
