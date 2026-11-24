@@ -3867,10 +3867,12 @@ export function layoutConversation(
     from: number;
     to: number;
   },
-  /// The rows around the view `[from, to)`. Every other row whose prepared text the cache no longer
-  /// holds (PREPARED_ROWS) and that was measured at another width, at this scale and edge, keeps that
-  /// height (`known`) instead of being lexed and prepared again: a new width costs the rows near the
-  /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
+  /// The rows around the view `[from, to)`. Every other row that was measured at another width, at
+  /// this scale and edge, keeps that height (`known`) instead of being measured again, whether or not
+  /// its prepared text is still cached (PREPARED_ROWS): a new width costs the rows near the view, not
+  /// the whole chat nor the up to 2 x PREPARED_ROWS cached ones. A split or a sidebar resizes every
+  /// chat page at once, and up to 8 pages share one web content process (WebProcessGroups), so each
+  /// page's width pass runs after the others'. This is Chromium's `content-visibility: auto` with
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
   near?: { from: number; to: number },
@@ -3999,11 +4001,9 @@ export function layoutConversation(
         kept.edge === edge &&
         (kept.scale ?? 1) === scale &&
         (index < near.from || index >= near.to) &&
-        row.text &&
-        !cache.has(row.id)
+        row.text
       ) {
-        // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
-        // recorded as this width's. Its drawn height replaces it once it mounts, and a layout that
+        // Away from the view: its last height, never recorded as this width's, cached or not. Its drawn height replaces it once it mounts, and a layout that
         // measures it (near the view, after a change above it) records this width's.
         height = kept.height;
         remembered = true;

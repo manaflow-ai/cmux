@@ -48,8 +48,8 @@ test("laying out 20,000 rows keeps the prepared text cache under a constant", ()
   expect(cache.size).toBeLessThanOrEqual(CACHE_CEILING);
 });
 
-// A new width with the view given (`near`), as the transcript lays out: the rows near the view and the
-// ones still cached are measured at it; the rest keep their last height, as Chromium keeps an off-screen
+// A new width with the view given (`near`), as the transcript lays out: the rows near the view are
+// measured at it; the rest, cached or not, keep their last height, as Chromium keeps an off-screen
 // `content-visibility: auto` box's remembered size, until they draw or a layout measures them.
 test("a new width measures the rows near the view and keeps the rest's last height", () => {
   const chat = rows(4_000);
@@ -63,8 +63,9 @@ test("a new width measures the rows near the view and keeps the rest's last heig
   // Near the view: this width's heights, the same as a whole layout's.
   expect(narrow.heights.slice(near.from, near.to)).toEqual(exact.heights.slice(near.from, near.to));
   expect(exact.heights.slice(near.from, near.to)).not.toEqual(wide.heights.slice(near.from, near.to));
-  // Still cached when the pass began (the newest rows), though the near rows came first: this width's.
-  expect(narrow.heights.slice(-PREPARED_ROWS)).toEqual(exact.heights.slice(-PREPARED_ROWS));
+  // Still cached (the newest rows) but away from the view: the last width's heights too, so a width
+  // costs the rows near the view and not the cached ones.
+  expect(narrow.heights.slice(-PREPARED_ROWS)).toEqual(wide.heights.slice(-PREPARED_ROWS));
   // Elsewhere, its prepared text gone: the last width's heights, and the layout says so.
   expect(narrow.heights.slice(0, 900)).toEqual(wide.heights.slice(0, 900));
   expect(narrow.remembered).toBe(true);
