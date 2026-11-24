@@ -147,15 +147,32 @@ await requireBrowserLane("hybrid-cloud-toggle-journey-browser.test.ts", async ()
         expect(off.moving).toBe(0);
         await shot(page, `off-${colorScheme}`);
 
-        await toggle.click();
-        await expect(toggle.getAttribute("aria-checked")).resolves.toBe("true");
-        await expect(toggle.getAttribute("data-lit")).resolves.toBe("");
-        await expect(toggle.getAttribute("data-fresh")).resolves.toBe("");
-        const turning = await look(page, CLOUD);
+        // The click and the first frame after it in one page task: the turn-on is 240 ms, shorter
+        // than a few round trips to the browser.
+        const turning = await page.locator(TOGGLE).evaluate(
+          (button) =>
+            new Promise<{ checked: string | null; lit: boolean; fresh: boolean; moving: string[] }>((resolve) => {
+              (button as HTMLButtonElement).click();
+              requestAnimationFrame(() =>
+                resolve({
+                  checked: button.getAttribute("aria-checked"),
+                  lit: button.hasAttribute("data-lit"),
+                  fresh: button.hasAttribute("data-fresh"),
+                  moving: button
+                    .getAnimations({ subtree: true })
+                    .filter((animation) => animation.playState === "running")
+                    .map((animation) => (animation as CSSAnimation).animationName ?? ""),
+                }),
+              );
+            }),
+        );
+        expect(turning.checked).toBe("true");
+        expect(turning.lit).toBe(true);
+        expect(turning.fresh).toBe(true);
         // The turn-on: the cloud's settle and the arc rising behind it.
-        expect(turning.moving).toBeGreaterThanOrEqual(2);
-        await page.waitForTimeout(120);
-        await shot(page, `turning-on-${colorScheme}`);
+        expect(turning.moving).toEqual(
+          expect.arrayContaining(["acpmux-hybrid-settle", "acpmux-hybrid-arc-show", "acpmux-hybrid-arc-draw"]),
+        );
 
         // It settles: the turn-on disarms and the cloud stays lit, in every color of the rainbow.
         await page.waitForFunction(
@@ -198,14 +215,44 @@ await requireBrowserLane("hybrid-cloud-toggle-journey-browser.test.ts", async ()
     }
   });
 
-  test("reduced motion: the click lights it at once and nothing moves", async () => {
-    const page = await open("chat-above-off", { reducedMotion: "reduce" });
+  // The app hands the page its Reduce Motion setting on the root (ui/motion/motionMode.ts): the
+  // gallery frame sets "full" there, so each case sets the root itself. "system" leaves the root
+  // allowing motion and asks only the system's prefers-reduced-motion.
+  for (const [setting, root, reducedMotion] of [
+    ["the app's Reduce Motion", "reduced", "no-preference"],
+    ["the app's motion off", "off", "no-preference"],
+    ["the system's Reduce Motion", "full", "reduce"],
+  ] as const)
+  test(`${setting}: the click lights it at once and nothing moves`, async () => {
+    const page = await open("chat-above-off", { reducedMotion });
     try {
-      await page.locator(TOGGLE).click();
-      const on = await look(page, CLOUD);
+      await page.evaluate((value) => document.documentElement.setAttribute("data-cmux-motion", value), root);
+      // Read in the click's first frame: lit at once means no fade up from the dull 0.6 either.
+      const on = await page.locator(TOGGLE).evaluate(
+        (button) =>
+          new Promise<{ fill: string; opacity: number; moving: string[] }>((resolve) => {
+            (button as HTMLButtonElement).click();
+            requestAnimationFrame(() => {
+              const shape = button.querySelector(".acpmux-hybrid-cloud__shape")!;
+              resolve({
+                fill: getComputedStyle(shape).fill,
+                opacity: Number(getComputedStyle(shape).opacity),
+                // Keyframe animations only: the button's quick ink fade is a hover fill, which
+                // Reduce Motion keeps (ui/motion/motion.css stills hover fills only when motion is off).
+                moving: button
+                  .getAnimations({ subtree: true })
+                  .filter((animation) => "animationName" in animation)
+                  .map((animation) => {
+                    const target = (animation.effect as KeyframeEffect | null)?.target as Element | null;
+                    return `${(animation as CSSAnimation).animationName} on ${target?.getAttribute("class") ?? "?"}`;
+                  }),
+              });
+            });
+          }),
+      );
       expect(on.fill).toMatch(/^url\(/);
       expect(on.opacity).toBe(1);
-      expect(on.moving).toBe(0);
+      expect(on.moving).toEqual([]);
     } finally {
       await page.close();
     }
