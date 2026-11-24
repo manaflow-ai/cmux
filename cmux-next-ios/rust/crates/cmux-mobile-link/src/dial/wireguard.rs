@@ -185,8 +185,12 @@ pub(crate) const STUN_SILENT: Duration = Duration::from_millis(250);
 
 /// The STUN wait's half of [`stun_turn_link`].
 struct StunSide {
-    /// True while STUN was asked and nothing answered in [`STUN_SILENT`].
+    /// True while STUN was asked and nothing answered in [`STUN_SILENT`],
+    /// or from the start when this network was found UDP-silent before
+    /// ([`super::udp_memory`]) until STUN answers.
     udp_silent: watch::Sender<bool>,
+    /// The network epoch the link was made in ([`super::udp_memory::epoch`]).
+    epoch: u64,
     /// True once the allocation beside the wait took a TCP or TLS carrier.
     stream_ready: watch::Receiver<bool>,
 }
@@ -201,13 +205,35 @@ struct TurnSide {
 /// that a network that drops UDP costs neither the STUN wait
 /// ([`STUN_WAIT`]) nor the allocation's UDP wait: both used to run out
 /// in full before TURN over TLS carried the dial.
-fn stun_turn_link() -> (StunSide, TurnSide) {
-    let (silent_tx, silent_rx) = watch::channel(false);
+///
+/// On a network an earlier dial found UDP-silent, the link starts silent:
+/// the allocation takes TCP or TLS as soon as it has it instead of giving
+/// UDP [`STUN_SILENT`] first (STUN is still asked, and its answer clears it).
+/// Only a dial with [`DialOptions::remember_udp`] (`remember`) reads the mark.
+fn stun_turn_link(remember: bool) -> (StunSide, TurnSide) {
+    let epoch = super::udp_memory::epoch();
+    let silent = remember && super::udp_memory::udp_silent_here();
+    let (silent_tx, silent_rx) = watch::channel(silent);
     let (ready_tx, ready_rx) = watch::channel(false);
     (
-        StunSide { udp_silent: silent_tx, stream_ready: ready_rx },
+        StunSide { udp_silent: silent_tx, epoch, stream_ready: ready_rx },
         TurnSide { udp_silent: silent_rx, stream_ready: ready_tx },
     )
+}
+
+/// What this dial's gather taught about UDP on its network
+/// ([`super::udp_memory`]): STUN asked and unanswered, with no TURN over UDP
+/// either, marks it UDP-silent for the next dial; any UDP answer clears it.
+fn remember_udp(options: &DialOptions, epoch: u64, gathered: &Gathered, turn: Option<&TurnCarrier>) {
+    if !options.remember_udp {
+        return;
+    }
+    let turn_over_udp = turn.is_some_and(|turn| !turn.transport.is_stream());
+    if gathered.answered > 0 || turn_over_udp {
+        super::udp_memory::udp_answered(epoch);
+    } else if gathered.udp_looks_blocked() {
+        super::udp_memory::udp_was_silent(epoch);
+    }
 }
 
 /// The clock of one STUN wait (a dial's gather or a roam's): [`STUN_WAIT`]
@@ -333,7 +359,7 @@ impl EarlyTurn {
     /// Start the allocation `options` ask for (`turn_early_allocated` once
     /// it is in hand).
     pub(crate) fn start(options: &DialOptions) -> Self {
-        let (stun, turn_side) = stun_turn_link();
+        let (stun, turn_side) = stun_turn_link(options.remember_udp);
         let options = effective_options(options).into_owned();
         let task = tokio::spawn(async move {
             let turn = turn_beside(&options, true, turn_side).await;
@@ -505,7 +531,7 @@ fn only_the_relay(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCa
 /// fails too. The allocation starts once STUN has been silent for
 /// [`STUN_SILENT`], beside the rest of the STUN wait, not after it.
 async fn gather_for_answer(socket: &UdpSocket, options: &DialOptions) -> (Gathered, Option<TurnCarrier>) {
-    let (stun_side, turn_side) = stun_turn_link();
+    let (stun_side, turn_side) = stun_turn_link(false);
     let (gathered, allocated) = tokio::join!(
         gather_endpoints(socket, options, Some(stun_side)),
         turn_beside(options, no_plain_udp(options), turn_side)
@@ -2536,13 +2562,18 @@ pub(super) fn dial_wireguard<'a>(
         let effective = effective_options(options);
         let options: &DialOptions = &effective;
         let socket = bind_udp().map_err(transport_error)?;
+        let mut epoch = super::udp_memory::epoch();
         let (gathered, allocated) = match early {
             Some(mut early) => {
                 let stun_side = early.stun.take();
+                if let Some(side) = &stun_side {
+                    epoch = side.epoch;
+                }
                 tokio::join!(gather_endpoints(&socket, options, stun_side), early.allocated())
             }
             None => {
-                let (stun_side, turn_side) = stun_turn_link();
+                let (stun_side, turn_side) = stun_turn_link(options.remember_udp);
+                epoch = stun_side.epoch;
                 tokio::join!(
                     gather_endpoints(&socket, options, Some(stun_side)),
                     turn_beside(options, true, turn_side)
@@ -2557,6 +2588,7 @@ pub(super) fn dial_wireguard<'a>(
             return Err(error);
         }
         let turn = allocated.carrier;
+        remember_udp(options, epoch, &gathered, turn.as_ref());
         let udp_later = allocated.udp_later.filter(|_| !no_plain_udp(options));
         if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
             return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
@@ -3491,7 +3523,7 @@ mod tests {
         eager: bool,
     ) -> (Gathered, Option<TurnCarrier>, Duration) {
         let socket = bind_udp().unwrap();
-        let (stun_side, turn_side) = stun_turn_link();
+        let (stun_side, turn_side) = stun_turn_link(false);
         let started = Instant::now();
         let (gathered, turn) = tokio::join!(
             gather_endpoints(&socket, options, Some(stun_side)),
@@ -3528,6 +3560,76 @@ mod tests {
             // STUN_WAIT (1.5 s) at least.
             assert!(took < Duration::from_millis(900), "eager {eager}: UDP held the dial {took:?}");
         }
+        drop(silent);
+    }
+
+    /// A dial's gather and allocation as `dial_wireguard` runs them, with what
+    /// it teaches the network (`udp_memory`); the allocation's own time.
+    async fn dial_gather(options: &DialOptions) -> (Gathered, Option<TurnCarrier>, Duration) {
+        let socket = bind_udp().unwrap();
+        let (stun_side, turn_side) = stun_turn_link(options.remember_udp);
+        let epoch = stun_side.epoch;
+        let started = Instant::now();
+        let allocation = async {
+            let turn = turn_beside(options, true, turn_side).await;
+            (turn, started.elapsed())
+        };
+        let (gathered, (turn, took)) =
+            tokio::join!(gather_endpoints(&socket, options, Some(stun_side)), allocation);
+        remember_udp(options, epoch, &gathered, turn.carrier.as_ref());
+        (gathered, turn.carrier, took)
+    }
+
+    /// Ledger row 6h: a network an earlier dial found UDP-silent (a hotel)
+    /// costs the next dial no UDP wait: its allocation takes TLS at once
+    /// instead of after STUN_SILENT. A dial without `remember_udp` (the Mac,
+    /// tools) neither learns nor uses it, a new network starts unknown, and a
+    /// network whose STUN answers clears the mark.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_next_dial_on_a_udp_silent_network_takes_tls_at_once() {
+        let _one =
+            super::super::udp_memory::tests::SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        super::super::udp_memory::reset_for_test();
+        let turn = crate::testing::TestTurn::start().await;
+        turn.set_udp_blocked(true);
+        let silent = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut ice = turn.ice.clone();
+        ice.urls.push(format!("stun:{}", silent.local_addr().unwrap()));
+        let forgetful = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let phone = DialOptions { remember_udp: true, ..forgetful.clone() };
+
+        let (_, carrier, took) = dial_gather(&forgetful).await;
+        assert!(carrier.expect("TURN over TLS").transport.is_stream());
+        assert!(took >= STUN_SILENT, "no memory yet: UDP had its {STUN_SILENT:?} ({took:?})");
+        assert!(!super::super::udp_memory::udp_silent_here(), "a dial without remember_udp taught nothing");
+
+        let (_, _, took) = dial_gather(&phone).await;
+        assert!(took >= STUN_SILENT, "the first phone dial learns ({took:?})");
+        assert!(super::super::udp_memory::udp_silent_here());
+        let (gathered, carrier, took) = dial_gather(&phone).await;
+        assert!(carrier.expect("TURN over TLS").transport.is_stream());
+        assert!(gathered.udp_looks_blocked(), "STUN is still asked: {gathered:?}");
+        assert!(took < STUN_SILENT, "the second took TLS at once ({took:?})");
+        let (_, _, took) = dial_gather(&forgetful).await;
+        assert!(took >= STUN_SILENT, "a dial without remember_udp ignores the mark ({took:?})");
+
+        super::super::udp_memory::network_changed();
+        let (_, _, took) = dial_gather(&phone).await;
+        assert!(took >= STUN_SILENT, "a new network starts unknown ({took:?})");
+
+        // The same network passing UDP now: STUN answers, the mark goes.
+        let answering = answering_stun().await;
+        let mut open = turn.ice.clone();
+        open.urls.push(format!("stun:{answering}"));
+        turn.set_udp_blocked(false);
+        let (gathered, _, _) = dial_gather(&DialOptions { ice_servers: vec![open], ..phone.clone() }).await;
+        assert!(gathered.answered > 0, "{gathered:?}");
+        assert!(!super::super::udp_memory::udp_silent_here(), "a STUN answer clears the mark");
         drop(silent);
     }
 

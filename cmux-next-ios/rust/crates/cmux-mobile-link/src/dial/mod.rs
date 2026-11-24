@@ -18,6 +18,7 @@ pub mod diagnosis;
 pub(crate) mod dpi;
 pub mod relay;
 pub(crate) mod turn;
+pub(crate) mod udp_memory;
 #[doc(hidden)]
 pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
@@ -150,6 +151,12 @@ pub struct DialOptions {
     /// the TURN server (PAC included), the OS trust store, and whether only a
     /// proxy may carry it (the debug "Proxy only" mode). [`crate::egress`].
     pub egress: crate::egress::Egress,
+    /// Remember per network whether UDP answered ([`udp_memory`]): a dial
+    /// on a network an earlier one found UDP-silent starts its TURN
+    /// allocation on TLS or TCP at once. The phone's dial turns it on; off
+    /// (tests, tools, the Mac's answers), a dial neither reads nor writes
+    /// the process-wide mark.
+    pub remember_udp: bool,
     /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"): where this
     /// side joins it when neither plain UDP nor TURN reaches the peer.
     /// `None`: no relay (tests, tools, and the dial fails as before).
@@ -297,6 +304,7 @@ impl Default for DialOptions {
             block_udp: false,
             drop_wireguard_udp: false,
             egress: crate::egress::Egress::default(),
+            remember_udp: false,
             turn_tls_roots: None,
             drop_outbound_udp: false,
             refuse_udp_to: None,
