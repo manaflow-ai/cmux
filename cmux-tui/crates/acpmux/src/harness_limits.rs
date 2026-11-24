@@ -40,7 +40,12 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
 /// reads against 400k too.
 pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
 
-/// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (Leo 2026-11-24:
+/// What a `claude` started in a cmux terminal or an agent chat gets on top of [`CLAUDE_ENV`]
+/// (Leo 2026-11-24, on helpers dying on "503 no non-exhausted claude accounts": "we shouldn't
+/// run into this, design out the error class"). A chat's own turn is continued by acpmux, but
+/// a helper (Claude Code's Agent tool) runs inside the chat's process, where acpmux cannot see
+/// or continue it: without the watchdog its request gave up after Claude Code's 10 retries and
+/// the parent got a dead helper. Terminals first (Leo 2026-11-24:
 /// "in terminals and guis alike perhaps terminal simply needs to also have the fixes and
 /// enhancements"). An agent chat survives a capacity outage in acpmux: a turn that Claude
 /// Code ends with "Repeated 529 Overloaded errors" is continued after a wait, with no limit
@@ -139,6 +144,9 @@ pub fn lift_claude(
         for (key, value) in claude_env(&have) {
             cmd.env(key, value);
         }
+        for (key, value) in claude_retry_env(&have) {
+            cmd.env(key, value);
+        }
         let source = crate::usage_stats::Source {
             family: "claude".into(),
             argv: Some(command_line(cmd)),
@@ -192,6 +200,17 @@ pub fn launch_args(
 /// acpmux's values.
 pub fn claude_env(env: &[(String, String)]) -> Vec<(&'static str, &'static str)> {
     CLAUDE_ENV.iter().copied().filter(|(k, _)| !env.iter().any(|(key, _)| key == k)).collect()
+}
+
+/// [`CLAUDE_TERMINAL_ENV`] (the capacity-scoped retry watchdog) for a chat whose `env` sets
+/// none of [`CLAUDE_RETRY_CHOICES`]; nothing when the person chose how Claude Code retries.
+/// The usage-limit wait stays 0, so a spend or plan limit still fails fast to the person.
+pub fn claude_retry_env(env: &[(String, String)]) -> &'static [(&'static str, &'static str)] {
+    if CLAUDE_RETRY_CHOICES.iter().any(|name| env.iter().any(|(key, _)| key == name)) {
+        &[]
+    } else {
+        CLAUDE_TERMINAL_ENV
+    }
 }
 
 /// `args` of a `codex app-server` launch with acpmux's config overrides
@@ -438,6 +457,23 @@ mod tests {
             launch_args(false, &words(&["exec", "-c", "a=1"]), None),
             words(&["exec", "-c", "a=1"])
         );
+    }
+
+    #[test]
+    fn a_chat_waits_out_capacity_unless_the_person_chose_its_retries() {
+        let none: Vec<(String, String)> = vec![("PATH".into(), "/bin".into())];
+        let lifted = claude_retry_env(&none);
+        assert!(lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG", "1")), "{lifted:?}");
+        assert!(lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "capacity")), "{lifted:?}");
+        // A spend or plan limit still fails fast: no usage-limit wait.
+        assert!(
+            lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0")),
+            "{lifted:?}"
+        );
+        for choice in CLAUDE_RETRY_CHOICES {
+            let chosen = vec![((*choice).to_owned(), "7".to_owned())];
+            assert!(claude_retry_env(&chosen).is_empty(), "{choice}");
+        }
     }
 
     #[test]
