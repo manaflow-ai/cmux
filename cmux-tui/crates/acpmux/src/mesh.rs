@@ -52,6 +52,23 @@ pub struct SessionRow {
     pub agent_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_build: Option<String>,
+    /// The session's given handle, its call name (`acpmux rename ... --handle`): only one a person
+    /// or agent gave, never the one derived from its id (`session_handle::default_handle`), which
+    /// every reader derives itself. Without it another machine's `ls`, `resolve` and `send` know
+    /// the chat only by its older name (Leo, 2026-11-23: "the renaming paradigm still hasn't hit
+    /// yet"). A hub that does not know the key drops it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+}
+
+/// The given handle of session `id` as a heartbeat lists it: none for an invalid one, or one that
+/// is its derived handle, which costs the heartbeat bytes and says nothing a reader cannot derive.
+pub fn heartbeat_handle(handle: Option<&str>, id: &str) -> Option<String> {
+    handle
+        .filter(|h| {
+            crate::session_handle::valid(h) && *h != crate::session_handle::default_handle(id)
+        })
+        .map(str::to_owned)
 }
 
 /// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
@@ -123,6 +140,9 @@ pub struct BookSession {
     pub agent_session_id: Option<String>,
     #[serde(default)]
     pub host_build: Option<String>,
+    /// The session's given handle, as its heartbeat listed it (`SessionRow::handle`).
+    #[serde(default)]
+    pub handle: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -193,6 +213,12 @@ pub struct Sender {
     /// the receiver cannot look at another machine's processes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim: Option<serde_json::Value>,
+    /// For a send no session made: the relay record (`{by, machine, session}`,
+    /// `prompt_provenance::FROM_RELAY`) the sending daemon took from a relay on its own unix
+    /// socket, its word on where the message came from, as a peer link's `fromRelay` is. A hub
+    /// that does not carry it drops it, and the receiver names the machine the hub proved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<serde_json::Value>,
 }
 
 /// When a message reaches a busy session: after its turn (`turn-end`), or into the running
@@ -206,7 +232,7 @@ pub enum Mode {
 }
 
 /// A message's kind: text for a session, or a request to its daemon (start, resume or stop a
-/// session, [`ControlHook`]). A kind this build does not know is refused.
+/// session, `server::mesh_relay::ControlHook`). A kind this build does not know is refused.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
@@ -293,9 +319,10 @@ impl OutMessage {
             (Kind::Control, Some("start" | "resume" | "stop" | "read")) => Ok(()),
             // A chat moved through the hub (`hub/transfer_pull.rs`).
             (Kind::Control, Some(crate::mesh_relay_config::MOVE_OP))
+            | (Kind::Control, Some(crate::mesh_relay_config::MOVE_OUT_OP))
             | (Kind::Control, Some(crate::mesh_relay_config::MOVE_FORGET_OP)) => Ok(()),
             (Kind::Control, _) => {
-                Err("control messages require op start, resume, stop, read, move or move_forget"
+                Err("control messages require op start, resume, stop, read, move, move_out or move_forget"
                     .into())
             }
             (Kind::Prompt, None) => Ok(()),
@@ -577,33 +604,6 @@ mod wire_tests {
         assert!(message(Kind::Control, Some("pause")).validate().is_err());
         assert!(message(Kind::Prompt, None).validate().is_ok());
         assert!(message(Kind::Prompt, Some("start")).validate().is_err());
-    }
-}
-
-/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
-/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
-/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
-/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
-/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
-/// comes back).
-pub trait ControlHook: Send + Sync {
-    fn control<'a>(
-        &'a self,
-        hub: &'a Arc<crate::hub::Hub>,
-        message: &'a InMessage,
-    ) -> BoxFuture<'a, Option<Ack>>;
-}
-
-/// The control hook of a daemon that runs no control messages: each one is refused.
-pub struct RefuseControl;
-
-impl ControlHook for RefuseControl {
-    fn control<'a>(
-        &'a self,
-        _hub: &'a Arc<crate::hub::Hub>,
-        _message: &'a InMessage,
-    ) -> BoxFuture<'a, Option<Ack>> {
-        Box::pin(async { Some(Ack::refused("this daemon runs no control messages")) })
     }
 }
 

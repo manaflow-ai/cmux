@@ -10,9 +10,16 @@ policy): `cmux-rd-core`.
 ```
 cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--no-udp-link] [--link-stun HOST:PORT,...]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
-cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--mode view|control] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
+
+The bench requests control by default. With `--mode view --input click --samples 1`,
+it sends the same click and watches the decoded marker for one second. In the active
+bench report, `input_sent` counts attempted samples and `input_acked` records whether
+the host acknowledged the last event. A view-only host acknowledges discarded input.
+`marker_changes` counts observed counter changes after the first sample begins, and
+`g2g_ms` measures the time to the expected counter for each successful sample.
 
 ## macOS host
 
@@ -26,6 +33,53 @@ the app that started it, needs Screen Recording and Accessibility.
 marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-rd bench`
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
+
+## Approved Mac-to-Mac WG media
+
+`serve` and `connect` keep the signed hub session's Noise link for admission,
+reliable control, candidate routing and revocation. A fresh ephemeral cmux-wg
+session carries media inside its authenticated datagrams when the signed offer
+and answer select `rd_wg/1`; no private WG key is signaled. For WG, `connected`
+is emitted only after both sides report WG readiness.
+The media MTU accounts for WG padding and the inner IP/UDP header. Both the
+outer media queue and per-session queues are bounded.
+
+Process Setup/Answer accept optional `peer_carrier`: omission preserves the
+original rd-link media protocol for legacy peers, while the exact string
+`rd_wg/1` selects WG before networking starts. Any supplied unknown, empty,
+null or malformed value fails closed. The app forwards the peer's authenticated
+`a=fingerprint:cmux-rd-carrier rd_wg/1` marker, and the host echoes its selected
+marker only after Rust accepts Setup. Mixed old/new pairs therefore keep their
+original protocol; two updated peers select WG. This initial legacy selection
+is not a fallback: a selected WG session can never switch to bare rd media.
+The updated app invokes `cmux rd serve-v2` or `cmux rd connect-v2`. These
+versioned aliases prove the worker implements signed carrier selection; old
+workers reject them before emitting any key. Old app callers retain `serve`
+and `connect`. This also prevents an old dev override from falsely advertising
+WG through new Swift. The bundled `bin/cmux` and app still need an integrated
+artifact check; Swift-only validation is insufficient.
+
+Before readiness, an unsupported or failed WG negotiation proposes a typed
+WebRTC retry. Both sides acknowledge the proposal, and each waits until its
+outgoing acknowledgement has been delivered before emitting a fallback app
+line. Missing acknowledgements expire after three seconds and end the session.
+This is not atomic agreement under arbitrary loss: if one process exits and its
+final outer acknowledgement is lost, the other peer may end the session instead
+of retrying. A terminal close always wins over retry; no peer waits indefinitely.
+Old peers without this exchange therefore fail closed; they never receive bare
+rd-link media. Stop, consent/revocation, peer authentication failure, and failures
+after readiness never permit a retry. The app consumes this decision on the
+original approved ticket (the schema/FFI integration is a prerequisite).
+
+This layering preserves existing authorization without a new hub trust model,
+but adds WG encryption and an inner IP/UDP header to rd-link. The existing
+`cmux-remote` shared WG hub `datagram.bind` API is a separate carrier endpoint;
+Mac Screen's current signed setup does not carry its socket/configuration.
+Real-Mac comparison numbers are required before claiming a latency/fps benefit
+or closing #42196. This implementation alone is not performance evidence.
+
+Focused transport checks (on managed CI):
+`cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --features link wg_`.
 
 For transport, encoder and controller measurements without any grant, a bench build of
 `cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick

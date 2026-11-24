@@ -2080,6 +2080,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
     }
 
+    public func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? MessageCell)?.activeTextSelection?.end()
+    }
+
     func transcriptItemCount() -> Int { rows.count }
     func transcriptItemIDs() -> [String] { rowIDs }
     func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }

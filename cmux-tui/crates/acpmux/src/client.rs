@@ -5,6 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use anyhow::{Context, Result};
+use futures::{Stream, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -75,10 +76,6 @@ impl Client {
             .with_context(|| format!("connect {}", path.display()))?;
         let (rd, mut wr) = crate::local_stream::split(stream);
         let (out, mut out_rx) = mpsc::channel::<String>(1024);
-        let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
-        let notif_tx = Arc::new(Mutex::new(notif_tx));
-        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let pending = Arc::new(PendingReplies::default());
         tokio::spawn(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
@@ -86,13 +83,42 @@ impl Client {
                 }
             }
         });
+        let lines = futures::stream::unfold(BufReader::new(rd).lines(), |mut lines| async {
+            let line = lines.next_line().await.ok()??;
+            Some((line, lines))
+        });
+        Self::from_lines(path, include_caller, out, lines).await
+    }
+
+    /// The holder drives an authorized hub move against this exact daemon through its usual RPCs.
+    pub(crate) async fn in_process(hub: Arc<crate::hub::Hub>) -> Result<Arc<Self>> {
+        let (out, requests) = mpsc::channel(32);
+        let (responses, mut incoming) = mpsc::channel(32);
+        hub.scope.spawn_until_cancelled(
+            "hub-move-out-client",
+            crate::server::serve_connection(hub.clone(), requests, responses),
+        );
+        let lines = futures::stream::poll_fn(move |cx| incoming.poll_recv(cx));
+        Self::from_lines(&crate::config::socket_path(), false, out, lines).await
+    }
+
+    async fn from_lines(
+        path: &Path,
+        include_caller: bool,
+        out: mpsc::Sender<String>,
+        lines: impl Stream<Item = String> + Send + 'static,
+    ) -> Result<Arc<Self>> {
+        let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
+        let notif_tx = Arc::new(Mutex::new(notif_tx));
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let pending = Arc::new(PendingReplies::default());
         {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
+                tokio::pin!(lines);
+                while let Some(line) = lines.next().await {
                     let Ok(msg) = Message::parse(&line) else { continue };
                     match msg {
                         Message::Response { id, result, error } => {
@@ -244,6 +270,14 @@ impl Client {
     /// The error for a connection that ended: says why, as far as the pid
     /// file and socket tell, and what to do.
     pub fn closed(&self, context: &str) -> anyhow::Error {
+        // The pid file and panic log say only how this machine's own daemon is. A connection to
+        // another socket (a move's `ssh -L` forward of another machine's daemon, a sibling
+        // build's) ended for reasons they cannot tell: on a laptop a move's dropped forwards
+        // read "the daemon (pid N) is still running but dropped this connection", naming the
+        // local daemon, which was never on that path (2026-11-23).
+        if !same_socket(&self.socket, &crate::config::socket_path()) {
+            return other_socket_closed(&self.socket, context);
+        }
         closed_error(context, self.daemon_build().as_deref())
     }
 
@@ -538,6 +572,27 @@ pub(crate) fn closed_cause(
         (None, _, false) => ("shut_down", "the daemon was shut down".to_owned()),
     };
     (cause, why + &panicked.unwrap_or_default())
+}
+
+/// Whether `a` and `b` name one socket (as written, or once resolved).
+fn same_socket(a: &std::path::Path, b: &std::path::Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+/// "daemon connection closed" for a connection to a socket that is not this machine's own
+/// daemon's: cause `other_socket`, and no claim about the local daemon.
+pub(crate) fn other_socket_closed(socket: &std::path::Path, context: &str) -> anyhow::Error {
+    TransportClosed {
+        message: format!(
+            "daemon connection closed while {context}: the connection to the daemon at {} ended \
+             (an ssh forward of another machine's daemon, or another build's socket; this \
+             machine's own daemon is not on that path)",
+            socket.display()
+        ),
+        cause: "other_socket",
+        panic: None,
+    }
+    .into()
 }
 
 /// "daemon connection closed" with a cause: the pid file and socket say

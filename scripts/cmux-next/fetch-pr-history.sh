@@ -6,9 +6,9 @@
 #
 # The jobs read the changed paths (BASE...HEAD), the stale-inputs guard (check-generator-inputs.sh: the merge
 # commit's parents and their merge base) and the base commit's scripts. All of it sits between the three tips
-# and that merge base. A depth 1 checkout, then deeper fetches of the three tips (CMUX_PR_HISTORY_DEPTHS,
-# default 64 512 4096) until `git merge-base BASE HEAD` finds a commit, then the whole history as the last
-# resort.
+# and that merge base, and on the merge commit's base side back to BASE. A depth 1 checkout, then deeper fetches
+# of the three tips (CMUX_PR_HISTORY_DEPTHS, default 64 512 4096) until `git merge-base BASE HEAD` finds a commit
+# and BASE is an ancestor of the merge commit's first parent, then the whole history as the last resort.
 #
 # Why: fetch-depth 0 fetched every branch's commit graph (about 32,000 branches): 150 s median on the GCP pool
 # and on Freestyle VMs a fetch that sent nothing for 60 s, so git gave up (`curl 28 Operation too slow`, `bad pack
@@ -26,6 +26,16 @@ read -r -a depths <<< "${CMUX_PR_HISTORY_DEPTHS:-64 512 4096}"
 found() {
   git cat-file -e "$base^{commit}" 2>/dev/null && git cat-file -e "$head^{commit}" 2>/dev/null &&
     git merge-base "$base" "$head" >/dev/null 2>&1
+}
+
+# The guard also walks from the merge commit's base side (GitHub's first parent) back to BASE: the event's base
+# can be older than the base GitHub merged onto. A head already merged up to BASE finds its merge base at once,
+# while that base side lay 134 commits past BASE (cmux#50412, 2026-11-23): depth 64 stopped short, and the guard
+# read BASE as no ancestor of either side and exited 1 with no message.
+reached() {
+  found || return 1
+  git cat-file -e "$merge^2" 2>/dev/null || return 0
+  git merge-base --is-ancestor "$base" "$merge^1" 2>/dev/null
 }
 
 fetch() {
@@ -49,7 +59,7 @@ if [[ "$(git rev-parse --is-shallow-repository)" == false ]]; then
 fi
 for depth in "${depths[@]}"; do
   fetch --depth="$depth"
-  if found; then
+  if reached; then
     echo "history: depth $depth reaches the merge base $(git merge-base "$base" "$head")"
     exit 0
   fi
