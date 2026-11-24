@@ -24,6 +24,7 @@ pub mod keepalive;
 pub mod link;
 pub mod link_stat;
 mod liveness;
+pub mod mailbox_client;
 pub mod media;
 pub mod names;
 pub mod path_report;
