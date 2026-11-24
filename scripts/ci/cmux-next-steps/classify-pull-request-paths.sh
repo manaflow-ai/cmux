@@ -227,6 +227,8 @@ fi
 # Leo, 2026-11-21: "id rather we simply cut shit now and revisit later." A pull request runs fast-tier-cargo
 # only when its change reaches a cargo or script entry of the fast tier (2.94% of pull request runner-minutes,
 # 0.06% of heads with it as their only own red over 11-13..19: cmuxterm-hq#16094). Any failure reads as reached.
+# Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." Only the entries' own crates,
+# the workspace root and the job's inputs reach it; dependency crates and tree inputs are tested after the merge.
 if [[ "$EVENT_NAME" == pull_request ]]; then
   python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
     --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"

@@ -135,6 +135,7 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::Remember { .. }
                     | Call::MemoryFile(_)
                     | Call::Control(_)
+                    | Call::Automation(_)
                     | Call::CloudWorkspace(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }

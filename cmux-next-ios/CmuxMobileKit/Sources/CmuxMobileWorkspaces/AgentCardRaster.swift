@@ -113,6 +113,8 @@ final class AgentCardRasterizer: NSObject {
     let limit: Int
     /// Pictures drawn (tests and the rig's log).
     private(set) var renders = 0
+    /// Where each drawn picture is also kept across launches (`TabCardSnapshots`).
+    var snapshots = TabCardSnapshots.shared
 
     /// Built cards on screen now, per feed (`setShown`; a grid card and its long-press preview
     /// are two): a memory warning keeps their pictures.
@@ -218,6 +220,10 @@ final class AgentCardRasterizer: NSObject {
             feed.raster = (key, image)
             renders += 1
             remember(feed)
+            // The tab's last-known picture, for the next launch and for a card whose chat
+            // has not loaded yet. A chat still loading is not one: its empty page would
+            // replace the picture of its turns.
+            if let snapshotKey = feed.snapshotKey, !feed.awaitingHistory { snapshots.put(image, for: snapshotKey) }
         }
     }
 
@@ -277,6 +283,8 @@ struct AgentTabCard: View {
     let page: CGSize
     let topInset: CGFloat
     let bottomInset: CGFloat
+    /// The tab's last-known picture (`TabCardSnapshots`), from an earlier launch too.
+    var snapshot: TabSnapshotEntry?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var textSize
@@ -284,6 +292,31 @@ struct AgentTabCard: View {
     private struct PictureRequest: Equatable {
         var key: AgentCardRasterKey
         var drawn: Bool
+    }
+
+    /// What a card draws.
+    enum Face: Equatable {
+        /// The picture drawn from the feed's turns (`AgentCardRasterizer`).
+        case picture
+        /// The tab's last-known picture (`TabCardSnapshots`).
+        case lastKnown
+        /// The live preview: a page of transcript laid out in the card.
+        case live
+    }
+
+    /// A card is a still whenever one exists. Its own picture when that may
+    /// show; the last-known one while the chat's history is still loading (an
+    /// empty page otherwise, on every launch) and while a picture that can be
+    /// drawn waits for the grid to rest (a page of transcript laid out in a
+    /// scroll frame otherwise, which is what moved in the grid: Leo,
+    /// 2026-11-22, "why are they moving???"). The live preview is left for a
+    /// card with no picture at all, and for one whose image is still loading,
+    /// which only a live row loads.
+    nonisolated static func face(awaitingHistory: Bool, mayShowPicture: Bool, drawable: Bool, hasLastKnown: Bool) -> Face {
+        if awaitingHistory, hasLastKnown { return .lastKnown }
+        if mayShowPicture { return .picture }
+        if drawable, hasLastKnown { return .lastKnown }
+        return .live
     }
 
     /// TabsKit's card aspect (`OverviewLayout.cardAspect`): the page height a card shows per page width.
@@ -294,21 +327,33 @@ struct AgentTabCard: View {
                                              visibleHeight: min(page.height, page.width * Self.cardAspect),
                                              topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale,
                                              textSize: textSize)
+        let lastKnown = snapshot?.image
+        let face = Self.face(awaitingHistory: feed.awaitingHistory,
+                             mayShowPicture: feed.raster.map { key.mayShow($0.key) } ?? false,
+                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
-            if let raster = feed.raster, key.mayShow(raster.key) {
-                Image(uiImage: raster.image)
-                    .resizable()
-                    .frame(width: page.width, height: key.visibleHeight)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .background(Color.cmuxMobileBackground)
-            } else {
+            switch face {
+            case .picture:
+                if let raster = feed.raster {
+                    Image(uiImage: raster.image)
+                        .resizable()
+                        .frame(width: page.width, height: key.visibleHeight)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .background(Color.cmuxMobileBackground)
+                }
+            case .lastKnown:
+                if let lastKnown {
+                    TabSnapshotPicture(image: lastKnown).background(Color.cmuxMobileBackground)
+                }
+            case .live:
                 AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset)
             }
         }
         .onAppear { rasterizer.setShown(feed, true) }
         .onDisappear { rasterizer.setShown(feed, false) }
+        .modifier(TabCardFaceRecord(tabID: feed.snapshotKey?.tabID, face: "\(face)"))
         // Asked again when its picture is dropped (the cache's oldest goes, or a memory warning).
         .onChange(of: PictureRequest(key: key, drawn: feed.raster?.key == key), initial: true) { _, request in
             guard !request.drawn else { return }

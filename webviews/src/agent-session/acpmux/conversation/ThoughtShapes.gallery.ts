@@ -1,11 +1,19 @@
 // l10n-allow-file: gallery fixtures (sample prompts and thoughts), not shipped UI.
 // Every shape a Thought row takes in a transcript, one chat each, for the click test
 // (test/thought-click-targets-browser.test.ts): Leo, 2026-11-21, "inconsistent clicks (thought)".
+// The row's line is the thought's own first line (Leo, 2026-11-22: "had the whole line be the line?
+// then you expand and it simply shows you the rest"): one-line and wrapping-line show a thought with
+// nothing under its line, and time-open and time-hover are other looks for how long it took.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 
 const PROMPT = "Find every retry loop and give them one capped backoff";
-const SHORT = "Check the retry helper first, then the callers.";
+const SHORT = "Check the retry helper first, then the callers.\nThe socket reconnect comes after both.";
+/// A thought its row's line holds whole: no chevron, nothing to open.
+const ONE = "Check the retry helper first, then the callers.";
+/// One unbroken line wider than the row: cut with an ellipsis, it opens to its wrapped words alone.
+const WIDE =
+  "The fetch client retries in request() with its own sleep doubling each time and no cap, the socket reconnect keeps a timer of its own that resets on every open, and the upload queue retries each part five times at a fixed second, so all three need the one capped helper.";
 const LONG = [
   "**Finding the loops**",
   "The fetch client retries in `request()`, with its own sleep doubling each time and no cap.",
@@ -55,6 +63,24 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "one-line": {
+      note: "A thought its line holds whole: the brain and its words, no chevron, and it does not open.",
+      snapshot: settled([done(ONE), read(0)]),
+    },
+    "wrapping-line": {
+      note: "One unbroken line wider than the row: cut with an ellipsis closed; opened, the same words wrapped, nothing under them.",
+      snapshot: settled([done(WIDE), read(0)]),
+    },
+    "time-open": {
+      note: "Alternative: how long a thought took shows only on an opened row.",
+      snapshot: settled([search(0), done(SHORT), search(1), done(LONG), search(2), search(3)]),
+      documentAttributes: { "thought-time": "open" },
+    },
+    "time-hover": {
+      note: "Alternative: how long a thought took shows on an opened row, or under the pointer or keyboard focus.",
+      snapshot: settled([search(0), done(SHORT), search(1), done(LONG), search(2), search(3)]),
+      documentAttributes: { "thought-time": "hover" },
     },
     "working-settled": {
       note: "A settled thought in a turn that still runs.",

@@ -3,13 +3,14 @@
 import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
+import { keptPrefix } from "../conversation/prefixFlatMap";
 import { PromptHeads } from "../promptHeads";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
 import { SUBAGENTS } from "../subagents/subagentFold";
-import type { RailShow } from "./railShow";
+import { RAIL_SHOWS, type RailShow } from "./railShow";
 import { SUBAGENT_DONE, SUBAGENT_ROW, SUBAGENT_STARTED } from "../subagents/subagentRows";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
@@ -1332,13 +1333,39 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
 }
 
 /// The choices that keep something in this chat (the rest are offered disabled): every prompt always.
+/// Each turn's choices are kept as a running union (`offeredRuns`), so an update reads only the turns
+/// after the last one it kept: read whole, each streamed record of a long chat walked every turn
+/// (0.15 ms a record at 20,000 rows, bench/transcript-replay.bench.ts PROFILE=1).
 export function railShowsOffered(turns: readonly MinimapTurn[], ticks: readonly MinimapTick[]): ReadonlySet<RailShow> {
-  const offered = new Set<RailShow>(["prompts"]);
-  for (let at = 0; at < turns.length; at += 1) {
+  const last = offeredRun;
+  const from = last ? Math.min(keptPrefix(last.turns, turns), keptPrefix(last.ticks, ticks)) : 0;
+  if (last && from === turns.length && from === last.turns.length) return last.offered;
+  const unions = new Uint16Array(turns.length);
+  if (from > 0) unions.set(last!.unions.subarray(0, from));
+  let union = from > 0 ? unions[from - 1]! : OFFERED_BIT.prompts;
+  for (let at = from; at < turns.length; at += 1) {
     const turn = turns[at]!;
-    offered.add(ticks[at]?.from === undefined ? "mine" : "received");
-    if (turn.replyAt) offered.add("replies").add("everything");
-    for (const kind of ["errors", "edits", "tools", "subagents"] as const) if (turnHas(turn, kind)) offered.add(kind);
+    union |= OFFERED_BIT[ticks[at]?.from === undefined ? "mine" : "received"];
+    if (turn.replyAt) union |= OFFERED_BIT.replies | OFFERED_BIT.everything;
+    for (const kind of TURN_KINDS) if (turnHas(turn, kind)) union |= OFFERED_BIT[kind];
+    unions[at] = union;
   }
+  const offered =
+    last && union === last.union
+      ? last.offered
+      : new Set<RailShow>(RAIL_SHOWS.filter((each) => (union & OFFERED_BIT[each]) !== 0));
+  offeredRun = { turns, ticks, unions, union, offered };
   return offered;
 }
+const TURN_KINDS = ["errors", "edits", "tools", "subagents"] as const;
+const OFFERED_BIT = Object.fromEntries(RAIL_SHOWS.map((each, at) => [each, 1 << at])) as Record<RailShow, number>;
+/// The last turns `railShowsOffered` read, the union of the choices up to each, and its answer.
+let offeredRun:
+  | {
+      turns: readonly MinimapTurn[];
+      ticks: readonly MinimapTick[];
+      unions: Uint16Array;
+      union: number;
+      offered: ReadonlySet<RailShow>;
+    }
+  | undefined;

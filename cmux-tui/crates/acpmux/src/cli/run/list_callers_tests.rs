@@ -473,9 +473,12 @@ async fn a_stalled_relay_never_holds_or_fails_the_local_listing() {
         "{line}"
     );
 
-    // A kept listing is merged, its rows marked stale, and said on stderr with its age.
+    // A kept listing is merged, its rows with their asOfMs (not `stale`: no down peer's), and said on
+    // stderr with its age.
     let row = json!({"peer": "relayed-vm", "sessionId": "r-1", "name": "relayed-vm/worker", "status": "idle", "updatedAt": now - 1});
     ls_far::write_cache(&cache, "sh", &[row], now - 120_000);
+    // With a kept listing the relay is not waited on at all.
+    let started = Instant::now();
     let (out, line) = super::ls::scoped_output_with_far(
         ls_args(&[]),
         true,
@@ -490,11 +493,16 @@ async fn a_stalled_relay_never_holds_or_fails_the_local_listing() {
     let rows = v["sessions"].as_array().unwrap();
     assert_eq!(rows.len(), local + 1);
     let cached = rows.iter().find(|r| r["sessionId"] == "r-1").unwrap();
-    assert_eq!(cached["stale"], true);
+    assert!(cached.get("stale").is_none(), "{cached}");
     assert_eq!(cached["asOfMs"], now - 120_000);
     assert_eq!(v["remote"]["state"], "stale");
     assert_eq!(v["remote"]["asOfMs"], now - 120_000);
-    assert!(line.unwrap().contains("not read within 1.5s; listed as of 2m ago"));
+    let took = started.elapsed();
+    assert!(
+        took < std::time::Duration::from_millis(500),
+        "a kept listing waited on the relay: {took:?}"
+    );
+    assert!(line.unwrap().contains("from the last listing, refreshing; listed as of 2m ago"));
 
     // The text view prints the local rows too, under the same budget.
     let started = Instant::now();
