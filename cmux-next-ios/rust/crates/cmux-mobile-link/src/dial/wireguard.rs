@@ -913,6 +913,10 @@ fn addresses(texts: &[String]) -> HashSet<SocketAddr> {
 }
 
 impl HybridUnderlay {
+    fn blk_side(&self) -> String {
+        format!("ul{}{}", self.socket.local_addr().map(|a| a.port()).unwrap_or(0), if self.options.drop_outbound_udp { "P" } else { "" })
+    }
+
     fn new(spec: UnderlaySpec<'_>, options: &DialOptions) -> Self {
         let mut underlay = Self {
             socket: spec.socket,
@@ -971,6 +975,7 @@ impl HybridUnderlay {
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay.sync_paths();
+        super::blk::note(underlay.blk_side(), format!("NEW cands={:?} turn_targets={:?} peer_relayed={:?} own_relayed={:?}", underlay.candidates, underlay.turn_targets, underlay.labels.peer_relayed, underlay.turn.as_ref().map(|t| t.relayed)));
         underlay
     }
 
@@ -1391,6 +1396,7 @@ impl HybridUnderlay {
         if cmux_transport::classify(datagram) != cmux_transport::DatagramClass::WireGuardInitiation {
             return;
         }
+        super::blk::log(self.blk_side(), "HS_REPEAT_ARMED", None, datagram);
         self.handshake_repeat = Some(HandshakeRepeat {
             datagram: Bytes::copy_from_slice(datagram),
             class,
@@ -1415,6 +1421,7 @@ impl HybridUnderlay {
                 None => self.handshake_repeat = None,
             }
             tracing::debug!(repeat = sent, "WireGuard repeats an unanswered handshake initiation");
+            super::blk::note(self.blk_side(), format!("HS_REPEAT {sent}"));
             self.send_on_relays(&datagram, class);
         }
     }
@@ -1450,6 +1457,7 @@ impl HybridUnderlay {
 
     /// Send one UDP datagram; `false` when the OS refused it.
     fn send_udp(&mut self, datagram: &[u8], target: SocketAddr) -> bool {
+        super::blk::log(self.blk_side(), if self.options.drop_outbound_udp || self.dark || self.blackhole { "UDPOUT-DROPPED" } else { "UDPOUT" }, Some(target), datagram);
         if self.options.refuse_udp_to.is_some_and(|refuse| refuse(&target)) {
             return false;
         }
@@ -1755,68 +1763,8 @@ impl HybridUnderlay {
     }
 }
 
-impl Underlay for HybridUnderlay {
-    fn send(&mut self, datagram: &[u8]) {
-        self.drain_control();
-        let class = send_class(datagram);
-        self.record(datagram, class);
-        self.transmit(datagram, class);
-        self.note_initiation(datagram, class);
-    }
-
-    fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
-        self.drain_control();
-        let class = send_class_of(datagram, priority);
-        self.record(datagram, class);
-        self.transmit(datagram, class);
-        self.note_initiation(datagram, class);
-    }
-
-    /// A liveness ping or pong: on the routes data takes, but not kept for
-    /// a replay (the link resends its pings), and a pong starts no
-    /// silence watch.
-    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
-        self.drain_control();
-        self.answering = answer;
-        self.transmit(datagram, SendClass::Input);
-        self.answering = false;
-    }
-
-    /// A probe on one of the selector's paths goes on its route only. A
-    /// probe's answer (`path` is where the probe arrived) goes back on the
-    /// reverse of the route it came on, and nowhere else: an answered probe
-    /// proves both directions of one route, so a route that works only one
-    /// way (macOS Local Network privacy, a firewall) never becomes alive.
-    fn send_on(&mut self, path: PathId, datagram: &[u8]) {
-        self.drain_control();
-        let class = send_class(datagram);
-        if let Some(route) = self.paths.route_of(path) {
-            let _ = self.send_route(route, datagram, class);
-            return;
-        }
-        let reverse = match path {
-            UDP_PATH => self.last_udp_source.map(|addr| Route { carrier: Carrier::Udp, addr }),
-            TURN_PATH => self.last_turn_source.map(|addr| Route { carrier: Carrier::Turn, addr }),
-            _ => None,
-        };
-        match reverse {
-            Some(route) if route.carrier == Carrier::Turn || !no_plain_udp(&self.options) => {
-                let _ = self.send_route(route, datagram, class);
-            }
-            _ => self.transmit(datagram, class),
-        }
-    }
-
-    fn poll_probes(&mut self, now: Instant) -> DueProbes {
-        self.drain_control();
-        self.paths.poll(now)
-    }
-
-    fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
-        self.paths.on_pong(path, id, now);
-    }
-
-    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+impl HybridUnderlay {
+    fn poll_recv_blk(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
         if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
             self.recv_waker = Some(cx.waker().clone());
         }
@@ -1889,6 +1837,77 @@ impl Underlay for HybridUnderlay {
         Poll::Pending
     }
 
+}
+
+impl Underlay for HybridUnderlay {
+    fn send(&mut self, datagram: &[u8]) {
+        self.drain_control();
+        let class = send_class(datagram);
+        self.record(datagram, class);
+        self.transmit(datagram, class);
+        self.note_initiation(datagram, class);
+    }
+
+    fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
+        self.drain_control();
+        let class = send_class_of(datagram, priority);
+        self.record(datagram, class);
+        self.transmit(datagram, class);
+        self.note_initiation(datagram, class);
+    }
+
+    /// A liveness ping or pong: on the routes data takes, but not kept for
+    /// a replay (the link resends its pings), and a pong starts no
+    /// silence watch.
+    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
+        self.drain_control();
+        self.answering = answer;
+        self.transmit(datagram, SendClass::Input);
+        self.answering = false;
+    }
+
+    /// A probe on one of the selector's paths goes on its route only. A
+    /// probe's answer (`path` is where the probe arrived) goes back on the
+    /// reverse of the route it came on, and nowhere else: an answered probe
+    /// proves both directions of one route, so a route that works only one
+    /// way (macOS Local Network privacy, a firewall) never becomes alive.
+    fn send_on(&mut self, path: PathId, datagram: &[u8]) {
+        self.drain_control();
+        let class = send_class(datagram);
+        if let Some(route) = self.paths.route_of(path) {
+            let _ = self.send_route(route, datagram, class);
+            return;
+        }
+        let reverse = match path {
+            UDP_PATH => self.last_udp_source.map(|addr| Route { carrier: Carrier::Udp, addr }),
+            TURN_PATH => self.last_turn_source.map(|addr| Route { carrier: Carrier::Turn, addr }),
+            _ => None,
+        };
+        match reverse {
+            Some(route) if route.carrier == Carrier::Turn || !no_plain_udp(&self.options) => {
+                let _ = self.send_route(route, datagram, class);
+            }
+            _ => self.transmit(datagram, class),
+        }
+    }
+
+    fn poll_probes(&mut self, now: Instant) -> DueProbes {
+        self.drain_control();
+        self.paths.poll(now)
+    }
+
+    fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
+        self.paths.on_pong(path, id, now);
+    }
+
+    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        let r = self.poll_recv_blk(cx, buffer);
+        if let Poll::Ready(Ok(got)) = &r {
+            super::blk::log(self.blk_side(), if got.origin.path == UDP_PATH { "IN-UDP" } else { "IN-TURN" }, got.origin.addr, &buffer[..got.len]);
+        }
+        r
+    }
+
     fn authenticated(&mut self, origin: Origin) {
         let now = Instant::now();
         let carrier = match origin.path {
@@ -1898,6 +1917,7 @@ impl Underlay for HybridUnderlay {
         };
         let Some(addr) = origin.addr else { return };
         // The peer answered (or sent anything authenticated): the path works.
+        if self.handshake_repeat.is_some() { super::blk::note(self.blk_side(), format!("HS_REPEAT_CLEARED by {:?}", origin)); }
         self.handshake_repeat = None;
         let route = Route { carrier, addr };
         self.learn(route);
@@ -2336,13 +2356,13 @@ pub(super) fn dial_wireguard<'a>(
         let webrtc_media = webrtc_media_agreed && media.is_some();
         Ok(Dialed {
             stream: Box::new(stream),
+            hold: Some(hold_hook(&tunnel.session)),
             path: tunnel.path,
             peer: tunnel.peer,
             guard: Box::new(guard),
             lane,
             media,
             webrtc_media,
-            hold: None,
             liveness,
         })
     })
