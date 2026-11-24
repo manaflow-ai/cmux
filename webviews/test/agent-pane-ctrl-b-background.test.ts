@@ -305,7 +305,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     const line = page.locator(".cv-worked.is-below");
     const hint = line.getByText("⌃B to run in background");
     await hint.waitFor({ timeout: 5_000 });
-    expect(await line.locator(".cv-thinking").textContent()).toBe("Running cargo test --workspace");
+    expect(await line.locator(".cv-thinking").textContent()).toBe("cargo test --workspace");
     // The hint shows only while the pointer is on the line (Leo, 2026-10-21).
     const opacity = () => hint.evaluate((node) => getComputedStyle(node).opacity);
     expect(await opacity()).toBe("0");

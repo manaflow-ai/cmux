@@ -1228,8 +1228,8 @@ const failed = (tool: Tool) =>
 
 /// A command row's words when they are not its command line: the table's action, else the call's
 /// description, as the look orders them. Undefined when the row reads "Ran <line>". A running call
-/// reads as the line that is running ("Running <line>", and the live line its command alone, as
-/// #36940 set): it has done nothing yet, and what runs is what the person may want to stop.
+/// reads as its command line, with the shimmer carrying its live state (Leo, 2026-11-23: "running"
+/// doesn't need text).
 export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = commandLook()): string | undefined {
   const command = tool.command?.trim();
   if (!command || look === "command" || look === "cleaned") return undefined;

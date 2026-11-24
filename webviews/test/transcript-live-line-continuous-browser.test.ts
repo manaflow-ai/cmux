@@ -10,8 +10,9 @@
 // this hangs on for a bit too much"), the line reads "Thinking" the moment a call completes, in the
 // same element, instead of holding the finished step.
 //
-// Before: the line went "grep 0s" (a clock that started again at each call) to "Thinking
-// 15s" under the call's own "Ran grep …" row.
+// The live line goes "grep 0s" (a clock that started again at each call) to "Thinking 15s" under
+// the call's own "Ran grep …" row, with no running-state word (Leo, 2026-11-23: "running" doesn't
+// need text).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";

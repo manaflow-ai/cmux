@@ -37,8 +37,9 @@ export function isCommandTitle(title: string, shell = false): boolean {
   return PROGRAMS.has(/^\S+/.exec(line)![0]) || SHELL_SHAPED.test(line);
 }
 
-/// A tool call's title in words: a command reads "Running <program …>", any other title as it is.
-export function toolDetail(t: Translate, title: string | undefined, shell = false): string | undefined {
+/// A tool call's title in words: a command reads as itself while it shimmers (Leo, 2026-11-23:
+/// "running" doesn't need text), any other title as it is.
+export function toolDetail(_t: Translate, title: string | undefined, shell = false): string | undefined {
   const trimmed = title?.trim();
   if (!trimmed) return undefined;
   if (!isCommandTitle(trimmed, shell)) return trimmed;

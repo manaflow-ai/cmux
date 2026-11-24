@@ -2745,7 +2745,7 @@ export default agentPaneEntry({
     "codex-turn-command-under-messages": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Leo, 2026-11-23: "running" doesn\'t need text. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
           user("Copy the session log into recovery and tell the lanes what changed.", 3),
@@ -2769,7 +2769,7 @@ export default agentPaneEntry({
       play: async (ctx: PlayContext) => {
         const doc = ctx.document;
         await ctx.waitFor(() =>
-          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("cp "),
         );
         const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
         if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
@@ -2781,7 +2781,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); Leo, 2026-11-23: \"running\" doesn't need text. ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),

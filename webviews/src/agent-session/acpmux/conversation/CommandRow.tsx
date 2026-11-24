@@ -5,8 +5,10 @@
 // draws it), cut to the row without the setup it starts with (`export PATH=…;`, a leading
 // `cd <folder> &&`, which its Shell block names) and the plumbing after it (`2>/dev/null | head`),
 // how long it has run while it runs (RunningTime.tsx), opening to its Shell block, which says how
-// long it took once it ended. A command that went on in the background shows how it stands there
-// too (BackgroundMark.tsx); while it serves a page, the page's chip (PreviewChip.tsx).
+// long it took once it ended. A running command's shimmer and command line carry its state without
+// a "Running" lead (Leo, 2026-11-23: "running" doesn't need text). A command that went on in the
+// background shows how it stands there too (BackgroundMark.tsx); while it serves a page, the
+// page's chip (PreviewChip.tsx).
 import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, useId, useMemo, useState, useContext } from "react";
@@ -92,9 +94,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const cwd = useContext(SessionCwdContext);
   // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
   // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
-  const [before = "", after = ""] = running
-    ? []
-    : t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
+  const [before = "", after = ""] = running ? [] : t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
   const line = (
     <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
       {short}
