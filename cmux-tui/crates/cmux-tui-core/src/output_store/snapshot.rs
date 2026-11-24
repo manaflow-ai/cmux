@@ -48,8 +48,10 @@ use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
 pub(super) const MAGIC: &[u8] = b"CMUXSNAP1\n";
 pub(super) const SUFFIX: &str = "snap";
-/// The largest uncompressed replay one snapshot holds.
-pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = 4 * 1024 * 1024;
+/// The largest uncompressed replay one snapshot holds. This stays below the
+/// snapshot-file guard and the attach stream's 16 MiB transport budget while
+/// leaving room for a long terminal's older rows.
+pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = 12 * 1024 * 1024;
 /// The smallest replay budget, so a narrow terminal still keeps its lines.
 const MIN_SNAPSHOT_REPLAY_BYTES: usize = 256 * 1024;
 /// A snapshot file larger than this is not read back (corrupt or foreign).
