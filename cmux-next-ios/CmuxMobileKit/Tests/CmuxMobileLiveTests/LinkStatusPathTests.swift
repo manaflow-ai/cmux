@@ -20,9 +20,13 @@ import Testing
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard direct")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turn, rttMillis: 40))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
-        // UDP blocked: TURN reached over TLS. (There is no WebSocket relay any more.)
+        // UDP blocked: TURN reached over TLS.
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turnTLS, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
+        // Neither UDP nor the TURN host: cmux's WebSocket relay (PROTOCOL.md "WebSocket relay").
+        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .httpsRelay, rttMillis: nil))
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS) · 40 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
@@ -70,26 +74,22 @@ import Testing
 /// handshakes), the first redial failed, and the machine waits out its
 /// backoff before the next one. The phone showed "Can't reach … over
 /// WireGuard" for every such wait, which reads as giving up while it was
-/// still retrying. A Mac the link was connected to says "Reconnecting".
+/// still retrying. Now every such wait is "Offline · Retry", held for the
+/// quiet bound by the banner slot (`LiveCoordinator.bannerHold`); only a Mac known
+/// to be offline shows at once.
 @Suite struct WaitingBannerTests {
     let offline = LinkController.reason(LinkError(code: "offline", message: ""))
     let timedOut = LinkController.reason(LinkError(code: "timeout", message: ""))
 
-    @Test func aMacTheLinkWasConnectedToIsReconnecting() {
-        let banner = LiveCoordinator.waitingBanner(
-            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: true,
-            relayAvailable: true)
-        #expect(banner == .reconnecting(to: "Studio"))
-    }
-
-    /// Still unreachable after the first redials (about half a minute): say
-    /// Offline with a retry action instead of spinning forever.
-    @Test func aMacStillUnreachableAfterTheFirstRedialsIsAFailure() {
-        let late = LiveCoordinator.reconnectingAttempts + 1
-        let banner = LiveCoordinator.waitingBanner(
-            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: late, wasConnected: true,
-            relayAvailable: false)
-        #expect(banner == .connectionFailed)
+    /// A lost link redialing says "Offline · Retry", held for the quiet bound (never "Reconnecting…").
+    @Test func aMacTheLinkWasConnectedToWaitsQuietlyThenSaysOffline() {
+        for attempt in [2, 9] {
+            let banner = LiveCoordinator.waitingBanner(
+                macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: attempt, wasConnected: true,
+                relayAvailable: true)
+            #expect(banner == .connectionFailed)
+            #expect(banner.offersRetry)
+        }
     }
 
     @Test func aMacNeverReachedIsAFailure() {
@@ -146,12 +146,12 @@ import Testing
     @Test func normalStatusDoesNotExposeDiagnostics() {
         let secretError = "list-workspaces reply is not an object"
         let failed = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: secretError, retryIn: .seconds(1))
-        #expect(failed.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(failed.statusLine(macName: "Studio") == nil, "a redial says nothing")
         #expect(failed.diagnosticLine(macName: "Studio")?.contains(secretError) == true)
         #expect(LinkMachine.Phase.macOffline.statusLine(macName: "Studio") == "Offline")
-        #expect(LinkMachine.Phase.connecting(.wireGuard, attempt: 1).statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(LinkMachine.Phase.connecting(.wireGuard, attempt: 1).statusLine(macName: "Studio") == nil)
         let connected = LinkMachine.Phase.connected(.wireGuard, .turnTLS, rttMillis: 27)
-        #expect(connected.statusLine(macName: "Studio", media: .up(.turn, rttMillis: 12)) == "Connected")
+        #expect(connected.statusLine(macName: "Studio", media: .up(.turn, rttMillis: 12)) == nil, "connected says nothing")
         #expect(connected.diagnosticLine(macName: "Studio", media: .up(.turn, rttMillis: 12))
                 == "Connected · WireGuard relay (TURN over TLS) · video WebRTC (TURN) · 27 ms")
     }
@@ -160,10 +160,9 @@ import Testing
     @Test func offlineBannerOffersRetryWithoutEmbeddingAnInertActionInText() {
         #expect(ConnectionBannerState.connectionFailed.text == "Offline")
         #expect(ConnectionBannerState.connectionFailed.offersRetry)
-        #expect(ConnectionBannerState.offline.offersRetry)
+        // This iPhone offline: nothing to retry; the links redial when the network returns.
+        #expect(!ConnectionBannerState.offline.offersRetry)
         #expect(ConnectionBannerState.macOffline("Studio").offersRetry)
-        #expect(!ConnectionBannerState.connected.offersRetry)
-        #expect(ConnectionBannerState.reconnecting(to: "Studio").text == "Reconnecting…")
     }
     #endif
 }

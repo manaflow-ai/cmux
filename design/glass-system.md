@@ -56,7 +56,13 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    `--ds-color-danger/attention/success`) is one ink too: the design scale's `glassInk.status` share
    of its hue (65% light, 55% dark), the rest the theme's text, so "Checks failed" on a dark hover
    card over a white page keeps 3:1 (it was 2.2:1) and "Needs input" on a light one over black keeps
-   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`).
+   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`). A link
+   (`--agent-link`) and a diff count (`--acpmux-add/del`) mix the same way (a PR card's blue link
+   was 1.5:1 under dark glass on a white page, cmux#48217). A tooltip's tint is fitted to its text
+   at 4.5:1, so inks dimmer than the text get less room there: a status word in a tooltip keeps
+   `glassInk.chipStatus` (35%) of its hue, and the shortcut's keycap hint is the text at
+   `glassInk.keycap` (84%), not the secondary ink (it was 2.6:1). The thread minimap's hover card
+   (`.acpmux-minimap__card`) is a glass level on its own class and reads the same inks.
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
    40% in light and 57% in dark, so a menu (80% over 40%, or dark's clearer 72% over 57%) covers 88%
@@ -154,6 +160,7 @@ surface takes after this change.
 | Context ring card (`contextCard.css`) | menu | menu | same |
 | Page row menu (`PageMenu.tsx`, `pageBase.css`) | `--ds-glass-menu-*` 78% | menu | 80% / 72% |
 | Hover cards: link preview, PR card, cmux link card, session hover, Home link (`AnchoredCard`) | menu, page blurs the chat in place | menu | 80% / 72% |
+| Chat header tool preview (`HeaderToolPreview.tsx`) | solid elevated surface, no blur (the one solid hover preview left) | menu | the shared hover card (`.ui-card.ui-glass`), 80% / 72%, 32 px; `test/hover-glass-browser.test.ts` reads every hover surface's computed backdrop-filter |
 | Feature tip (`featureTip.css`) | menu; accent look 62%, veil look 45% / 22% | menu | menu part follows; private looks stay (opt-in looks) |
 | Keybindings recorder | menu over a 92% underlay (the text floor) | 5 | none: a recorder over rows keeps its floor |
 | Tooltips, title tooltips, toolbar hints (`Tooltip.tsx`, `titleTooltips.ts`) | host contrast-fitted tint, 32 px, 1.6 | chip, 5 | none (already the rule) |
@@ -184,8 +191,11 @@ at most 90% until the theme's primary text reads at 4.5:1 and its secondary at 3
 window, on white and on black, rule 5; `GlassMenuMaterial.veil(for:)`) or the neutral transient material.
 Icon buttons on that glass (`OverflowButton`, `PlusButton`, `TitlebarBandButton`) fit their glyphs to it
 (`NSView.glassInk`), not to the opaque page: they read 1.35-2.84:1 there (NativeControlContrastAuditTests).
-A SwiftUI `cmuxPressFill` button on that glass (content marked `cmuxOnMenuGlass`) takes the theme's text fit to it
-(`GlassMenuMaterial.ink`). A web menu's own glass follows the same veil: WebTheme sends `--cmux-menu-clear`
+SwiftUI on a menu panel is hosted in `ThemedHostingView`: it finds the panel in the view tree as it moves, and its
+content's foreground, `.cmuxSecondary` and `.cmuxTertiary` are the theme's text fit to that glass (as
+`NSView.buttonGround`), before the first draw (SwiftUI's own `.secondary` is the primary at a lower opacity: 2.00:1). Text, a toggle's label and a button's label that set no ink take them, and a `cmuxPressFill`
+button knows the glass; in a plain host it finds the panel itself (`MenuGlassProbeView`), a frame late.
+check-overlay-glass.py (`menu-hosting`) refuses a plain `NSHostingView` in a file that builds a menu panel. A web menu's own glass follows the same veil: WebTheme sends `--cmux-menu-clear`
 (`GlassMenuMaterial.webClear`), and glass.css lays the menu tint at 100% - (100% - its level tint) × it
 (test/menu-glass-veil.test.ts); on the App's glass a web menu is the native panel already. Group editor, tab group editor, palette and its actions menu and
 shortcut recorder, `GlassMenu`, web popup host and declarative popups, native tooltip, shortcut hint

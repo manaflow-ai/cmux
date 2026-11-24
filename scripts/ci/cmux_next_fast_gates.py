@@ -12,7 +12,7 @@ result is fresh for the tip they merge into.
       The workflow's resolve job names HEAD and BASE without running this checkout's code;
       prepare fails unless the merge it gates is exactly BASE + HEAD. Writes merge=, web=
       (true when web lint has something to lint) and checks= (true on a dispatch, or for a
-      string catalog or protocol spec change, which ci-web's routing does not check) to --output
+      webviews/, string catalog or protocol spec change) to --output
       (GITHUB_OUTPUT).
   run --base BASE [--web true|false] [--checks true|false] [--budget-seconds N]
                                                   every gate on BASE..HEAD (the merge); independent gates run
@@ -31,8 +31,9 @@ The gates, each the same invocation as its push-time job:
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
   webviews checks scripts/ci/fast_gate_webviews_checks.py --base BASE (ci-web.yml's fail-mode webviews
-                  checks; only findings the PR adds), on a dispatch, or for a pull request that changes a string catalog or
-                  the acpmux protocol spec: otherwise ci-web runs them for a webviews/ change on this same merge. A merger
+                  checks; only findings the PR adds), on a dispatch, or for a pull request that changes webviews/, a string
+                  catalog or the acpmux protocol spec (CHECK_INPUTS: a base merge lands on this status, not on
+                  ci-web's webview suite, which runs them too). A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
 
@@ -70,10 +71,14 @@ IDENTITY = ("-c", "user.name=cmux fast gates", "-c", "user.email=fast-gates@user
 RATCHET_PATHS = ("Packages", "cmux-tui/crates", "scripts/cmux-next")
 FETCH_DEPTH = 50
 # A pull request a few dozen commits from the tip needs only the first step. Each deepen brings commits and trees but
-# no blobs (--filter=blob:none; git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
+# no blobs (git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
 # took 87 to 108 s of a 160 to 233 s job (runs 43473169308, 43474564309) for heads 9 and 32 commits from their base.
 DEEPEN_STEPS = (32, 200, 1000, 5000)
-DEEPEN_FILTER = "--filter=blob:none"
+# The walk to the merge base reads commits only, so a deepen asks for commits alone (--filter=tree:0): the trees of
+# the commits it passes are fetched on demand, for the few a gate diffs. On 2026-11-23 a PR forked 200+ commits behind
+# the tip spent 835 s in one --deepen=1000 with blob:none (every commit's trees came along) and the job then sat to
+# its cancel (8 such jobs at 25 min, 74% of the Merge step's 7,237 runner minutes a day; run 45236775245).
+DEEPEN_FILTER = "--filter=tree:0"
 
 
 def log(message: str) -> None:
@@ -111,18 +116,24 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     return bool(plan.script_packages or plan.eslint_files)
 
 
-# Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
-# request: check:catalog-keys reads every string catalog, typecheck the types generated from the protocol spec.
-CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
+# The webviews checks' inputs: webviews/ itself, and outside it the string catalogs (check:catalog-keys) and the
+# acpmux protocol spec (acpmux-protocol:check), which ci-web's react-apps routing does not run them for.
+# A webviews/ change runs them here too, though ci-web's react-apps-check runs them on the same merge: that run is
+# inside the webview suite's first shard (13 to 50 min), and land-judge's merged-tree carry lands a clean base merge
+# of a passed head on this status, cmux-next/compile and web/'s typecheck, carrying the suite from the older head. So a
+# base merge's webviews type check is this gate's or no one's: cmux#49052 merged at 01:27Z on 2026-11-22 (66beef47)
+# on webview checks run 12 h earlier, before #48989 moved the code its new `foldsPrompt` read sat in, and the merged
+# tree's `Cannot find name 'foldsPrompt'` failed 13 of 23 Nightly runs (cmuxterm-hq#19108). About 1-2 minutes.
+CHECK_INPUTS = re.compile(r"^webviews/|\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
 
 
 def checks_needed(repo: Path, event: str, base: str, merge: str) -> bool:
     """Whether the webviews checks gate runs: on a dispatch, or a pull request that changes one of their inputs
-    outside webviews/ (on a pull request ci-web runs them for a webviews/ change, on this same merge)."""
+    (CHECK_INPUTS: webviews/, a string catalog, the acpmux protocol spec)."""
     if event == "workflow_dispatch":
         return True
     changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
-    return any(CHECK_INPUTS_OUTSIDE_WEBVIEWS.search(path) for path in changed)
+    return any(CHECK_INPUTS.search(path) for path in changed)
 
 
 # The panic ratchet's baseline and the cmux-tui inputs whose change can move every crate's count.
@@ -328,7 +339,7 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
                            "--head", str(repo), "--base", str(base_tree)] if ratchet else None),
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
-        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
+        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
     ]
 

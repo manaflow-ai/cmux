@@ -121,7 +121,9 @@ impl Supervisor {
         let installed = record.is_some_and(|r| r.installed);
         let mut grant =
             Self::grant_for(inner, &HostKey { app: app.to_string(), preview: !installed });
-        if (installed && !record.is_some_and(|r| r.enabled)) || inner.safe_mode.is_some() {
+        if (installed && !record.is_some_and(|r| r.enabled))
+            || super::safe_mode_bisect::held_off(inner, app)
+        {
             grant.revoked = true;
         }
         grant

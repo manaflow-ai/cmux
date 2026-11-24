@@ -516,6 +516,10 @@ CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
 # refuses the fix (lead 2026-11-03: the merge service refused #33091, the process-scan base red's fix, this way). So
 # each tree reads its own commit's row wherever it is lower than the installed one (a deleted row counts as 0), and
 # the installed row everywhere else: a raise or a new row is still judged against the installed copy, as before.
+# A file the push renames (baseline_renames.py: git's renames, one map for this hook and CI's check-spawn-owner) is
+# the same code: the head tree first gives its new path the old path's installed row (and LINE_BASELINES line), capped
+# at the old row and at the push's own new row, and carry_crash_moves does the same for crash rows that moved crate
+# (2026-11-24: acpmux's TUI split into acpmux-tui, every row moved with it, was refused as new debt three times).
 # Left out: crash-safety-baseline.json (a count under its row is only a note there; a raise needs Crash-allow-OK),
 # and the baselines no scanner here reads (godfile, layers, main-actor-work, check-menu-actions, rust-panic,
 # system-blue, type-scale, app-size): their CI checks read the pushed tree's own copy.
@@ -673,6 +677,32 @@ def load_sibling(name: str, filename: str):
 
 # Request bytes go through a file, not a pipe (git_batch.py says why); guardrails.py uses the same helper.
 git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
+
+
+BASELINE_RENAMES = "baseline_renames.py"
+
+
+def load_baseline_renames(trusted_scripts: Path | None):
+    """baseline_renames.py (the one rename map every path-keyed baseline reads): the installed reviewed copy for the
+    hook, else this checkout's. An install older than it has no map, and the hook carries nothing (as before)."""
+    script = (trusted_scripts / BASELINE_RENAMES) if trusted_scripts else Path(__file__).with_name(BASELINE_RENAMES)
+    if not script.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("cmux_next_baseline_renames", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module if all(hasattr(module, attr) for attr in ("diff_args", "parse")) else None
+
+
+def baseline_moves(repo: Path, base: str, head: str, trusted_scripts: Path | None) -> dict[str, str]:
+    """{new path: old path} of the push's renames (git diff -M plus baseline_renames.MOVED_BASELINE_PATHS)."""
+    renames = load_baseline_renames(trusted_scripts)
+    return renames.parse(git(repo, *renames.diff_args(base, head))) if renames else {}
+
+
+# head tree -> the crash baseline rows it read before carry_crash_moves gave moved hits to their new crate, so
+# crash_ratchet_findings (which adds the proven moves itself) does not allow a moved hit twice.
+CRASH_ROWS_BEFORE_CARRY: dict[str, dict] = {}
 
 
 def git(repo: Path, *args: str, check: bool = True) -> bytes:
@@ -887,6 +917,7 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
     scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
                                           if "/" not in p[len(SCRIPTS) + 1:] or p.startswith(SCRIPTS + "/lint/")]
     base_data = set(ls_tree(repo, base, SCRIPTS + "/"))
+    moved = baseline_moves(repo, base, head, trusted_scripts) if trusted_scripts else {}
     trees = []
     for side, rev in (("base", base), ("head", head)):
         files = {p: head for p in scripts}  # the check code is the head's on both sides
@@ -909,14 +940,18 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             if missing:
                 raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {', '.join(Path(p).name for p in missing)}).")
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
-            lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS)
+            lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS, moved if side == "head" else None)
             if lowered and side == "head":
-                log("prepush-gate: these ratchet rows read the push's own lower values:\n  " + "\n  ".join(lowered))
+                log("prepush-gate: these ratchet rows read the push's own lower values (or moved with a renamed file):\n  " + "\n  ".join(lowered))
             if side == "head":
                 taken = apply_reviewed_crash_data(repo, base, head, dest / SCRIPTS)
                 if taken:
                     log("prepush-gate: Crash safety reads these reviewed raises of the pushed crash data:\n  "
                         + "\n  ".join(taken))
+                carried = carry_crash_moves(repo, base, head, moved, dest / SCRIPTS, work / "crash-moves")
+                if carried:
+                    log("prepush-gate: Crash safety reads these hits as moved with their files, not new:\n  "
+                        + "\n  ".join(carried))
         trees.append(dest)
     return trees[0], trees[1]
 
@@ -1570,10 +1605,70 @@ def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[st
     return rows
 
 
-def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str]:
+def carry_renamed_rows(lines: list[str], moved: dict[str, str], parse, pushed_paths: set[str],
+                       count: int) -> tuple[list[str], list[str]]:
+    """(LINES with carried rows, notes): each installed row of an old path in MOVED ({new: old}) is also given to its
+    new path (column 0), added to any row the new path already has: a moved file is the same code, never a new file's
+    debt. Only while the pushed copy (PUSHED_PATHS, its row paths) keeps no row for the old path, as a move leaves it;
+    an old path that still has its own row keeps it, and the new path takes nothing. The rows are capped at the old
+    row's count here, and at the pushed copy's own row by the lowering after."""
+    old_to_new: dict[str, list[str]] = {}
+    for new, old in moved.items():
+        if old not in pushed_paths and new != old:
+            old_to_new.setdefault(old, []).append(new)
+    if not old_to_new:
+        return lines, []
+    gains: dict[tuple[str, ...], tuple[int, str]] = {}
+    for line in lines:
+        row = parse(line)
+        if not row:
+            continue
+        (key, n), = row.items()
+        for new in old_to_new.get(key[0], ()):
+            new_key = (new, *key[1:])
+            prior, _ = gains.get(new_key, (0, line))
+            gains[new_key] = (prior + n, line)
+    out, notes = [], []
+    for line in lines:
+        row = parse(line)
+        if row:
+            (key, n), = row.items()
+            if key in gains:
+                gain, _ = gains.pop(key)
+                parts = line.rstrip("\n").split("\t")
+                parts[count] = str(n + gain)
+                line = "\t".join(parts) + ("\n" if line.endswith("\n") else "")
+                notes.append(f"{' '.join(key)} {n} -> {n + gain} (carried across a rename)")
+        out.append(line)
+    for new_key, (gain, template) in sorted(gains.items()):
+        parts = template.rstrip("\n").split("\t")
+        parts[0] = new_key[0]
+        parts[count] = str(gain)
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        out.append("\t".join(parts) + "\n")
+        notes.append(f"{' '.join(new_key)} 0 -> {gain} (carried across a rename)")
+    return out, notes
+
+
+def carry_renamed_lines(lines: list[str], moved: dict[str, str], listed: set[str]) -> list[str]:
+    """The LINE_BASELINES lines ("path: site") of each old path in MOVED, under its new path, while the pushed copy
+    (LISTED) no longer lists the old line; the shrink-only filter after keeps one only if the pushed copy lists it."""
+    out = []
+    for new, old in moved.items():
+        for line in lines:
+            if line.startswith(old + ":") and line.rstrip("\n") not in listed:
+                carried = new + line[len(old):]
+                out.append(carried if carried.endswith("\n") else carried + "\n")
+    return out
+
+
+def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path, moved: dict[str, str] | None = None) -> list[str]:
     """Rewrite each RATCHET_BASELINES file in SCRIPTS_DIR (a tree's copy of the installed scripts) so a row reads REV's
     own count where that is lower (a row REV deleted reads 0 and is dropped); every other line stays the installed
-    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered."""
+    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered.
+    MOVED ({new path: old path}, baseline_renames.py) first gives each new path its old path's installed row and line
+    (carry_renamed_rows), so a moved file is the same code; the lowering then caps it at REV's own row."""
     taken: list[str] = []
     # One `cat-file --batch` for every baseline, not a `git show` each: each git start costs 0.3 s on a big mirror, and
     # this runs for every side of every tree a gate builds (2026-11-21: 13 s of one merge push's dependency trees).
@@ -1587,8 +1682,12 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
         if not path.is_file() or own is None:
             continue
         pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
-        lines, changed = [], False
-        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        installed_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        carried = carry_renamed_rows(installed_lines, moved or {}, lambda line: _ratchet_rows(line, keys, count),
+                                     set(k[0] for k in pushed), count)
+        taken += [f"{name}: {note}" for note in carried[1]]
+        lines, changed = [], bool(carried[1])
+        for line in carried[0]:
             row = _ratchet_rows(line, keys, count)
             if not row:
                 lines.append(line)
@@ -1615,10 +1714,13 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             continue
         listed = set(own.decode(errors="replace").splitlines())
         installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        carried = carry_renamed_lines(installed, moved or {}, listed)
         # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
-        kept = [line for line in installed if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
-        if len(kept) != len(installed):
+        kept = [line for line in installed + carried
+                if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
+        if kept != installed:
             taken += [f"{name}: {line.rstrip()} (line removed)" for line in installed if line not in kept]
+            taken += [f"{name}: {line.rstrip()} (carried across a rename)" for line in carried if line in kept]
             path.write_text("".join(kept), encoding="utf-8")
     return taken
 
@@ -1742,6 +1844,49 @@ def add_blobs(repo: Path, tree: Path, rev: str, paths: list[str]) -> None:
             (tree / path).write_bytes(blob)
 
 
+def carry_crash_moves(repo: Path, base: str, head: str, moved: dict[str, str], scripts_dir: Path,
+                      work: Path) -> list[str]:
+    """Give the crash baseline in SCRIPTS_DIR (the head tree's installed copy, which Crash safety reads) the hits of
+    each renamed Rust file (MOVED, {new: old}) that changed crate, where the push's own baseline moved them: CI's
+    crash_ratchet.carry_moves over the proven moves (the same lines, gone from the old crate's files and in the new
+    one's), capped at the installed source row and at the push's own new row; the source row goes down by as much.
+    Only the renamed files are scanned. Returns what was carried."""
+    pairs = [(new, old) for new, old in moved.items() if new.endswith(".rs") and old.endswith(".rs")
+             and new.startswith(RUST_CRATES) and old.startswith(RUST_CRATES)
+             and new.split("/")[2] != old.split("/")[2]]
+    baseline_path = scripts_dir / Path(CRASH_BASELINE).name
+    if not pairs or not baseline_path.is_file() or not (scripts_dir / CRASH_RATCHET).is_file():
+        return []
+    spec = importlib.util.spec_from_file_location("cmux_crash_ratchet_carry", scripts_dir / CRASH_RATCHET)
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    if not all(hasattr(ratchet, a) for a in ("Scan", "scan_rust", "baseline_rows", "baseline_data", "proven_moves",
+                                             "carry_moves", "row_label")):
+        return []
+    own = blob_at(repo, head, CRASH_BASELINE)
+    try:
+        installed = ratchet.baseline_rows(json.loads(baseline_path.read_text()))
+        pushed = ratchet.baseline_rows(json.loads(own)) if own is not None else {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    scans = []
+    for side, rev, paths in (("old", base, [old for _, old in pairs]), ("new", head, [new for new, _ in pairs])):
+        add_blobs(repo, work / side, rev, paths)
+        scan = ratchet.Scan()
+        ratchet.scan_rust(str(work / side), scan, True)
+        scans.append(scan)
+    moves = ratchet.proven_moves(*scans)
+    targets = {(s, l, k, t) for s, l, k, _, t in moves}
+    risen = {row: n for row, n in pushed.items() if row in targets and n > installed.get(row, 0)}
+    allowance, carried = ratchet.carry_moves(installed, risen, moves)
+    if not carried:
+        return []
+    CRASH_ROWS_BEFORE_CARRY[str(scripts_dir.parent.parent)] = installed
+    baseline_path.write_text(json.dumps(ratchet.baseline_data(allowance), indent=1, sort_keys=True) + "\n")
+    return [f"{ratchet.row_label(source)} -> {ratchet.row_label(target)}: {hits} (moved with a renamed file)"
+            for source, target, hits in carried]
+
+
 def prepare_crash_ratchet(repo: Path, base: str, head: str, head_tree: Path, trusted_scripts: Path | None,
                           work: Path) -> tuple[bool, object, list[str], float]:
     """(main-based, the ratchet module, the crate files the push deletes, seconds taken): the git reads of crash_ratchet_findings,
@@ -1778,7 +1923,9 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, base_tree: Path, he
     def baseline(tree: Path) -> dict:
         data = ratchet.load_baseline(str(tree / SCRIPTS / "crash-safety-baseline.json"))
         return ratchet.baseline_rows(data) if data else {}
-    base_rows, head_rows = baseline(base_tree), baseline(head_tree)
+    base_rows = baseline(base_tree)
+    # The installed rows before carry_crash_moves: the proven moves below are added here, not taken twice.
+    head_rows = CRASH_ROWS_BEFORE_CARRY.get(str(head_tree)) or baseline(head_tree)
     allowance = {row: n - base_rows.get(row, 0) for row, n in head_rows.items() if n > base_rows.get(row, 0)}
     for (section, lang, kind, _source, target), hits in ratchet.proven_moves(old, new).items():
         row = (section, lang, kind, target)
@@ -3246,6 +3393,39 @@ SWIFTLINT_JOB = "SwiftLint (syntax rules)"
 # Every check gate() runs in its temp trees: a run whose CHECKS names none of them builds no tree.
 TREE_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTFORMAT_JOB,
                                                                         RUSTFMT_JOB, SWIFTLINT_JOB, CRASH_RATCHET_CHECK})
+# The checks the pull request's fast-gates job runs with the same refusal (cmux_next_fast_gates.py: this gate with
+# --base/--head, which runs no hook-only layer): the scanners, ast-grep and SwiftLint. A loaded host's hook leaves these
+# to that job (--defer-ci-layers, deferred_ci_layers); every other check still runs in the hook.
+CI_LAYER_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTLINT_JOB})
+# The pushed refs no pull request's CI judges before they land: a push to these runs every layer, loaded or not.
+INTEGRATION_PUSH_REFS = ("refs/heads/feat-cmux-next", "refs/heads/main")
+INTEGRATION_PUSH_PREFIXES = ("refs/heads/perf/",)
+# What this run leaves to CI (main sets it from deferred_ci_layers; empty everywhere else, CI included).
+DEFERRED_CHECKS: frozenset[str] = frozenset()
+
+
+def deferred_ci_layers(pushed_lines: list[str]) -> frozenset[str]:
+    """CI_LAYER_CHECKS when every pushed ref with commits is a branch a pull request's CI judges, else nothing.
+
+    For a loaded host (the hook passes --defer-ci-layers at a load average of one runnable process per core or more).
+    2026-11-22: cosmic-gray, Leo's own Mac that also hosts agents, sat at load 163-234 on 15 cores while he typed, with
+    a gate starting every 7 s; the scanners, ast-grep and SwiftLint the hook ran there are the ones the PR's fast-gates
+    job runs again with the same refusal. A push to feat-cmux-next, main or perf/* (no PR CI before it lands), a tag,
+    or a line the gate cannot read keeps every layer."""
+    refs = []
+    for line in pushed_lines:
+        parts = line.split()
+        if len(parts) != 4:
+            if line.strip():
+                return frozenset()
+            continue
+        if set(parts[1]) == {"0"}:
+            continue  # a delete sends no commits
+        refs.append(parts[2])
+    if not refs or any(not ref.startswith("refs/heads/") or ref in INTEGRATION_PUSH_REFS
+                       or ref.startswith(INTEGRATION_PUSH_PREFIXES) for ref in refs):
+        return frozenset()
+    return CI_LAYER_CHECKS
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
@@ -3264,7 +3444,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     trusted_scripts = absolute(trusted_scripts) if trusted_scripts is not None else None
 
     def want(name: str) -> bool:
-        return checks is None or name in checks
+        return name not in DEFERRED_CHECKS and (checks is None or name in checks)
 
     reserved: list[tuple[str, list[str]]] = []
     if (only is None or "reserved" in only) and want(RESERVED_CHECK):
@@ -3372,6 +3552,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # So does a run whose CHECKS name no tree check: it builds no tree (on 2026-11-21 a merge push's upstream run built
     # its dependency and surface material trees, about 13,000 and 10,000 files a side, for checks it never read).
     if checks is not None and not checks & TREE_CHECKS:
+        return reserved
+    # And a run whose tree layers were all left to CI (DEFERRED_CHECKS: a loaded host's hook) builds none either.
+    if (DEFERRED_CHECKS >= CI_LAYER_CHECKS and only is not None
+            and not only & {"swiftformat", "rustfmt", "crash-ratchet"}):
         return reserved
     changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -4142,6 +4326,9 @@ def _main(argv: list[str] | None = None) -> int:
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
                                        "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh")
     parser.add_argument("--timings", action="store_true")
+    parser.add_argument("--defer-ci-layers", action="store_true",
+                        help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "
+                             "ast-grep, SwiftLint) to it, for a push of a non-integration branch (deferred_ci_layers)")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
     parser.add_argument("--advisory", action="store_true",
@@ -4234,6 +4421,13 @@ def _main(argv: list[str] | None = None) -> int:
     if args.advisory_only:
         advisory_run(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
         return 0
+    global DEFERRED_CHECKS
+    if args.defer_ci_layers and args.pre_push and only is None and not os.environ.get("GITHUB_ACTIONS"):
+        DEFERRED_CHECKS = deferred_ci_layers(pushed_lines)
+        if DEFERRED_CHECKS:
+            log("prepush-gate: this host is loaded (load average at one runnable process per core or more): the "
+                "scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them "
+                "with the same refusal; every other check runs here.")
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
     # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
@@ -4503,6 +4697,7 @@ SCRATCH_SWEEP_AGE_SECONDS = 2 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_AGE_NO_PROC_SECONDS = 6 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_OFF = "CMUX_NEXT_PREPUSH_SCRATCH_SWEEP"  # "0" turns the start-up sweep off; delete on finish stays
 _LIVE_SCRATCH: list[str] = []
+_SCRATCH_PID = os.getpid()  # the gate's own pid: a forked child never removes its scratch
 
 
 def _process_start(pid: int) -> str | None:
@@ -4569,7 +4764,12 @@ def scratch_dir(prefix: str = SCRATCH_PREFIX):
 
 
 def remove_live_scratch() -> None:
-    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step)."""
+    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step). Only the process
+    that made them removes them: a forked child (the crash ratchet's scan pool, which `Pool.terminate` ends with
+    SIGTERM) inherits this list and the handler, and once deleted the gate's base and head trees mid-scan, so every
+    Rust push big enough for the pool died with FileNotFoundError."""
+    if os.getpid() != _SCRATCH_PID:
+        return
     for path in list(_LIVE_SCRATCH):
         try:
             _remove_scratch(path)

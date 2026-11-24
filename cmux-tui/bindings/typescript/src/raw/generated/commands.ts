@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cfa57e4d5ccb5c98d58ff93b3df07cdad945d66e8ab83f7b98c6da7d1fac4a5f. */
+/* cmux-tui mux protocol 12, IR fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0. */
 
 
 import type * as T from "./types.js";
@@ -71,6 +71,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
   "resume_generation"?: (string) | null;
+  "resume_max_bytes"?: (bigint) | null;
   "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
@@ -1578,6 +1579,7 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
 }
@@ -2084,6 +2086,12 @@ export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface ProcessCensusRequest extends CmuxRequestBase {
+  cmd: "process-census";
+}
+export type ProcessCensusResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface ProcessInfoRequest extends CmuxRequestBase {
   cmd: "process-info";
@@ -2493,6 +2501,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2505,7 +2514,6 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
-export type SetClientInfoResult = T.EmptyResult;
 
 /** Protocol v10; authority: control. */
 export interface SetClientSizingRequest extends CmuxRequestBase {
@@ -2879,6 +2887,25 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
   "after_revision"?: bigint;
 }
+
+/** Protocol v7; authority: control. */
+export interface TerminalFindRequest extends CmuxRequestBase {
+  cmd: "terminal-find";
+  /** Marker the page ends above (exclusive): the previous page's next_before. */
+  "before"?: (bigint) | null;
+  "case_sensitive"?: boolean;
+  /** The previous page's epoch; a different one restarts at the bottom. */
+  "epoch"?: (bigint) | null;
+  "max_matches"?: (bigint) | null;
+  "page_rows"?: (bigint) | null;
+  /** Empty matches nothing. */
+  "query": string;
+  /** query is a Rust regex pattern, not a literal. */
+  "regex"?: boolean;
+  "surface": T.Id;
+  "whole_word"?: boolean;
+}
+export type TerminalFindResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface TerminalHistoryRequest extends CmuxRequestBase {
@@ -3350,6 +3377,7 @@ export type CmuxRequest =
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
+  | ProcessCensusRequest
   | ProcessInfoRequest
   | PutBlobRequest
   | PutFrontendProjectionRequest
@@ -3435,6 +3463,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalCommandContextRequest
   | TerminalEventsRequest
+  | TerminalFindRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
   | TerminalPortsRequest
@@ -5028,6 +5057,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "process-census": {
+    request: ProcessCensusRequest;
+    result: ProcessCensusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "process-census-v1";
+    stream: null;
+  };
   "process-info": {
     request: ProcessInfoRequest;
     result: T.ProcessInfoResult;
@@ -5382,7 +5419,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "set-client-info": {
     request: SetClientInfoRequest;
-    result: SetClientInfoResult;
+    result: T.SetClientInfoResult;
     authority: "control";
     since: 6;
     capability: null;
@@ -5705,6 +5742,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.TerminalEventsResult;
     authority: "control";
     since: 9;
+    capability: null;
+    stream: null;
+  };
+  "terminal-find": {
+    request: TerminalFindRequest;
+    result: TerminalFindResult;
+    authority: "control";
+    since: 7;
     capability: null;
     stream: null;
   };

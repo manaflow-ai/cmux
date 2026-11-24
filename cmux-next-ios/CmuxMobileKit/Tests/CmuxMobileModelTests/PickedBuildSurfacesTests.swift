@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileModel
 
-/// The build a phone picked or was sent to by a pairing code (``Team/pickedMacID``, #46718) is the one
+/// The build a phone picked (``Team/pickedMacID``, #46718) is the one
 /// every screen lists for its computer, not only the focus: on Aziz's 2026-11-18 phone the `cu-all` dev
 /// build (`0ae8a0d4…`) sorts before the tag's own Mac (`e7673bc3…`), and the Workspaces Mac filter,
 /// Home, Settings → Devices and Terminal Size When Shared listed cu-all while the phone was on v3.

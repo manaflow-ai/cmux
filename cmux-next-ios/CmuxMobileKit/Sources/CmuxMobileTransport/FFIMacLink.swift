@@ -40,6 +40,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        forceRelay: endpoint.forceRelay,
                                         noVideoLane: endpoint.browserVideoOnChannel,
                                         ultra: Self.ultra()),
                 observer: observer
@@ -103,6 +104,13 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     var connectedPath: LinkPathKind? { handle.path().kind }
 
+    var peerScope: String { handle.peerScope() }
+
+    var tunnelKeys: TunnelKeys? {
+        let keys = handle.tunnelKeys()
+        return keys.count == 2 ? TunnelKeys(dialer: keys[0], answerer: keys[1]) : nil
+    }
+
     var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
 
     var trafficAgo: Duration? { .milliseconds(handle.trafficAgoMs()) }
@@ -131,6 +139,20 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     func close() async {
         handle.close()
+    }
+}
+
+extension FFIMacLink: ParkableMacLink {
+    func park(hold: Duration, timeout: Duration) async -> Bool {
+        (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
+    }
+
+    func resumeParked() -> Bool {
+        handle.resume()
+    }
+
+    private static func millis(_ duration: Duration) -> UInt32 {
+        UInt32(clamping: duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
     }
 }
 
@@ -323,6 +345,7 @@ extension LinkPath {
         case .direct: .direct
         case .turn: .turn
         case .turnTls: .turnTLS
+        case .httpsRelay: .httpsRelay
         case .noPath: .noPath
         }
     }
