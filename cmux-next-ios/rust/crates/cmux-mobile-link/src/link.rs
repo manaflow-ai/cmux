@@ -2258,7 +2258,7 @@ pub struct ChannelSender {
     meter: Option<Arc<ByteMeter>>,
     /// Each send is a numbered message, sent as datagrams too
     /// (`crate::classes`).
-    mirror: bool,
+    mirror: Option<Delivery>,
     next_seq: AtomicU64,
 }
 
@@ -2299,13 +2299,13 @@ impl ChannelSender {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
-        let seq = self.mirror.then(|| self.next_seq.fetch_add(1, Ordering::Relaxed));
-        if let Some(seq) = seq
+        let seq = self.mirror.map(|_| self.next_seq.fetch_add(1, Ordering::Relaxed));
+        if let (Some(delivery), Some(seq)) = (self.mirror, seq)
             && data.len() <= crate::classes::MIRROR_MAX
             && !self.inner.writes_held.load(Ordering::Acquire)
         {
             // Ahead of the stream copy, which may wait for room.
-            self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data));
+            self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery));
         }
         let mut rest = data;
         let mut mark = mark;
@@ -2432,7 +2432,7 @@ impl Channel {
                 inner,
                 closed,
                 meter: None,
-                mirror: mirror.is_some(),
+                mirror,
                 next_seq: AtomicU64::new(0),
             },
             receiver: ChannelReceiver { rx, done: false, meter: None },
