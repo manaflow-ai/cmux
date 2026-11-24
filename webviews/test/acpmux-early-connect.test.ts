@@ -4,7 +4,7 @@
 // answers instead of asking again (Swift hands a seeded prompt out once), the first client must
 // hear the early socket's open as a fresh socket's, and an early socket nobody adopts is closed.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { BridgeSocket } from "../src/agent-session/acpmux/bridgeSocket";
+import { BridgeSocket, receiveTransportEvent } from "../src/agent-session/acpmux/bridgeSocket";
 import {
   askReady,
   dropEarlyConnect,
@@ -58,21 +58,34 @@ test("the first handshake takes the early ready; the next asks again", async () 
   expect(calls.some((c) => c.method === "transport.open")).toBe(false);
 });
 
-test("the bridge opens beside the mount and its client hears the open once", async () => {
+test("the bridge opens beside the mount, sends initialize, and holds its answer for the client", async () => {
   const calls = host({
     ready: () => Promise.resolve({ transport: "acpmux-bridge" }),
     "transport.open": () => Promise.resolve({ connection: 7 }),
+    "transport.send": () => Promise.resolve({}),
   });
   startEarlyConnect();
   await flush();
-  expect(calls.map((c) => c.method)).toEqual(["ready", "transport.open"]);
+  expect(calls.map((c) => c.method)).toEqual(["ready", "transport.open", "transport.send"]);
+  const sent = JSON.stringify(calls[2]!.params);
+  expect(sent).toContain('\\"method\\":\\"initialize\\"');
+  expect(sent).toContain('\\"id\\":0');
+  // The answer comes while no client holds the socket: it is held, not dropped.
+  receiveTransportEvent({ connection: 7, frames: ['{"jsonrpc":"2.0","id":0,"result":{}}'] });
   await askReady(false);
   const socket = takeEarlySocket();
   expect(socket?.readyState).toBe(BridgeSocket.OPEN);
+  expect(socket?.earlyRequest).toBe(0);
   const seen: string[] = [];
   socket!.onopen = () => seen.push("open");
+  socket!.onmessage = (message) => seen.push(message.data);
   await flush();
   expect(seen).toEqual(["open"]);
+  socket!.release();
+  expect(seen).toEqual(["open", '{"jsonrpc":"2.0","id":0,"result":{}}']);
+  // Released: later frames go straight to the client.
+  receiveTransportEvent({ connection: 7, frames: ["next"] });
+  expect(seen.at(-1)).toBe("next");
   expect(takeEarlySocket()).toBeUndefined();
   socket!.close();
 });

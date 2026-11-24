@@ -210,11 +210,36 @@ export class BridgeSocket {
     if (connection !== undefined) void this.post("transport.close", { connection }).catch(() => undefined);
   }
 
+  /// The id of the `initialize` this socket sent before anyone held it (earlyConnect.ts): the client
+  /// that adopts it takes that request as its own (direct.ts) and then `release`s the frames held.
+  earlyRequest?: number;
+  /// Frames that came while the early `initialize` waited for its client, in order.
+  private held?: string[];
+
+  /// Sends the connection's first frame before a client holds the socket; what the host answers is
+  /// held until `release`, so no frame reaches a handler that cannot read it.
+  sendEarly(id: number, text: string): void {
+    this.held = [];
+    this.earlyRequest = id;
+    this.send(text);
+  }
+
+  /// Hands the frames held since `sendEarly` to `onmessage`, in order, and stops holding.
+  release(): void {
+    const held = this.held ?? [];
+    this.held = undefined;
+    for (const data of held) {
+      if (this.readyState !== OPEN) return;
+      this.onmessage?.({ data });
+    }
+  }
+
   /// A host push for this connection.
   receive(event: TransportEvent): void {
     for (const data of event.frames ?? []) {
       if (this.readyState !== OPEN) return;
-      this.onmessage?.({ data });
+      if (this.held) this.held.push(data);
+      else this.onmessage?.({ data });
     }
     if (event.closed) {
       this.closeError = event.closed.error;

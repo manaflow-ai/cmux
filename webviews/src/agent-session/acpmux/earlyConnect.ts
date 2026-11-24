@@ -9,6 +9,7 @@
 // same, only the host's answers are already in hand when the effect asks for them.
 import { BridgeSocket } from "./bridgeSocket";
 import { callNative } from "./callNative";
+import { EARLY_INITIALIZE_ID, initializeParams } from "./direct/initialize";
 import { hasNativeHost } from "./native";
 
 type Early = { ready?: Promise<{ transport?: string }>; socket?: BridgeSocket };
@@ -26,7 +27,18 @@ export function startEarlyConnect(): void {
     (reply) => {
       // Taken already, or dropped: whoever holds the answer opens its own socket.
       if (early !== held || reply?.transport !== "acpmux-bridge") return;
-      held.socket = new BridgeSocket();
+      const socket = new BridgeSocket();
+      held.socket = socket;
+      // The connection's first frame goes as soon as it opens, so its answer is in hand when the
+      // first client adopts the socket after the mount (direct.ts takes it as its own request).
+      const onopen = () => {
+        if (socket.onopen === onopen) socket.onopen = null;
+        socket.sendEarly(
+          EARLY_INITIALIZE_ID,
+          JSON.stringify({ jsonrpc: "2.0", id: EARLY_INITIALIZE_ID, method: "initialize", params: initializeParams() }),
+        );
+      };
+      socket.onopen = onopen;
     },
     () => undefined,
   );

@@ -386,19 +386,8 @@ export type { TrustRefusal, TrustRoute, HarnessBlock } from "./direct/refusals";
 export { normalizeFolderProfiles, catalogModel, normalizeCatalog } from "./direct/catalog";
 export { backgroundTask } from "./direct/sessionUpdates";
 
-/// The page's `initialize` params. The app's relay checks them against its params rule
-/// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
-/// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
-  return {
-    protocolVersion: 1,
-    clientInfo: { name: "cmux-react-agent-pane", version: "1" },
-    clientCapabilities: {},
-    // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
-    // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
-    _meta: { acpmux: { peerRowBatches: true } },
-  };
-}
+export { initializeParams } from "./direct/initialize";
+import { EARLY_INITIALIZE_ID, initializeParams } from "./direct/initialize";
 type Session = Record<string, any> & { sessionId: string };
 type Reply = {
   id: number | string;
@@ -2466,11 +2455,7 @@ export class AcpmuxDirectClient {
       }
       // With a progress threshold, as the reads have: a socket that opened but whose daemon never
       // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
-      const initialized = await this.request(
-        "initialize",
-        initializeParams(),
-        AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
-      );
+      const initialized = await this.initialize(openingSocket);
       acpmuxPerf.markLaunch("initialized");
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
@@ -5473,6 +5458,25 @@ export class AcpmuxDirectClient {
     );
     this.budget.admit(id, method, send, params);
     return result;
+  }
+
+  /// The connection's `initialize`: the one the page already sent on a socket it opened before this
+  /// client (earlyConnect.ts, BridgeSocket `sendEarly`) is taken as this client's own request, its
+  /// held answer read now; otherwise asked here.
+  private initialize(socket: WebSocket): Promise<any> {
+    const early = socket as unknown as { earlyRequest?: number; release?: () => void };
+    if (early.earlyRequest !== EARLY_INITIALIZE_ID || !early.release) {
+      return this.request("initialize", initializeParams(), AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS);
+    }
+    early.earlyRequest = undefined;
+    this.wire.sent(
+      JSON.stringify({ jsonrpc: "2.0", id: EARLY_INITIALIZE_ID, method: "initialize", params: initializeParams() }),
+      "initialize",
+      EARLY_INITIALIZE_ID,
+    );
+    const answer = this.expectReply(EARLY_INITIALIZE_ID, "initialize", AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS);
+    early.release();
+    return answer;
   }
 
   /// Whether `method` is one a chat open waits on (`CHAT_OPEN_METHODS`). An acpmux that follows the
