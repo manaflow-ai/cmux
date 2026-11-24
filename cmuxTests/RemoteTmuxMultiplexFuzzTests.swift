@@ -1146,6 +1146,57 @@ struct RemoteTmuxViewStaleClientTests {
         #expect(view.connection?.connectionState == .connected, "the new stream must keep its own client")
     }
 
+    /// Two SSH aliases can reach the same account on the same tmux server. Each gets its own view
+    /// stream because the aliases differ, and the second one's sweep must not detach the first
+    /// one's live client: that ends the first view's stream and every mirror on it.
+    @Test func twoAliasesOfOneServerKeepBothViewStreams() async throws {
+        let tmuxPath = try #require(
+            ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
+                .first { FileManager.default.isExecutableFile(atPath: $0) },
+            "needs a local tmux")
+        let directory = URL(fileURLWithPath: "/tmp/cmux-xctest-iso", isDirectory: true)
+            .appendingPathComponent("alias-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socket = directory.appendingPathComponent("s").path
+        defer {
+            _ = Self.tmux(tmuxPath, socket, ["kill-server"])
+            try? FileManager.default.removeItem(at: directory)
+        }
+        _ = Self.tmux(tmuxPath, socket, ["new-session", "-d", "-s", "work"])
+
+        let ownerId = "alias-test-\(UUID().uuidString)"
+        let profile = LocalTmuxTransportProfile(tmuxPath: tmuxPath, socketPath: socket)
+        let first = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "alias-one"), ownerId: ownerId, transportProfile: profile)
+        let second = RemoteTmuxViewConnection(
+            host: RemoteTmuxHost(destination: "alias-two"), ownerId: ownerId, transportProfile: profile)
+        defer { first.stop(); second.stop() }
+
+        try first.start()
+        #expect(await Self.waitForControlClients(tmuxPath, socket, first.view.sessionName, count: 1))
+        try second.start()
+        #expect(await Self.waitForControlClients(tmuxPath, socket, second.view.sessionName, count: 1))
+
+        // Give the second stream's bringup, and its sweep, time to finish, then check that the
+        // first stream still has its client and is still connected.
+        var firstLostItsClient = false
+        for _ in 0..<30 {
+            if Self.serverControlClients(tmuxPath, socket).count < 2
+                || first.connection?.connectionState != .connected {
+                firstLostItsClient = true
+                break
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        #expect(!firstLostItsClient,
+                "clients: \(Self.serverControlClients(tmuxPath, socket)) first=\(String(describing: first.connection?.connectionState))")
+    }
+
+    private static func serverControlClients(_ tmuxPath: String, _ socket: String) -> [String] {
+        tmux(tmuxPath, socket, ["list-clients", "-F", "#{client_control_mode} #{client_name} #{session_name}"])
+            .output.split(separator: "\n").filter { $0.hasPrefix("1 ") }.map(String.init)
+    }
+
     private static func waitForControlClients(
         _ tmuxPath: String, _ socket: String, _ viewName: String, count: Int
     ) async -> Bool {

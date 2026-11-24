@@ -103,6 +103,23 @@ import Testing
     /// A per-session client is attached to the real session, so its own windows still arrive as
     /// `%window-add`. The unlinked notifications and `%sessions-changed` are about other sessions and
     /// must change nothing there.
+    /// The stale-client sweep belongs to the view bringup. It has to finish on the stream that
+    /// started it before the view reads the server, so its results can never be applied to a
+    /// later process on the same connection object, and stopping the view ends it with the
+    /// bringup instead of leaving an unowned task running.
+    @Test func theStaleClientSweepFinishesBeforeTheViewReadsTheServer() async throws {
+        let host = ScriptedViewHost(sessions: [.init(name: "work", id: 1, windowIds: ["@1"])])
+        defer { host.close() }
+        await host.connect()
+
+        let commands = host.sentCommands
+        let sweepQuery = try #require(
+            commands.firstIndex { $0.hasPrefix("list-clients") },
+            "the bringup must sweep the view session: \(commands)")
+        let firstRead = try #require(commands.firstIndex { $0.hasPrefix("list-sessions") })
+        #expect(sweepQuery < firstRead, "the sweep ran outside the bringup: \(commands)")
+    }
+
     @Test func perSessionStreamIgnoresUnlinkedNotifications() {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@unlinked-per-session"), sessionName: "work"
@@ -303,6 +320,13 @@ private final class ScriptedViewHost {
                 rows.append("$\(viewSessionId):\(windowId):\(offset + 1):0:\(viewName)")
             }
             return rows
+        }
+        if command.hasPrefix("display-message") {
+            return ["/dev/pts/9"]
+        }
+        if command.hasPrefix("list-clients") {
+            // No other client on the view, so the sweep has nothing to detach.
+            return []
         }
         if command.hasPrefix("list-windows -t") {
             return ["\(placeholderWindowId) 0"] + linkedIntoView.map { "\($0) 1" }
