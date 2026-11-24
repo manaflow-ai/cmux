@@ -532,6 +532,7 @@ async fn dial_named(mac: &Mac, radio: &Radio, lan_addr: Option<SocketAddr>) -> O
 /// when the old link is gone (the Wi-Fi drop) and the switch time when it is not (the return).
 /// `path` `relayed` is today's app (relayed only); `lan` races the direct dial against it.
 async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u64, seed: u64) {
+    eprintln!("RUN_BEGIN run={run} trace_seed={seed}");
     let trace = Trace::new();
     let mac = Mac::start_with(path == "mac-relay-blocked").await;
     let wifi = Radio::start(&mac, profile, seed, &trace).await;
@@ -595,6 +596,7 @@ async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u
         json!({"phase": tag("to_cell"), "run": run, "ok": value.is_some(), "marks": marks})
     );
     emit(profile, &tag(&format!("to_cell_{won}")), "switch_ms", value, run, seed);
+    eprintln!("RUN_CELL_DONE run={run}");
     drop(up);
     let Some((cell_up, _)) = on_cell else { return };
     // Wi-Fi comes back (a fresh shaper pair, the Mac's LAN still there); the cellular link
