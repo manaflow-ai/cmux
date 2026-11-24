@@ -313,6 +313,17 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // A local prompt's Return to the scripted agent's first token painted, ten cold loads (goal startup-every-path; Leo
+  // 2026-11-24: "percieved time and percieved interactive time ... for any and every path we have"):
+  // chat.first_token.<rail>.prompt_to_first_token_ms and its stages, each round's value in `samples`. The stand-in
+  // agent answers at once (THINK_MS=0), so the number is the app's. perf-cron.py's web-ui-first-token part runs it.
+  {
+    name: "first-token",
+    file: "first-token.bench.ts",
+    args: ["10"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   {
     name: "chat-switch-god",
     file: "chat-switch.bench.ts",
