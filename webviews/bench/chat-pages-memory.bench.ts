@@ -513,7 +513,9 @@ try {
     const tracing = process.env.TRACE_SWITCH === "1";
     const traceEvents: { name: string; ph: string; dur?: number; cat: string }[] = [];
     if (tracing) {
-      pages[0].cdp.on("Tracing.dataCollected", (data) => traceEvents.push(...(data.value as typeof traceEvents)));
+      pages[0].cdp.on("Tracing.dataCollected", (data) =>
+        traceEvents.push(...(data.value as unknown as typeof traceEvents)),
+      );
       await pages[0].cdp.send("Tracing.start", {
         categories: "devtools.timeline,disabled-by-default-devtools.timeline,cc,viz,blink",
         transferMode: "ReportEvents",
