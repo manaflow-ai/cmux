@@ -67,18 +67,18 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
         /// The page stopped draining (``AgentPaneTransport/pageStalled``): its stream waits within
         /// ``AgentPaneTransport/Limits/hiddenQueuedBytes`` and is shed past it, never pushed as a backlog.
-        var held = false
+        var pageHeld = false
 
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``), unless the page
         /// is held, whose stream waits within its own bound and is shed past it (``full(_:adding:)``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
-            !held && (inbox.count >= limits.maximumFramesPerFlush || inboxBytes >= limits.maximumBytesPerFlush)
+            !pageHeld && (inbox.count >= limits.maximumFramesPerFlush || inboxBytes >= limits.maximumBytesPerFlush)
         }
 
         /// The page is a full queue behind with `bytes` more: stream notifications are shed. A held
         /// page's queue is smaller: what it misses it reads again once it acks (``AcpmuxPaneShedding``).
         func full(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
-            limits.queueBounds.full(frames: heldFrames, bytes: heldBytes, adding: bytes, held: held)
+            limits.queueBounds.full(frames: heldFrames, bytes: heldBytes, adding: bytes, held: pageHeld)
         }
 
         /// Past the ceiling with `bytes` more: even a reply no longer queues.
@@ -89,7 +89,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// Caught up enough to end a shed episode: a quarter of the queue or less waits. A held
         /// page is never caught up: its episode ends once it drains again, so it reads what it missed once.
         func caughtUp(_ limits: AgentPaneTransport.Limits) -> Bool {
-            limits.queueBounds.caughtUp(frames: heldFrames, bytes: heldBytes, held: held)
+            limits.queueBounds.caughtUp(frames: heldFrames, bytes: heldBytes, held: pageHeld)
         }
     }
 
@@ -482,14 +482,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// shed episode ends after the held frames, so the page reads what it missed in one read.
     func setHeld(_ held: Bool) {
         let released = state.withLock { state -> Bool in
-            guard state.held != held else { return false }
-            state.held = held
+            guard state.pageHeld != held else { return false }
+            state.pageHeld = held
             return !held
         }
         if released { endSheddingIfCaughtUp() }
     }
 
-    var isHeld: Bool { state.withLock { $0.held } }
+    var isHeld: Bool { state.withLock { $0.pageHeld } }
 
     /// Whether a pane nobody can see gets the waiting frames now (``pageWaits(on:)``).
     var pageWaits: Bool { state.withLock { $0.awaitedThrough > 0 || $0.closed != nil || $0.backlogged(limits) } }
