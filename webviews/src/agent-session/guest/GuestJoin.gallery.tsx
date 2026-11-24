@@ -7,6 +7,10 @@
 // The `signed-in*` variants are a link opened by someone signed in to cmux (the room's whoami):
 // "Join as <name>" with their picture, and Edit name (Leo, 2026-11-07: "they can just use their
 // cmux account ... although they could customize their name potentially if they wanted to").
+// The `sign-in-*` variants are a link opened signed out on a room that answers whoami: the name
+// prompt, and a Sign in that comes back to the same link (Leo: "the sharing, you know, we really
+// need to hill climb that like sort of Google Docs-esque type sharing"); `-returned` is that tab
+// back from the sign-in, joining as the account.
 import { componentEntry } from "../../gallery/format";
 import { memoryStorage } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
@@ -64,6 +68,25 @@ export default componentEntry<GuestPageProps>({
       },
       note: "Edit name opened: the field holds the account's name; Join joins with what it says.",
       play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector("input")),
+    },
+    "sign-in-offer": {
+      props: { ...base, whoami: () => Promise.resolve({ signedIn: false }) },
+      note: "Signed out on a link: the name prompt as before, and Sign in to join as a cmux account.",
+      play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector("[data-testid='guest-join-sign-in']")),
+    },
+    "sign-in-returned": {
+      props: { ...base, whoami: () => Promise.resolve({ signedIn: true, name: "Priya Raman", avatarUrl: AVATAR }) },
+      note: "Back from Sign in on the same link: Join as the account; the secret came back from this tab's storage.",
+      play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as")),
+    },
+    "sign-in-returned-long-name": {
+      props: {
+        ...base,
+        whoami: () =>
+          Promise.resolve({ signedIn: true, name: "Maximiliana Alexandrova-Fitzgerald de la Cruz Montgomery" }),
+      },
+      note: "Back from Sign in with a long account name (see it at narrow): the name wraps or cuts, the button holds.",
+      play: async (ctx) => await ctx.waitFor(() => ctx.document.querySelector(".guest-join__as")),
     },
     invite: {
       props: { ...invite, accept: () => new Promise(() => undefined) },

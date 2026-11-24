@@ -10,6 +10,8 @@ import Testing
 struct NativeNewTabViewTests {
     private struct Calls {
         var submits: [(String, AgentPaneTabKind)] = []
+        /// The event each submit came with (``NativeNewTabActions/submit``).
+        var events: [NSEvent?] = []
         var jumps: [String] = []
     }
 
@@ -27,7 +29,7 @@ struct NativeNewTabViewTests {
 
     private static func make() -> (NativeNewTabHostingView, NativeNewTabModel, Box, NSWindow) {
         let box = Box()
-        let actions = NativeNewTabActions(submit: { text, kind, _ in box.calls.submits.append((text, kind)) },
+        let actions = NativeNewTabActions(submit: { text, kind, _, event in box.calls.submits.append((text, kind)); box.calls.events.append(event) },
                                           jump: { _, id in box.calls.jumps.append(id) })
         let model = NativeNewTabModel(page: page(), actions: actions)
         let host = NativeNewTabView.hosted(model)
@@ -154,6 +156,9 @@ struct NativeNewTabViewTests {
         #expect(ask.accessibilityPerformPress())
         #expect(box.calls.submits.map(\.0) == ["vite"])
         #expect(box.calls.submits.map(\.1) == [.agent])
+        // Final review of #48024 (P1): an accessibility press has no event of its own, so it passes none, never
+        // `NSApp.currentEvent` (a recent physical click elsewhere must not authorize Set Up Computer Use).
+        #expect(box.calls.events.count == 1 && box.calls.events[0] == nil, "an accessibility press passed an event")
     }
 
     /// Review finding: a row the list no longer shows kept its frame and action, and took the click
@@ -177,6 +182,7 @@ struct NativeNewTabViewTests {
                                                      clickCount: 1, pressure: 0))
         row.mouseUp(with: event)
         #expect(box.calls.submits.map(\.0) == ["zzz"])
+        #expect(box.calls.events.count == 1 && box.calls.events[0] === event, "a click did not pass its own event")
         #expect(box.calls.jumps.isEmpty, "the click ran a row the list no longer shows")
     }
 
