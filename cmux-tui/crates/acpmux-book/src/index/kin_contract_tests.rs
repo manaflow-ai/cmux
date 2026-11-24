@@ -575,7 +575,7 @@ fn table_answers_match_independent_parent_and_fork_oracles() {
 }
 
 #[test]
-fn cold_family_piece_sizes_agree_and_a_second_ask_reaches_the_next_cold_level() {
+fn cold_family_row_limits_agree_and_a_second_ask_reaches_the_next_cold_level() {
     let root = row("root", 0);
     let cold_parent = parent(row("cold-parent", 1000), &root);
     let cold_child = parent(row("cold-child", 500), &cold_parent);
@@ -590,7 +590,10 @@ fn cold_family_piece_sizes_agree_and_a_second_ask_reaches_the_next_cold_level() 
     let (_dir, index) = cold(&rows);
     let index = index.apply(300, hot);
     let filter = ListFilter { family: Some(root.key()), cold: true, ..ListFilter::default() };
-    let narrow = scan_after(&index, &filter, 400, 4096);
+    // The reply-byte cap no longer chooses the physical piece for a cold
+    // family ask (decision 389). Vary the row limit to exercise continuation
+    // across different physical pieces while retaining the same visible walk.
+    let narrow = scan_after(&index, &filter, 1, 4096);
     let wide = scan_after(&index, &filter, 400, 256 * 1024);
     assert_eq!(narrow.0, wide.0);
     assert_eq!(narrow.0, ["cold-parent", "through-hot"]);

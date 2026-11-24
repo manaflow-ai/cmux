@@ -21,11 +21,18 @@ use std::cmp::Ordering;
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
 mod codec;
+mod cold_family;
 mod compaction;
 mod edition;
 mod family_pages;
 mod kin;
 pub use family_pages::CursorGone;
+#[cfg(test)]
+mod cold_cutoff_tests;
+#[cfg(test)]
+mod cold_kin_gates;
+#[cfg(test)]
+mod cold_kin_tests;
 pub mod folders;
 #[cfg(test)]
 mod kin_contract_tests;
@@ -169,6 +176,10 @@ impl PartialOrd for SortKey {
 pub struct SummaryIndex {
     seq: u64,
     edition: u32,
+    /// Activity below this threshold is cold for the currently published
+    /// snapshot. It is captured once for startup hydration and only raised
+    /// when a later compaction is installed; readers never consult a clock.
+    cold_before: u64,
     by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
     live_ordered: OrdMap<SortKey, Arc<Summary>>,
@@ -196,6 +207,7 @@ impl SummaryIndex {
         Self {
             seq: 0,
             edition: 1,
+            cold_before: 0,
             by_id: OrdMap::new(),
             ordered: OrdMap::new(),
             live_ordered: OrdMap::new(),
@@ -232,6 +244,20 @@ impl SummaryIndex {
             marks,
             ..Self::new()
         }
+    }
+
+    /// The fixed activity partition used by table-backed cold reads.
+    /// A zero value is the pre-hydration sentinel for a newly opened index;
+    /// the writer raises it once it captures the startup hydration clock.
+    pub fn cold_before(&self) -> u64 {
+        self.cold_before
+    }
+
+    /// Raise the cold partition without consulting a clock on the read path.
+    /// Thresholds are monotonic because an older compaction must not make
+    /// rows that were already cold appear hot again.
+    pub fn raise_cold_before(&mut self, threshold: u64) {
+        self.cold_before = self.cold_before.max(threshold);
     }
 
     /// An empty derived view for a rebuild. Sequence numbers remain monotonic

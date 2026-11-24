@@ -606,8 +606,17 @@ pub struct PageResult<T> {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cold_unread: bool,
+    /// Every listed row came from the snapshot ancestor closure. A table page
+    /// cut short by either byte budget retains this flag and `has_after`;
+    /// only pager-served pages omit it (decisions 392 and 405).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closure: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deeper: Vec<ListKey>,
+    /// Keys whose closure ancestry crosses another origin. These rows are
+    /// present only to advance the bounded pager; family readers skip them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub foreign: Vec<ListKey>,
     #[serde(default)]
     pub before_key: Option<ListKey>,
     #[serde(default)]
@@ -1379,6 +1388,28 @@ mod tests {
         let page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
         assert!(!page.cold_unread);
         assert!(serde_json::to_value(page).unwrap().get("coldUnread").is_none());
+    }
+
+    #[test]
+    fn cold_family_closure_defaults_off_and_old_readers_ignore_it() {
+        let old = serde_json::json!({"sid":"s","rows":[],"hasBefore":false,"hasAfter":false});
+        let mut page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
+        assert!(!page.closure);
+        assert!(serde_json::to_value(&page).unwrap().get("closure").is_none());
+        page.closure = true;
+        let value = serde_json::to_value(&page).unwrap();
+        assert_eq!(value.get("closure"), Some(&serde_json::Value::Bool(true)));
+        let decoded: PageResult<serde_json::Value> = serde_json::from_value(value.clone()).unwrap();
+        assert!(decoded.closure);
+        // Older PageResult decoders have no deny_unknown_fields annotation.
+        #[derive(Deserialize)]
+        struct OldPage {
+            sid: String,
+            rows: Vec<serde_json::Value>,
+        }
+        let decoded: OldPage = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded.sid, "s");
+        assert!(decoded.rows.is_empty());
     }
 
     #[test]

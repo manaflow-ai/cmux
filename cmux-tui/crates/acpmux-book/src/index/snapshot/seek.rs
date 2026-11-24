@@ -91,7 +91,11 @@ impl DiskSnapshot {
         Ok((bytes, next))
     }
 
-    pub(super) fn seek_position(&self, key: &SortKey, inclusive: bool) -> io::Result<Position> {
+    pub(in crate::index) fn seek_position(
+        &self,
+        key: &SortKey,
+        inclusive: bool,
+    ) -> io::Result<Position> {
         let mut bytes_read = 0;
         let Some((index, entry)) =
             self.checkpoint_for(|entry| entry.key <= *key, &mut bytes_read)?

@@ -121,8 +121,14 @@ pub(crate) struct FamilyPage {
     pub(crate) rows: Vec<Summary>,
     /// The hot part's kin go on in the snapshot's part.
     pub(crate) cold_unread: bool,
-    /// Rows of this page at the depth bound that have hot children of their own.
+    /// This cold page came from the table's ancestor closure.  If any page in
+    /// a walk lacks this marker, the caller asks under every cold row listed
+    /// by that walk after the pages finish.
+    pub(crate) closure: bool,
+    /// Follow-up roots: depth-bound rows, or cold rows with hot children.
     pub(crate) deeper: Vec<RowKey>,
+    /// Listed closure rows whose captured ancestry crosses an origin.
+    pub(crate) foreign: Vec<RowKey>,
 }
 
 /// What [`kin`] asks: one `family` filter, its hot part or with `cold` the snapshot's, page by
@@ -152,7 +158,17 @@ impl Family for Source {
                     .iter()
                     .map(|key| RowKey::new(&*key.origin, &*key.chat_id))
                     .collect();
-                let page = FamilyPage { rows: page.rows, cold_unread: page.cold_unread, deeper };
+                let page = FamilyPage {
+                    rows: page.rows,
+                    cold_unread: page.cold_unread,
+                    closure: page.closure,
+                    deeper,
+                    foreign: page
+                        .foreign
+                        .iter()
+                        .map(|key| RowKey::new(&*key.origin, &*key.chat_id))
+                        .collect(),
+                };
                 if each(page).is_break() {
                     break;
                 }
@@ -166,15 +182,16 @@ impl Family for Source {
 /// (decisions 137 and 140), at most `max`, in the order the asks found them. Each ask is one
 /// `family` filter: its hot part, then its snapshot part when the hot part says `coldUnread`.
 /// The rows a hot part leaves out are asked for again under their own key: those under a row at
-/// the depth bound (`deeper`), and those under a cold row (a cold row's own kin, hot or cold, are
-/// in neither part of its parent's answer). A peer's row is never one, nor a row under one: v1's
+/// the depth bound (`deeper`), and cold rows with hot children. Pager walks also
+/// need asks under cold rows to find descendants beyond a cold parent. A peer's row is never one, nor a row under one: v1's
 /// readers (`agent_session_children::descendants`, `chief_work::family`) leave peers out.
 ///
-/// With `with_cold` false no snapshot part is asked, whatever a page says (decision 301): the
-/// hub says `coldUnread` whenever its snapshot is not empty, not when the key has cold kin, and
-/// a cold part is the snapshot's pager, read to its end at 256 KiB a request. So a hot-only
-/// read costs the hot kin alone, and a cold one about (closed rows / 400) requests a pass, for
-/// 1 + (cold rows found) passes.
+/// With `with_cold` false no snapshot part is asked, whatever a page says (decision 301). When
+/// the cold pages all carry `closure`, their ancestor table supplies the whole cold walk and
+/// only `deeper` rows are followed. A pager page, a table failure, or a mixed walk without
+/// closure queues every cold row listed by that walk for a follow-up ask, preserving the old
+/// conservative behavior. With no usable table, `coldUnread` remains the conservative
+/// indication that the snapshot is nonempty; a table can prove that the key has no cold kin.
 pub(crate) fn kin(
     list: &mut impl Family,
     root: &str,
@@ -191,31 +208,45 @@ pub(crate) fn kin(
         if found.len() >= max {
             break;
         }
+        if left_out.contains(&key) {
+            continue;
+        }
         if !asked.insert(key.clone()) {
             continue;
         }
         let mut cold_unread = false;
+        let mut cold_keys = Vec::new();
+        let mut cold_closure = true;
         for cold in [false, true] {
             if cold && !(with_cold && cold_unread) {
                 break;
             }
             list.family(&key, cold, &mut |page| {
                 cold_unread |= page.cold_unread;
+                if cold {
+                    cold_closure &= page.closure;
+                }
+                let foreign = page.foreign.iter().cloned().collect::<HashSet<_>>();
                 asks.extend(page.deeper);
                 for row in page.rows {
                     let row_key = RowKey::new(row.origin.as_str(), row.chat_id.as_str());
                     // A hot part is depth first, so a row's parent came before it.
                     if row.origin != "local"
+                        || foreign.contains(&row_key)
+                        || row.parent.as_ref().is_some_and(|parent| parent.origin != "local")
                         || row.parent.as_ref().is_some_and(|parent| left_out.contains(parent))
                     {
                         left_out.insert(row_key);
                         continue;
                     }
-                    if !seen.insert(row_key.clone()) {
-                        continue;
-                    }
                     if cold {
-                        asks.push_back(row_key);
+                        // A row seen in an earlier closure walk may return in
+                        // a pager walk after the snapshot changes. Its children
+                        // still need recovery; `asked` deduplicates the asks.
+                        cold_keys.push(row_key.clone());
+                    }
+                    if !seen.insert(row_key) {
+                        continue;
                     }
                     found.push(row);
                     if found.len() >= max {
@@ -227,6 +258,9 @@ pub(crate) fn kin(
             if found.len() >= max {
                 break;
             }
+        }
+        if !cold_closure {
+            asks.extend(cold_keys);
         }
     }
     Ok(found)

@@ -9,7 +9,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
 const MAGIC: &[u8; 8] = b"ACKIN001";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 fn slot_for(hash: u64, slots: u32) -> u32 {
     if slots == 1 { 0 } else { (hash >> (64 - slots.trailing_zeros())) as u32 }
