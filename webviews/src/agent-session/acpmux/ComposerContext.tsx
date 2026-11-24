@@ -1001,12 +1001,12 @@ export function ComposerContext({
     : cloudSide
       ? t("composer.cloud")
       : offMac
-        ? t("composer.otherDevices")
+        ? (placeName ?? t("composer.machine"))
         : t("composer.thisMac");
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
   const wherePlace =
-    (offMac || savedPick !== undefined || (cloudSide && !cloudPicked && !pageOnCloud)) && placeName
+    (savedPick !== undefined || (cloudSide && !cloudPicked && !pageOnCloud)) && placeName && whereName !== placeName
       ? `${whereName} · ${placeName}`
       : whereName;
   const whereIcon =
