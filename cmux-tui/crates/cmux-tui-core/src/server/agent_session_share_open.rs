@@ -229,6 +229,7 @@ pub(super) fn push(
         pending_room_ops: Vec::new(),
         guests: Vec::new(),
         invitees: Vec::new(),
+        requests: Vec::new(),
         role,
         signed_in_role,
     });
@@ -257,6 +258,8 @@ pub(super) fn invite_in(
     }
     let answer = json!({"share_id": share.share_id, "account": account, "role": role,
         "state": InviteState::Invited, "invite_url": share.invite_url()});
+    // An account the owner invites no longer asks: its request (pending or declined) goes.
+    share.requests.retain(|r| r.account != account);
     if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
         if invitee.state == InviteState::Invited {
             if invitee.role == role {
