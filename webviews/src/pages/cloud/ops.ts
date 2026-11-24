@@ -46,6 +46,12 @@ export const CloudOps = {
   snapshotRestore: "cmux.cloud.snapshot.restore",
   snapshotDelete: "cmux.cloud.snapshot.delete",
   planGet: "cmux.cloud.plan.get",
+  /**
+   * The team's Cloud usage this month and its price (cmux-platform metering, through the Cloud app server):
+   * awake vCPU and memory seconds, disk held while paused, `usd` per meter and in total, uncounted `gaps`,
+   * whether a card is on file and whether payments run in test mode. The page shows `usd`; it prices nothing.
+   */
+  usageCurrent: "cmux.cloud.usage.current",
   billingCheckout: "cmux.cloud.billing.checkout",
   /**
    * The host's read of the account's billing (`billing.status`, cmux.com's `GET /api/billing/plan`):
@@ -433,6 +439,9 @@ export type DeleteReason = Wire.CloudDeleteReason;
 
 /** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
 export type CheckoutResult = Result<"cloud.billing.checkout">;
+
+/** `cloud.usage.current`: this month's usage, its price and the payment method on file. */
+export type CloudUsage = Result<"cloud.usage.current">;
 
 /** `cloud.migration.status` (contract 4). */
 export type MigrationStatus = Result<"cloud.migration.status">;

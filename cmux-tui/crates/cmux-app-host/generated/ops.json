@@ -124,6 +124,7 @@
     "cloud.shell.open",
     "cloud.snapshot.list",
     "cloud.surge.preview",
+    "cloud.usage.current",
     "cloud.vm.attention.emit",
     "cloud.vm.event.emit",
     "cloud.vm.network_policy",
