@@ -1012,6 +1012,9 @@ async fn pair_matrix_ios_mac() {
     let conditions = env_list("PAIRMATRIX_CONDITIONS", "loss,latency,handoff,sleep,failover,long");
     let loads = env_list("PAIRMATRIX_LOADS", "idle,duress");
     let paths = env_list("PAIRMATRIX_PATHS", "direct,relay");
+    // libtest's `test pair_matrix_ios_mac ... ` has no newline under --nocapture: end it, so the
+    // first PAIRCELL line starts a line (`^PAIRCELL` readers dropped it otherwise).
+    println!();
     for condition in &conditions {
         for load in &loads {
             for path in &paths {
