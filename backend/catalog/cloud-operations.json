@@ -2745,6 +2745,265 @@
         }
       }
     },
+    "CloudUsageCurrent": {
+      "kind": "object",
+      "fields": {
+        "period": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          }
+        },
+        "as_of": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "metered_since": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "vcpu_seconds": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "memory_gib_seconds": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "stored_gib_seconds": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "usd": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "vcpu": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "memory": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "stored": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "total": {
+                "required": true,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "gaps": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "object",
+              "fields": {
+                "machine": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "from": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "to": {
+                  "required": true,
+                  "type": {
+                    "kind": "nullable",
+                    "inner": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "payment_method": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "attached": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "brand": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "last4": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "stripe_mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "test",
+              "live"
+            ]
+          }
+        }
+      }
+    },
     "CloudVmNetwork": {
       "kind": "object",
       "fields": {
@@ -37660,6 +37919,297 @@
               "available",
               "reason",
               "estimated_cost_usd"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.usage.current": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CloudUsageCurrent"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "cloud usage current",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudUsageCurrent",
+        "$defs": {
+          "CloudUsageCurrent": {
+            "type": "object",
+            "properties": {
+              "period": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}$"
+              },
+              "as_of": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "metered_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "vcpu_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "memory_gib_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "stored_gib_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "usd": {
+                "type": "object",
+                "properties": {
+                  "vcpu": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "memory": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "stored": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "total": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "vcpu",
+                  "memory",
+                  "stored",
+                  "total"
+                ],
+                "additionalProperties": true
+              },
+              "gaps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "machine": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "payment_method": {
+                "type": "object",
+                "properties": {
+                  "attached": {
+                    "type": "boolean"
+                  },
+                  "brand": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "last4": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "attached"
+                ],
+                "additionalProperties": true
+              },
+              "stripe_mode": {
+                "type": "string",
+                "enum": [
+                  "test",
+                  "live"
+                ]
+              }
+            },
+            "required": [
+              "period",
+              "as_of",
+              "metered_since",
+              "vcpu_seconds",
+              "memory_gib_seconds",
+              "stored_gib_seconds",
+              "usd",
+              "gaps",
+              "payment_method",
+              "stripe_mode"
             ],
             "additionalProperties": true
           }

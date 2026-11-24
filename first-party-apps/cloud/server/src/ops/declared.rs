@@ -190,6 +190,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.plan.get", READ, &[]),
+    ("cloud.usage.current", READ, &[]),
     ("cloud.billing.checkout", MUTATION, &[]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),

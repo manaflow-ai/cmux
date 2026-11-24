@@ -17,6 +17,7 @@ import {
   type BillingStatus,
   CloudActions,
   type CloudPlan,
+  type CloudUsage,
   type CloudTeam,
   type MigrationStarted,
   type MigrationStatus,
@@ -127,17 +128,19 @@ export class AccountReader {
   async load(session: number): Promise<void> {
     const client = this.client;
     if (!client) return;
-    const [teams, plan, migration, billing] = await Promise.allSettled([
+    const [teams, plan, migration, billing, usage] = await Promise.allSettled([
       client.call<CloudTeam[]>(AccountOps.teamList, {}),
       client.call<CloudPlan>(CloudOps.planGet, {}),
       client.call<MigrationStatus>(CloudOps.migrationStatus, {}),
       client.call<BillingStatus | null>(CloudOps.billingStatus, {}),
+      client.call<CloudUsage>(CloudOps.usageCurrent, {}),
     ]);
     if (session !== this.host.session()) return;
     for (const [op, result] of [
       [AccountOps.teamList, teams],
       [CloudOps.planGet, plan],
       [CloudOps.migrationStatus, migration],
+      [CloudOps.usageCurrent, usage],
     ] as const)
       if (result.status === "rejected" && isUnsupported(result.reason)) this.host.unsupported(op);
     const account = migrationAccount(this.host.get());
@@ -147,6 +150,8 @@ export class AccountReader {
       planFailed: plan.status === "rejected" && !isUnsupported(plan.reason),
       migration: migration.status === "fulfilled" ? migration.value : undefined,
       paymentPastDue: billing.status === "fulfilled" && pastDue(billing.value),
+      usage: usage.status === "fulfilled" ? usage.value : undefined,
+      usageFailed: usage.status === "rejected" && !isUnsupported(usage.reason),
       // "Later" is kept per account across page opens.
       migrationDismissed: account !== undefined && migrationLater(account),
     });
@@ -184,6 +189,23 @@ export class AccountReader {
     }
     if (session !== this.host.session()) return;
     if (paymentPastDue !== !!this.host.get().paymentPastDue) this.host.set({ paymentPastDue });
+  }
+
+  /**
+   * Reads this month's usage again (the page is shown again, or Retry). A failure keeps the usage the page
+   * has; without one, the panel shows the failure and Retry. Nothing is read while signed out or not served.
+   */
+  async readUsage(session: number): Promise<void> {
+    if (!this.client || !this.host.get().auth?.signedIn) return;
+    if (this.host.get().unavailable.includes(CloudOps.usageCurrent)) return;
+    try {
+      const usage = await this.client.call<CloudUsage>(CloudOps.usageCurrent, {});
+      if (session === this.host.session()) this.host.set({ usage, usageFailed: false });
+    } catch (error) {
+      if (session !== this.host.session()) return;
+      if (isUnsupported(error)) this.host.unsupported(CloudOps.usageCurrent);
+      else if (!this.host.get().usage) this.host.set({ usageFailed: true });
+    }
   }
 
   /** Manage Billing beside the payment notice: the app opens the billing page in the browser. */

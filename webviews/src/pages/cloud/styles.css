@@ -555,6 +555,79 @@ select {
   background: var(--cloud-text-2);
 }
 
+/* This month: the total beside the title, one line per meter (amount and its dollars), as-of, the card. */
+.cloud-month {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.cloud-month-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.cloud-month-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cloud-text-2);
+}
+
+.cloud-month-test {
+  font-size: 11px;
+  color: var(--cloud-warn);
+}
+
+.cloud-month-total {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.cloud-month-line {
+  display: grid;
+  grid-template-columns: minmax(0, 70px) minmax(0, 1fr) minmax(0, max-content);
+  gap: 10px;
+  font-size: 11px;
+  color: var(--cloud-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-line dd {
+  margin: 0;
+}
+
+.cloud-month-usd {
+  text-align: right;
+  color: var(--cloud-text);
+}
+
+.cloud-month-asof,
+.cloud-month-loading {
+  margin: 0;
+  font-size: 11px;
+}
+
+.cloud-month-failed,
+.cloud-month-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.cloud-month-card {
+  font-variant-numeric: tabular-nums;
+}
+
 .cloud-items {
   list-style: none;
   margin: 0;

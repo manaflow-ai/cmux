@@ -53,6 +53,7 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 | `cloud.snapshot.restore` | mutation, mutate-own | opt_in | `snapshot restore` | `cloud.snapshot.restore` | a new machine; same-key retry returns it |
 | `cloud.snapshot.delete` | mutation, destructive | never | `snapshot delete` (hidden) | `cloud.snapshot.delete {snapshot}` | origin `user` only, gesture required |
 | `cloud.plan.get` | read | default | `plan get` | `cloud.plan.get` | limits and usage in one record; no plan logic in cmux |
+| `cloud.usage.current` | read | default | `usage current` | `cloud.usage.current` | this month's usage and its price from the billing owner, and whether a card is on file; the server prices nothing |
 | `cloud.billing.checkout` | mutation, mutate-own | never | `billing checkout` (hidden) | `cloud.billing.checkout` | an https URL the host opens; origin `user` only, gesture required |
 | `cloud.migration.status` | read | default | `migration status` | `cloud.migration.status` | |
 | `cloud.migration.start` | mutation, mutate-own | never | `migration start` (hidden) | `cloud.migration.start` | one way; origin `user` only, gesture required |
