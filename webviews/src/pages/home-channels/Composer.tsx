@@ -38,6 +38,9 @@ export interface ComposerProps {
   label: string;
   strings: Strings;
   disabled?: boolean;
+  /** The link is down (offline, reconnecting): typing, formatting, emoji and mentions go on, undimmed;
+   * only Send and attaching wait for it, and the draft stays put (Leo, 2026-11-24 11:57Z). */
+  held?: boolean;
   /** Resolves true when the owner took the message; the text and the sent files clear only then. */
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
   /** Files upload to this conversation through this service (absent: no attach). */
@@ -89,6 +92,7 @@ export function Composer({
   label,
   strings,
   disabled,
+  held = false,
   onSend,
   people = [],
   onEditLast,
@@ -124,12 +128,14 @@ export function Composer({
   // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
   useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
   const empty = !value.trim() && ready.length === 0;
+  /** Send and attaching need the link; the rest of the composer does not. */
+  const cantSend = Boolean(disabled || held);
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   const filesNow = useRef(files);
   filesNow.current = files;
   const addFiles = (list: Iterable<File>) => {
-    if (!attachments || disabled) return;
+    if (!attachments || cantSend) return;
     const added: PendingAttachment[] = [];
     for (const file of list) {
       const id = `f${nextFile.current++}`;
@@ -279,7 +285,7 @@ export function Composer({
   };
   /** Sends now, or with `at` queues it for then (Send Later). */
   const submit = (markdown: string, at?: number) => {
-    if (disabled || uploading || (!markdown.trim() && ready.length === 0)) return;
+    if (cantSend || uploading || (!markdown.trim() && ready.length === 0)) return;
     // A picked time never sends now, even when Send Later went away meanwhile.
     if (at !== undefined && !sendLater) return;
     const sending = ready;
@@ -369,7 +375,7 @@ export function Composer({
             id: "attach",
             label: t("composer.menu.attachFiles"),
             separatorBefore: true,
-            disabled,
+            disabled: cantSend,
             onSelect: () => picker.current?.click(),
           },
         ]
@@ -499,7 +505,7 @@ export function Composer({
             label={t("attach.add")}
             tooltip={false}
             className="hc-tool"
-            disabled={disabled}
+            disabled={cantSend}
             onPress={() => picker.current?.click()}
           >
             <HomeIcon name="attach" />
@@ -555,7 +561,7 @@ export function Composer({
               <ToolbarButton
                 label={t("sendLater.open")}
                 className="hc-tool"
-                disabled={empty || disabled || uploading}
+                disabled={empty || cantSend || uploading}
                 keepsFocus
                 onPress={() => setPop({ kind: "later", anchor: glyph('[data-bar="later"]') })}
               >
@@ -567,8 +573,8 @@ export function Composer({
             <ToolbarButton
               label={t("composer.send")}
               tooltip={false}
-              className={`hc-send${empty || disabled || uploading ? "" : " ready"}${sendLater?.style === "split" ? " hc-send-split" : ""}`}
-              disabled={empty || disabled || uploading}
+              className={`hc-send${empty || cantSend || uploading ? "" : " ready"}${sendLater?.style === "split" ? " hc-send-split" : ""}`}
+              disabled={empty || cantSend || uploading}
               onPress={() => submit(editor.current?.value() ?? value)}
             >
               <HomeIcon name="send" />
@@ -576,8 +582,8 @@ export function Composer({
             {sendLater?.style === "split" && (
               <ToolbarButton
                 label={t("sendLater.open")}
-                className={`hc-send hc-send-later${empty || disabled || uploading ? "" : " ready"}`}
-                disabled={empty || disabled || uploading}
+                className={`hc-send hc-send-later${empty || cantSend || uploading ? "" : " ready"}`}
+                disabled={empty || cantSend || uploading}
                 keepsFocus
                 onPress={() => setPop({ kind: "later", anchor: glyph('[data-bar="later"]') })}
               >

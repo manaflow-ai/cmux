@@ -201,7 +201,7 @@ mod tests {
     fn the_socket_is_private_to_its_owner() {
         use std::os::unix::fs::PermissionsExt;
         // Under /tmp itself: a long TMPDIR passes the socket address limit.
-        let dir = std::path::PathBuf::from(format!("/tmp/dl-bind-{}", std::process::id()));
+        let dir = PathBuf::from(format!("/tmp/dl-bind-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("desktop-lease.sock");
         let _listener = bind_private(&socket).unwrap();
