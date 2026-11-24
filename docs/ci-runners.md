@@ -1000,8 +1000,8 @@ its `watch` job, on another Blacksmith pool, waits for the probe:
   label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
   has no owned failover, an override naming a reused machine for either is
   refused, and a stalled probe never re-applies an older record's owned value
-  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
-  pull request). Only a variable that
+  to one (on 2026-10-28 one did, putting signing jobs on a shared mini with no
+  whole-mini claim). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did

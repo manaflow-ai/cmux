@@ -1273,7 +1273,7 @@ async fn detect(
     let noticed = |link: cmux_mobile_link::Link| async move {
         let mut suspect = link.suspect_state();
         let mut closed = link.closed_state();
-        let _ = tokio::time::timeout_at(began + window, async {
+        tokio::time::timeout_at(began + window, async {
             tokio::select! {
                 _ = suspect.wait_for(|suspect| *suspect) => {}
                 _ = closed.wait_for(Option::is_some) => {}
@@ -1619,9 +1619,8 @@ async fn foreground_probe_cost() {
             for _ in 0..std::env::var("COST_ROUNDS").ok().and_then(|n| n.parse().ok()).unwrap_or(3) {
                 runs.push(cost_minute(foreground).await);
             }
-            let pick = |f: fn(&((usize, usize, usize), (usize, usize, usize))) -> usize| {
-                median(runs.iter().map(f).collect())
-            };
+            type Run = ((usize, usize, usize), (usize, usize, usize));
+            let pick = |f: fn(&Run) -> usize| median(runs.iter().map(f).collect());
             let row = [
                 pick(|r| r.0.0),
                 pick(|r| r.1.0),
