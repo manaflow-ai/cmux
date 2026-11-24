@@ -333,6 +333,8 @@ await requireBrowserLane("composer-caret-frames.browser.test.ts", async () => {
               case: each.name,
               wrongFrames: verdict.wrongFrames.length,
               inputToCaretMs: verdict.inputToCaretMs === null ? null : Math.round(verdict.inputToCaretMs * 10) / 10,
+              inputToFirstPaintMs:
+                verdict.inputToFirstPaintMs === null ? null : Math.round(verdict.inputToFirstPaintMs * 10) / 10,
               inputToChipsMs: verdict.inputToChipsMs === null ? null : Math.round(verdict.inputToChipsMs * 10) / 10,
               settleMs: verdict.settleMs === null ? null : Math.round(verdict.settleMs * 10) / 10,
               unpaintedFrames: verdict.unpaintedFrames,
@@ -348,8 +350,10 @@ await requireBrowserLane("composer-caret-frames.browser.test.ts", async () => {
           // In place in the input's first painted frame: within a frame of it (and a ms for the clock).
           // With an attachment, no later than the frame its chip took its width in: an engine that
           // paints no frame while it reads a big picture's header (WebKit, ~400 ms for a 3456x2234
-          // screenshot) paints the chip and the caret beside it in the same first frame.
-          const bound = Math.max(FRAME_MS, verdict.inputToChipsMs ?? 0) + 1;
+          // screenshot) paints the chip and the caret beside it in the same first frame. A runner
+          // that paints nothing for a while after the input (CI WebKit: 59 and 121 ms, 0 wrong
+          // frames) moves the first painted frame, and the bound with it.
+          const bound = Math.max(FRAME_MS, verdict.inputToFirstPaintMs ?? 0, verdict.inputToChipsMs ?? 0) + 1;
           expect(verdict.inputToCaretMs!).toBeLessThanOrEqual(bound);
         } finally {
           await page.close();

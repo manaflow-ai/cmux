@@ -227,6 +227,9 @@ export type CaretVerdict = {
   /** From the input to the first frame from which the attachments in the text keep their final
    *  width: the caret can be at its final place no sooner. Null with none. */
   inputToChipsMs: number | null;
+  /** From the input to the first frame the engine painted after it. A loaded runner can paint
+   *  nothing for several frames; the caret can be in place no sooner than that frame. */
+  inputToFirstPaintMs: number | null;
 };
 
 /** What a trace says: the frames the caret was out of place in, and its input-to-caret time. */
@@ -262,8 +265,10 @@ export function judgeCaret(trace: CaretTrace): CaretVerdict {
     while (index > 0 && Math.abs(after[index - 1]!.chips - final.chips) <= 1) index--;
     chipsAt = after[index] ? Math.max(0, after[index]!.at - inputAt) : null;
   }
+  const firstPaint = after.find((frame) => frame.at >= inputAt);
   return {
     wrongFrames,
+    inputToFirstPaintMs: firstPaint ? firstPaint.at - inputAt : null,
     inputToCaretMs: inPlaceFrame ? Math.max(0, inPlaceFrame.at - inputAt) : null,
     settleMs: settledFrame ? Math.max(0, settledFrame.at - inputAt) : null,
     framesToSettle: settled,
