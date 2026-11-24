@@ -13,6 +13,9 @@ mod git;
 mod github;
 pub(crate) mod plan;
 mod secrets;
+pub(crate) mod snapshot;
+#[cfg(test)]
+mod snapshot_tests;
 #[cfg(test)]
 mod tests;
 
