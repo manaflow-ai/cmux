@@ -176,10 +176,13 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            // The daemon's own records only: an agent's update may carry any kind.
-            moved |= e.dir == "mux" && e.kind == "transferred";
-            !moved
+        // The whole log with no move: off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                // The daemon's own records only: an agent's update may carry any kind.
+                moved |= e.dir == "mux" && e.kind == "transferred";
+                !moved
+            })
         });
         moved
     }
@@ -812,9 +815,12 @@ impl Hub {
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
         let mut landed = false;
         if let Some(session) = here {
-            let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-                landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
-                !landed
+            // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).
+            let _ = crate::qos::off_worker(|| {
+                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                    landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
+                    !landed
+                })
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
