@@ -50,6 +50,38 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         alive = types.SimpleNamespace(poll=lambda: None)
         self.assertIsNone(netem.started(alive, "testapp"))
 
+    def test_a_helper_that_died_at_start_stops_the_ones_before_it(self):
+        dead = types.SimpleNamespace(poll=lambda: 1, returncode=1,
+                                     stderr=types.SimpleNamespace(read=lambda: "exec failed"))
+        killed = []
+        xvfb = types.SimpleNamespace(poll=lambda: None, kill=lambda: killed.append("kill"),
+                                     wait=lambda: killed.append("wait"))
+        old = netem.teardown
+        netem.teardown = lambda: None
+        try:
+            with self.assertRaises(SystemExit):
+                netem.started(dead, "testapp", others=[xvfb])
+        finally:
+            netem.teardown = old
+        self.assertEqual(killed, ["kill", "wait"])
+
+    def test_lines_written_in_one_burst_are_all_read(self):
+        # The host prints displays, key and candidates in one write; each must come back
+        # without another select wake (a buffered readline() hid all but the first).
+        import os
+        r, w = os.pipe()
+        os.write(w, b'{"displays":[]}\n{"key":"ab"}\n{"candidate":"host 10.0.0.1:1"}\n')
+        lines = netem.Lines(types.SimpleNamespace(fileno=lambda: r))
+        got = [netem.readline(lines, netem.time.time() + 1) for _ in range(3)]
+        self.assertEqual([g.strip() for g in got],
+                         ['{"displays":[]}', '{"key":"ab"}', '{"candidate":"host 10.0.0.1:1"}'])
+        self.assertIsNone(netem.readline(lines, netem.time.time() + 0.05))
+        os.write(w, b'{"tail":1}')
+        os.close(w)
+        self.assertEqual(netem.readline(lines, netem.time.time() + 1), '{"tail":1}')
+        self.assertEqual(netem.readline(lines, netem.time.time() + 1), "")
+        os.close(r)
+
     def test_recovery_requires_restoration_and_a_live_host(self):
         self.assertFalse(netem.recovered_after_drop(10, False, [50], None))
         self.assertFalse(netem.recovered_after_drop(10, True, [50], "viewer silent for 3 s"))

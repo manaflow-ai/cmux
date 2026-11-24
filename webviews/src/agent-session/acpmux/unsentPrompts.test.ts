@@ -5,7 +5,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { resetKeptTailsForTests } from "./tailCache";
-import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
+import { unanswered, type UnsentPromptRecord, type UnsentPromptStore } from "./unsentPrompts";
+import { deliveryTiming } from "./direct/queue";
 import { translate } from "./i18n";
 import { teardownDom } from "../../../test/support/domTeardown";
 
@@ -24,7 +25,15 @@ afterAll(async () => {
   resetKeptTailsForTests();
 });
 
-type Row = { id: string; kind: string; text?: string; failed?: boolean; error?: string; pending?: boolean };
+type Row = {
+  id: string;
+  kind: string;
+  text?: string;
+  failed?: boolean;
+  error?: string;
+  pending?: boolean;
+  delivery?: { state?: string };
+};
 
 /// The app host's store, in memory: it outlives the panes as the file outlives the page.
 function hostStore() {
@@ -46,7 +55,11 @@ function hostStore() {
 
 /// A pane on the mock daemon. `answer` decides each session/prompt: an Error refuses it, "hang"
 /// never answers it (the app quits while it is on its way), undefined lets it through.
-async function pane(store: UnsentPromptStore, answer: (text: string) => Error | "hang" | undefined = () => undefined) {
+async function pane(
+  store: UnsentPromptStore,
+  answer: (text: string) => Error | "hang" | undefined = () => undefined,
+  asked: string[] = [],
+) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   class Relay extends MockAcpmuxSocket {
@@ -56,6 +69,7 @@ async function pane(store: UnsentPromptStore, answer: (text: string) => Error | 
       const through = self.answer.bind(this);
       self.answer = (method, params) => {
         if (method !== "session/prompt") return through(method, params);
+        asked.push(String(params._meta?.acpmux?.promptId ?? ""));
         const verdict = answer(String(params.prompt?.[0]?.text ?? ""));
         if (verdict === "hang") return new Promise(() => undefined);
         return verdict ? Promise.reject(verdict) : through(method, params);
@@ -76,7 +90,27 @@ async function pane(store: UnsentPromptStore, answer: (text: string) => Error | 
     socket!.close();
     (socket as unknown as { onclose: (() => void) | null }).onclose?.();
   };
-  return { client, rows: () => rows, drop };
+  /// A frame from acpmux on this connection (its record of a prompt the host sent again).
+  const deliver = (frame: unknown) => (socket as unknown as { deliver: (frame: unknown) => void }).deliver(frame);
+  return { client, rows: () => rows, drop, deliver };
+}
+
+/// Waits for `ready` on the pane's own work, never a fixed time.
+const until = async (ready: () => boolean) => {
+  for (let turns = 0; !ready(); turns += 1) {
+    if (turns > 20_000) throw new Error(`never settled: ${ready.toString()}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+};
+/// The wait for the host's resend to show, shortened for a test and put back after.
+async function withResendShowMs<T>(ms: number, body: () => Promise<T>): Promise<T> {
+  const before = deliveryTiming.resendShowMs;
+  deliveryTiming.resendShowMs = ms; // motion-allow: a delivery wait, not motion
+  try {
+    return await body();
+  } finally {
+    deliveryTiming.resendShowMs = before; // motion-allow: a delivery wait, not motion
+  }
 }
 
 /// Lets the pane's queued work run: the host store answers at once, so the restore and the store
@@ -92,7 +126,7 @@ const refusal = () =>
     { code: "remote.local_claude_session", reason: "remote.local_claude_session" },
   );
 
-test("a cold restart with refused and pending sends draws every one again as Not sent, at once", async () => {
+test("a cold restart with refused and pending sends draws every one again, and each unanswered one is Not sent with Retry", async () => {
   const host = hostStore();
   const N = 3;
   const refused = Array.from({ length: N }, (_, i) => `refused ${i}`);
@@ -116,18 +150,25 @@ test("a cold restart with refused and pending sends draws every one again as Not
       .sort(),
   ).toEqual([...refused, ...pending].sort());
 
-  const after = await pane(host.store);
-  try {
-    await settle();
-    const shown = after.rows().filter((row) => row.kind === "user" && row.failed);
-    expect(new Set(shown.map((row) => row.text))).toEqual(new Set([...refused, ...pending]));
-    expect(shown).toHaveLength(refused.length + pending.length);
-    // A refused one keeps its reason; each has a Retry (it is the pane's failed prompt).
-    expect(shown.find((row) => row.text === "refused 0")?.error).toContain("Mac's Claude permissions");
-    for (const row of shown) expect(after.client.failedPromptCopies([row.id])).toHaveLength(1);
-  } finally {
-    after.client.close?.();
-  }
+  // No record of the pending ones comes on the next connection (this host sent none again): each
+  // says Not sent again once its wait for the host's resend ends, and a refused one says it at once.
+  await withResendShowMs(30, async () => {
+    const after = await pane(host.store);
+    try {
+      await settle();
+      const atOnce = after.rows().filter((row) => row.kind === "user" && row.failed);
+      expect(new Set(atOnce.map((row) => row.text))).toEqual(new Set(refused));
+      await until(() => after.rows().filter((row) => row.kind === "user" && row.failed).length === 2 * N);
+      const shown = after.rows().filter((row) => row.kind === "user" && row.failed);
+      expect(new Set(shown.map((row) => row.text))).toEqual(new Set([...refused, ...pending]));
+      expect(shown).toHaveLength(refused.length + pending.length);
+      // A refused one keeps its reason; each has a Retry (it is the pane's failed prompt).
+      expect(shown.find((row) => row.text === "refused 0")?.error).toContain("Mac's Claude permissions");
+      for (const row of shown) expect(after.client.failedPromptCopies([row.id])).toHaveLength(1);
+    } finally {
+      after.client.close?.();
+    }
+  });
 });
 
 test("only an agent taking it, Remove or Edit takes a prompt off the host", async () => {
@@ -190,28 +231,30 @@ test("a prompt lost with its connection stays kept for a relaunch, and comes bac
   expect(host.all().map((record) => record.input)).toEqual(["lost one"]);
   lost.client.close?.();
   // The app went before any connection showed it: the relaunch draws it, saying only "Not sent".
-  const next = await pane(host.store);
-  try {
-    await settle();
-    const row = next.rows().find((candidate) => candidate.text === "lost one");
-    expect(row?.failed).toBe(true);
-    expect(row?.error).toBe(translate("prompt.failure.hostAway"));
-    expect(row?.error).not.toContain("taking longer");
-    expect(next.client.failedPromptCopies([row!.id])).toHaveLength(1);
-    // The lost prompt's sender draws it on its way over the restored row: one row, sending again.
-    const promptId = host.all()[0]!.promptId;
-    expect(next.client.drawLostPrompt(next.client.selectedSession ?? "", promptId, "lost one", [])).toBe(true);
-    const rows = next.rows().filter((candidate) => candidate.text === "lost one");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.failed).toBeFalsy();
-    expect(rows[0]?.pending).toBe(true);
-    // Once it showed (or went back to the composer), its sender lets the host's copy go.
-    next.client.forgetUnsentPrompt(promptId);
-    await settle();
-    expect(host.all()).toHaveLength(0);
-  } finally {
-    next.client.close?.();
-  }
+  await withResendShowMs(30, async () => {
+    const next = await pane(host.store);
+    try {
+      await until(() => next.rows().find((candidate) => candidate.text === "lost one")?.failed === true);
+      const row = next.rows().find((candidate) => candidate.text === "lost one");
+      expect(row?.failed).toBe(true);
+      expect(row?.error).toBe(translate("prompt.failure.hostAway"));
+      expect(row?.error).not.toContain("taking longer");
+      expect(next.client.failedPromptCopies([row!.id])).toHaveLength(1);
+      // The lost prompt's sender draws it on its way over the restored row: one row, sending again.
+      const promptId = host.all()[0]!.promptId;
+      expect(next.client.drawLostPrompt(next.client.selectedSession ?? "", promptId, "lost one", [])).toBe(true);
+      const rows = next.rows().filter((candidate) => candidate.text === "lost one");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.failed).toBeFalsy();
+      expect(rows[0]?.pending).toBe(true);
+      // Once it showed (or went back to the composer), its sender lets the host's copy go.
+      next.client.forgetUnsentPrompt(promptId);
+      await settle();
+      expect(host.all()).toHaveLength(0);
+    } finally {
+      next.client.close?.();
+    }
+  });
 });
 
 test("a prompt given back to the composer is not kept as a row too", async () => {
@@ -226,4 +269,110 @@ test("a prompt given back to the composer is not kept as a row too", async () =>
   await settle();
   expect(host.all()).toHaveLength(0);
   lost.client.close?.();
+});
+
+// Leo, 2026-11-24: after an app update restarted acpmux, GUI chats said "Not sent: no answer from
+// cmux" on prompts sent around the restart, and each wanted a Retry by hand. The host's journal
+// sends such a prompt again on the pane's next connection under its promptId (acpmux runs a
+// promptId at most once); the row stayed "Not sent" all the same until someone pressed Retry.
+test("a prompt that got no answer goes again by itself on the next connection: its Not sent clears, with no Retry and no second send", async () => {
+  const host = hostStore();
+  const before = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 10, failMs: 30, localFailMs: 30 }); // motion-allow: delivery timeouts, not motion
+  const sentBefore: string[] = [];
+  const first = await pane(host.store, () => "hang", sentBefore);
+  try {
+    void first.client.send("after the update").catch(() => undefined);
+    // acpmux says nothing (it is restarting): the row fails as the person saw it.
+    await until(() => first.rows().find((row) => row.text === "after the update")?.failed === true);
+    expect(first.rows().find((row) => row.text === "after the update")?.error).toBe(
+      translate("prompt.delivery.noAnswer"),
+    );
+    await settle();
+  } finally {
+    Object.assign(deliveryTiming, before); // motion-allow: delivery timeouts, not motion
+  }
+  const promptId = sentBefore[0]!;
+  expect(host.all().map((record) => record.promptId)).toEqual([promptId]);
+  // The connection goes with the old acpmux.
+  first.drop();
+  first.client.close?.();
+
+  // acpmux is back: the pane's next connection.
+  const sentAfter: string[] = [];
+  const next = await pane(host.store, () => undefined, sentAfter);
+  try {
+    const mine = () => next.rows().filter((row) => row.kind === "user" && row.text === "after the update");
+    // On its way again by itself: one row, no "Not sent", nobody pressed Retry.
+    await until(() => mine().length === 1 && mine()[0]!.failed !== true);
+    expect(mine()[0]!.pending).toBe(true);
+    expect(mine()[0]!.error).toBeUndefined();
+    expect(mine()[0]!.delivery?.state).toBe("sending");
+    const sessionId = next.client.selectedSession!;
+    // The host's journal sent it again, and acpmux's record of it lands here.
+    next.deliver({
+      jsonrpc: "2.0",
+      method: "_acpmux/event",
+      params: {
+        seq: Number((next.client as unknown as { lastSeq: number }).lastSeq) + 1,
+        sessionId,
+        at: Date.now(),
+        dir: "mux",
+        kind: "user_message",
+        msg: { text: "after the update", promptId, turnId: "t-resent", client: "cmux-react-agent-pane#x" },
+      },
+    });
+    await until(() => mine().length === 1 && !mine()[0]!.pending && !mine()[0]!.failed);
+    expect(mine()[0]!.delivery?.state ?? "settled").not.toBe("sending");
+    expect(next.client.failedPromptCopies(mine().map((row) => row.id))).toHaveLength(0);
+    // The page sent nothing itself: the one resend is the host's, under the same promptId.
+    expect(sentAfter).toEqual([]);
+    await settle();
+    expect(host.all()).toHaveLength(0);
+  } finally {
+    next.client.close?.();
+  }
+});
+
+test("a prompt refused for a real reason keeps its Not sent and its Retry on the next connection", async () => {
+  const host = hostStore();
+  const gesture = () =>
+    Object.assign(new Error("transport.gesture_required: a click is needed"), { code: "transport.gesture_required" });
+  const first = await pane(host.store, () => gesture());
+  await first.client.send("needs a click").catch(() => undefined);
+  await settle();
+  const words = first.rows().find((row) => row.text === "needs a click")?.error;
+  expect(words).toBeDefined();
+  first.client.close?.();
+  const next = await pane(host.store);
+  try {
+    await settle();
+    const row = next.rows().find((candidate) => candidate.text === "needs a click");
+    expect(row?.failed).toBe(true);
+    expect(row?.pending).toBeFalsy();
+    expect(row?.error).toBe(words);
+    expect(next.client.failedPromptCopies([row!.id])).toHaveLength(1);
+  } finally {
+    next.client.close?.();
+  }
+});
+
+test("only a prompt nobody refused counts as unanswered", () => {
+  const record = (failure?: UnsentPromptRecord["failure"]): UnsentPromptRecord => ({
+    promptId: "p",
+    input: "x",
+    attachments: [],
+    at: 1,
+    ...(failure ? { failure } : {}),
+  });
+  // On its way when the app went; the page's deadline; a connection that went.
+  expect(unanswered(record())).toBe(true);
+  expect(unanswered(record({ hop: "acpmux", code: "timeout" }))).toBe(true);
+  expect(unanswered(record({ hop: "connection", code: "native.timed_out", reason: "interrupted" }))).toBe(true);
+  expect(unanswered(record({ hop: "connection", code: "native.not_connected" }))).toBe(true);
+  // Refused: by the app, by acpmux, by the agent.
+  expect(unanswered(record({ hop: "connection", code: "transport.gesture_required" }))).toBe(false);
+  expect(unanswered(record({ hop: "acpmux", code: "-32000", reason: "trust.pending" }))).toBe(false);
+  expect(unanswered(record({ hop: "acpmux", reason: "message.too_large" }))).toBe(false);
+  expect(unanswered(record({ hop: "agent", code: "timeout" }))).toBe(false);
 });
