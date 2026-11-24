@@ -35,6 +35,29 @@ struct PaletteQueryResultsTests {
         return PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
     }
 
+    @Test func standalonePickerTakesLiteralPrefixesAndEscapesEachLevel() {
+        let palette = Self.palette()
+        let model = palette.model
+        var root = PalettePageSpec(id: "project", title: "Add project", placeholder: "", providers: [], scope: .root)
+        root.usesScopeShortcuts = false
+        var child = PalettePageSpec(id: "url", title: "Git URL", placeholder: "", providers: [])
+        child.usesScopeShortcuts = false
+        model.reset(to: root)
+        model.query = ">project"
+        #expect(model.depth == 1)
+        #expect(model.query == ">project")
+        model.push(child)
+        model.query = "https://example.com/owner/project"
+        model.handle(.escape)
+        #expect(model.depth == 1)
+        #expect(model.query == ">project")
+        model.push(child)
+        model.handle(.back)
+        #expect(model.depth == 1)
+        model.handle(.escape)
+        #expect(model.depth == 0)
+    }
+
     @Test func typedQueriesAreAnsweredByThePageInItsOrder() async {
         let palette = Self.palette()
         defer { palette.hide() }
