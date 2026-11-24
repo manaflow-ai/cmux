@@ -25,7 +25,7 @@ fn no_laptop() -> (u16, String) {
 #[test]
 fn today_s_laptop_does_every_holder_write_as_its_own_device() {
     let (owner, _) = store();
-    assert_eq!(renew(&owner, &mac(), 1, true).epoch, 1);
+    assert_eq!(renew(&owner, &mac(), 1, true).session.epoch, 1);
     assert_eq!(append_as(&owner, &mac(), 1, 1..=1), Ok(1));
     assert!(snapshot_as(&owner, &mac(), 1, b"folder", 1).is_ok());
     let ack = InboxAck { holder: mac(), epoch: 1, through: 0 };
