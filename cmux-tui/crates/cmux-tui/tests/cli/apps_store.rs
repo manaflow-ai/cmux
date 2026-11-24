@@ -1760,6 +1760,13 @@ fn open_target(entry: &Value, placed: &Value) -> Option<String> {
     if pane["export"].is_string() {
         return Some(format!("scene pane {}", pane["export"]));
     }
+    // A first-party setting-backed entry (Auto cleanup) has no pane: its switch is a cmux
+    // setting, and the install (checked installed and enabled above) turns that setting on.
+    if entry["tier"] == "first-party"
+        && let Some(key) = manifest.pointer("/setting/key").and_then(Value::as_str)
+    {
+        return Some(format!("setting {key}"));
+    }
     let web_pane = entry["web_pages"]
         .as_array()
         .into_iter()
