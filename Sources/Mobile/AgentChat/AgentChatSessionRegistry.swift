@@ -545,7 +545,11 @@ final class AgentChatSessionRegistry {
         Self.applyChildRunEvent(&record, event: event)
 
         let previous = records[sessionID]
-        record.setHookLifecycleState(Self.nextState(previous: record.state, event: event))
+        record.setHookLifecycleState(Self.nextState(
+            previous: record.state,
+            event: event,
+            turnSettled: record.hasHookLifecycleState
+        ))
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         storeRecord(record, replacing: previous)

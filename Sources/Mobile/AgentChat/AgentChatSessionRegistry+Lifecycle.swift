@@ -76,12 +76,27 @@ extension AgentChatSessionRegistry {
         return id
     }
 
+    /// - Parameter turnSettled: a hook (Stop, SessionStart) left the session idle, as opposed
+    ///   to a record just created or reset by process or transcript observation.
     nonisolated static func nextState(
         previous: ChatAgentState,
-        event: WorkstreamEvent
+        event: WorkstreamEvent,
+        turnSettled: Bool = false
     ) -> ChatAgentState {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
             return .ended
+        }
+        // A plugin or helper can call tools after Claude's Stop, with no turn running and no
+        // Stop to follow (#51571). A new Claude turn always passes through UserPromptSubmit
+        // first, so tool hooks on a settled idle session belong to the finished turn: they
+        // leave it idle, as the CLI's turnSettled guard leaves the built-in status pill.
+        if turnSettled, case .idle = previous, event.source == "claude" {
+            switch event.hookEventName {
+            case .preToolUse, .postToolUse, .postToolUseFailure, .todoWrite:
+                return previous
+            default:
+                break
+            }
         }
         // Claude emits AskUserQuestion and ExitPlanMode through PreToolUse.
         // Feed telemetry for that hook arrives before the dedicated journal
