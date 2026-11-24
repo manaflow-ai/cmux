@@ -22,6 +22,10 @@ export type LoadRunOptions = {
   scroll_speed?: number;
   /// How far up the scroll goes before it turns back, in viewports.
   scroll_depth?: number;
+  /// A reply this many words long arrives at once and reveals (for `reply_settle_ms`, default
+  /// 1500) before the timed stream appends to it: per-frame cost against the reply's length.
+  reply_words?: number;
+  reply_settle_ms?: number;
 };
 
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -161,12 +165,16 @@ export async function loadRun(
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
     chunkMs: Math.max(1, options.chunk_ms ?? 4),
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
+    prefixWords: options.reply_words,
+    prefixSettleMs: options.reply_settle_ms,
   });
   let streamDone = false;
   let streamFinished: number | undefined;
   void streaming.then(() => {
     streamFinished = performance.timeOrigin + performance.now();
     streamDone = true;
+    // A trace's mark for where the stream ended (test/chat-render-pipeline-budgets.test.ts splits stream from settle).
+    performance.mark("acpmux-load-stream-end");
   });
   const timestamps: number[] = [];
   const work: number[] = [];
@@ -252,6 +260,33 @@ export async function loadRun(
     renders,
     longest,
   };
+}
+
+export type LoadToolsOptions = {
+  /// Tool calls to add, and milliseconds between a call and its result (and its result and the next call).
+  count?: number;
+  gap_ms?: number;
+  /// Leave the turn running after them (the next `loadTools` adds to it); false ends it.
+  keep_open?: boolean;
+};
+
+/// `debug.agent_pane load_tools`: short tool calls arrive in the open chat's running turn, each its
+/// call and then its result, with no text between them, as a busy coordinator's do. Each call adds one
+/// row; whatever else renders is waste (render-counts.bench.ts `tool`).
+export async function loadTools(
+  host: { sessionId(): string | undefined; rowCount(): number },
+  options: LoadToolsOptions = {},
+): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  const session = host.sessionId();
+  if (!mock || !session) return { error: "no load session (run load_seed first)" };
+  const before = host.rowCount();
+  const added = await mock.addLoadTools(session, {
+    count: Math.max(0, Math.floor(options.count ?? 10)),
+    gapMs: Math.max(0, options.gap_ms ?? 60),
+    keepOpen: options.keep_open ?? false,
+  });
+  return { ...added, rows_before: before };
 }
 
 export type LoadTickOptions = {

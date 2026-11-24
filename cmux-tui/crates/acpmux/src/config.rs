@@ -76,7 +76,34 @@ pub fn panic_log_path() -> std::path::PathBuf {
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    default_home_in(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+    resolve_supervised_home(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// `<account_home>/.acpmux`, or the real directory it links to when it is a symlink to the
+/// person's own supervised home (`<account_home>/.acpmux-supervised/<name>`, what a supervised
+/// daemon's `ACPMUX_HOME` names). The private-state directory opens with O_NOFOLLOW and the
+/// consent check refuses redirection, so both must see the real path. A link anywhere else is
+/// returned unresolved and keeps being refused.
+pub fn resolve_supervised_home(account_home: &Path) -> PathBuf {
+    let link = default_home_in(account_home);
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    if !is_link(&link) {
+        return link;
+    }
+    let supervised = account_home.join(".acpmux-supervised");
+    if is_link(&supervised) {
+        return link;
+    }
+    let (Ok(real), Ok(account)) =
+        (std::fs::canonicalize(&link), std::fs::canonicalize(account_home))
+    else {
+        return link;
+    };
+    if real.parent() == Some(account.join(".acpmux-supervised").as_path()) && real.is_dir() {
+        real
+    } else {
+        link
+    }
 }
 
 /// [`default_home`] for the OS account whose home folder is `account_home`.
@@ -1150,7 +1177,8 @@ pub struct WebSocketConfig {
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
     /// name, or the name peers dial on a non-loopback `listen`, where every
-    /// other name is refused). Both lists are read when the listener starts.
+    /// other name is refused). Both lists apply from the next connection after
+    /// `_acpmux/reload_config` (`acpmux config --set` and `acpmux web --tailnet` send it).
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
     /// `tokenRotated`: the saved token was replaced at the first start of a
@@ -1292,6 +1320,16 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
+    /// `lanes`: the host's lane cap each session's default memory ceiling is sized from
+    /// (RAM / lanes x 2, `session_budget.rs`). Unset: `ACPMUX_HOST_LANES`, else this host's
+    /// fleet-registry.json `lanes.max_lanes`, else none (half the RAM). 0 is unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lanes: Option<u64>,
+    /// `diskMb`: each session's disk budget in MiB, which the daemon's watcher measures
+    /// (`hub/session_budget_watch.rs`); 0 is off. Unset: `ACPMUX_SESSION_DISK_MB`, else the
+    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (2 to 64 GiB).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
@@ -1321,6 +1359,32 @@ pub struct TransportConfig {
 }
 
 impl TitlesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+/// `summaries` in the config: each chat's rolling summary and next action
+/// (`hub/rolling_summary.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SummariesConfig {
+    /// `generate`: ask the summary model after a person's turn that ended on no `wrap_up`.
+    /// Default on. Off, a turn's own `wrap_up` still summarizes it (it costs nothing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the summary. Env
+    /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
+    /// harness (`_acpmux/complete`), on `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
+    /// (`haiku` on Claude).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl SummariesConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
@@ -1471,6 +1535,31 @@ impl ContextOverrides {
     }
 }
 
+/// `personHold` (`hub/person_hold.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonHoldConfig {
+    /// The chats, by name, whose person's prompts wait.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    /// How long, in ms, from the first prompt's arrival. Default 30000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
+/// `pageRule` (`hub/inbox_page_rule.rs`): the coordinator list. Another agent's message to one of
+/// these chats starts a turn only when it is a page (a block or question from a session, a
+/// first-seen FIRE or program block, a message from or tagged for the person); the rest waits
+/// for the next notice, at most `inbox.rs` `FLUSH_MS`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRuleConfig {
+    /// The chats, by name (`NAME`, or `HOST/NAME` as fleet-registry.json `coordinators` writes
+    /// them), that only a page wakes.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1489,6 +1578,13 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// `peerWake`: `{"argv": [...]}`, the command run once when a message for a session on a
+    /// peer finds its link down (`Peer::wake`), with the peer's name appended: the machine
+    /// layer's resume for whatever provider the peer's machine is on (a paused VM, a
+    /// stopped VM). Unset (the default): only the route's own ProxyCommand sees the wake
+    /// mark (`peer_wanted.rs` WAKE_ENV), as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_wake: Option<PeerWake>,
     /// The read replica and write journal for paused machines (`crate::write_journal`). Off
     /// unless `writeJournal.enabled` is true; off changes nothing.
     #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
@@ -1562,6 +1658,14 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `personHold`: the chats whose person's prompts wait a while to go in together, unless the
+    /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_hold: Option<PersonHoldConfig>,
+    /// `pageRule`: the coordinator chats only a page wakes (`hub/inbox_page_rule.rs`). Unset:
+    /// none, every chat wakes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_rule: Option<PageRuleConfig>,
     /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
     /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
     #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
@@ -1639,9 +1743,16 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `summaries`: each chat's rolling summary and next action (`hub/rolling_summary.rs`).
+    #[serde(default, skip_serializing_if = "SummariesConfig::is_default")]
+    pub summaries: SummariesConfig,
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
+    /// `autoEvacuate`: idle chats leave this machine on their own while it stays over its budget
+    /// (`hub/auto_evacuate.rs`). Off unless `autoEvacuate.enabled` is true.
+    #[serde(default, skip_serializing_if = "AutoEvacuateConfig::is_default")]
+    pub auto_evacuate: AutoEvacuateConfig,
     /// Labs-only transport switches (`transport.wireguard`, which needs `wireguardStatic`). The
     /// hub carrier does not need them.
     #[serde(default)]
@@ -1653,6 +1764,14 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
+    /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
+    /// machines on it first when their name resolves to a private address (one GCP region's VPC),
+    /// with the relay as the fallback. The same Noise XX and node keys as a relay circuit admit a
+    /// connection, so it lets in no one the relay would not. Unset (the default): relay only.
+    /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_port: Option<u16>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -1666,6 +1785,11 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<SendRelay>,
+    /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
+    /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
+    /// default): such a start is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_relay: Option<NewRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1767,6 +1891,13 @@ impl WriteJournalConfig {
     }
 }
 
+/// `peerWake`: the wake command's argv; `Peer::wake` appends the peer's name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerWake {
+    pub argv: Vec<String>,
+}
+
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
 /// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
 /// `cli/send_relay.rs`, which re-exports it).
@@ -1778,6 +1909,14 @@ pub struct SendRelay {
     pub ls_argv: Option<Vec<String>>,
 }
 
+/// `newRelay`: the relay command's argv; the CLI appends `--machine HOST` and the caller's other
+/// `new` words (see the module doc of `cli/new_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRelay {
+    pub argv: Vec<String>,
+}
+
 mod config_impl;
 
 fn is_default_kind(k: &HarnessKind) -> bool {
@@ -1785,18 +1924,41 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // A copy of this file still waiting for the disk writer is older: it never lands after this.
+    crate::disk_writer::settle(path);
+    write_atomic_now(path, bytes)
+}
+
+/// [`write_atomic`] on the disk writer's thread (`disk_writer.rs`): the caller never waits on the
+/// disk, and newer bytes for `path` replace older ones still waiting. A failed write is logged,
+/// not returned: only for a file holding the latest state of something its next write (or a
+/// rebuild) makes up for, never one a caller must know is on disk before it goes on.
+pub fn write_atomic_later(path: &Path, bytes: Vec<u8>) {
+    crate::disk_writer::write_later(path, bytes);
+}
+
+/// [`write_atomic`] with no wait for the disk writer: the writer's own write.
+pub(crate) fn write_atomic_now(path: &Path, bytes: &[u8]) -> Result<()> {
     refuse_lost_home(path)?;
-    write_atomic_checked(path, bytes)
+    write_atomic_synced(path, bytes)
 }
 
 /// [`write_atomic`] for a writer that checked `path` with [`refuse_lost_home`] itself before
 /// preparing its folder: a second check would refuse a home replaced since the first, which the
 /// writer's held folder (`home_fs`) already keeps the file out of.
 pub(crate) fn write_atomic_checked(path: &Path, bytes: &[u8]) -> Result<()> {
+    crate::disk_writer::settle(path);
+    write_atomic_synced(path, bytes)
+}
+
+fn write_atomic_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     // Sync before rename so a power loss cannot leave empty chat metadata behind.
     write_atomic_with(path, bytes, |file, tmp| {
         #[cfg(test)]
         startup_seams::sync(tmp);
+        // The fault harness's slow disk (`cmux-fault` `disk.rs`) slows these syncs too.
+        #[cfg(debug_assertions)]
+        crate::store::disk_fault::sync();
         file.sync_all().with_context(|| format!("sync {}", tmp.display()))
     })?;
     // The rename itself is durable once its directory is synced.
@@ -1895,8 +2057,8 @@ pub use nested_env::{
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
-pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
+pub(crate) use launchers::{user_program, which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
@@ -1916,7 +2078,9 @@ mod pool;
 pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
+mod auto_evacuate;
 mod usage_warnings;
+pub use auto_evacuate::AutoEvacuateConfig;
 pub use usage_warnings::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits, UsageWarningsConfig};
 pub mod folder_profiles;
 pub mod harness_icon;

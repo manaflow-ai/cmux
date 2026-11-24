@@ -32,7 +32,10 @@ extension ConversationViewController: ConversationAudioHost {
         store.sendAudio(data: data, info: info, replyToID: replyTarget?.id) != nil
     }
 
-    func canSendRecordedAudio() -> Bool { true }
+    func canSendRecordedAudio() -> Bool {
+        // A held send keeps the review up; agreeing sends it.
+        sendGateAllows(retry: { [weak self] in self?.audioComposer.send() })
+    }
 }
 
 extension UIViewController {

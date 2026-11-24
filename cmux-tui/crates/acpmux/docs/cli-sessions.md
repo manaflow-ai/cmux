@@ -1,4 +1,4 @@
-# Agent sessions from the command line
+# acpmux CLI: sessions
 
 Start agents, talk to them, wait on them and read what they said. Every command takes a session by
 name, by `HOST/NAME` for one on a peer, or by id. Each command's `--help` lists every flag and ends
@@ -11,11 +11,11 @@ with examples; `--json` on any command prints the raw response.
 | Start a session and give it a first prompt, without opening the TUI | `cmux agent new -m codex -n fix-27310 -d "Fix the failing test"` |
 | Start one in its own worktree on a brief that reports back | `cmux agent new -n fix-27310 --worktree ~/Projects/cmux@origin/main --prompt-file ~/notes/brief.md --report-to coord -d` |
 | Start one from inside a session that is not its child (its turns never show there) | `cmux agent new -n scratch --no-parent -d "Look into the flaky test"` |
-| Run one prompt and print only the final reply | `cmux agent run -m claude "Summarize the open TODOs"` |
-| Get a session by name, creating it when missing | `cmux agent ensure coord -m claude` |
-| Send a brief to the least-loaded allowed machine | `cmux agent dispatch ~/notes/brief.md --machine auto` |
-| Run one prompt on several harnesses and compare | `cmux agent compare -m claude -m codex "Why does this test flake?"` |
-| From an authenticated agent session, race implementations in separate worktrees with a reviewer | `cmux agent race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "Fix the flaky test"` |
+| Run one prompt and print only the final reply | `acpmux run -m claude "Summarize the open TODOs"` |
+| Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |
+| Send a brief to the least-loaded allowed machine | `acpmux dispatch ~/notes/brief.md --machine auto` |
+| Run one prompt on several harnesses and compare | `acpmux compare -m claude -m codex "Why does this test flake?"` |
+| From an authenticated agent session, race implementations in separate worktrees with a reviewer | `acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "Fix the flaky test"` |
 
 Running the same `new --worktree ... --prompt-file ...` again reuses the session and sends nothing.
 
@@ -30,7 +30,7 @@ sub-session limits. Each candidate works
 in its own Git worktree. The reviewer chooses a winner after the candidate turns finish;
 that choice does not certify passing tests or authorize a merge.
 
-From the same authenticated agent session, use `cmux agent race show RACE` to read the replies,
+From the same authenticated agent session, use `acpmux race show RACE` to read the replies,
 paths and decision, `race ls` to list races, and `race stats` for wins per model.
 `race stop RACE` cancels the race's sessions. Add the same `--parent` to these commands when
 the race belongs to a descendant. Losing sessions close after
@@ -54,7 +54,7 @@ stopped. Win rates count completed, reviewer-decided races, once per model per r
 | Every message this daemon still delivers or delivered today | `cmux agent send --status` |
 | An agent's send that waits for the reply (it queues and returns by default) | `cmux agent send --wait coord "…"` |
 | From an agent session, message several sessions at once | the `send` tool of the `acpmux` MCP server with `messages: [{to, text}, {to, file}]` (or `tag`), not a shell loop of `cmux agent send --no-wait` |
-| Retry a failed last turn | `cmux agent retry review-27310` |
+| Retry a failed last turn | `acpmux retry review-27310` |
 | Cancel the running turn | `cmux agent session cancel coord` |
 
 An agent's send steers into a running turn by default (the agent reads it at its next tool
@@ -68,12 +68,7 @@ boundary); `--no-steer` queues it instead.
 | The same for a script | `cmux agent ls --json` |
 | A session's last reply | `cmux agent last review-27310` |
 | Its last few turns, one line each | `cmux agent history coord -n 5` |
-| Search prompts and replies across sessions on this host and its peers | `cmux agent search "failing test"` |
-| Open the session in a workspace | `cmux agent open SESSION_ID` |
-| Open it as a tab in a specific pane | `cmux agent open-tab SESSION_ID --target PANE_ID` |
-| Start a background shell command in the current session | `cmux agent bg start 'make test'` |
-| List this session's background tasks | `cmux agent bg list` |
-| Read this session's inbox threads | `cmux agent notices` |
+| Search every authorized session on this host and its peers | `cmux agent search "cache"` |
 | Wait for a turn to end, then print the reply | `cmux agent wait review-27310 --timeout 1800 --print` |
 | Wait for several sessions | `cmux agent wait review-27310 review-27311 --all` |
 | Find the session behind a PR footer's agent link | `cmux agent resolve "https://cmux.com/deeplink/agent?id=aid-3f9c2a"` |

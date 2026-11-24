@@ -4,10 +4,11 @@ import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
+import { chatSnapshotTimes } from "./chatSnapshot/live";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
+import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
@@ -43,7 +44,8 @@ export type AcpmuxDebug = {
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
   /// "waiting-steers", or with the worked turn under a running goal, the Goal banner over the composer
   /// (goalFixture.ts), when it is "goal", or with two finished subagents whose report cards a capture opens
-  /// (subagentReportFixture.ts) when it is "subagent-report".
+  /// (subagentReportFixture.ts) when it is "subagent-report", or with a reply holding the user's ```mermaid
+  /// chart (mermaidFixture.ts) when it is "mermaid".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -99,6 +101,8 @@ export type AcpmuxDebug = {
   typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Adds short tool calls (each its call, then its result) to its running turn (loadDebug.ts). */
+  loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
    * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
   renders(): Record<string, number>;
@@ -183,11 +187,14 @@ export function createAcpmuxDebug(
     async seedRows(count = 5000, fixture, agents) {
       const {
         syntheticRows,
+        workedResizeRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
         selectionRows,
+        mermaidRows,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -211,25 +218,34 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "subagents"
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
-          : fixture === "worked-turn" || fixture === "goal"
-            ? workedTurnRows(Date.now() - 60_000)
-            : fixture === "incoming"
-              ? incomingRows(Date.now() - 120_000)
-              : fixture === "link" || fixture === "github-link"
-                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
-                : fixture === "selection"
-                  ? selectionRows(Date.now() - 60_000)
-                  : fixture === "organization"
-                    ? organizationRows(Date.now() - 120_000)
-                    : fixture === "tool-summary"
-                      ? toolSummaryRows(Date.now() - 60_000)
-                      : fixture === "shared"
-                        ? sharedRows(Date.now() - 1_020_000)
-                        : fixture === "waiting-steers"
-                          ? waitingSteersRows(Date.now() - 90_000)
-                          : fixture === "subagent-report"
-                            ? subagentReportRows(Date.now() - 5_000_000)
-                            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+          : fixture === "worked-resize"
+            ? workedResizeRows(Math.max(3, Math.floor(count)))
+            : fixture === "worked-turn" || fixture === "goal"
+              ? workedTurnRows(Date.now() - 60_000)
+              : fixture === "worked-turn-page"
+                ? workedTurnPageRows(Date.now() - 60_000)
+                : fixture === "incoming"
+                  ? incomingRows(Date.now() - 120_000)
+                  : fixture === "link" || fixture === "github-link"
+                    ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
+                    : fixture === "selection"
+                      ? selectionRows(Date.now() - 60_000)
+                      : fixture === "mermaid"
+                        ? mermaidRows(Date.now() - 60_000)
+                        : fixture === "organization"
+                          ? organizationRows(Date.now() - 120_000)
+                          : fixture === "tool-summary"
+                            ? toolSummaryRows(Date.now() - 60_000)
+                            : fixture === "shared"
+                              ? sharedRows(Date.now() - 1_020_000)
+                              : fixture === "waiting-steers"
+                                ? waitingSteersRows(Date.now() - 90_000)
+                                : fixture === "subagent-report"
+                                  ? subagentReportRows(Date.now() - 5_000_000)
+                                  : syntheticRows(
+                                      Math.max(3, Math.floor(count)),
+                                      fixture === "short" ? "short" : "mixed",
+                                    );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(
@@ -339,7 +355,8 @@ export function createAcpmuxDebug(
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
         start_state_shown: acpmuxPerf.startStateShown() ?? null,
-        launch: acpmuxPerf.launchTimeline(),
+        start_state_trail: acpmuxPerf.startStateTrail(),
+        launch: { ...acpmuxPerf.launchTimeline(), ...copyTimeline() },
       };
     },
 
@@ -547,6 +564,10 @@ export function createAcpmuxDebug(
       const { loadTick } = await import("./loadDebug");
       return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
+    async loadTools(options = {}) {
+      const { loadTools } = await import("./loadDebug");
+      return loadTools({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
     renders() {
       acpmuxPerf.enable();
       const out = Object.fromEntries(acpmuxPerf.renders);
@@ -591,4 +612,14 @@ function summaryCardState() {
       current: row.getAttribute("aria-current") === "true",
     })),
   };
+}
+
+/// When this document drew the chat's saved copy and when the live page took over from it, on the wall clock
+/// (`perf_stats` `launch`, beside the page's launch marks): the relaunch bench's `copyPainted` and `copySwapped`.
+function copyTimeline(): Record<string, number> {
+  const times = chatSnapshotTimes();
+  if (!times || !Number.isFinite(performance.timeOrigin)) return {};
+  const out: Record<string, number> = { copyPainted_epoch_ms: Math.round(performance.timeOrigin + times.painted_ms) };
+  if (times.swapped_ms !== null) out.copySwapped_epoch_ms = Math.round(performance.timeOrigin + times.swapped_ms);
+  return out;
 }

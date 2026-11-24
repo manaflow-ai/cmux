@@ -20,7 +20,8 @@ build embeds it, looks for it or spawns differently (see "Production").
 | Agents of the agent pane (acpmux and the Claude Code, Codex or other agent processes it starts) | app `posix_spawn`s `/bin/sh -c 'set -m; … &'` (`AcpmuxDaemonLauncher`); launchd adopts the daemon, responsibility stays | the DEV app | cmux Files (dev) |
 | The Chief home's conversation owner | `DaemonLauncher.forChief`, same `server ensure` path | the DEV app that started it | cmux Files (dev) |
 | The Chief's brain host (`optchat-chief host`) and the acpmux and agents it starts | `HomeBrainHost` `posix_spawn`s `/bin/sh -c 'set -m; "$@" … &'`, like acpmux | the DEV app | cmux Files (dev) |
-| The app itself: Files pane listing (`DirectoryLister`), Quick Look, icons, drag and drop, folder picker | in process | the DEV app | unchanged (see "What still asks") |
+| The Files pane's folder listing (`DirectoryLister`: the pane, its columns, the sidebar file tree) | in process (`getattrlistbulk`) | the DEV app | cmux Files (dev): read by `cmux-tui __files-lister` under the helper (see "The Files pane") |
+| The app itself: Quick Look, thumbnails, Get Info folder sizes, copies, drag and drop, folder picker | in process | the DEV app | unchanged (see "What still asks") |
 | Chromium downloads into `~/Downloads` | the Chromium host is spawned without a disclaim on purpose (camera, microphone, location name cmux; `cef-helper-app-DESIGN.md` row 7) | the DEV app | unchanged |
 | Computer Use, Screen Sharing workers | already their own identities (cmux Remote, `docs/cmux-remote.md`) | cmux Remote | unchanged |
 
@@ -119,10 +120,34 @@ iOS never embeds it (macOS only). `tests/test_files_host_dev_only.py` runs the r
 for every shipped configuration and bundle id and fails if any would embed it; run it yourself
 after changing the phase, `FilesHost` or the pin (it is not a CI gate).
 
+## The Files pane
+
+The Files pane reads folders in the app's own process, and a process cannot disclaim itself, so
+a DEV build reads them in a child instead: `ProcessDirectoryLister` (CmuxNextFiles) starts
+`cmux Files (dev).app/…/cmux-files-host run -- <app>/Contents/Resources/bin/cmux-tui __files-lister`
+at the first listing and keeps it for the app's life. The child (cmux-tui `files_lister.rs`)
+answers one JSON line per request on its stdin (`list` a folder, `entry` for one item) with the
+names, kinds, sizes, dates and hidden flags `DirectoryLister` reads itself; the app keeps its
+package check and order. The pipe is private to the app: no socket, no new daemon method, no
+relay.
+
+The app makes one (`FilesPaneService.directoryLister`, from
+`ProcessDirectoryLister.forThisBuild()`) and hands it to the Files pane, its columns view and the
+sidebar file tree. Making it touches no disk; the helper is looked up at the first listing, with
+the same `FilesHost` gates, so a Release build never finds one and reads in process. A child that cannot start, exits, or answers with an error makes that read happen in
+process as before, and three failures in a row without an answer stop it trying.
+
+Naming a folder can be a read too: `FileManager.displayName(atPath:)` asks Launch Services, which
+looks inside the folder for its `.localized` marker, so the pane's tab title and its sidebar's
+Favorites asked macOS for Downloads in the app's name before any listing. `FolderDisplayName`
+names the home's standard folders (Desktop, Documents, Downloads, ...) from the system's own table
+(`SystemFolderLocalizations`) instead, in every build: the same name, with no read.
+
 ## What still asks
 
-- The DEV app's own reads, once per tag: the Files pane opening `~/Downloads`, Quick Look of a
-  file there, a browser download saved to `~/Downloads`. Open and save panels and drag and drop are
+- The DEV app's own reads, once per tag: Quick Look and thumbnails of a file in `~/Downloads`,
+  Get Info's size of a folder there, copies and compression in the Files pane, a browser download
+  saved to `~/Downloads`. The Files pane's listing no longer asks per tag ("The Files pane"). Open and save panels and drag and drop are
   the person's own choice and never ask.
 - cmux Files (dev) itself asks once per folder kind (Desktop, Documents, Downloads, …), and again
   after the pin changes to a new certificate.

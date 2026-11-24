@@ -899,6 +899,39 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness". A Cloud
+/// start reaches the machine's acpmux over its unix socket, never as the person, and a Claude chat
+/// picked into Auto there was refused (`permission.person_required`): only the full-access mode a
+/// start with no mode gets passed the gate. Claude Code's own Auto asks more than that mode, and a
+/// running chat already moves to it without the person under a full-access or `standard` start
+/// level (`may_move_without_person`), so a start may name it under the same levels. Under `ask` it
+/// stays the person's, and so does any other mode that does not ask (Accept edits).
+#[tokio::test]
+async fn the_unix_socket_starts_claude_in_auto_under_a_level_that_covers_it() {
+    let start = |dir: &Path, mode: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": mode}}})
+    };
+    for level in ["fullAccess", "standard"] {
+        let dir = home(&format!("auto-start-{level}"), json!({"defaultPermissionMode": level}));
+        let daemon = hub(&dir);
+        let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+        let r = agent.call("session/new", start(&dir, "auto")).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{level}: {r}"));
+        let id = id.to_owned();
+        assert_eq!(agent.mode(&id).await, "auto", "{level}");
+        let r = agent.call("session/new", start(&dir, "acceptEdits")).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{level}: {r}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    let dir = home("auto-start-ask", json!({"defaultPermissionMode": "ask"}));
+    let daemon = hub(&dir);
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = agent.call("session/new", start(&dir, "auto")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "ask: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The reviewer of cmux#(this PR), 2026-10-25: "creation-time argv can authorize a different
 /// harness after adoption/respawn". An adopt may find a session already running, created on
 /// another profile than the one it names now, so it never takes the Codex bridge's `read-only`
@@ -1379,6 +1412,10 @@ async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
         let record: Value = serde_json::from_str(line).unwrap();
         assert_eq!(record["ran"], true, "approve-all runs it: {record}");
         let hooks = record["hookMs"].as_array().cloned().unwrap_or_default();
+        // Harness magic `dedupe` is a third callback while it is on (`claude_stdio/dedupe.rs`).
+        let (dedupe, hooks): (Vec<Value>, Vec<Value>) =
+            hooks.into_iter().partition(|h| h["callback"] == "acpmux-dedupe");
+        assert!(dedupe.len() <= 1, "{record}");
         assert_eq!(hooks.len(), 2, "the repository sync and the gate: {record}");
         for hook in hooks {
             let ms = hook["ms"].as_f64().unwrap_or_else(|| panic!("{record}"));
@@ -1398,6 +1435,52 @@ async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
     );
     let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
     assert!(g50 < 500.0, "p50 {g50} ms");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Harness magic `dedupe` through the hub (`claude_stdio/dedupe.rs`): in one turn a Claude Code
+/// that Reads one unchanged file twice and runs one read-only command twice gets a stub for the
+/// second of each (the gate still allows both), and the turn's `turn_result` counts them.
+#[tokio::test]
+async fn a_repeated_read_and_command_are_stubbed_and_counted_on_the_turn_result() {
+    if std::env::var("ACPMUX_HM_DEDUPE").is_ok_and(|v| v == "0") {
+        return;
+    }
+    let dir = home("hm-dedupe", json!({"defaultPermissionMode": "fullAccess"}));
+    let log = dir.join("auto.log");
+    let daemon = hub_with(&dir, |cfg| {
+        let mut profile = launcher_profile(&log);
+        profile.env.insert("FAKE_AUTO_RESULTS".into(), "1".into());
+        cfg.harnesses.insert("sr2".into(), profile);
+    });
+    let file = dir.join("work").join("notes.txt");
+    std::fs::write(&file, "a line of notes\n".repeat(200)).unwrap();
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "sr2", "approve-all").await;
+    let read = json!(["Read", {"file_path": file}]);
+    let wc = json!(["Bash", {"command": "wc -l notes.txt"}]);
+    let calls = json!([read, wc, read, wc]);
+    let r =
+        app.call("session/prompt", json!({"sessionId": id, "prompt": auto_tools(&calls)})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let records: Vec<Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let ran: Vec<bool> = records.iter().map(|r| r["ran"].as_bool().unwrap()).collect();
+    assert_eq!(ran, [true, true, false, false], "{records:?}");
+    for stubbed in &records[2..] {
+        assert!(stubbed["reason"].as_str().unwrap().starts_with("[dedupe] "), "{stubbed}");
+    }
+    let results = app.records(&id, "turn_result").await;
+    let counts =
+        &results.last().unwrap_or_else(|| panic!("{results:?}"))["msg"]["harnessMagic"]["dedupe"];
+    assert_eq!(counts["readsStubbed"], 1, "{results:?}");
+    assert_eq!(counts["callsStubbed"], 1, "{results:?}");
+    assert!(counts["estTokensSaved"].as_u64().unwrap() > 500, "{counts}");
+    let line = format!("hm dedupe: {counts}\n");
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1600,6 +1683,50 @@ async fn a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise() {
     let r = app.call("session/fork", switch("claude")).await;
     let open = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
     assert_eq!(app.mode(&open).await, "bypassPermissions", "an unpinned one takes the start mode");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A profile that pins `--permission-mode default` runs its Claude Code in Manual, and the chat
+/// says so from its first answer: a new chat and a switch onto it report Manual before Claude
+/// Code's `system/init` (which Claude Code sends only when a turn starts, here
+/// `FAKE_CLAUDE_INIT_ON_TURN`) could correct it. The translator started in Claude Code's own Auto
+/// instead, so `a_switch_keeps_a_pinned_mode_and_takes_the_start_mode_otherwise` failed whenever
+/// the mode was read before init came.
+#[tokio::test]
+async fn a_pinned_profile_reports_its_own_mode_before_claude_code_says_it() {
+    let dir = home("pinned-first", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = json!({
+        "argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"],
+        "kind": "claude-stdio",
+        "env": {"FAKE_CLAUDE_INIT_ON_TURN": "1"},
+    });
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let r = app.new_chat(&dir, "pinned").await;
+    assert_eq!(r["result"]["modes"]["currentModeId"], "default", "the session/new answer: {r}");
+    let fresh = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&fresh).await, "default", "a new pinned chat");
+
+    let (source, _) = app.chat(&dir, "codex").await;
+    let switch = json!({"sessionId": source, "cwd": dir.join("work"), "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "pinned"}}});
+    let r = app.call("session/fork", switch).await;
+    let switched = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&switched).await, "default", "a switch onto the pinned profile");
+
+    // The first turn brings Claude Code's init, which says the same.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": fresh, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&fresh).await, "default", "after Claude Code's init");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

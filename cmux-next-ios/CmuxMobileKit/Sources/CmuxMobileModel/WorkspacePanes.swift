@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// A workspace's panes as its Mac lays them out (cmux-tui `list-workspaces`: screens, each
@@ -468,6 +470,37 @@ public struct WorkspaceLayout: Hashable, Sendable {
     public func otherPanes(than pane: Int) -> [Pane] {
         (screen(of: pane)?.panes ?? []).filter { $0.id != pane }
     }
+
+    /// A tab dropped on the Panes page: `tabID` into `pane` at `offset` among the tabs that pane
+    /// lists (its rows as they showed, the dragged one included when it was there). Returns the
+    /// tab the Mac's `move-tab` places it before (nil: the pane's end) and the layout as the Mac
+    /// will list it, or nil when the drop changes nothing or names a tab or pane not listed.
+    public func dropping(_ tabID: String, into pane: Int, at offset: Int) -> (before: String?, layout: WorkspaceLayout)? {
+        guard let from = self.pane(holding: tabID), let to = self.pane(pane) else { return nil }
+        let rows = to.tabIDs
+        let offset = min(max(offset, 0), rows.count)
+        // Its own place, or the place right after it, in its own pane: nothing moves.
+        if from.id == to.id, let own = rows.firstIndex(of: tabID), offset == own || offset == own + 1 { return nil }
+        let before = rows[offset...].first { $0 != tabID }
+        var next = self
+        for s in next.screens.indices {
+            for p in next.screens[s].panes.indices {
+                var moved = next.screens[s].panes[p]
+                if moved.id == from.id {
+                    moved.tabIDs.removeAll { $0 == tabID }
+                    moved.tabCount -= 1
+                    if from.id != to.id, moved.activeTabID == tabID { moved.activeTabID = moved.tabIDs.first }
+                }
+                if moved.id == to.id {
+                    let at = before.flatMap { moved.tabIDs.firstIndex(of: $0) } ?? moved.tabIDs.count
+                    moved.tabIDs.insert(tabID, at: at)
+                    moved.tabCount += 1
+                }
+                next.screens[s].panes[p] = moved
+            }
+        }
+        return (before, next)
+    }
 }
 
 /// The Mac's Split Right / Down / Left / Up (`PaneActionCatalog`, `LayoutActionCatalog`): a new
@@ -680,6 +713,9 @@ public protocol WorkspacePaneBackend: AnyObject {
     func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// Move Tab to Pane…: the end of another pane's tabs.
     func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws
+    /// A drag on the Panes page: `tab` into `pane` (its own or another), right before `anchor`,
+    /// a tab listed in that pane; nil: the pane's end.
+    func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws
     /// Fork Conversation to `destination`: a copy of the chat beside it, in a new tab, or in a
     /// new workspace; returned once the Mac lists it there.
     func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab
@@ -693,6 +729,9 @@ public protocol WorkspacePaneBackend: AnyObject {
 }
 
 extension WorkspacePaneBackend {
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected")
+    }
     public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected")
     }

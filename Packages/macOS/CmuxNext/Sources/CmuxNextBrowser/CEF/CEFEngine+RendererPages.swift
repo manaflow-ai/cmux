@@ -14,6 +14,17 @@ public nonisolated struct CEFRendererPage: Sendable, Equatable {
     public var title: String = ""
     /// The content lifecycle hid the page (a background tab, a parked page).
     public var hidden: Bool
+    /// Chromium still loads the page (its last loading-state report): Chrome's tab icon spins
+    /// while it does, so a page that never ends its load keeps a compositor animation at idle.
+    public var loading: Bool = false
+    /// Chromium reports the page's renderer hung ("Page unresponsive").
+    public var unresponsive: Bool = false
+    /// The page's renderer ended and the sad tab shows (or shows when the tab is next shown).
+    public var exited: Bool = false
+    /// The person sees the page: its pane shows it and the content lifecycle did not hide it.
+    public var onScreen: Bool = false
+    /// Renderers the hidden-hang bound ended for this page (``BrowserHiddenHangBound``).
+    public var hangEnds: Int = 0
     /// Renderer client ids (the `--renderer-client-id=` of the helper processes that host its frames).
     public var rendererClients: [Int32]
 }
@@ -29,6 +40,11 @@ extension CEFEngine {
                                        hidden: tab.isContentHidden, rendererClients: clients)
             page.url = tab.state.url?.absoluteString ?? ""
             page.title = tab.state.title ?? ""
+            page.loading = tab.chromiumLoading
+            page.unresponsive = tab.state.isUnresponsive
+            page.exited = tab.state.processExit != nil
+            page.onScreen = tab.isOnScreenForHang
+            page.hangEnds = tab.hiddenHangBound.ends
             return page
         }
     }

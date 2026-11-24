@@ -7,7 +7,7 @@ by who is calling, not by what is possible.
 | You are | Start an agent for a task | Talk to it, wait | Show it to the person |
 | --- | --- | --- | --- |
 | A script, a person, or an agent with a shell | `cmux agent new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME -d` | `cmux agent send`, `cmux agent wait`, `cmux agent last` | Optional `--group G` on the same command (runs `cmux agent open`) |
-| An agent inside acpmux that wants a child of another harness, from its shell | `cmux agent run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `cmux agent new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
+| An agent inside acpmux that wants a child of another harness, from its shell | `acpmux run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `cmux agent new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}`, or `{prompt, fork: true}` for a fork of its own chat with its history | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
@@ -84,7 +84,7 @@ brief on that machine): `--worktree` works over the local socket only.
 
 ## What not to use for this
 
-- `cmux agent ensure NAME` is get-or-create without a prompt or worktree; the
+- `acpmux ensure NAME` is get-or-create without a prompt or worktree; the
   launcher's `--reuse` is the same rule with both.
 - A hand-written spawn script (`git worktree add` + `cmux agent new` + `acpmux
   send`): it is the launcher without the checks. Wrap the launcher instead.

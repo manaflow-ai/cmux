@@ -227,16 +227,26 @@ extension CEFRuntime {
 
     // MARK: Browser lifetime
 
+    /// Keeps `host` and its view until Chromium's creation of its window has returned. Chromium holds the host
+    /// view unretained from `createWindow` until it wraps it (its parent view tracker) right after this callback,
+    /// and `pendingWindows` was the last owner of a host whose tabs closed while the window was being made (a
+    /// workspace hibernated right after a page opened in it): freed here, Chromium retained a freed view and the
+    /// app crashed.
+    private func keepUntilCreationEnds(_ host: CEFPaneHost) {
+        CEFLayerHosting.atEndOfTurn { withExtendedLifetime(host) {} }
+    }
+
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
         if shutdownSequence != nil {
             // Its creation was under way when quit closed every browser (`shutdown`): close it
             // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
-            pendingWindows[request] = nil
+            if let host = pendingWindows.removeValue(forKey: request) { keepUntilCreationEnds(host) }
             shim?.close(browser)
             return
         }
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
+            keepUntilCreationEnds(host)
             return
         }
         if let tab = tabBeingAdded {
@@ -260,6 +270,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.onGesture = { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             tab.automaticDownloads.userGesture()
+            tab.refusesDownloadsUntilGesture = false
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
         windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }
@@ -269,6 +280,11 @@ extension CEFRuntime {
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
+        if extensionStores.hasPendingUnpacked(tab.profileID) {
+            let profile = tab.profileID
+            Task { [weak self] in self?.extensionStores.browserRegistered(profile) }
+        }
     }
 
     private func browserClosed(_ browser: Int32) {

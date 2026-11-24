@@ -379,6 +379,33 @@ pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     Some((index, u64::from_le_bytes(counter)))
 }
 
+/// Datagrams the loss window spans before it halves.
+const LOSS_WINDOW: u64 = 2000;
+
+/// Loss on the way in over a recent window of datagrams: `lost` of `total`,
+/// both halved when `total` passes [`LOSS_WINDOW`].
+#[derive(Debug, Default, Clone, Copy)]
+struct LossWindow {
+    lost: u64,
+    total: u64,
+}
+
+impl LossWindow {
+    fn add(&mut self, sample: LossSample) {
+        self.lost += sample.lost;
+        self.total += sample.received + sample.lost;
+        if self.total > LOSS_WINDOW {
+            self.lost /= 2;
+            self.total /= 2;
+        }
+    }
+
+    /// Measured loss is above 1 %.
+    fn above_one_percent(&self) -> bool {
+        self.lost * 100 > self.total
+    }
+}
+
 /// The data datagrams of the group being sent.
 struct Group {
     index: [u8; 4],
@@ -692,6 +719,11 @@ pub(crate) struct UltraUnderlay {
     metered: bool,
     /// Loss on the way in, for Auto.
     meter: LossMeter,
+    /// Loss on the way in over about the last 1000 datagrams: what the
+    /// screen class's repair threshold reads.
+    window: LossWindow,
+    /// What the meter saw since Auto last read it (`take_loss`).
+    unread: LossSample,
     group: Option<Group>,
     received: Kept,
     /// Rebuild from parity: on when this side sends FEC or the peer does.
@@ -728,6 +760,8 @@ impl UltraUnderlay {
             configured: mode,
             metered: false,
             meter: LossMeter::default(),
+            window: LossWindow::default(),
+            unread: LossSample::default(),
             group: None,
             received: Kept::default(),
             pending: VecDeque::new(),
@@ -750,15 +784,51 @@ impl UltraUnderlay {
     }
 
     fn forward(&mut self, datagram: &[u8], priority: Option<Priority>) {
+        // Screen is Interactive to the carrier; only repair tells them apart.
+        let priority =
+            priority.map(|p| if p == Priority::Screen { Priority::Interactive } else { p });
         match priority {
             Some(priority) => self.inner.send_classified(datagram, priority),
             None => self.inner.send(datagram),
         }
     }
 
+    /// Move what the meter saw into the window and the unread sample.
+    fn fold_loss(&mut self) {
+        let sample = self.meter.take();
+        self.window.add(sample);
+        self.unread.gaps += sample.gaps;
+        self.unread.late += sample.late;
+        self.unread.lost += sample.lost;
+        self.unread.received += sample.received;
+    }
+
+    /// Whether a datagram of this class gets copies or parity: input at any
+    /// loss (Auto decides when repair is on at all), screen state only above
+    /// 1 % measured loss. Bulk keeps the mode's repair: the pacer's bulk
+    /// class is mostly paced TCP connections, and with no repair their
+    /// goodput at 50 ms / 2 % loss fell from 16.8 to 2.1 Mbit/s
+    /// (`link_stream_bench --workload echo-flood`). Datagrams of no class
+    /// (handshakes, the tunnel's own) keep the mode's repair too.
+    fn repairs(&mut self, priority: Option<Priority>) -> bool {
+        match priority {
+            Some(Priority::Screen) => {
+                self.fold_loss();
+                self.window.above_one_percent()
+            }
+            _ => true,
+        }
+    }
+
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
         self.forward(datagram, priority);
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
+        if !self.repairs(priority) {
+            return;
+        }
+        // Repaired screen state groups with input.
+        let priority =
+            priority.map(|p| if p == Priority::Screen { Priority::Interactive } else { p });
         match self.mode {
             UltraMode::Off => {}
             UltraMode::Duplicate { copies } => {
@@ -883,7 +953,8 @@ impl UltraUnderlay {
 
     /// Loss on the way in since the last call (for Auto).
     pub(crate) fn take_loss(&mut self) -> LossSample {
-        self.meter.take()
+        self.fold_loss();
+        std::mem::take(&mut self.unread)
     }
 
     /// The peer's note, carried by the datagram the tunnel is handling, that
@@ -1041,6 +1112,13 @@ impl Underlay for UltraUnderlay {
 
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {
         self.inner.send_on(path, datagram);
+    }
+
+    /// Alone and unrepaired: no copies, no parity, and no group (a group
+    /// it opened would close behind it with parity of its own).
+    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
+        self.inner.send_liveness(datagram, answer);
+        UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
     fn poll_probes(&mut self, now: Instant) -> DueProbes {

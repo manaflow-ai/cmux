@@ -23,10 +23,11 @@ Run on a GUI fleet host, never a laptop:
 perf-gate.py runs it as its `activation` scenario. Exit 1 when a blocking budget breaks (--gate).
 Older builds without the counter or the reply timing still report the round-trip times.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, socket, subprocess, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from state_wait import wait_until  # noqa: E402
 
 MAX_RESYNCS = 64  # a 1440x900 window shows at most ~40 sidebar rows and ~20 strip tabs
 
@@ -103,18 +104,36 @@ class Session:
                 self.action("newTab.page")
             new = wait(lambda: [t for t in self.tabs_of(workspace) if t not in before], 20) or []
             made[kind] += new[:1]
-        hibernated, refused = 0, None
+        hibernated, refused, asleep = 0, None, set()
         for tab in made["chromium"][:hibernate]:
             reply = self.action("hibernateTab", target={"kind": "tab", "id": tab})
             if isinstance(reply, dict) and reply.get("error"):
                 refused = refused or reply.get("error")
             else:
                 hibernated += 1
+                asleep.add(tab)
         if refused:
             print(f"activation-perf: hibernateTab refused: {str(refused)[:200]}", flush=True)
         self.action("goToWorkspace", {"workspace": first})
         wait(lambda: self.shown() == first, 20)
-        time.sleep(3.0)  # test script: pages finish their first loads before the measured cycles
+        # The awake pages finish their first loads before the measured cycles (hibernated ones are not asked:
+        # an eval would wake them). Best effort: a build without browser.page.eval never says complete.
+        awake = [tab for tab in made["chromium"] if tab not in asleep]
+
+        def loaded(tab):
+            answer = self.app.rpc("browser.page.eval", {"tab": tab, "script": "document.readyState"}, timeout=5) or {}
+            return not answer.get("error") and answer.get("value") == "complete"
+
+        pending = list(awake)
+
+        def all_loaded():
+            pending[:] = [tab for tab in pending if not loaded(tab)]
+            return not pending
+
+        if wait_until(all_loaded, "the browser tabs' first loads", timeout=30, interval=0.25,
+                      raise_on_timeout=False) is None:
+            print(f"activation-perf: {len(pending)} of {len(awake)} pages never reported a complete load in 30 s",
+                  flush=True)
         return {"workspaces": len(self.workspace_ids()), "chromium_tabs": len(made["chromium"]),
                 "chat_tabs": len(made["chat"]), "hibernated": hibernated, "build_s": round(time.monotonic() - start, 1)}
 
@@ -157,7 +176,9 @@ def main_thread_sample(path, limit=2500):
         for line in f:
             # `sample` names the main thread "DispatchQueue_1: com.apple.main-thread" or "Main Thread" (the
             # second on the first fleet run, step 76abb42ac4c65321ef27605b, so nothing was kept).
-            if not keep and ("com.apple.main-thread" in line or "Main Thread" in line):
+            # The main thread is the call graph's first thread, named "com.apple.main-thread", "Main Thread" or, once
+            # Chromium has started, "CrBrowserMain" (the fleet runs' samples, step 84264bd896bee5e0ba517815).
+            if not keep and ("com.apple.main-thread" in line or "Main Thread" in line or "CrBrowserMain" in line):
                 keep = True
             elif keep and (line.strip().startswith("Total number in stack")
                            or (lines and "Thread_" in line and line.lstrip().split(" ", 1)[0].isdigit()
@@ -179,8 +200,19 @@ def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=Tru
     if pid and sample_out:
         seconds = max(3, int(count * (settle * 2 + 0.3)) + 2)
         sampler = subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", sample_out],
-                                   stdout=subprocess.DEVNULL, stderr=open(sample_out + ".err", "w"))
-        time.sleep(0.5)  # test script: sample attaches before the first cycle
+                                   stdout=subprocess.PIPE, stderr=open(sample_out + ".err", "w"),
+                                   text=True, errors="replace")
+        attached = threading.Event()
+
+        def drain():
+            # `sample` prints "Sampling process PID for N seconds ..." once attached; read the rest so it never blocks.
+            for line in sampler.stdout:
+                if line.startswith("Sampling process"):
+                    attached.set()
+            attached.set()
+        threading.Thread(target=drain, daemon=True).start()
+        if not attached.wait(10):
+            print(f"activation-perf: sample never said it attached to {pid} in 10 s", flush=True)
     rows = []
     for _ in range(count):
         app.rpc("debug.app_activation", {"active": False, "window_notices": window_notices})

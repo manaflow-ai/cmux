@@ -605,7 +605,10 @@ impl ClientRegistry {
         Some((changed, record.name.clone(), record.kind.clone()))
     }
 
-    pub(super) fn remove(&self, client: u64) -> Option<ClientRecord> {
+    /// Removes `client`; the bool is true when it held a pending daemon
+    /// handoff reservation, which goes with it (the caller then settles the
+    /// idle-stop fence, `Mux::settle_idle_stop_fence`).
+    pub(super) fn remove(&self, client: u64) -> Option<(ClientRecord, bool)> {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
@@ -620,7 +623,9 @@ impl ClientRegistry {
         // After the record goes: a start that ends later sees the connection gone.
         #[cfg(unix)]
         self.browser_runtimes.disconnect(client);
-        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
+        let released_handoff =
+            state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client));
+        if released_handoff {
             state.daemon_handoff = None;
             state.daemon_handoff_restart = None;
         }
@@ -639,7 +644,7 @@ impl ClientRegistry {
             self.notify_detach();
         }
         self.notify_client_presence();
-        Some(record)
+        Some((record, released_handoff))
     }
 
     pub(crate) fn contains(&self, client: u64) -> bool {
@@ -726,5 +731,16 @@ impl ClientRegistry {
             .expect("start the test attach stream");
         self.attach_surface(client, surface, stream).expect("attach the test stream");
         client
+    }
+
+    /// Tests outside `server`: a role-main hello came (the app's frontend connected once).
+    pub(crate) fn note_test_frontend(&self) {
+        self.note_frontend();
+    }
+
+    /// Tests outside `server`: `client`'s connection ends (a frontend quit),
+    /// which ends its attach streams.
+    pub(crate) fn detach_test_client(&self, client: u64) {
+        assert!(self.remove(client).is_some(), "the test client was not registered");
     }
 }

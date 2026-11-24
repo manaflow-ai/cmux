@@ -25,7 +25,20 @@ const paths: Record<string, ReactNode> = {
       <path d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
     </>
   ),
+  // Settings > Integrations: two chain links (SF Symbol link).
+  link: (
+    <path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.9-.9" />
+  ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
+  // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
+  "switch.2": (
+    <>
+      <rect x="1.8" y="2.4" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="11.9" cy="4.7" r="1.2" fill="currentColor" />
+      <rect x="1.8" y="9" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="4.1" cy="11.3" r="1.2" />
+    </>
+  ),
   "sidebar.left": (
     <>
       <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
@@ -111,7 +124,7 @@ const paths: Record<string, ReactNode> = {
       <path d="M6.6 1.6v2M2.6 6.6h2M3.8 3.8l1.4 1.4M9.4 3.8 8 5.2" />
     </>
   ),
-  // Personalization: a wand with two stars (SF Symbol wand.and.stars).
+  // Ask cmux: a wand with two stars (SF Symbol wand.and.stars).
   "wand.and.stars": (
     <path d="M2.4 13.6 10 6M8.8 4.8l2.4 2.4M5.4 2.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4L3.5 4.1l1.4-.5.5-1.4ZM12.4 9.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3ZM12 1.8l.35 1 1 .35-1 .35-.35 1-.35-1-1-.35 1-.35.35-1Z" />
   ),
@@ -219,6 +232,9 @@ const paths: Record<string, ReactNode> = {
       <rect x="1.6" y="1.8" width="9.4" height="8.6" rx="1.6" />
       <path d="M3.8 4.6h5M3.8 7.6h3.4M10 9.4l4.2 1.6-1.8.7-.7 1.8L10 9.4Z" />
     </>
+  ),
+  "puzzlepiece.extension": (
+    <path d="M3 5h2.4a1.6 1.6 0 1 1 3.2 0H11v2.4a1.6 1.6 0 1 1 0 3.2V13H8.6a1.6 1.6 0 1 0-3.2 0H3v-2.4a1.6 1.6 0 1 0 0-3.2Z" />
   ),
   "arrow.turn.down.right": <path d="M3.5 3v4.6a2.4 2.4 0 0 0 2.4 2.4h7M10 7l3 3-3 3" />,
   grip: <path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01" />,

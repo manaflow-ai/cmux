@@ -12,7 +12,13 @@ name: screen stream eval
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 
 # Daily: main's screen-stream-eval-dispatch.yml starts it (a schedule here would never fire, since
-# scheduled workflows run only from the default branch).
+# scheduled workflows run only from the default branch): the default targets, and an iPhone viewer run
+# (targets=iphone-sim) pinned to a Mac with an iOS simulator runtime.
+# Each run is named by its targets (the defaults keep the plain name), so a run's baseline is the last
+# daily run with the same targets, the dispatcher tells a pending run of each apart, and the two runs
+# wait for each other only on the fleet (each step is exclusive), never in a concurrency group whose
+# newer pending run would cancel the other.
+run-name: ${{ (inputs.targets && inputs.targets != 'rd,webrtc') && format('screen stream eval ({0})', inputs.targets) || 'screen stream eval' }}
 on:
   workflow_dispatch:
     inputs:
@@ -37,8 +43,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: screen-stream-eval
+  group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}
   cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   eval:
@@ -48,7 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 1
           submodules: false
           # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs
@@ -60,21 +70,26 @@ jobs:
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os, urllib.request
           # The daily runs: main's screen-stream-eval-dispatch.yml starts them (scheduled workflows run only
           # from the default branch), so they are workflow_dispatch runs by github-actions[bot]. A run the
-          # budget gate failed still measured, so the newest completed run whose results artifact is
-          # still kept counts, whatever its conclusion.
+          # budget gate failed still measured, so the newest completed run with the same targets (its
+          # name, this workflow's run-name) whose results artifact is still kept counts, whatever its conclusion.
           api = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions"
           def get(path):
               request = urllib.request.Request(f"{api}/{path}", headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
               return json.load(urllib.request.urlopen(request, timeout=30))
+          targets = os.environ["TARGETS"]
+          title = "screen stream eval" if targets == "rd,webrtc" else f"screen stream eval ({targets})"
           found = ""
           try:
-              runs = get("workflows/screen-stream-eval.yml/runs?event=workflow_dispatch&actor=github-actions%5Bbot%5D&status=completed&per_page=5").get("workflow_runs") or []
+              runs = get("workflows/screen-stream-eval.yml/runs?event=workflow_dispatch&actor=github-actions%5Bbot%5D&status=completed&per_page=10").get("workflow_runs") or []
               for run in runs:
+                  if run.get("display_title") != title:
+                      continue
                   artifacts = get(f"runs/{run['id']}/artifacts?name=screen-stream-eval").get("artifacts") or []
                   if any(not a.get("expired") for a in artifacts):
                       found = str(run["id"])

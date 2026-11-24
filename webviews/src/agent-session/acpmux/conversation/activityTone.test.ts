@@ -17,9 +17,12 @@ test("background activity has one secondary tone; a row's words light on hover o
   expect(css).not.toContain(".cv-tool:focus-within");
   expect(css).not.toMatch(/\.cv-tool:not\([^)]*\):focus-within:not/);
   expect(css).toMatch(/\.cv-tool\.is-run:hover > \.cv-tool__text \{\s*color: var\(--cv-text\);/);
-  // A thought's button ends with its chevron: the pointer on the empty line after an opened
-  // thought's words is not on the button, so the words go back to their rest tone (Lucas, 2026-11-06).
-  expect(css).toMatch(/\.cv-thought\.is-toggle \{[^}]*width: fit-content;\s*max-width: 100%;/);
+  // A thought's line lights from anywhere along it, as every other row's does (Leo, 2026-11-22: "the
+  // highlight of the thought thing needs to be highlighted when you're on the line and not
+  // necessarily on the thought word ... just like the rest of the tool calls"): no rule of its own
+  // holds the lift to its glyph, words and chevron.
+  expect(css).not.toContain("button.cv-thought.is-toggle:is(:focus-visible, :has(> :hover))");
+  expect(css).not.toMatch(/button\.cv-tool:not\([^)]*\.cv-thought/);
   // A step row draws nothing more on hover (agent-pane-step-rows.test.ts).
   expect(css).not.toMatch(/\.cv-tool:hover(,| \.cv-tool__(chevron|detail))/);
   // Only the "Worked for" button lifts; the live line has nothing behind it (transcript-row-hover-scope.test.ts).

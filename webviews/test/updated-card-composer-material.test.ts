@@ -37,10 +37,12 @@ test("the shared edge is the composer's edge share, one hairline on every side",
 });
 
 /** What a `color-mix(in srgb, A N%, B)` value mixes toward: its last argument, B. */
+/** A theme hook's fallback (`var(--cmux-…, today)` -> `today`): the value drawn when no theme sets it. */
+const unhook = (value: string) => /^var\(--cmux-[a-z-]+,\s*(.*)\)$/.exec(value)?.[1]?.trim() ?? value;
 const mixTarget = (value: string) => /,\s*([^,]+(?:\([^()]*(?:\([^()]*\))?[^()]*\))?)\s*\)$/.exec(value)?.[1]?.trim();
 
 test("the shared edge mixes toward the page under it, as the composer's does, so an opaque theme draws the same line", () => {
-  const composer = mixTarget(declaration(composerStyles, "--acpmux-composer-edge"));
+  const composer = mixTarget(unhook(declaration(composerStyles, "--acpmux-composer-edge")));
   const shared = mixTarget(declaration(material, "--composer-material-edge"));
   expect(composer).toStartWith("var(--agent-page-bg");
   expect(shared).toStartWith("var(--agent-page-bg");

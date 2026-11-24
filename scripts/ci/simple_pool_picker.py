@@ -16,6 +16,13 @@ a busy mini waits for the rescue (two rounds of CI_PR_POOL_QUEUE_ROUNDS).
 
 A run placed on an owned pool names a Blacksmith `retry_runner`, the pool
 github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml).
+
+Admission by expected wait (cmuxterm-hq#16113 step 3): an owned pool the
+overflow probe's verdict in RUNNER_POOLS `_admission` (scripts/ci/expected_wait.py)
+calls saturated, (queued + running) / runners x p50 run time over 5 minutes, is
+skipped and the run takes the next rung. Only a verdict at most VERDICT_MAX_MINUTES
+old counts; none, a stale one or an unreadable RUNNER_POOLS changes nothing.
+Nightly and promote runs never skip (they never take Blacksmith).
 """
 
 from __future__ import annotations
@@ -98,6 +105,10 @@ RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
 # running count says. 2026-10-27: blacksmith-12vcpu-macos-26 had 44 jobs queued (oldest 396 min)
 # and 0 running, so it read as 5 free slots, and nightly 40452273751's verify jobs went there.
 BLACKSMITH_STALL_MINUTES = 10
+# An expected-wait verdict older than this (the probe runs every 10 minutes) decides nothing.
+VERDICT_MAX_MINUTES = 30
+# Bands an admission verdict never moves off an owned pool: the nightly and promote paths never use Blacksmith.
+ADMISSION_EXEMPT_BANDS = frozenset({PRIORITY_NIGHTLY, PRIORITY_PROMOTE})
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
@@ -209,6 +220,8 @@ class State:
     fallback: str = BLACKSMITH[1]
     gui_required: bool = False
     band: str = PRIORITY_SIDE_JOB
+    # Owned labels whose expected wait is over the admission target (saturated_labels()).
+    saturated: frozenset[str] = frozenset()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -256,6 +269,8 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             # AWS is deliberately compile-only until its console login is
             # reliable. Keep GUI suites on a pool that advertises a GUI token.
             if state.gui_required and _owned_namespace(pool.label) == "aws":
+                continue
+            if pool.label in state.saturated and state.band not in ADMISSION_EXEMPT_BANDS:
                 continue
             if fits(pool):
                 retry = _retry_label(state, pool)
@@ -510,7 +525,31 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
                  gui_required=(env.get("CMUX_CI_GUI_REQUIRED") == "true"
                                or env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
-                 band=band)
+                 band=band, saturated=saturated_labels(env.get("RUNNER_POOLS")))
+
+
+def saturated_labels(raw: str | None, now: Any = None) -> frozenset[str]:
+    """The labels RUNNER_POOLS' `_admission` verdict calls saturated, when it is at most VERDICT_MAX_MINUTES old.
+
+    Missing, malformed, undated, stale or future verdicts name none: the pick is as it was without one."""
+    import datetime as dt
+
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return frozenset()
+    verdict = value.get("_admission") if isinstance(value, dict) else None
+    if not isinstance(verdict, dict) or not isinstance(verdict.get("pools"), dict):
+        return frozenset()
+    try:
+        at = dt.datetime.fromisoformat(str(verdict.get("at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return frozenset()
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if at.tzinfo is None or not (now - dt.timedelta(minutes=VERDICT_MAX_MINUTES) <= at <= now + dt.timedelta(minutes=1)):
+        return frozenset()
+    return frozenset(label for label, entry in verdict["pools"].items()
+                     if isinstance(label, str) and isinstance(entry, dict) and entry.get("saturated") is True)
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:

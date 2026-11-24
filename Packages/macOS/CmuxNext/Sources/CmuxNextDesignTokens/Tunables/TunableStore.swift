@@ -37,6 +37,11 @@ public nonisolated final class TunableStore: Observable, Sendable {
         /// Keys reset while the file read was pending (setting a choice back to its default is a reset):
         /// the file's value for them is not applied when the read lands.
         package var cleared: Set<String> = []
+        /// What ``settledOverride(_:)`` answered the first time each key went through it: the read a
+        /// launch-time setting (``TunableReadCadence/launch``) takes. A row reports from it whether
+        /// the stored value is the one this launch is using, instead of answering from the cadence
+        /// alone, which calls a correct arm unapplied.
+        package var launchReads: [String: TunableValue?] = [:]
 
         package init(loading: Bool = false, overrides: [String: TunableValue] = [:], descriptors: [String: TunableDescriptor] = [:], revision: Int = 0, keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]) {
             self.loading = loading
@@ -44,6 +49,14 @@ public nonisolated final class TunableStore: Observable, Sendable {
             self.descriptors = descriptors
             self.revision = revision
             self.keyPaths = keyPaths
+        }
+
+        /// The Observation key path of `key`: made once per key.
+        mutating func keyPath(_ key: String) -> KeyPath<TunableStore, Int> & Sendable {
+            if let made = keyPaths[key] { return made }
+            let made: KeyPath<TunableStore, Int> & Sendable = \TunableStore.[observed: key]
+            keyPaths[key] = made
+            return made
         }
     }
 
@@ -91,12 +104,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// The Observation key path of `key`: made once per key.
     private func keyPath(_ key: String) -> KeyPath<TunableStore, Int> & Sendable {
-        state.withLock { state in
-            if let made = state.keyPaths[key] { return made }
-            let made: KeyPath<TunableStore, Int> & Sendable = \TunableStore.[observed: key]
-            state.keyPaths[key] = made
-            return made
-        }
+        state.withLock { $0.keyPath(key) }
     }
 
     /// A tunable that was called `old`: a file that still holds `old` (and not `new`) gives `new` the
@@ -134,10 +142,14 @@ public nonisolated final class TunableStore: Observable, Sendable {
     // MARK: Reads
 
     /// The override for `key`, if any. Registers an Observation dependency.
+    /// One lock for the key path and the value: a layout reads hundreds of tunables a frame, and each
+    /// `withLock` costs a main-thread wait check in Debug and Nightly (window resize sample, 2026-11-22).
+    /// The access is registered after the read; a tracking scope installs its observers only when it ends.
     public func override(_ key: String) -> TunableValue? {
         guard active.load(ordering: .relaxed) else { return nil }
-        registrar.access(self, keyPath: keyPath(key))
-        return state.withLock { $0.overrides[key] }
+        let (path, value) = state.withLock { state in (state.keyPath(key), state.overrides[key]) }
+        registrar.access(self, keyPath: path)
+        return value
     }
 
     /// The override for `key` as the file holds it, also before `activate`'s read lands: while that
@@ -147,13 +159,42 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// any change made since launch), so what the caller launched with is what the store reports;
     /// a `set` that lands during the read wins, and the caller gets that value.
     public func settledOverride(_ key: String) -> TunableValue? {
-        guard active.load(ordering: .acquiring) else { return nil }
+        guard active.load(ordering: .acquiring) else {
+            // An inactive store answers no override, so this launch runs the default: record that as
+            // the launch read. Without it a bench build, which activates after launch, would have no
+            // record at all and report every launch-time key as not applied.
+            recordLaunchRead(key, nil)
+            return nil
+        }
         let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil && !state.cleared.contains(key) }
-        guard pending, let url = file.withLock({ $0 }) else { return state.withLock { $0.overrides[key] } }
-        // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
-        // store's own read of it is still pending (DEV and NIGHTLY)
-        if let value = validate(TunableFile.readRaw(url))[key] { merge([key: value]) }
-        return state.withLock { $0.overrides[key] }
+        if pending, let url = file.withLock({ $0 }) {
+            // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
+            // store's own read of it is still pending (DEV and NIGHTLY)
+            if let value = validate(TunableFile.readRaw(url))[key] { merge([key: value]) }
+        }
+        let answer = state.withLock { $0.overrides[key] }
+        recordLaunchRead(key, answer)
+        return answer
+    }
+
+    /// Keeps the first answer `settledOverride` gave for `key` this launch (later reads change nothing).
+    private func recordLaunchRead(_ key: String, _ value: TunableValue?) {
+        state.withLock { state in
+            if !state.launchReads.keys.contains(key) { state.launchReads[key] = .some(value) }
+        }
+    }
+
+    /// Whether anything has read `key` through ``settledOverride(_:)`` this launch: the read a
+    /// launch-time setting takes. False means no launch step has asked for it yet, so no stored
+    /// value for it is in use.
+    public func wasReadAtLaunch(_ key: String) -> Bool {
+        state.withLock { $0.launchReads.keys.contains(key) }
+    }
+
+    /// What that first read answered: nil when it answered no override (the default is in force), and
+    /// nil as well when nothing has read `key` yet, which ``wasReadAtLaunch(_:)`` tells apart.
+    public func launchReadValue(_ key: String) -> TunableValue? {
+        state.withLock { $0.launchReads[key] ?? nil }
     }
 
     /// Every override, by key.

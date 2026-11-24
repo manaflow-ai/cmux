@@ -245,6 +245,7 @@ fn signed_app() -> Option<(Option<tempfile::TempDir>, PathBuf)> {
     if let Some(app) = std::env::var_os("CMUX_FILES_HOST_SIGNED_APP") {
         return Some((None, PathBuf::from(app)));
     }
+    // affected-reads: scripts/cmux-next/files-host-dev.pin.json scripts/cmux-next/ensure-signed-pinned-asset.sh
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let pin = repo.join("scripts/cmux-next/files-host-dev.pin.json");
     if !pin.exists() {
