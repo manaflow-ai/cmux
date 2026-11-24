@@ -1294,3 +1294,103 @@ fn a_chat_never_scanned_has_a_copy_of_every_filled_segment() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Prompt-id lookups of a chat the size of Leo's busiest while it is written to, counted and
+/// timed (one harness, before and after): `cargo test --release -p acpmux --lib
+/// kind_index_lookup_bench -- --ignored --nocapture`. One chat of `ACPMUX_KIND_BENCH_TURNS` turns
+/// (default 12,000: about 330,000 lines, 200,000 of them indexed, in some 600 segments of 256
+/// KiB, as his chat of 221,388 indexed lines in 771 segments), its copies made, then read by a
+/// new store per leg as a daemon start reads them. Each lookup follows a turn appended to the chat:
+/// `resend`, a resend's two keyed scans ([`resend_reads`], `prompt_with`'s
+/// `logged_inbox_answer` and `logged_prompt_records`); `resend_past_budget`, the same with the
+/// held heads' budget at 1 MiB, so the scans read the copies the heads lost (a chat past
+/// `kind_heads::BUDGET`, or many chats at once); `indexed`, an inbox scan of one prompt's
+/// records through every copy (`scan_kinds`). Per lookup: the bytes `fnv_on` hashed, the copies'
+/// bytes read, the thread's bytes read (Linux `rchar`), and wall time (cmux NEXT NIGHTLY
+/// f3b932edb979, 2026-11-23: `read_kind_index` → `fnv_on` led a daemon at 112% of a core).
+#[cfg(unix)]
+#[test]
+#[ignore = "a timing harness, run by hand"]
+fn kind_index_lookup_bench() {
+    let env = |name: &str, default: u64| {
+        std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    };
+    let turns = env("ACPMUX_KIND_BENCH_TURNS", 12_000);
+    let lookups = env("ACPMUX_KIND_BENCH_LOOKUPS", 40);
+    let segment_bytes = 256 << 10;
+    let root = root();
+    let mut seq = 0;
+    {
+        let store = LocalStore::new(root.clone(), segment_bytes).unwrap();
+        let mut log = Vec::new();
+        for turn in 0..turns {
+            append_busy_turn(&store, "coord", &mut seq, turn, &mut log);
+            log.clear();
+        }
+        store.flush().unwrap();
+        // The copies made, as a running daemon's log loads made them.
+        store.scan_kinds("coord", INDEXED_KINDS, &mut |_| true).unwrap();
+    }
+    let segments =
+        LocalStore::new(root.clone(), segment_bytes).unwrap().segments("coord").unwrap().len();
+    let copy_bytes: u64 = std::fs::read_dir(root.join("coord").join(DIR))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    let indexed = |store: &LocalStore, prompt: &str| {
+        let mut seen = 0u64;
+        store
+            .scan_kinds("coord", &["inbox", "inbox_answered"], &mut |r| {
+                seen += u64::from(r.msg["promptId"] == prompt);
+                true
+            })
+            .unwrap();
+        seen
+    };
+    let mut turn = turns;
+    for label in ["resend", "resend_past_budget", "indexed"] {
+        // A store of its own, as a daemon start: nothing held of an earlier leg.
+        let store = LocalStore::new(root.clone(), segment_bytes).unwrap();
+        let resend = label.starts_with("resend");
+        kind_heads::BUDGET_FOR.with(|b| b.set((label == "resend_past_budget").then_some(1 << 20)));
+        // The first lookup after a start hashes every copy it reads once.
+        let warm = busy_id('m', 0);
+        if resend {
+            resend_reads(&store, "coord", &warm);
+        } else {
+            indexed(&store, &warm);
+        }
+        kind_index::HASHED.with(|n| n.set(0));
+        kind_index::COPY_BYTES.with(|n| n.set(0));
+        let (mut wall, read0) = (std::time::Duration::ZERO, thread_read_bytes());
+        for call in 0..lookups {
+            let mut log = Vec::new();
+            append_busy_turn(&store, "coord", &mut seq, turn, &mut log);
+            turn += 1;
+            store.flush().unwrap();
+            let asked = (call * 7919) % turns;
+            let started = std::time::Instant::now();
+            let found = if resend {
+                resend_reads(&store, "coord", &busy_id('p', asked))
+            } else {
+                indexed(&store, &busy_id('m', asked - asked % 3))
+            };
+            wall += started.elapsed();
+            assert!(found > 0, "{label}: lookup {call} found nothing");
+        }
+        let per = |n: u64| n as f64 / lookups as f64;
+        println!(
+            "KIND_INDEX_BENCH {label} turns={turns} lines={seq} segments={segments} \
+             copy_mib={:.1} lookups={lookups} hashed_kib_per_lookup={:.1} \
+             copy_read_kib_per_lookup={:.1} thread_read_kib_per_lookup={:.1} \
+             wall_ms_per_lookup={:.2}",
+            copy_bytes as f64 / f64::from(1 << 20),
+            per(kind_index::HASHED.with(std::cell::Cell::get)) / 1024.0,
+            per(kind_index::COPY_BYTES.with(std::cell::Cell::get)) / 1024.0,
+            per(thread_read_bytes() - read0) / 1024.0,
+            wall.as_secs_f64() * 1e3 / lookups as f64,
+        );
+    }
+    kind_heads::BUDGET_FOR.with(|b| b.set(None));
+    let _ = std::fs::remove_dir_all(&root);
+}

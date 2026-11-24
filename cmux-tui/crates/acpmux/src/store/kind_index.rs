@@ -246,7 +246,17 @@ const FNV_START: u64 = 0xcbf2_9ce4_8422_2325;
 
 /// FNV-1a from `state` (a hash of the bytes before) over `bytes`.
 fn fnv_on(state: u64, bytes: &[u8]) -> u64 {
+    #[cfg(test)]
+    HASHED.with(|n| n.set(n.get() + bytes.len() as u64));
     bytes.iter().fold(state, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Bytes this thread's copy reads and writes hashed ([`fnv_on`]).
+    pub(super) static HASHED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bytes of copies this thread read ([`LocalStore::read_kind_index`]).
+    pub(super) static COPY_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// One addition to a copy at a time in this process: two scans of a chat that added at once
@@ -652,6 +662,8 @@ impl LocalStore {
         let mut bytes = Vec::new();
         let copy = self.kind_index_path(id, index);
         crate::config::private_state_file(&copy).ok()?.read_to_end(&mut bytes).ok()?;
+        #[cfg(test)]
+        COPY_BYTES.with(|n| n.set(n.get() + bytes.len() as u64));
         let end = bytes.iter().position(|b| *b == b'\n')?;
         let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
         let id = segment.id;
