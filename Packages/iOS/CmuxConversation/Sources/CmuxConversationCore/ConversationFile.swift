@@ -96,7 +96,8 @@ extension ConversationBackend {
 /// ``report`` around each attachment's upload; a backend that moves bytes
 /// calls it with the fraction of that attachment sent so far (0...1), and the
 /// sending row shows it ("Uploading 42%"). Unbound, reports go nowhere.
-public enum ConversationUploadProgress {
+public struct ConversationUploadProgress {
+    public init() {}
     @TaskLocal public static var report: (@Sendable (Double) -> Void)?
 
     /// Reports `fraction` (clamped to 0...1) to the send in flight, if any.
