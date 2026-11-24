@@ -33,6 +33,9 @@ impl Hub {
         if self.evicted.after().is_some() {
             self.wake_idle_reaper();
         }
+        // Closed sessions' temporary folders, now and every hour (`closed_tmp.rs`).
+        #[cfg(unix)]
+        self.sweep_closed_tmps();
         self.bg_notify_resume_in_background();
     }
 
