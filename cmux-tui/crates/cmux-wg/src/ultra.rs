@@ -715,6 +715,7 @@ pub(crate) struct UltraUnderlay {
     group: Option<Group>,
     received: Kept,
     /// Rebuild from parity: on when this side sends FEC or the peer does.
+    /// While off, only datagrams Auto's floor protects are kept.
     decoding: bool,
     /// Parities still waiting for a member, with where they came from.
     pending: VecDeque<(Vec<u8>, Origin)>,
@@ -946,8 +947,8 @@ impl UltraUnderlay {
         }
         let Some(parity) = parse_parity(datagram) else { return };
         UltraCounters::add(&self.counters.parity_received, 1);
-        // Kept datagrams start with the first trusted parity; that group is
-        // not rebuilt.
+        // Every datagram is kept from the first trusted parity on; before
+        // it only small ones were, so a first group of those is rebuilt.
         self.decoding = true;
         if parity.code == Code::ReedSolomon {
             let key = parity.group_key();
@@ -1160,8 +1161,13 @@ impl Underlay for UltraUnderlay {
         if let Some((index, counter)) = staged {
             self.meter.observe(index, counter, self.staged_rebuilt);
         }
+        // Before the first trusted parity, small datagrams are kept anyway:
+        // they are what Auto's floor protects, and a sender whose first
+        // protected keystroke is lost sends that parity right behind it, so
+        // its group (often of one) must already be kept to be rebuilt. Bulk
+        // datagrams are not copied until parity shows the peer sends it.
         if let Some((index, counter)) = staged
-            && self.decoding
+            && (self.decoding || WG_DATA_HEADER + self.staged_bytes.len() <= FLOOR_MAX_DATAGRAM)
         {
             let ciphertext = std::mem::take(&mut self.staged_bytes);
             self.on_data(index, counter, &ciphertext);
