@@ -270,13 +270,7 @@ impl Hub {
         // the log's start (`restore_point.rs`); `read_to` is the seq they read through. A load
         // for a journal restore reads the whole log: its recovery runs later, on the records the
         // restore puts back.
-        let point = if recover {
-            crate::send_probe::timed("load: read_restore_point", || {
-                self.read_restore_point(session)
-            })
-        } else {
-            None
-        };
+        let point = if recover { self.read_restore_point(session) } else { None };
         let read_to = self.settled_seq(session);
         let epoch = match self.restore_ownership_epoch_after(session, point.as_ref()) {
             Ok(epoch) => Some(epoch),
@@ -295,19 +289,15 @@ impl Hub {
         }
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
-        let quiet = crate::send_probe::timed("load: recover_log", || {
-            self.recover_log(session, None, point.as_ref())
-        });
+        let quiet = self.recover_log(session, None, point.as_ref());
         // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
         // the journal are left to that prompt's read, which reads them too.
         if !Self::keeps_unstored(session) {
-            crate::send_probe::timed("load: prompt_stops", || {
-                self.seed_prompt_stops(
-                    session,
-                    point.as_ref().map_or(0, |p| p.seq),
-                    point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
-                )
-            });
+            self.seed_prompt_stops(
+                session,
+                point.as_ref().map_or(0, |p| p.seq),
+                point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
+            );
         }
         // Quiet: every fold read through `read_to` and ended with nothing waiting, nothing was
         // appended meanwhile, and nothing is kept apart from the journal. The next load begins
@@ -341,12 +331,10 @@ impl Hub {
         {
             let session = session.clone();
             tokio::task::spawn_blocking(move || {
-                crate::send_probe::timed("load: inbox", || {
-                    crate::qos::background(|| drop(session.inbox()))
-                });
+                crate::qos::background(|| drop(session.inbox()));
             });
         }
-        crate::send_probe::timed("load: resume_loaded", || self.resume_loaded(session, hosted));
+        self.resume_loaded(session, hosted);
     }
 
     /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point

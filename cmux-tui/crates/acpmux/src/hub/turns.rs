@@ -206,9 +206,7 @@ impl Hub {
         // Read this log now, ahead of queued background loads, while keeping the prompt
         // behind adoption's recovered turn below.
         self.session_log(session).await;
-        crate::send_probe::at("pw: session_log");
         self.wait_adopted(session).await;
-        crate::send_probe::at("pw: wait_adopted");
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
         if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;
@@ -228,7 +226,6 @@ impl Hub {
             });
         }
         self.pair_logs(opts.provenance.as_ref()).await;
-        crate::send_probe::at("pw: pair_logs");
         // Opt-in usage patterns: a prompt (or steer) on this harness; never its text.
         if cmux_usage_patterns::enabled() {
             let harness = session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
@@ -376,7 +373,6 @@ impl Hub {
         // event.
         ensure_message_provenance(&mut opts, &session.id);
         let message = message_context(self, session, &blocks, &opts, &prompt_id);
-        crate::send_probe::at("pw: message_context");
         embed_message_context(&mut opts, message.as_ref(), &session.id);
         // Remember the outcome only for a prompt that reached the session:
         // one refused before that (no agent, a bad session) may be sent again.
@@ -486,7 +482,6 @@ impl Hub {
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
-        crate::send_probe::at("rpj: entry");
         let prompt_id = opts.prompt_id.take().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
@@ -495,7 +490,6 @@ impl Hub {
         // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
         crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
-        crate::send_probe::at("rpj: uploads");
         if let Some(guard) = opts.race_guard.as_ref() {
             guard()?;
         }
@@ -530,7 +524,6 @@ impl Hub {
             return Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":receipt}}));
         }
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
-        crate::send_probe::at("rpj: surge+pressure");
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
@@ -697,7 +690,6 @@ impl Hub {
         }
         if !live {
             self.cold_prompt_check(session).await?;
-            crate::send_probe::at("rpj: cold_prompt_check");
         }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error(session));
@@ -834,7 +826,6 @@ impl Hub {
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
-        crate::send_probe::at("rpj: forum_refresh_push");
         if let Err(e) = self
             .check_dispatch(
                 session,
@@ -854,7 +845,6 @@ impl Hub {
         // A family prompt that waited is checked again: the receiver may ask
         // less than its sender now (`subsession_guard.rs`).
         let bound = self.mdm_snapshot();
-        crate::send_probe::at("rpj: mdm");
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref(), bound).await {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
@@ -953,11 +943,9 @@ impl Hub {
             return Err(e);
         }
         self.arm_turn_cap(session, &turn_id);
-        crate::send_probe::at("rpj: start_turn+cap");
         // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
         // (below), and what is new steers in then.
         self.inbox_turn_started(session);
-        crate::send_probe::at("rpj: inbox_turn_started");
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
@@ -999,7 +987,6 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
-        crate::send_probe::at("rpj: take_joined");
         // The message that leads it goes back with them when the account's limit refuses the
         // turn before its model read it (`digest.rs` `requeue_unread`).
         joined.lead(&prompt_id, client, &run);
@@ -1081,7 +1068,6 @@ impl Hub {
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
-        crate::send_probe::at("rpj: lane_turn_started");
         // A family prompt (`subsessions.rs`) never clears the floor a Web
         // turn left: only a local turn the person or a client starts does.
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
@@ -1093,7 +1079,6 @@ impl Hub {
             .cloud_mobile_turn
             .store(control == Control::Web && run.cloud_mobile, Ordering::SeqCst);
         self.reset_stream(session);
-        crate::send_probe::at("rpj: reset_stream");
         // A forced Stop retires the logical turn even if Claude's compaction
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
@@ -1103,7 +1088,6 @@ impl Hub {
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile, "trustGate": run.trust_gate});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
-        crate::send_probe::at("rpj: append_prompt");
         if trigger {
             self.start_trigger_background(session, &turn_id);
         }
@@ -1126,7 +1110,6 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
-        crate::send_probe::at("rpj: wake_cause");
         // A start for this turn asks for suggestions only when a person's prompt starts it.
         session
             .start_for
@@ -1134,7 +1117,6 @@ impl Hub {
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
-        crate::send_probe::at("rpj: child_for_since");
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
         if let Err(e) = &started
@@ -1210,7 +1192,6 @@ impl Hub {
             return Err(e);
         }
         // Held until the prompt is written: an MDM off push waits for it (`family_gate`).
-        crate::send_probe::at("rpj: before family_gate");
         let mut family_gate = match self.family_gate(session, run.provenance.as_ref()).await {
             Ok(gate) => gate,
             Err(e) => {
@@ -1239,7 +1220,6 @@ impl Hub {
         let team_enabled =
             self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
         let team_messages = if team_enabled && super::forum::slash_command(&blocks).is_none() {
-            crate::send_probe::at("rpj: team cfg");
             self.take_team_messages(session)
         } else {
             Vec::new()
@@ -1252,7 +1232,6 @@ impl Hub {
             blocks.insert(0, label);
         }
         super::team_information::prepend(&mut blocks, &team_messages);
-        crate::send_probe::at("rpj: team prepend");
         // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
         // harness writer took its prompt: `on_sent` then logs it.
         let confirm_team_write = !team_messages.is_empty()
@@ -1271,7 +1250,6 @@ impl Hub {
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
-        crate::send_probe::at("rpj: forum_context");
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -1285,11 +1263,9 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
-        crate::send_probe::at("rpj: turn_started+shots");
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let wire = agent_blocks(self, session, &blocks).await;
-        crate::send_probe::at("rpj: agent_blocks");
         let stopped = session.cancels.load(Ordering::SeqCst) != cancels
             || session.stops.load(Ordering::SeqCst) != stops;
         let control = {
@@ -1344,21 +1320,16 @@ impl Hub {
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
         self.hold_stalled_count(session);
-        crate::send_probe::at("rpj: hold_stalled");
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         if !trigger {
             self.clear_deferred_unread(session);
         }
         self.end_foreground_subagents(session);
-        crate::send_probe::at("rpj: end_fg_subagents");
         self.set_status(session, SessionStatus::Running);
-        crate::send_probe::at("rpj: set_status running");
         self.watch_silent_turn(session, &turn_id).await;
-        crate::send_probe::at("rpj: watch_silent");
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
         #[cfg(test)]
         self.pause_at_family_write().await;
-        crate::send_probe::at("rpj: family_write");
         let fence = family_gate.take().map(|hold| self.hold_until_written(session, hold));
         // A fence no writer took (an error before it was handed on) is cut: nothing waits on it
         // (review 86 of #23322); a written one stays written.
@@ -1371,9 +1342,7 @@ impl Hub {
         // Only a person's own turn makes a recap worth asking for (`away_recap.rs`), or a
         // summary worth a model call (`rolling_summary.rs`).
         self.recap_turn_started(session, person);
-        crate::send_probe::at("rpj: recap");
         self.summary_turn_started(session, person);
-        crate::send_probe::at("rpj: summary");
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,

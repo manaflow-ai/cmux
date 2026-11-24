@@ -2013,10 +2013,6 @@ impl Hub {
         if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
-        crate::send_probe::timed("catch_up_locked", || self.catch_up_locked_inner(session));
-    }
-
-    fn catch_up_locked_inner(&self, session: &Session) {
         #[cfg(test)]
         log_load::catch_up_note(&log_load::NOTE_IN_CATCH_UP, "counts the tail");
         let after =

@@ -119,11 +119,6 @@ impl Hub {
         // taken the host's last lines yet when its exit entry comes through.
         let last_stderr: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
-            crate::send_probe::at(&format!(
-                "tap {} {}",
-                if matches!(dir, Direction::In) { "in" } else { "out" },
-                msg.method().unwrap_or("response")
-            ));
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
