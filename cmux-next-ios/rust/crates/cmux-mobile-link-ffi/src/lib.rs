@@ -289,6 +289,8 @@ pub struct LinkHandle {
     _signaling: Arc<WarmSocket>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
+    /// A direct path's peer address (`peer_scope`).
+    peer: cmux_mobile_link::dial::PeerAddr,
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
     session_id: String,
@@ -535,6 +537,14 @@ impl LinkHandle {
 
     pub fn path(&self) -> LinkPath {
         (*self.path.borrow()).into()
+    }
+
+    /// Where the direct path's peer address is: `lan`, `tailnet` (100.64.0.0/10 or Tailscale's
+    /// IPv6 range), `wan`, or empty on a relayed path or before a route
+    /// (`cmux_mobile_link::dial::peer_scope`). The app's DEBUG hand-off receipt names it, so a dev
+    /// link over Tailscale says so.
+    pub fn peer_scope(&self) -> String {
+        cmux_mobile_link::dial::peer_scope(*self.peer.borrow()).to_owned()
     }
 
     pub fn is_closed(&self) -> bool {
@@ -911,6 +921,7 @@ async fn connect_on(
         _signaling: signaling,
         transport,
         path: connected.path,
+        peer: connected.peer,
         watcher: Mutex::new(Some(watcher)),
         timeline,
         session_id: connected.session_id,
