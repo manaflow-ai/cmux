@@ -3,7 +3,7 @@ import Foundation
 /// Clipboard-safe text assembled by the focused chat copy actions. File rows are paths only:
 /// config and transcript contents can contain credentials, so each file's contents is its own named
 /// palette action (Copy Transcript File, Copy Harness Config File, ...) rather than a side effect of
-/// copying session metadata.
+/// copying session metadata. (Linux pool one-line-edit timing probe; never merged.)
 enum AgentChatCopyText {
     struct File: Sendable, Hashable {
         let label: String
