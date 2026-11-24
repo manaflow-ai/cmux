@@ -264,7 +264,7 @@ async fn from_platform(platform: &Platform) -> Option<Value> {
         let bearer = platform.bearer.get().await?;
         // reqwest is built without a default TLS provider (as `mesh_http::HttpHub::new` does).
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers().ok()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))

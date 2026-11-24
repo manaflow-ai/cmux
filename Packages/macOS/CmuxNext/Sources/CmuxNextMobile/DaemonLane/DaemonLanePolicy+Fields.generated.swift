@@ -121,6 +121,7 @@ extension DaemonLanePolicy {
         "subscribe": ["surface", "tree_events"],
         "swap-pane": ["dir", "pane", "target"],
         "terminal-events": ["after_revision"],
+        "terminal-find": ["before", "case_sensitive", "epoch", "max_matches", "page_rows", "query", "regex", "surface", "whole_word"],
         "undo-layout": ["confirm_close", "pane", "revision"],
         "ungroup-tab-group": ["group"],
         "unsave-tab-group": ["group"],
