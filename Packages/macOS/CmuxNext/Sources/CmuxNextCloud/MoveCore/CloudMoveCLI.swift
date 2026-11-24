@@ -315,10 +315,24 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// the backend team the start's machines are made in (the install token's): a team's gateway serves only its own
     /// machines, so the active team's would wave through a start no gateway serves.
     public func inferenceGatewayServes(team: String) async -> Set<String>? {
-        guard let out = try? await output(["verb": "inference-gateway-status", "team": team]).stdout,
-              let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any], answer["ok"] as? Bool == true,
-              let serves = answer["serves"] as? [String] else { return nil }
-        return Set(serves)
+        await inferenceGatewayRead(team: team).serves
+    }
+
+    /// ``inferenceGatewayServes(team:)`` with why a read gave no `serves`: the status's own error code and message,
+    /// or how the run ended (the start gate logs it, so a refused start says which read failed; hq cloud-chat-works).
+    public func inferenceGatewayRead(team: String) async -> (serves: Set<String>?, why: String?) {
+        let result: ProcessResult
+        do { result = try await output(["verb": "inference-gateway-status", "team": team]) } catch { return (nil, "run: \(error)") }
+        guard let answer = (try? JSONSerialization.jsonObject(with: result.stdout)) as? [String: Any] else {
+            return (nil, "exit \(result.status), no JSON answer")
+        }
+        guard answer["ok"] as? Bool == true, let serves = answer["serves"] as? [String] else {
+            let error = answer["error"] as? [String: Any]
+            let code = (error?["code"] as? String) ?? (answer["error_code"] as? String) ?? "-"
+            let message = (error?["message"] as? String) ?? (answer["error"] as? String) ?? ""
+            return (nil, "exit \(result.status) \(code) \(message.prefix(200))")
+        }
+        return (Set(serves), nil)
     }
 
     /// What the gateways of TEAMS serve together (nil teams skipped, each asked once), nil when none answers. A start's
