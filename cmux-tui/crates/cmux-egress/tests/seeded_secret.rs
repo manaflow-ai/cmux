@@ -39,7 +39,9 @@ async fn an_encoded_secret_is_found_too() {
     let client = cmux_egress::client(SITE).unwrap();
     client
         .post("https://cloud-api.cmux.dev/v1/form")
-        .form(&[("value", secret)])
+        .header("content-type", "application/x-www-form-urlencoded")
+        // How a form encoder writes `secret` (reqwest's `form` feature is off here).
+        .body("value=seeded%2F9c2e+encoded")
         .send()
         .await
         .unwrap();

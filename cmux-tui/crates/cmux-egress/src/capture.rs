@@ -49,24 +49,73 @@ pub struct Captured {
 
 impl Captured {
     /// Where in this request `secret` appears: `"target"`, `"header NAME"` or
-    /// `"body"`, each once.
+    /// `"body"`, each once. Each place is read as sent and percent-decoded, and
+    /// the secret is looked for as itself and base64-encoded (standard and
+    /// URL-safe, at every byte alignment), so an encoded copy is still found.
     pub fn carries(&self, secret: &str) -> Vec<String> {
+        let forms = forms(secret);
         let mut found = Vec::new();
-        if self.target.contains(secret) || percent_decoded(&self.target).contains(secret) {
+        if holds(self.target.as_bytes(), &forms) {
             found.push("target".to_owned());
         }
         for (name, value) in &self.headers {
-            if value.contains(secret) || name.contains(secret) {
+            if holds(value.as_bytes(), &forms) || holds(name.as_bytes(), &forms) {
                 found.push(format!("header {name}"));
             }
         }
-        if contains(&self.body, secret.as_bytes())
-            || percent_decoded(&String::from_utf8_lossy(&self.body)).contains(secret)
-        {
+        if holds(&self.body, &forms) {
             found.push("body".to_owned());
         }
         found
     }
+}
+
+/// Whether `text`, as sent or percent-decoded, contains any of `forms`.
+fn holds(text: &[u8], forms: &[Vec<u8>]) -> bool {
+    let decoded = percent_decoded(&String::from_utf8_lossy(text));
+    forms.iter().any(|form| contains(text, form) || contains(decoded.as_bytes(), form))
+}
+
+/// `secret` itself, then the base64 text its bytes alone decide, at each of the
+/// three alignments it can start at inside a longer encoded value, in the
+/// standard and URL-safe alphabets. A run shorter than 4 characters is left
+/// out: it would match by chance.
+fn forms(secret: &str) -> Vec<Vec<u8>> {
+    const STANDARD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const URL_SAFE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut forms = vec![secret.as_bytes().to_vec()];
+    for offset in 0..3 {
+        let mut bytes = vec![0u8; offset];
+        bytes.extend_from_slice(secret.as_bytes());
+        // Characters wholly inside the secret's bits: [ceil(8*offset/6), floor(8*len/6)).
+        let first = (8 * offset).div_ceil(6);
+        let end = 8 * bytes.len() / 6;
+        if end < first + 4 {
+            continue;
+        }
+        for alphabet in [STANDARD, URL_SAFE] {
+            let encoded = base64_unpadded(&bytes, alphabet);
+            let core = encoded[first..end].to_vec();
+            if !forms.contains(&core) {
+                forms.push(core);
+            }
+        }
+    }
+    forms
+}
+
+/// `bytes` base64-encoded with `alphabet`, without `=` padding.
+fn base64_unpadded(bytes: &[u8], alphabet: &[u8; 64]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let word = (u32::from(chunk[0]) << 16)
+            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        for i in 0..=chunk.len() {
+            out.push(alphabet[((word >> (18 - 6 * i)) & 63) as usize]);
+        }
+    }
+    out
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -237,10 +286,12 @@ async fn serve(
     seen: Arc<Mutex<Vec<Captured>>>,
 ) {
     let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
+    // One task per connection, owned by the server loop (it lives as long as the test process).
+    let connections = cmux_scope::Scope::new("egress-capture");
     while let Ok((stream, _)) = listener.accept().await {
         let acceptor = acceptor.clone();
         let seen = seen.clone();
-        tokio::spawn(async move {
+        connections.spawn_named("egress-capture-connection", async move {
             let Ok(tls) = acceptor.accept(stream).await else { return };
             let host = tls.get_ref().1.server_name().unwrap_or_default().to_owned();
             let service = hyper::service::service_fn(move |request: Request<Incoming>| {
@@ -279,5 +330,57 @@ async fn serve(
                 .serve_connection(TokioIo::new(tls), service)
                 .await;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Captured;
+
+    const SECRET: &str = "seeded-SECRET-7f3a";
+
+    fn request(target: &str, headers: &[(&str, &str)], body: &str) -> Captured {
+        Captured {
+            host: "api.example".to_owned(),
+            method: "POST".to_owned(),
+            target: target.to_owned(),
+            headers: headers.iter().map(|(n, v)| ((*n).to_owned(), (*v).to_owned())).collect(),
+            body: body.as_bytes().to_vec(),
+        }
+    }
+
+    // Reference encodings from Python's base64 module, not from capture's own encoder.
+    #[test]
+    fn a_base64_copy_is_found_at_every_alignment_in_both_alphabets() {
+        for body in [
+            "c2VlZGVkLVNFQ1JFVC03ZjNhdGFpbA==", // standard, secret at byte 0
+            "YXNlZWRlZC1TRUNSRVQtN2YzYXRhaWw=", // standard, after 1 byte
+            "YWJzZWVkZWQtU0VDUkVULTdmM2F0YWls", // standard, after 2 bytes
+        ] {
+            assert_eq!(request("/", &[], body).carries(SECRET), ["body"], "{body}");
+        }
+        for value in [
+            "c2VlZGVkLVNFQ1JFVC03ZjNhPz4=",     // URL-safe, at byte 0
+            "YXNlZWRlZC1TRUNSRVQtN2YzYT8-",     // URL-safe, after 1 byte ('-')
+            "YWJzZWVkZWQtU0VDUkVULTdmM2E_Pg==", // URL-safe, after 2 bytes ('_')
+        ] {
+            assert_eq!(request("/", &[("x-blob", value)], "").carries(SECRET), ["header x-blob"]);
+        }
+        let in_query = request("/upload?data=YWJzZWVkZWQtU0VDUkVULTdmM2F0YWls", &[], "");
+        assert_eq!(in_query.carries(SECRET), ["target"]);
+    }
+
+    #[test]
+    fn a_percent_encoded_header_value_is_found() {
+        let sent = request("/", &[("x-auth", "Bearer%20seeded-SECRET-7f3a")], "");
+        assert_eq!(sent.carries("Bearer seeded-SECRET-7f3a"), ["header x-auth"]);
+    }
+
+    #[test]
+    fn a_neighbouring_secret_is_not_a_match() {
+        // base64 of "seeded-SECRET-7f3b": shares every character but the last few.
+        let sent =
+            request("/", &[("x-blob", "c2VlZGVkLVNFQ1JFVC03ZjNi")], "c2VlZGVkLVNFQ1JFVC03ZjNi");
+        assert!(sent.carries(SECRET).is_empty());
     }
 }

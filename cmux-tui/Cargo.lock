@@ -1425,6 +1425,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
+name = "cmux-braid-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1860,9 +1876,17 @@ dependencies = [
 name = "cmux-egress"
 version = "1.0.0"
 dependencies = [
+ "bytes",
+ "cmux-egress",
+ "cmux-scope",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
 ]
 
@@ -2321,6 +2345,7 @@ dependencies = [
  "cmux-process",
  "flate2",
  "fuser",
+ "ignore",
  "libc",
  "reqwest",
  "rustls",
@@ -2372,12 +2397,17 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "windows",
  "windows-sys 0.61.2",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2399,6 +2429,14 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-redact"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
  "serde_json",
 ]
 
@@ -2430,6 +2468,8 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
+ "cmux-braid-session",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2713,6 +2753,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -2891,6 +2939,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",

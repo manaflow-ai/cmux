@@ -82,6 +82,7 @@ cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
+cmux-tailnet-join.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
@@ -287,6 +288,8 @@ cmux-composer-send.workspace = true
 cmux-layout-reducer.workspace = true
 # cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
 cmux-action-catalog.workspace = true
+# Seeded-secret tests: the gate sends each payload path's request to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).

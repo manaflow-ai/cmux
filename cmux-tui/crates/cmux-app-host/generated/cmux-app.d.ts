@@ -102,6 +102,7 @@ declare namespace Cmux {
   type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
   type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
   type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
+  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -150,7 +151,8 @@ declare namespace Cmux {
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment>; review?: Cmux.DiffReviewTarget }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
-  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string>; threads?: Array<string> }
+  type DiffCommentsThreadResult = { comment: Cmux.DiffComment }
   type DiffReviewTarget = { url: string; repo: string; number: number; title: string; head: string; base: string }
   type EgressHost = string
   type EmailAddress = string
@@ -925,6 +927,10 @@ interface CmuxGlobal {
       /** `cloud.surge.preview` (read, scope `cloud:read`): Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
       preview: CmuxOp<{ count: number; ttl_seconds: number }, Cmux.CloudSurgePreview>
     }
+    usage: {
+      /** `cloud.usage.current` (read, scope `cloud:read`): The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+      current: CmuxOp<Record<string, never>, Cmux.CloudUsageCurrent>
+    }
     vm: {
       attention: {
         /** `cloud.vm.attention.emit` (mutation, scope `cloud:execute`): Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -1021,6 +1027,8 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
       /** `diff.comments.save` (mutation, scope `diff:write`) */
       save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `diff.comments.thread` (mutation, scope `diff:write`) */
+      thread: CmuxOp<{ machine?: string; session?: string; root: string; id: string; reply?: string; author?: "reviewer" | "agent"; resolved?: boolean }, Cmux.MutationResult<Cmux.DiffCommentsThreadResult>>
     }
   }
   diffs: {

@@ -11,7 +11,7 @@ description = "The daemon's egress gate: every HTTP client cmux makes for itself
 # blocking_client_builder: a gated reqwest::blocking client.
 blocking = ["reqwest/blocking"]
 # capture::install: the seeded-secret tests' local TLS server (dev-dependencies only, never a shipped build).
-capture = ["dep:bytes", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:rcgen", "dep:tokio-rustls", "tokio/rt"]
+capture = ["dep:bytes", "dep:cmux-scope", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:rcgen", "dep:tokio-rustls", "tokio/rt"]
 
 [dependencies]
 reqwest.workspace = true
@@ -19,6 +19,7 @@ rustls.workspace = true
 tokio = { workspace = true, features = ["net"] }
 tokio-tungstenite.workspace = true
 bytes = { workspace = true, optional = true }
+cmux-scope = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, features = ["service", "tokio"], optional = true }
