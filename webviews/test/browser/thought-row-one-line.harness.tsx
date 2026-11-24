@@ -55,9 +55,19 @@ const rows: [string, () => React.ReactNode][] = [
 
 document.body.style.margin = "0";
 createRoot(document.getElementById("root")!).render(
-  <div className="acpmux-scroll" style={{ display: "block", width: 520, padding: "0 16px" }}>
+  // The transcript's scroller for its type tokens, without its strict containment and clip: unsized here,
+  // it would lay out 0px tall and take every click.
+  <div
+    className="acpmux-scroll"
+    style={{ display: "block", width: 520, padding: "0 16px", contain: "none", overflow: "visible" }}
+  >
     {rows.map(([id, row]) => (
-      <div key={id} className="acpmux-row" data-testid={id} style={{ position: "relative" }}>
+      <div
+        key={id}
+        className="acpmux-row"
+        data-testid={id}
+        style={{ position: "relative", left: 0, right: 0, width: "100%" }}
+      >
         {row()}
       </div>
     ))}
