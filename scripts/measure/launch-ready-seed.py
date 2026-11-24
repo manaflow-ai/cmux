@@ -24,7 +24,7 @@ Prints one `LR-SEED {json}` line: windows, this seed's workspaces in each window
 `error` when the session it made is not that shape. Exit 0 when the shape holds, 1 when not, 2 when the socket never
 answered.
 """
-import argparse, json, socket, sys, time
+import argparse, json, os, socket, sys, time
 
 
 def rpc(path, method, params=None, timeout=60):
@@ -233,6 +233,12 @@ def main(argv=None):
         seed.row = {"close_asked": args.close_workspace}
     if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
         seed.row["error"], code = "the control socket never answered with a loaded topology and a window in 120 s", 2
+        # Which of the three it was: no socket file, a socket that refuses or errors, or a topology not loaded yet.
+        seed.row["socket_exists"] = os.path.exists(args.socket)
+        try:
+            seed.row["last_reply"] = json.dumps(rpc(args.socket, "snapshot.get", timeout=10))[:600]
+        except Exception as e:  # noqa: BLE001 - the reason is the output
+            seed.row["last_reply"] = "%s: %s" % (type(e).__name__, e)
     else:
         try:
             if args.close_workspace:

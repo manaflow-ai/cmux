@@ -18,6 +18,8 @@ mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
+#[cfg(test)]
+mod recipes_tests;
 mod scaffold;
 mod scene;
 mod scene_type;
@@ -71,7 +73,7 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
-                               newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               newtab (a view over the New Tab composer, picked in tabs.newTabApp),
                                widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool);
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
@@ -736,6 +738,17 @@ pub(super) fn load_customize_folder(global: &GlobalArgs, folder: &std::path::Pat
             .then(|| rejected.field("issue").as_str().unwrap_or("refused").to_owned())
     });
     refused.map_or(FolderLoad::Loaded, FolderLoad::Refused)
+}
+
+/// One daemon request on the session socket `global` names: the answer's data, or the daemon's
+/// refusal as `code: message`; `Err` when there is no daemon or it did not answer.
+pub(in crate::cli) fn daemon_call(
+    global: &GlobalArgs,
+    request: Value,
+) -> Result<Result<Value, String>, String> {
+    let (sender, wakes) = channel();
+    let mut daemon = daemon::Daemon::connect(global, sender, wakes)?;
+    daemon.call(request).map_err(|_| "the cmux daemon did not answer".to_string())
 }
 
 /// The daemon's `apps-reload` answer, or an exit code and message.

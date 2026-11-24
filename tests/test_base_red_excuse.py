@@ -3136,6 +3136,52 @@ jobs:
 NEW_BASE_SHA = "d" * 40
 
 
+class NamesakeJobsInTwoWorkflows(unittest.TestCase):
+    """hq#20438 at e60497b1 (2026-11-24): two workflows each ran a job 'tests' on the head and both were red. The base's
+    newest run of one (fleet-reconcilers tests) was cancelled by concurrency, and its run before failed the same way;
+    the other's (lane-gh-broker tests) at the same base commit passed. Each red is judged by its own workflow's base
+    runs alone, and the refusal names both runs' workflows, so a green namesake is never read as the verdict."""
+
+    def setUp(self):
+        self.gh = TwoWorkflowGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, "tests"), 2: failed_job(2, 20, BASE_SHA, "tests"),
+                        3: failed_job(3, 11, HEAD, "tests"),
+                        4: {**failed_job(4, 31, NEW_BASE_SHA, "tests"), "conclusion": "success"}}
+        for step in self.gh.jobs[4]["steps"]:
+            step["conclusion"] = "success"
+        self.gh.logs = {1: log("tests", TEST_STEP, ISSUE, "##[error]1 red tests: writesTheRequest()"),
+                        2: log("tests", TEST_STEP, ISSUE, OTHER, "##[error]2 red tests: writesTheRequest(), palette()"),
+                        3: log("tests", TEST_STEP, OTHER, "##[error]1 red tests: palette()")}
+        # Workflow 7: its run at the newer base commit was cancelled with no verdict; the one before failed.
+        self.gh.base_runs = [{"id": 21, "workflow_id": 7, "event": "push", "head_branch": "feat-cmux-next",
+                              "status": "completed", "conclusion": "cancelled", "head_sha": NEW_BASE_SHA},
+                             {"id": 20, "workflow_id": 7, "event": "push", "head_branch": "feat-cmux-next",
+                              "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA}]
+        # Workflow 8: its run at that same newer base commit passed its own 'tests'.
+        self.gh.second_runs = [{"id": 31, "workflow_id": 8, "event": "push", "head_branch": "feat-cmux-next",
+                                "status": "completed", "conclusion": "success", "head_sha": NEW_BASE_SHA}]
+
+    def test_the_cancelled_workflows_red_is_compared_with_its_own_older_base_run(self):
+        audit = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+        self.assertIn("excused 'tests'", audit)
+        self.assertIn("run 20", audit)
+        self.assertNotIn("run 31", audit)
+
+    def test_the_green_workflows_refusal_names_both_runs_workflows(self):
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [11], self.gh)
+        text = str(refused.exception)
+        self.assertIn("'tests' is not red on feat-cmux-next run 31 (success), workflow 8, the base's run of the "
+                      "head's red in run 11 (workflow 8)", text)
+        self.assertNotIn("run 20", text)
+
+    def test_a_label_names_a_runs_workflow_by_name_and_file(self):
+        self.assertEqual(excuse.workflow_label({"name": "lane-gh-broker tests",
+                                                "path": ".github/workflows/lane-gh-broker-tests.yml"}, 397627621),
+                         "workflow 'lane-gh-broker tests' (lane-gh-broker-tests.yml)")
+        self.assertEqual(excuse.workflow_label({}, 397708542), "workflow 397708542")
+
+
 class StaleBasePass(unittest.TestCase):
     """cmux#31338 at 222ab6e3 (2026-11-02): 'cmux-next guards / defaults-snapshot' was red on feat-cmux-next from
     #31930 on, but every base run from #31930 on was still running its slower jobs, so the newest completed run was
@@ -13810,6 +13856,57 @@ class EveryReportedFailureIsNamed(unittest.TestCase):
                          UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
 
 
+class ANestedCargoRunIsCountedAgainstItsOwnBlock(unittest.TestCase):
+    """cmux#50285: a test that re-execs its own test binary with a filter prints a whole nested libtest summary inside
+    the parent target's `---- NAME stdout ----` dump. Counted against the names its runner printed since the previous
+    summary, that nested `0 passed; 1 failed; ... 6808 filtered out` matched its own one name and then emptied the
+    tally, so the target's real `9 failed` summary read as unnamed and no PR could be excused against that base red
+    (cmux job 137195667407). Each cargo summary now counts the names of its own `failures:` block (test_reds.py's
+    CARGO_LISTED, landed for the same class as #50988 while this PR waited on a rebase): these four cases pin the
+    whole live shape at the base_red_excuse layer -- the nested summary, a summary reporting more than its block
+    names, a block name no `test NAME ... FAILED` line named (a doc test: still unnamed, #41166's review F2), and a
+    log cut short before its block, which falls back to the runner's leftover names. Detector:
+    `tests/test_base_red_excuse.py` `ANestedCargoRunIsCountedAgainstItsOwnBlock`."""
+
+    NESTED = ["running 1 test", "test m::re_execs ... FAILED", "", "failures:", "",
+              "failures:", "    m::re_execs", "",
+              "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6808 filtered out; finished in 0.01s",
+              "", "", ""]
+
+    def target(self, nested=None, block=None, failed=2):
+        """One libtest target's lines: its two `... FAILED` lines, a stdout dump each (NESTED printed inside the
+        second, as the re-exec prints it), then its own `failures:` block (BLOCK, default both names) and summary."""
+        names = ["m::first", "m::re_execs"]
+        lines = ["running 6810 tests", "test m::passes ... ok"]
+        lines += [f"test {name} ... FAILED" for name in names]
+        lines += ["", "failures:", "", "---- m::first stdout ----",
+                  "thread 'm::first' panicked at src/a.rs:1:1:", "assertion failed", ""]
+        lines += ["---- m::re_execs stdout ----"] + list(nested or []) + [""]
+        lines += ["failures:"] + [f"    {name}" for name in (block or names)] + [""]
+        return lines + [f"test result: FAILED. 6724 passed; {failed} failed; 76 ignored; 0 measured; "
+                        "0 filtered out; finished in 431.31s"]
+
+    def test_the_nested_summary_does_not_empty_the_targets_tally(self):
+        self.assertEqual(TR.runner_unnamed(self.target(self.NESTED)), [])
+        self.assertEqual(TR.runner_unnamed(self.target()), [])
+
+    def test_a_summary_reporting_more_than_its_block_names_is_unnamed(self):
+        lines = self.target(self.NESTED, failed=3)
+        self.assertEqual(TR.runner_unnamed(lines), [lines[-1]])
+
+    def test_a_block_name_no_failure_line_named_is_unnamed(self):
+        # A failing doc test's `test src/lib.rs - parse (line 3) ... FAILED` is a name no parser reads, so the
+        # third failure its block names can still be told from no other (#41166's review F2).
+        lines = self.target(block=["m::first", "m::re_execs", "src/lib.rs - parse (line 3)"], failed=3)
+        self.assertEqual(TR.runner_unnamed(lines), [lines[-1]])
+
+    def test_a_log_cut_short_before_its_block_falls_back_to_the_names_since(self):
+        cut = [line for line in self.target() if not line.startswith("    ") and line != "failures:"]
+        self.assertEqual(TR.runner_unnamed(cut), [])
+        self.assertEqual(TR.runner_unnamed([line for line in cut if "FAILED" not in line or "result" in line]),
+                         [cut[-1]])
+
+
 def bun_lines(results=(), recap=(), fail=None):
     """One bun invocation of test/a.test.ts: RESULTS printed in the run, a recap of RECAP titles, ` N fail`."""
     out = ["bun test v1.3.0", "test/a.test.ts:"]
@@ -16535,7 +16632,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
-            "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
+            "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
             "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",

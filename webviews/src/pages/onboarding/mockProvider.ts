@@ -3,7 +3,7 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, type WorkStyle } from "./ops";
+import { OPS, type ImportDataKind, type OnboardingState, type DensityChoice, type WorkStyle } from "./ops";
 import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
 import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
@@ -37,6 +37,9 @@ export class MockOnboardingProvider implements PageClient {
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
+    // The intro walk probe (scripts/intro-walk.mjs) counts the ops each click sends.
+    const log = (globalThis as { cmuxOnboardingMockCalls?: { op: string; params: unknown }[] }).cmuxOnboardingMockCalls;
+    log?.push({ op, params });
     const input = (params ?? {}) as {
       id?: string | null;
       kind?: ImportDataKind;
@@ -106,6 +109,9 @@ export class MockOnboardingProvider implements PageClient {
           computerUse: {
             ...computerUse,
             allGranted,
+            // The mock's Allow is the person's: the last grant shows the done view.
+            finished: allGranted,
+            confirmsCapture: computerUse.confirmsCapture || input.pane === "screenRecording",
             comebacks: computerUse.comebacks + 1,
             rows: rows.map((row) => (row === next ? { ...row, control: "allowPrimary" as const } : row)),
           },

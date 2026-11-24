@@ -400,6 +400,38 @@ async fn unsupported_claude_side_question_falls_back_while_parent_turn_runs() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Claude's native side question takes only the question's words, so one that names an `@` tool
+/// goes to the side session, which carries the tools note (`tool_mentions.rs`); a plain one still
+/// takes the native callback.
+#[tokio::test]
+async fn a_side_question_that_names_a_tool_takes_the_side_session_while_a_claude_turn_runs() {
+    let root = std::env::temp_dir().join(format!("acpmux-btw-tool-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let id = new_chat(&mut c).await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "long-step")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "stepping").await;
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "the parent turn started");
+
+    // The fake's native callback answers no text during a turn (`fake_claude.py`), so its
+    // refusal shows the plain question took it.
+    let plain =
+        c.request(BTW, json!({"sessionId": id, "question": "plain ask", "inline": true})).await;
+    let refused = plain.expect_err("the native callback answers no text in a turn");
+    assert!(refused.contains("returned no text"), "{refused}");
+
+    let ask = "open it with @browser-use";
+    let tool =
+        c.request(BTW, json!({"sessionId": id, "question": ask, "inline": true})).await.unwrap();
+    let text = tool["text"].as_str().unwrap_or_else(|| panic!("{tool}"));
+    assert!(!text.is_empty(), "{tool}");
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "the parent turn keeps running");
+    assert_eq!(hub.sessions().len(), 1, "the side session is discarded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 async fn unsupported_claude_subtype_side_question_falls_back_while_parent_turn_runs() {
     let root = std::env::temp_dir()

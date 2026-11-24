@@ -18,6 +18,15 @@ path = "tests/test_cmux_code_mode_mcp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_code_mode_packed.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_code_mode_packed.py"
+
+[[test]]
+path = "tests/test_cmux_duress_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_linux_archive.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_linux_archive.py"
@@ -151,11 +160,6 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
 
 [[test]]
-path = "tests/test_cmux_next_owner_live.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_owner_live.py"
-
-[[test]]
 path = "tests/test_cmux_next_guardrails_blocking.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
@@ -221,6 +225,11 @@ path = "tests/test_cmux_next_media_tree_fallback.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_owner_live.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_owner_live.py"
+
+[[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
@@ -243,12 +252,22 @@ path = "tests/test_cmux_next_pr_autofix_push_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_pr_autofix_repair_on_red.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_autofix_repair_on_red.py"
+
+[[test]]
 path = "tests/test_cmux_next_pr_autofix_settings.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_changed_paths.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_control_on_jit.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_pr_merge_tree.py"
@@ -271,11 +290,6 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). It pushes a 
 path = "tests/test_cmux_next_push_roots_on_nightly_jit.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_next_push_roots_on_nightly_jit.py yourself after changing the workflow or script it reads."
-
-[[test]]
-path = "tests/test_cmux_next_pr_control_on_jit.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_reel.py"
@@ -320,6 +334,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_tip_swift_suite.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_tool_packs.py"
+lane = "manual"
+reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_cmux_next_tool_packs.py"
 
 [[test]]
 path = "tests/test_cmux_next_tour.py"

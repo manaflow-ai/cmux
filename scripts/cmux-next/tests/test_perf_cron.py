@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1213,6 +1213,10 @@ class WebUiTests(unittest.TestCase):
 
     def test_the_chat_100k_flat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-flat"))
+        self.assertEqual(cron.part_for_row("webui.sim_ladder.ratio_max@linux"), "web-ui-ladder")
+        self.assertEqual(cron.linux_bench_runs("/r", "web-ui-ladder")["suite"][0][-1], "sim-ladder")
+        self.assertEqual(cron.part_for_row("webui.sim_fidelity.divergence_max@linux"), "web-ui-fidelity")
+        self.assertEqual(cron.linux_bench_runs("/r", "web-ui-fidelity")["suite"][0][-1], "sim-fidelity")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.ratio_max@linux"), "web-ui-flat")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.long_x20.renderer_mb@linux"), "web-ui-flat")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.ratio_max@linux"), "web-ui-flat-grown")
@@ -1380,6 +1384,13 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.transcript_scroll_up.chromium.interval@linux"), "web-ui")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll-up")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "transcript-scroll-up-scale"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_chat_pages_memory_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-memory"))
+        self.assertEqual(cron.part_for_row("webui.chat_pages_memory.n10.ratio_vs_empty@linux"), "web-ui-memory")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-memory")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
@@ -1595,6 +1606,16 @@ class WebUiTests(unittest.TestCase):
         part = cron.PART_BY_NAME["web-ui"]
         self.assertFalse(cron.report_is_incomplete(part, self.REPORT))
         self.assertTrue(cron.report_is_incomplete(part, {**self.REPORT, "incomplete": ["chat-open: exit 1"]}))
+
+    def test_the_wakeup_lines_name_what_woke_an_idle_page(self):
+        stdout = ("web-ui-suite: chat-switch\n"
+                  "  chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)\n"
+                  "  chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3\n"
+                  "PERF_ROW {\"name\": \"chat_switch.unread.rest_wakeups\"}\n")
+        self.assertEqual(cron.webui_wakeup_lines(stdout), [
+            "chat-switch|   at rest for 5 s: 0 wakeups (0 timeouts, 0 intervals, 0 frames)",
+            "chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3"])
+        self.assertEqual(cron.webui_wakeup_lines(None), [])
 
     def test_the_summary_is_slowest_first_relative_to_target(self):
         lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
@@ -4517,6 +4538,37 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertEqual(routes[cron.LINUX_REQUESTS_MAX], "runner", "Blacksmith only after the controller did not answer")
         self.assertEqual(routes[cron.LINUX_REQUESTS_MAX + 1], "request", "the runner is a fallback, not the new route")
 
+    def test_a_waiting_part_holds_back_only_itself(self):
+        cur = self.cur()
+        cron.linux_route(cur, "web-ui-god", T0, True, True)
+        runner, request, waiting = cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], at(0.5), True, True)
+        self.assertEqual((runner, request, waiting), ("", "diff-viewer", ["web-ui-god"]),
+                         "coord-sim's wait held every Linux part back for hours (2026-11-23)")
+        self.assertIn("diff-viewer", cur["linux_requests"], "the part picked is asked")
+        self.assertEqual(cur["linux_requests"]["web-ui-god"]["asked_at"], cron.iso(T0), "the waiting one untouched")
+
+    def test_one_tick_runs_a_fallen_back_part_and_asks_for_another(self):
+        cur = self.cur()
+        cur["linux_requests"] = {"web-ui-god": {"asked_at": cron.iso(T0), "unanswered": cron.LINUX_REQUESTS_MAX - 1}}
+        t = T0 + self.window()
+        runner, request, waiting = cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], t, True, True)
+        self.assertEqual((runner, request, waiting), ("web-ui-god", "diff-viewer", []))
+        self.assertTrue(cur["linux_requests"]["web-ui-god"].get("fell_back_at"))
+
+    def test_every_part_waiting_picks_none_and_changes_nothing(self):
+        cur = self.cur()
+        for part in ("web-ui-god", "diff-viewer"):
+            cron.linux_route(cur, part, T0, True, True)
+        before = json.dumps(cur, sort_keys=True)
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], at(0.5), True, True),
+                         ("", "", ["web-ui-god", "diff-viewer"]))
+        self.assertEqual(json.dumps(cur, sort_keys=True), before, "the plan then yields (linux_wait_yield)")
+
+    def test_without_the_controller_the_first_part_runs(self):
+        cur = self.cur()
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], T0, False, True), ("web-ui-god", "", []))
+        self.assertNotIn("linux_requests", cur)
+
     def test_no_controller_or_an_older_commit_runs_on_the_runner(self):
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, False, True), "runner")
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, True, False), "runner",
@@ -4646,7 +4698,7 @@ class LinuxControllerRouteTests(unittest.TestCase):
     def test_plan_requests_waits_and_falls_back_to_the_runner(self):
         d = tempfile.mkdtemp()
         state = cron.empty_state(T0)
-        state["current"] = self.cur()
+        state["current"] = cron.new_measurement(self.SHA, "tip", ["web-ui-god"], T0)  # one part: nothing else runs while it waits
         state.pop("dirty", None)
         with open(os.path.join(d, "state.json"), "w") as f:
             json.dump(state, f)

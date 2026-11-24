@@ -489,6 +489,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-fault"
 version = "0.1.0"
 dependencies = [
@@ -561,6 +568,7 @@ dependencies = [
  "cmux-rd-proto",
  "cmux-transport",
  "cmux-wg",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "rcgen",
@@ -588,17 +596,20 @@ name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
+ "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-share-approval",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
+ "libc",
  "ring",
  "serde_json",
  "sha2",
@@ -643,6 +654,19 @@ dependencies = [
  "cmux-rd-proto",
  "cmux-remote-browser",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-link"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-proto",
+ "cmux-transport",
+ "hmac",
+ "libc",
+ "md-5",
+ "sha1",
+ "snow",
 ]
 
 [[package]]
@@ -2675,6 +2699,23 @@ dependencies = [
  "defmt",
  "heapless",
  "managed",
+]
+
+[[package]]
+name = "snow"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
+dependencies = [
+ "aes-gcm",
+ "blake2",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "getrandom 0.3.4",
+ "ring",
+ "rustc_version",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]

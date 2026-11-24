@@ -241,3 +241,57 @@ async fn a_network_change_keeps_a_link_that_answers() {
     serving.abort();
     answering.abort();
 }
+
+/// The link from the Mac to a lane VM reset about 42 times in two hours with a peer that
+/// answered every ping: the link's loop waited for room in the hub's notice queue, read nothing
+/// meanwhile, and took its own wait for the peer's silence ("peer stopped answering"). Time this
+/// daemon keeps the loop from reading is not counted (`peer_link::ReaderHeld`): the link stays,
+/// and a peer that is really silent after it is still let go within the budget.
+#[tokio::test(start_paused = true)]
+async fn a_link_held_by_a_full_hub_queue_is_not_dropped_for_the_peers_silence() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    // Room for one notice, read by nobody for 10 s: the hub is busy.
+    let (tx, mut hub) = mpsc::channel(1);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // The peer sends three notices at once and then answers every ping (each read answers it)
+    // for 20 s; then it says nothing, its end still open.
+    let answering = tokio::spawn(async move {
+        for n in 0..3 {
+            let note = json!({"jsonrpc": "2.0", "method": "_test/note", "params": {"n": n}});
+            server.send(Frame::Text(note.to_string().into())).await.unwrap();
+        }
+        let reads = async { while let Some(Ok(_)) = server.next().await {} };
+        let _ = tokio::time::timeout(Duration::from_secs(20), reads).await;
+        std::future::pending::<()>().await;
+        drop(server);
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let busy = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        while hub.recv().await.is_some() {}
+    });
+    tokio::time::sleep(Duration::from_millis(19_900)).await;
+    assert!(
+        !serving.is_finished(),
+        "a link whose peer answers is kept after this daemon held it 10 s: {:?}",
+        serving.await
+    );
+    // The peer goes silent: still found within the budget.
+    let started = tokio::time::Instant::now();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("a silent peer still loses the link")
+        .unwrap();
+    assert!(ended.is_err(), "{ended:?}");
+    assert!(started.elapsed() <= Duration::from_secs(9), "{:?}", started.elapsed());
+    busy.abort();
+    answering.abort();
+}
