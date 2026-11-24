@@ -72,7 +72,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,live_resize,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
+                    "window_resize,fullscreen,live_resize,tab_spam,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
                     help="reveal: seconds the window stays off the screen")
@@ -83,7 +83,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "live_resize", "pane_zoom", "popup_float", "omnibar_narrow"}
+               "live_resize", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -1216,19 +1216,26 @@ def check_live_resize(tab, pane):
             row(False, f"live_resize.fullscreen.{direction}.pixels", {"bug": 17, "error": rec["error"]})
             continue
         time.sleep(0.3)  # test harness: frames at rest
+        rpc("debug.frames", {"action": "start"})
         a = time.monotonic()
         action("toggleFullScreen")
         done = wait(lambda: is_full_screen() == (direction == "enter"), 6, 0.02)
         b = time.monotonic()
         time.sleep(1.2)  # test harness: the settle is in the recording
+        app_frames = rpc("debug.frames", {"action": "stop"})
         read = pixel_stop(rec)
         v = pixel_verdict(rec, [(a, b)], 0, 1.1)
-        RAW[f"live_resize_fullscreen_{direction}"] = {"verdict": v, "read": read, "transition_s": round(b - a, 3)}
-        row(not v.get("error") and bool(done) and v["blank"] == 0 and v["settle_ms_after_input"] <= LAG_MS,
+        RAW[f"live_resize_fullscreen_{direction}"] = {"verdict": v, "read": read, "transition_s": round(b - a, 3),
+                                                      "app_frames": app_frames}
+        longest = (app_frames or {}).get("max_ms") if isinstance(app_frames, dict) else None
+        row(not v.get("error") and bool(done) and v["blank"] == 0 and v["settle_ms_after_input"] <= LAG_MS
+            and longest is not None and longest <= 250,
             f"live_resize.fullscreen.{direction}.pixels",
             {"bug": 17, "transition_ms": round((b - a) * 1000), **{k: v.get(k) for k in (
                 "frames", "classes", "wrong", "blank", "longest_wrong_run", "settle_ms_after_input", "examples", "error")},
-             "pass_if": f"no blank frame; the page right <= {LAG_MS} ms after the window reports the new state"})
+             "app_frames": frame_detail(app_frames),
+             "pass_if": f"no blank frame; the page right <= {LAG_MS} ms after the window reports the new state; no app "
+                        "frame interval over 250 ms (sweep D4: 1035 ms)"})
         time.sleep(0.5)  # test harness: rest between the two transitions
     if is_full_screen():
         action("toggleFullScreen")
@@ -1262,6 +1269,60 @@ def check_live_resize(tab, pane):
              "frames_after_switch": len(late), "classes_after_switch": {k: late.count(k) for k in set(late)},
              "error": v.get("error"),
              "pass_if": "the page's document survives (no reload) and no blank frame after the switch back"})
+
+
+def check_tab_spam(tab, pane):
+    """Sweep D8: Cmd-Shift-L (openBrowser) 10x at 80 ms from the focused page. The recorder keeps one device row through
+    the pane's omnibar; a frame whose omnibar row is much darker than at rest (mean luminance under 0.6x the first
+    frames') shows no omnibar row. Rows: frames without the omnibar, and debug.frames over the spam."""
+    report = rpc("debug.omnibar", {"pane": pane}) or {}
+    bar = ((report.get("pointer") or {}).get("frames") or {}).get("bar")
+    layers = main_layers()
+    win = layers.get("frame") or [0, 0, 0, 0]
+    if not bar:
+        row("INFO", "tab_spam", {"note": "no omnibar frame", "omnibar": str(report)[:200]})
+        return
+    folder = os.path.join(opts.out, "pixels-tab-spam")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "tab-spam.mov")
+    y_pt = bar[1] + bar[3] / 2
+    started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": 8, "mbps": 60, "rows": [int(y_pt * 2)], "columns": []})
+    if not isinstance(started, dict) or started.get("error"):
+        row(False, "tab_spam", {"bug": 22, "error": f"record_start: {started}"})
+        return
+    scale = started.get("scale") or 2.0
+    wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("capturing"), 10, 0.05)
+    action("tab.focus", target=f"tab:{tab}")
+    time.sleep(0.6)  # test harness: frames at rest
+    rpc("debug.frames", {"action": "start"})
+    a = time.monotonic()
+    for _ in range(10):
+        rpc("debug.key", {"key": "l", "modifiers": ["command", "shift"]})
+        time.sleep(0.08)  # test harness: the sweep's 80 ms key spacing
+    b = time.monotonic()
+    time.sleep(1.5)  # test harness: the last tab settles
+    app_frames = rpc("debug.frames", {"action": "stop"})
+    pixel_stop({"path": path})
+    scan = path + ".scan"
+    detail = {"bug": 22, "app_frames": frame_detail(app_frames)}
+    if not os.path.exists(scan):
+        row(False, "tab_spam", dict(detail, error="no scan file"))
+        return
+    _, frames = read_scan(scan)
+    lo, hi = int(bar[0] * scale), int((bar[0] + bar[2]) * scale)
+
+    def lum(line):
+        px = line[lo:hi] or [(0, 0, 0)]
+        return sum(0.2126 * r + 0.7152 * g + 0.0722 * b_ for r, g, b_ in px) / len(px)
+
+    rest = [lum(l[0]) for t, l in frames if t < a]
+    base = sorted(rest)[len(rest) // 2] if rest else None
+    during = [(round((t - a) * 1000), round(lum(l[0]), 1)) for t, l in frames if a <= t <= b + 1.5]
+    gone = [d for d in during if base and d[1] < 0.6 * base]
+    longest = (app_frames or {}).get("max_ms") if isinstance(app_frames, dict) else None
+    row(bool(base) and not gone and longest is not None and longest <= 50, "tab_spam",
+        dict(detail, rest_luminance=base, frames=len(during), omnibar_gone_frames=len(gone), examples=gone[:10],
+             pass_if="no frame without the omnibar row; no app frame interval over 50 ms (sweep D8: 159 ms)"))
 
 
 def check_pane_zoom(tab, pane):
@@ -1379,8 +1440,8 @@ def check_omnibar_narrow(tab, pane):
              "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "pane_zoom", "popup_float",
-                     "omnibar_narrow")
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "tab_spam", "pane_zoom",
+                     "popup_float", "omnibar_narrow")
 
 
 if os.path.exists(SOCKET):
@@ -1577,7 +1638,7 @@ try:
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
                               ("live_resize", check_live_resize),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
-                              ("omnibar_narrow", check_omnibar_narrow)):
+                              ("omnibar_narrow", check_omnibar_narrow), ("tab_spam", check_tab_spam)):
                 if name in CHECKS:
                     try:
                         run(page_tab, pane)
