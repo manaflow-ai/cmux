@@ -2,7 +2,10 @@
 //! tests: same routes, same JSON, same admission rule (a signal reaches a
 //! device of the sender's own user, or answers an existing session), and
 //! the same refusal of an older peer's binary relay frames
-//! (`relay_retired`). The bearer token is `user:<userId>`.
+//! (`relay_retired`). The bearer token is `user:<userId>`. It also serves
+//! the link's WebSocket relay (`GET /v1/relay/<session>?deviceId=`, the
+//! Worker's `LinkRelay`): only the two devices of a session join, and a
+//! frame goes to the other with its peer id set to the sender's device.
 //!
 //! [`TestTurn`] is a TURN server on loopback, over UDP and over TLS (a
 //! self-signed certificate the dial options trust).
@@ -42,6 +45,8 @@ pub struct FakeOptions {
     /// The STUN server `GET /v1/ice` names instead of Cloudflare's
     /// (`host:port`, say a local socket that never answers).
     pub ice_stun: Option<String>,
+    /// Refuse every relay join with `503 relay_off` (the Worker's kill switch).
+    pub relay_off: bool,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -61,6 +66,10 @@ struct State {
     refused_binary_frames: u64,
     /// When each signal was forwarded: (sessionId, payload kind, instant).
     forwarded: Vec<(String, String, std::time::Instant)>,
+    /// The relay's joined sockets: sessionId → device → its socket.
+    relays: HashMap<String, HashMap<String, mpsc::UnboundedSender<Message>>>,
+    relay_joins: u64,
+    relay_frames: u64,
 }
 
 pub struct FakeSignaling {
@@ -109,6 +118,26 @@ impl FakeSignaling {
         state.forwarded.iter().filter(|(_, k, _)| k == kind).map(|(s, _, _)| s.clone()).collect()
     }
 
+    /// Relay joins admitted so far.
+    pub fn relay_joins(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_joins
+    }
+
+    /// Relay frames forwarded so far.
+    pub fn relay_frames(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames
+    }
+
+    /// Close every relay socket of `device` (a proxy that resets it).
+    pub fn kick_relay(&self, device: &str) {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        for sockets in state.relays.values() {
+            if let Some(out) = sockets.get(device) {
+                let _ = out.send(Message::Close(None));
+            }
+        }
+    }
+
     /// Binary frames (an older peer's relay frames) refused so far.
     pub fn refused_binary_frames(&self) -> u64 {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).refused_binary_frames
@@ -150,6 +179,10 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
     match peek_head(&stream).await {
         Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
             answer_http(&mut stream, &head, &ice, &options).await;
+            return;
+        }
+        Some(head) if head.starts_with("GET /v1/relay/") => {
+            serve_relay(stream, &head, state, &options).await;
             return;
         }
         Some(_) => {}
@@ -317,6 +350,141 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
         }
     }
     forget(&state, &device, &out_tx);
+}
+
+/// One relay socket: admitted only for a device of the session (the fake's
+/// session table, bound by the first signal), by the session's user.
+#[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
+async fn serve_relay(
+    stream: tokio::net::TcpStream,
+    head: &str,
+    state: Arc<Mutex<State>>,
+    options: &FakeOptions,
+) {
+    let target = head.lines().next().and_then(|line| line.split(' ').nth(1)).unwrap_or_default();
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let session = path.trim_start_matches("/v1/relay/").to_owned();
+    let device = query.split('&').find_map(|kv| kv.strip_prefix("deviceId=")).unwrap_or_default().to_owned();
+    let user = head.lines().find_map(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower
+            .starts_with("authorization: bearer user:")
+            .then(|| line["authorization: bearer user:".len()..].trim().to_owned())
+    });
+    let offered = head.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.starts_with("sec-websocket-protocol:") && lower.contains(crate::dial::relay::SUBPROTOCOL)
+    });
+    let peer = {
+        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.sessions.get(&session).and_then(|(a, b)| {
+            let other = if *a == device {
+                b
+            } else if *b == device {
+                a
+            } else {
+                return None;
+            };
+            let same_user = state.devices.get(&device).is_none_or(|d| Some(&d.user) == user.as_ref());
+            same_user.then(|| other.clone())
+        })
+    };
+    use tokio_tungstenite::tungstenite::http::StatusCode;
+    let refusal = if user.is_none() {
+        Some((StatusCode::UNAUTHORIZED, "unauthorized"))
+    } else if options.relay_off {
+        Some((StatusCode::SERVICE_UNAVAILABLE, "relay_off"))
+    } else if peer.is_none() {
+        Some((StatusCode::FORBIDDEN, "not_in_session"))
+    } else {
+        None
+    };
+    let callback = |_: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
+        if let Some((status, code)) = refusal {
+            let body = json!({"error": {"code": code, "message": code}}).to_string();
+            let mut refused = ErrorResponse::new(Some(body));
+            *refused.status_mut() = status;
+            return Err(refused);
+        }
+        if offered {
+            response
+                .headers_mut()
+                .insert("sec-websocket-protocol", crate::dial::relay::SUBPROTOCOL.parse().expect("header"));
+        }
+        Ok(response)
+    };
+    let Ok(socket) = tokio_tungstenite::accept_hdr_async(stream, callback).await else { return };
+    let Some(peer) = peer else { return };
+    let Ok(device_bytes) = uuid::Uuid::parse_str(&device).map(|id| *id.as_bytes()) else { return };
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
+    let peer_out = {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relay_joins += 1;
+        let sockets = state.relays.entry(session.clone()).or_default();
+        if let Some(old) = sockets.insert(device.clone(), out_tx.clone()) {
+            let _ = old.send(Message::Close(Some(CloseFrame {
+                code: CloseCode::Library(4000),
+                reason: "replaced".into(),
+            })));
+        }
+        sockets.get(&peer).cloned()
+    };
+    let _ =
+        out_tx.send(Message::Text(json!({"type":"joined","peer": peer_out.is_some()}).to_string().into()));
+    if let Some(peer_out) = &peer_out {
+        let _ = peer_out.send(Message::Text(json!({"type":"peer","online": true}).to_string().into()));
+    }
+    let (mut sink, mut source) = socket.split();
+    tokio::spawn(async move {
+        while let Some(message) = out_rx.recv().await {
+            let close = matches!(message, Message::Close(_));
+            if sink.send(message).await.is_err() || close {
+                break;
+            }
+        }
+        let _ = sink.close().await;
+    });
+    let peer_socket = |state: &Arc<Mutex<State>>| {
+        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
+    };
+    while let Some(Ok(message)) = source.next().await {
+        match message {
+            Message::Binary(bytes) => {
+                use cmux_transport::relay_frame::{FrameKind, PeerId, RelayFrame};
+                let Ok(mut frame) = RelayFrame::decode(&bytes) else { continue };
+                if frame.kind != FrameKind::Datagrams {
+                    continue;
+                }
+                frame.peer = PeerId(device_bytes);
+                let Ok(encoded) = frame.encode() else { continue };
+                match peer_socket(&state) {
+                    Some(target) => {
+                        state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
+                        let _ = target.send(Message::Binary(encoded.into()));
+                    }
+                    None => {
+                        let _ = out_tx
+                            .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
+                    }
+                }
+            }
+            Message::Text(text) if text.as_str() == "ping" => {
+                let _ = out_tx.send(Message::Text("pong".into()));
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(sockets) = state.relays.get_mut(&session)
+        && sockets.get(&device).is_some_and(|out| out.same_channel(&out_tx))
+    {
+        sockets.remove(&device);
+        if let Some(peer_out) = sockets.get(&peer) {
+            let _ = peer_out.send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
+        }
+    }
 }
 
 /// Drop `device`'s registration if it is still this socket's.

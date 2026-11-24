@@ -17,6 +17,10 @@ public enum DeveloperOptions {
     /// TCP: WireGuard sends no plain UDP and rides TURN over TLS on 443.
     /// Applies live: changing it redials.
     public static let blockUDPKey = "cmuxMobile.dev.blockUDP"
+    /// `UserDefaults` key: ride cmux's WebSocket relay only (PROTOCOL.md
+    /// "WebSocket relay"): WireGuard sends no plain UDP, takes no TURN
+    /// allocation and joins the relay at once. Applies at the next dial.
+    public static let forceRelayKey = "cmuxMobile.dev.forceRelay"
     /// `UserDefaults` key: streamed browser tabs keep their video on the
     /// reliable `browser` channel even over WebRTC (no media lane), the
     /// baseline of verify/browser-video-track.md. Applies at the next dial.
@@ -33,7 +37,7 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
         slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]
 
@@ -76,6 +80,16 @@ public enum DeveloperOptions {
     public static var blockUDP: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: blockUDPKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard rides cmux's WebSocket relay only. Always off in
+    /// Release builds.
+    public static var forceRelay: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: forceRelayKey)
         #else
         false
         #endif

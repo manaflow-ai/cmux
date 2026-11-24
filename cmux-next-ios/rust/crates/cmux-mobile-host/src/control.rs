@@ -620,6 +620,7 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
         cmux_mobile_link::dial::LinkPath::Direct => "direct",
         cmux_mobile_link::dial::LinkPath::Turn => "turn",
         cmux_mobile_link::dial::LinkPath::TurnTls => "turn-tls",
+        cmux_mobile_link::dial::LinkPath::HttpsRelay => "https-relay",
         cmux_mobile_link::dial::LinkPath::NoPath => "none",
     }
 }
