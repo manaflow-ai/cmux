@@ -33,6 +33,9 @@ extension AcpmuxHub {
     /// Writes each open chat's coming read on `connection` (at most ``earlyAttachLimit``).
     func submitEarlyAttaches(on connection: AcpmuxConnection, timeout: Duration) async {
         dropEarlyAttaches()
+        // This Mac's last `initialize` said its pages would be drained (sudo cards, no
+        // `alsoKinds` fold): reading them again on every reconnect costs a whole page each.
+        guard capabilities.isEmpty || earlyAttachesHold else { return }
         var written: [String: EarlyAttach] = [:]
         for source in liveSources where written.count < Self.earlyAttachLimit {
             guard let read = source.earlyRead(), written[read.sessionID] == nil else { continue }
