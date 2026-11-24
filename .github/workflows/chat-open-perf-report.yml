@@ -9,6 +9,7 @@ name: chat-open perf report
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - "webviews/src/agent-session/**"
       - "webviews/bench/**"
@@ -23,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}
+  group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   # A pull request measures only its newest head. A branch keeps the running push and the newest one waiting.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -43,7 +44,7 @@ jobs:
   report:
     name: chat-open p50/p95 (report only)
     # vars.CMUX_CHAT_OPEN_PR_REPORT = 'off' skips the pull request run (the nightly-next push still measures it); unset keeps it.
-    if: ${{ github.event_name != 'pull_request' || format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off' }}
+    if: ${{ (github.event_name != 'pull_request' || format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     # The Linux pool ci-web.yml uses; base and head run in this one job, so on one runner.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 75
