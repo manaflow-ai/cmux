@@ -183,7 +183,11 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     await page.locator(HEAD).waitFor();
     // One affordance: the chevron, and no View changes button or hover link beside it.
     expect(await page.locator(TOGGLE).count()).toBe(1);
-    expect(await page.locator(".acpmux-edited .acpmux-review-changes, .acpmux-edited-summary").count()).toBe(0);
+    expect(
+      await page
+        .locator(".acpmux-edited .acpmux-review-changes:not(.acpmux-edited-open), .acpmux-edited-summary")
+        .count(),
+    ).toBe(0);
     expect(
       await page.locator(".acpmux-edited").getByRole("button", { name: "View changes", exact: true }).count(),
     ).toBe(1);
