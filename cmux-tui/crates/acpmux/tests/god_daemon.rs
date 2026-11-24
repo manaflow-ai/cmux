@@ -697,6 +697,33 @@ impl Daemon {
         (field("RssAnon:"), field("RssFile:"))
     }
 
+    /// The daemon's largest resident mappings (`/proc/PID/smaps`): `[name or path, rss bytes,
+    /// size bytes]`, anonymous ones named `[anon]`, so a size's extra memory has a place.
+    fn rss_maps(&self) -> Value {
+        let smaps =
+            std::fs::read_to_string(format!("/proc/{}/smaps", self.child.id())).unwrap_or_default();
+        let mut maps: Vec<(String, u64, u64)> = Vec::new();
+        for line in smaps.lines() {
+            let mut words = line.split_whitespace();
+            let first = words.next().unwrap_or_default();
+            if first.contains('-') && first.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+                let (lo, hi) = first.split_once('-').unwrap_or_default();
+                let size = u64::from_str_radix(hi, 16)
+                    .unwrap_or(0)
+                    .saturating_sub(u64::from_str_radix(lo, 16).unwrap_or(0));
+                let name = words.nth(4).map_or("[anon]".to_owned(), str::to_owned);
+                maps.push((name, 0, size));
+            } else if first == "Rss:" {
+                if let Some(last) = maps.last_mut() {
+                    last.1 = words.next().and_then(|k| k.parse::<u64>().ok()).unwrap_or(0) * 1024;
+                }
+            }
+        }
+        maps.sort_by_key(|m| std::cmp::Reverse(m.1));
+        maps.truncate(12);
+        json!(maps)
+    }
+
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
     fn stop(&mut self) {
         if self.child.try_wait().unwrap().is_some() {
@@ -2348,6 +2375,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
     let (rss_idle_anon, rss_idle_file) = daemon.rss_split();
+    let rss_idle_maps = daemon.rss_maps();
     let (newest_us, newest_records, newest_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, last + 1)
@@ -2473,6 +2501,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "promptIndexError": prompt_index_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,
         "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
+        "rssIdleMaps": rss_idle_maps,
         "rssAfterReads": rss_after_reads, "heap": heap,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
