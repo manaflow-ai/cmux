@@ -56,7 +56,7 @@ export function HeadSummary({
   mark: (part: TrayHeadPart) => ReactNode;
   /// An item's name, as its line names it.
   nameOf: (item: TrayItem) => string;
-  /// The `groupsCount` arm: marks and numbers at every width; a lone item still reads its name.
+  /// The `group-marks` arm: marks and numbers at every width; a lone item still reads its name.
   countOnly?: boolean;
 }) {
   // What it counts changes at most once per dwell, as the step does: a burst of joins is one change.

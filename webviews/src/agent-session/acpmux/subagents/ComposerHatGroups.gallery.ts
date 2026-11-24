@@ -180,13 +180,13 @@ export default agentPaneEntry({
       experiments: { "subagent-tray-fold-head": "groups", "subagent-tray-column": "chip" },
     },
     "mixed-marks": {
-      note: "The `groupsCount` arm: the two groups as marks and numbers at every width; hover a group for its names.",
+      note: "The `group-marks` arm: the two groups as marks and numbers at every width; hover a group for its names.",
       play: async (ctx) => {
         await show(ctx);
         groupsHold(ctx, ["agents", "background", "failed"]);
       },
       snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "groupsCount", "subagent-tray-column": "glyph" },
+      experiments: { "subagent-tray-fold-head": "group-marks", "subagent-tray-column": "glyph" },
     },
     "mixed-kinds-before": {
       note: "Before: the `summary` arm, a kind per command (subagents, servers, tests ...), on the chip column.",

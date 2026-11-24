@@ -18,7 +18,7 @@ export const trayFoldHeadLook = defineExperiment({
       description:
         "Two kinds only: subagents, and everything else backgrounded (commands, waits, monitors). 3 subagents · 2 tasks in background, then 3 subagents · 2 tasks, then each group's mark and number. A lone item reads its name; waiting and failed follow only when they need you. The lines keep each item's own mark.",
     },
-    groupsCount: {
+    "group-marks": {
       label: "Groups: two marks and their numbers",
       description:
         "The same two groups as marks and numbers at every width (a lone item still reads its name); hover a group for its names.",

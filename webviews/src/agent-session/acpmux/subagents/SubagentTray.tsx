@@ -581,7 +581,7 @@ export const SubagentTray = memo(function SubagentTray({
   );
   // Each kind's mark and count (the `kinds` arm), folded and open; hovering one names what it counts.
   // The `groups` arms (the default) count two kinds: subagents, and everything else backgrounded.
-  const groupsHead = foldHead === "groups" || foldHead === "groupsCount";
+  const groupsHead = foldHead === "groups" || foldHead === "group-marks";
   const headParts = useMemo(
     () =>
       groupsHead
@@ -845,7 +845,7 @@ export const SubagentTray = memo(function SubagentTray({
               markSize={ROW_ICON}
               mark={(part) => <KindMark part={part} chatHarness={chatHarness} />}
               nameOf={(item) => itemName(t, item)}
-              countOnly={foldHead === "groupsCount"}
+              countOnly={foldHead === "group-marks"}
             />
           ) : kindsHead ? (
             <HeadKinds
