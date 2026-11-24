@@ -26,6 +26,11 @@ import FoundationNetworking
 #if canImport(Network)
 import Network
 #endif
+#if canImport(os)
+import os
+#else
+import Synchronization
+#endif
 
 public enum Egress {
     /// The environment variable that picks the mode.
@@ -73,14 +78,17 @@ public enum Egress {
 
     // MARK: State
 
-    private final class State: @unchecked Sendable {
-        let lock = NSLock()
+    private struct State: Sendable {
         var mode: Mode?
         var named: Set<String> = []
         var seen: Set<String> = []
     }
 
-    private static let state = State()
+    #if canImport(os)
+    private static let state = OSAllocatedUnfairLock(initialState: State())
+    #else
+    private static let state = Mutex(State())
+    #endif
 
     private static let defaultMode: Mode = {
         #if DEBUG
@@ -92,19 +100,17 @@ public enum Egress {
 
     /// This process's mode: `setMode`'s, else `CMUX_EGRESS`'s, else the build's default.
     public static var mode: Mode {
-        state.lock.lock()
-        defer { state.lock.unlock() }
-        if let mode = state.mode { return mode }
-        let mode = ProcessInfo.processInfo.environment[modeEnvironment].flatMap(Mode.init(parsing:)) ?? defaultMode
-        state.mode = mode
-        return mode
+        state.withLock { state in
+            if let mode = state.mode { return mode }
+            let mode = ProcessInfo.processInfo.environment[modeEnvironment].flatMap(Mode.init(parsing:)) ?? defaultMode
+            state.mode = mode
+            return mode
+        }
     }
 
     /// Sets the mode for the rest of the process (the app's start for nightly, tests).
     public static func setMode(_ mode: Mode) {
-        state.lock.lock()
-        state.mode = mode
-        state.lock.unlock()
+        state.withLock { $0.mode = mode }
     }
 
     /// Lets `hostOrURL`'s host through: the person named it in a setting (a self-hosted server, an API
@@ -113,9 +119,7 @@ public enum Egress {
     public static func allowNamed(_ hostOrURL: String) {
         let host = hostOf(hostOrURL)
         guard !host.isEmpty else { return }
-        state.lock.lock()
-        state.named.insert(host)
-        state.lock.unlock()
+        _ = state.withLock { $0.named.insert(host) }
     }
 
     /// `allowNamed` for a URL; nil does nothing.
@@ -125,9 +129,7 @@ public enum Egress {
 
     /// Every "host site" the gate found unlisted in this process, refused or not.
     public static var unlisted: [String] {
-        state.lock.lock()
-        defer { state.lock.unlock() }
-        return state.seen.sorted()
+        state.withLock { $0.seen.sorted() }
     }
 
     // MARK: Verdict
@@ -193,9 +195,7 @@ public enum Egress {
             pattern.count == labels.count && zip(pattern, labels).allSatisfy { labelMatches($0, $1) }
         }
         if hit { return .listed }
-        state.lock.lock()
-        defer { state.lock.unlock() }
-        return state.named.contains(host) ? .named : .unlisted
+        return state.withLock { $0.named.contains(host) } ? .named : .unlisted
     }
 
     /// Checks one connection to `hostOrURL` made for `site` (the caller, as `Module.Type`). Throws only in
@@ -204,9 +204,7 @@ public enum Egress {
         let mode = mode
         guard mode != .off, verdict(hostOrURL) == .unlisted else { return }
         let host = hostOf(hostOrURL)
-        state.lock.lock()
-        let first = state.seen.insert("\(host) \(site)").inserted
-        state.lock.unlock()
+        let first = state.withLock { $0.seen.insert("\(host) \(site)").inserted }
         if first {
             FileHandle.standardError.write(Data("egress.unlisted host=\(host) site=\(site) mode=\(mode.rawValue)\n".utf8))
         }
@@ -331,7 +329,7 @@ public enum Egress {
 
 /// The URLProtocol `Egress.session` puts first: it takes a request only to refuse it (an unlisted host in
 /// enforce mode), so every other request goes on to the system's loader unchanged.
-public final class EgressURLProtocol: URLProtocol, @unchecked Sendable {
+public final class EgressURLProtocol: URLProtocol {
     static func site(of request: URLRequest) -> String { "URLSession" }
 
     override public class func canInit(with request: URLRequest) -> Bool {
