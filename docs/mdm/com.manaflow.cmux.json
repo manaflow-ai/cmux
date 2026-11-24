@@ -4431,9 +4431,15 @@
       "type" : "string"
     },
     "mobile.allowIPhoneConnections" : {
-      "default" : false,
-      "description" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+      "default" : true,
+      "description" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
       "title" : "Allow iPhone Connections",
+      "type" : "boolean"
+    },
+    "mobile.autoApprovePhones" : {
+      "default" : false,
+      "description" : "A new phone signed in to your account connects without asking you first. Other accounts never connect.",
+      "title" : "Approve Phone Requests Automatically",
       "type" : "boolean"
     },
     "mobile.terminalSizing" : {
