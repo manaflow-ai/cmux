@@ -332,15 +332,18 @@ PARTS = [
     {"name": "web-ui-memory", "where": "linux", "kind": "webui", "needs": "web-ui-memory"},
     # A chat at any length (webviews/bench/chat-100k-flat.bench.ts, goal chats-flat-at-any-length in cmuxterm-hq's NOW):
     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
-    # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
-    {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under a 45-minute run cap.
+    # run_seconds: chat-100k-flat's seven launches (each about a minute of CPU settle, then three idle and three
+    # streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so no chat_100k_flat row was
+    # stored after 2026-11-17 (Actions run 45422305557). The suite's own timeoutMs sits 5 minutes under.
+    {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 2700},
     # Scrolling up a long chat page by page (webviews/bench/transcript-scroll-up-scale.bench.ts) at 1k, 10k and 100k
     # rows: each older page's ask to its drawn frame (target 50 ms p95), loading and blank frames, the anchor's shift
     # and the 100k / 1k ratio (transcript_scroll_up_scale.*.older_page_drawn_scale, target 1.2). Its own part.
     {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
-    # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*): a 45-minute
+    # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*): a 55-minute
     # run cap (run_seconds), not the 30 minutes it timed out against on 2026-11-17 (bench cap 1770 s).
-    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 2700},
+    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 3300},
     # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
     # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
     # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
@@ -354,11 +357,20 @@ PARTS = [
     # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
     # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
     {"name": "web-ui-scroll", "where": "linux", "kind": "webui", "needs": "web-ui-scroll"},
+    # One orchestrator chat with 16 sub-sessions, local and Cloud, all streaming (webviews/bench/orchestrator-16.bench.ts,
+    # RFD 0167 row 12): every frame's time with the frame limit off; webui.orchestrator.c16.frame_ms_p99 is NOW's
+    # competitive.orchestrator.p99_frame_ms_16_children. Its own part.
+    {"name": "web-ui-orchestrator", "where": "linux", "kind": "webui", "needs": "web-ui-orchestrator"},
     # The power-user input stress harness's long seed (webviews/bench/power-user-bursts.bench.ts, Leo 2026-11-22: "we
     # need to test like power users more often"): 150 seeded waves of overlapping input bursts in Chromium and WebKit;
     # frame p95/p99, input to paint, caret lag, dropped keys, stray layout shift and blank frames per input class
     # (webui.power_user.*). Its own part, under the 30-minute run cap.
     {"name": "web-ui-power-user", "where": "linux", "kind": "webui", "needs": "web-ui-power-user"},
+    # A settled page after a chat or workspace switch (webviews/bench/settled-page.bench.ts, goal settled-page-ceiling,
+    # Leo 2026-11-21: "reach a settled page (zero layout shift after first paint, streaming included) within 2x of a
+    # derived bound"): webui.settled_page.score_max is NOW's settled_page_score_max. The suite marks it ownPart, so the
+    # web-ui part never ran it and the row read unknown. Its own part, about 3 minutes.
+    {"name": "web-ui-settled", "where": "linux", "kind": "webui", "needs": "web-ui-settled"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -428,8 +440,10 @@ ROW_PARTS = [
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
+    (r"^webui\.orchestrator\.", "web-ui-orchestrator"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.power_user\.", "web-ui-power-user"),
+    (r"^webui\.settled_page\.", "web-ui-settled"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
@@ -450,7 +464,9 @@ ROW_PARTS = [
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work|to_frame_frames)$"
+                                r"|acp\.[^.]+\.frame_interval$|acp\.[^.]+-(capped|full|nolimit)\."
+                                r"|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
                                 r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
                                 r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
@@ -1279,10 +1295,14 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-fidelity"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-orchestrator":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "orchestrator-16"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-power-user":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-settled":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "settled-page"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
@@ -2491,10 +2511,14 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
             ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
+        elif need == "web-ui-orchestrator":
+            ok = has_path(sha, f"{ORCHESTRATOR_BENCH}")
         elif need == "web-ui-typing":
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-power-user":
             ok = has_path(sha, f"{POWER_USER_BENCH}")
+        elif need == "web-ui-settled":
+            ok = has_path(sha, f"{SETTLED_PAGE_BENCH}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "web-ui-memory":
@@ -2598,8 +2622,10 @@ SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
+ORCHESTRATOR_BENCH = "webviews/bench/orchestrator-16.bench.ts"
 # The web-ui-power-user part's adapter around the power-user input stress harness.
 POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
+SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"

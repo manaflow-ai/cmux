@@ -1613,3 +1613,46 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     relay.stop().await;
     b.shutdown_all().await;
 }
+
+/// A relayed start runs under the owner's grant for its sender (`maxPolicy`): an entry without one
+/// holds an approve-all start to `ask` as a remote chain, and only an entry granting approve-all
+/// (what `host join` writes for the person's own machines) starts this machine's own chat in the
+/// policy it names (cmux#50026).
+#[tokio::test]
+async fn a_relayed_start_runs_under_the_senders_max_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let hub = Hub::new(config, Box::new(MemoryStore::default()));
+    let start = |id: &str| {
+        let mut request = message(id, "", Kind::Control);
+        request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": id, "policy": "approve-all"}}}})
+        .to_string();
+        request
+    };
+    let entry = |extra: Value| {
+        let mut entry = json!({"daemonId": "inst_a"});
+        entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value::<MeshControlFrom>(entry).unwrap()
+    };
+    for (id, extra, policy, remote) in [
+        ("capped-default", json!({}), "ask", true),
+        ("capped-edits", json!({"maxPolicy": "approve-edits"}), "approve-edits", true),
+        ("owner-grant", json!({"maxPolicy": "approve-all"}), "approve-all", false),
+    ] {
+        let hook =
+            MeshControlHook::new(vec![entry(extra)], Some(dir.path().join(format!("{id}.json"))));
+        let ack = hook.control(&hub, &start(id)).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{id}: {ack:?}");
+        let meta = hub.resolve(id).unwrap().meta();
+        assert_eq!(meta.permission_policy.as_deref(), Some(policy), "{id}");
+        assert_eq!(meta.remote_origin, remote, "{id}");
+    }
+    hub.shutdown_all().await;
+}
