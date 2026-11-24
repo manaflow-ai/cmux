@@ -20,6 +20,7 @@ use super::{fs, join};
 const RENAME_NOREPLACE: u32 = 1;
 const RENAME_EXCHANGE: u32 = 2;
 
+#[cfg(target_os = "linux")]
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
@@ -34,6 +35,33 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
             to.as_ptr(),
             flags,
         )
+    };
+    if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
+}
+
+/// `renameatx_np` off Linux (the macOS test builds), as `Upper::rename` makes it: Linux's flags
+/// turned into its own (`RENAME_EXCL`, `RENAME_SWAP`).
+#[cfg(not(target_os = "linux"))]
+fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
+    if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 {
+        return Err(libc::EINVAL);
+    }
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let mut own = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        own |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        own |= libc::RENAME_SWAP;
+    }
+    // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    let done = unsafe {
+        libc::renameatx_np(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), own)
     };
     if done < 0 {
         Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
