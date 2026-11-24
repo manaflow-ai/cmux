@@ -10,12 +10,8 @@ fn main() {
     let mut payload = String::new();
     let _ = std::io::stdin().read_to_string(&mut payload);
     let native: serde_json::Value = serde_json::from_str(&payload).unwrap_or_default();
-    let result = cmux_git::native_hook::wait(
-        "claude",
-        "PreToolUse",
-        &native,
-        cmux_git::native_hook::WAIT,
-    );
+    let result =
+        cmux_git::native_hook::wait("claude", "PreToolUse", &native, cmux_git::native_hook::WAIT);
     if let Some(log) = std::env::var_os("CMUX_HOOK_LOG") {
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
