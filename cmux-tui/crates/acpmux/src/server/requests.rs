@@ -24,6 +24,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
 #[cfg(test)]
+#[path = "requests/kept_cursor_attach_tests.rs"]
+mod kept_cursor_attach_tests;
+#[cfg(test)]
 #[path = "requests/reopen_attach_bytes_tests.rs"]
 mod reopen_attach_bytes_tests;
 #[cfg(test)]
@@ -3623,6 +3626,13 @@ async fn dispatch_request_with_identity(
             let reader = crate::author::author(&params).ok().flatten();
             let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
             let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener, "readThrough": read_through});
+            // A cursor past this log's end is not this log's: the chat's history was replaced
+            // under the same id (a restore, a log cut), so the records the client holds before
+            // its cursor are not these. It forgets them and opens fresh (`reset`), instead of
+            // reading on from a seq this log never wrote. Only then: an older client ignores it.
+            if after.is_some_and(|after| after > last) {
+                reply["reset"] = Value::Bool(true);
+            }
             // Asked `settled` and none answered: say so, and write it for the chat's next open.
             if let Some(key) = settled_key {
                 reply["settled"] = Value::Null;

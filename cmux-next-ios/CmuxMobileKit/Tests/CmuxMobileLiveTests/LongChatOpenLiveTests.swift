@@ -57,8 +57,12 @@ import Testing
         case never
     }
 
+    /// `cursors`: answers as cmux-tui acpmux does with an `afterSeq` (only records after it: the
+    /// oldest when no `beforeSeq`, the newest when both), sends `lastSeq`, and says `reset` when
+    /// `afterSeq` is past the log's end.
     nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
-                                   emptyOlderPageOnce: Bool = false, older: OlderReads = .answer) -> MockMacLink {
+                                   emptyOlderPageOnce: Bool = false, older: OlderReads = .answer,
+                                   cursors: Bool = false) -> MockMacLink {
         let older: OlderReads = emptyOlderPageOnce ? .emptyOnce : older
         return MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -72,14 +76,16 @@ import Testing
                 let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? Int.max
                 let kinds = params["kinds"] as? [String] ?? []
                 let promptsOnly = kinds == ["user_message"]
-                let eligible = log.filter { $0.seq < before && (!promptsOnly || $0.json.contains(#""kind":"user_message""#)) }
+                let after = cursors ? (params["afterSeq"] as? NSNumber)?.intValue ?? 0 : 0
+                let forward = cursors && params["afterSeq"] != nil && params["beforeSeq"] == nil
+                let eligible = log.filter { $0.seq > after && $0.seq < before && (!promptsOnly || $0.json.contains(#""kind":"user_message""#)) }
                 var picked: [(seq: Int, json: String)] = []
                 var bytes = 0
-                for record in eligible.reversed() {
+                for record in forward ? eligible : eligible.reversed() {
                     guard picked.count < limit else { break }
                     if !picked.isEmpty, bytes + record.json.utf8.count > maxBytes { break }
                     bytes += record.json.utf8.count
-                    picked.insert(record, at: 0)
+                    if forward { picked.append(record) } else { picked.insert(record, at: 0) }
                 }
                 let more = eligible.count > picked.count
                 return #""hasMore":\#(more),"events":[\#(picked.map(\.json).joined(separator: ","))]"#
@@ -89,7 +95,12 @@ import Testing
             case "_acpmux/watch": return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
             case "_acpmux/attach":
                 requests.append(method, params)
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
+                guard cursors else {
+                    return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
+                }
+                let last = log.last?.seq ?? 0
+                let reset = ((params["afterSeq"] as? NSNumber)?.intValue ?? 0) > last ? #","reset":true"# : ""
+                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(last)\#(reset),\#(page())}"#)]
             case "_acpmux/events":
                 requests.append(method, params)
                 if params["beforeSeq"] != nil {

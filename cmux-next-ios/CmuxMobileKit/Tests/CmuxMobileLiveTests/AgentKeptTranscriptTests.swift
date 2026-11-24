@@ -161,7 +161,7 @@ import Testing
 
     /// 120 turns kept (seq 1...600, the head the newest of them); the Mac has run three more since
     /// (seq 601...615). The fake's log holds fewer than one page, so the attach from the kept copy
-    /// reads forward (more than a page behind would drop the kept copy, ``keptCopyTooFarBehindOpensFresh``).
+    /// reads forward (more than a page behind reads tail-first, ``keptCopyPagesBehindStaysAndCatchesUp``).
     static let keptTurns = 120
     static let macLog = (60..<123).flatMap(Long.turnRecords)
     static let macTurnIDs = (0..<123).map { "t\($0)" }
@@ -394,7 +394,7 @@ import Testing
     }
 
     /// A read of the whole copy in flight when the chat's kept copy is forgotten (the attach found
-    /// it too old, ``keptCopyTooFarBehindOpensFresh``) never puts it back in memory: the source
+    /// not the Mac's log, ``keptCursorPastTheMacsLogOpensFresh``) never puts it back in memory: the source
     /// rebuilt after the drop would restore the stale turns again (review F1 at e54b7ec1).
     @Test func aReadInFlightWhenTheChatIsForgottenNeverBringsItBack() async throws {
         let directory = Self.folder()
@@ -433,39 +433,116 @@ import Testing
         #expect(store.isLoadingHistory)
     }
 
-    /// A kept copy far behind the Mac (more than one page since it) is dropped: the chat opens on a
-    /// first attach (one bounded page), not a forward read of everything since.
-    @Test func keptCopyTooFarBehindOpensFresh() async throws {
+    /// The chat's store, rebuilt on a reset (`onReset`) as the coordinator does, and whether the
+    /// kept rows ever left the screen while it caught up.
+    @MainActor final class KeptChat {
+        var store: AgentChatStore?
+        var resets = 0
+        var keptRowsLeft = false
+        let source: AcpmuxSessionSource
+        init(_ source: AcpmuxSessionSource) {
+            self.source = source
+            store = AgentChatStore(source: source)
+            source.onReset = { [unowned self] in
+                resets += 1
+                store = AgentChatStore(source: self.source)
+            }
+        }
+        /// Waits for `done`, noting any poll where the first kept turn was not the first row.
+        func wait(firstKept: String, _ done: (AgentChatStore) -> Bool) async {
+            await Long.waitUntil {
+                guard let store else { return false }
+                if resets == 0, store.turns.first?.id != firstKept { keptRowsLeft = true }
+                return done(store)
+            }
+        }
+    }
+
+    /// Kept turns 0..<kept (seqs 1...5·kept) and a Mac `since` turns past them, read through the
+    /// fake as cmux-tui acpmux pages (`cursors`).
+    static func keptThenCatchUp(kept: Int, since: Int) async throws
+        -> (chat: KeptChat, requests: Long.Requests, cache: AgentTranscriptCache, hub: AcpmuxHub) {
+        let cache = Self.cache()
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        cache.save(key, sessionID: "s1", earlier: false, records: Self.json((0..<kept).flatMap(Long.turnRecords)))
+        let hub = Self.hub(cache)
+        let chat = KeptChat(hub.source(sessionID: "s1", summary: Self.summary))
+        await Long.waitUntil { chat.store?.turns.first?.id == "t0" }
+        let requests = Long.Requests()
+        let log = (0..<(kept + since)).flatMap(Long.turnRecords)
+        await hub.bind(try await Long.fakeAcpmux(log, requests, cursors: true).openChannel(service: "acpmux", args: [:]))
+        return (chat, requests, cache, hub)
+    }
+
+    /// A kept copy 1, 2 and 10 pages behind the Mac stays on screen: one tail-first attach shows
+    /// the newest page after the kept rows, the gap between them fills in behind, and the chat
+    /// ends with every turn once, in order: the rows a clean open reads, scrolled to the top.
+    /// Before, a kept copy more than a page behind was dropped and the chat opened again.
+    @Test(arguments: [1, 2, 10]) func keptCopyPagesBehindStaysAndCatchesUp(pagesBehind: Int) async throws {
+        let kept = 2
+        // A page is 400 records, five a turn: 80 turns a page, and one more.
+        let since = pagesBehind * 80 + 1
+        let (chat, requests, cache, hub) = try await Self.keptThenCatchUp(kept: kept, since: since)
+        _ = hub
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let newest = "t\(kept + since - 1)"
+        let all = (0..<(kept + since)).map { "t\($0)" }
+        await chat.wait(firstKept: "t0") { $0.turns.map(\.id) == all && !$0.isLoadingHistory }
+        let store = try #require(chat.store)
+
+        #expect(chat.resets == 0, "the kept copy is not dropped")
+        #expect(!chat.keptRowsLeft, "the kept rows stay on screen while the tail and the gap load")
+        let ids = store.turns.map(\.id)
+        #expect(Set(ids).count == ids.count, "no turn twice")
+        #expect(ids == all, "every turn, in order, the gap filled")
+        #expect(ids.last == newest)
+        // One round trip after the link to the newest rows: the attach, from the kept cursor,
+        // tail-first; no read after its page to tell a Mac that ignores `beforeSeq` apart.
+        let attaches = requests.all.filter { $0.method == "_acpmux/attach" }
+        #expect(attaches.count == 1)
+        #expect((attaches.first?.params["afterSeq"] as? NSNumber)?.intValue == kept * 5)
+        #expect(attaches.first?.params["beforeSeq"] != nil)
+        let events = requests.all.filter { $0.method == "_acpmux/events" }
+        #expect(events.first.flatMap { ($0.params["afterSeq"] as? NSNumber)?.intValue } == kept * 5,
+                "the first read after the attach is the gap's fill, from the kept cursor: \(events.map(\.params))")
+        #expect(events.allSatisfy { $0.params["beforeSeq"] == nil }, "no older-history read")
+
+        // Parity: a clean open of the same Mac shows the same newest turns, the same rows.
+        let fresh = Long.Requests()
+        let (cleanHub, clean) = try await Long.open((0..<(kept + since)).flatMap(Long.turnRecords), fresh)
+        _ = cleanHub
+        await Long.waitUntil { clean.turns.last?.id == newest && !clean.isLoadingHistory }
+        let cleanIDs = clean.turns.map(\.id)
+        #expect(!cleanIDs.isEmpty && Array(ids.suffix(cleanIDs.count)) == cleanIDs)
+        for (a, b) in zip(store.turns.suffix(cleanIDs.count), clean.turns) {
+            #expect(a.prompt == b.prompt && a.items.count == b.items.count, "turn \(a.id) as a clean open shows it")
+        }
+    }
+
+    /// A kept copy whose cursor is past the Mac's log (the chat's history was replaced under its
+    /// id) is not the Mac's: the attach says `reset`, the kept copy is dropped, and the chat opens
+    /// fresh on a first attach.
+    @Test func keptCursorPastTheMacsLogOpensFresh() async throws {
         let cache = Self.cache()
         defer { try? FileManager.default.removeItem(at: cache.directory) }
         let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
-        cache.save(key, sessionID: "s1", earlier: false, records: Self.json(Long.turnRecords(0)))
+        // Kept through seq 50; the Mac's log now ends at seq 15.
+        cache.save(key, sessionID: "s1", earlier: false, records: Self.json((0..<10).flatMap(Long.turnRecords)))
         let hub = Self.hub(cache)
-        let source = hub.source(sessionID: "s1", summary: Self.summary)
-        // The coordinator builds the chat's store again on a reset (`onReset`); so does this.
-        final class Holder { var store: AgentChatStore?; var resets = 0 }
-        let holder = Holder()
-        holder.store = AgentChatStore(source: source)
-        source.onReset = {
-            holder.resets += 1
-            holder.store = AgentChatStore(source: source)
-        }
-        #expect(holder.store?.turns.isEmpty == false || source.replayCount > 0)
-        // 1000 turns since: far past one 400-record page.
+        let chat = KeptChat(hub.source(sessionID: "s1", summary: Self.summary))
         let requests = Long.Requests()
-        await hub.bind(try await Long.fakeAcpmux((0..<1000).flatMap(Long.turnRecords), requests).openChannel(service: "acpmux", args: [:]))
-        await Long.waitUntil { holder.resets == 1 && holder.store?.turns.last?.id == "t999" && holder.store?.isLoadingHistory == false }
-        let store = try #require(holder.store)
-        #expect(holder.resets == 1)
-        #expect(store.turns.last?.id == "t999")
-        #expect(store.turns.first?.id != "t0")
+        let log = (100..<103).flatMap(Long.turnRecords).enumerated().map { index, record in
+            (seq: index + 1, json: record.json.replacingOccurrences(of: "\"seq\":\(record.seq),", with: "\"seq\":\(index + 1),"))
+        }
+        await hub.bind(try await Long.fakeAcpmux(log, requests, cursors: true).openChannel(service: "acpmux", args: [:]))
+        await Long.waitUntil { chat.resets == 1 && chat.store?.turns.last?.id == "t102" && chat.store?.isLoadingHistory == false }
+        let store = try #require(chat.store)
+        #expect(store.turns.map(\.id) == ["t100", "t101", "t102"], "the Mac's rows only, none kept")
         let attaches = requests.all.filter { $0.method == "_acpmux/attach" }
         #expect(attaches.count == 2)
-        #expect((attaches.first?.params["afterSeq"] as? NSNumber)?.intValue == 5)
-        #expect(attaches.last?.params["maxBytes"] != nil)
+        #expect((attaches.first?.params["afterSeq"] as? NSNumber)?.intValue == 50)
         #expect(attaches.last?.params["afterSeq"] == nil)
-        #expect(requests.count("_acpmux/events") == 0)
-        #expect(cache.cached(key)?.records.first?["msg"]?["turnId"]?.stringValue != "t0")
+        #expect(cache.cached(key)?.records.first?["msg"]?["turnId"]?.stringValue == "t100")
     }
 
     /// An ask kept on the phone is not shown from the kept copy (it may have been answered on the

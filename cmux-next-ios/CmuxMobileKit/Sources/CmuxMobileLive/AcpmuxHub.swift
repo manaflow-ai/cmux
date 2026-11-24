@@ -671,7 +671,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var keptEarlier = false
     /// The kept records are being read from disk: the attach waits, so it reads on from them.
     private var restoring = false
-    /// The chat shows restored kept records and has not caught up since (``CatchUpRead/fromKept``).
+    /// The chat shows restored kept records and has not caught up since.
     private var keptRestored = false
     /// Kept records are being applied: their asks are not shown (they may have been answered
     /// since); the attach reply's pending list brings back the ones still open.
@@ -730,11 +730,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         endHistory()
     }
 
-    /// The kept copy is too old to catch up from: this source forgets it and everything it applied,
+    /// The Mac says the cursor is not its log's (``CatchUpPages/reset``): this source forgets it and everything it applied,
     /// its readers stop (a store showing the kept turns would otherwise get the newest page on top
     /// of them), the chat's store is rebuilt, and the next read is a first attach.
     private func dropKept() {
-        log.info("kept copy of \(self.sessionID, privacy: .public) too old at \(self.lastSeq, privacy: .public): opening on the newest page")
+        log.info("cursor of \(self.sessionID, privacy: .public) at \(self.lastSeq, privacy: .public) is not the Mac's log: opening fresh")
         keptRestored = false
         gapTask?.cancel()
         gapTask = nil
@@ -1695,13 +1695,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     struct CatchUpRead {
         let sessionID: String
         let after: Int
-        /// A reattach may read the newest records first and leave a gap before them: none
-        /// is filling now (one gap at a time).
+        /// A reattach, or the first catch-up after kept records were restored (``restoreKept()``),
+        /// may read the newest records first and leave a gap before them: none is filling now
+        /// (one gap at a time).
         var allowGap = true
-        /// The first catch-up after kept records were restored (``restoreKept()``): a gap longer
-        /// than one page means the kept copy is old, and the chat opens fresh instead of paging
-        /// through everything since (``CatchUpPages/keptTooOld``).
-        var fromKept = false
         /// The breakdown copy the last attach named (``AcpmuxSessionSource/timeBreakdownVersion``).
         var timeBreakdownVersion: String?
         var firstAttach: Bool { after == 0 }
@@ -1724,9 +1721,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// Set when `page` is the newest records with a gap before them (tail-first).
         var gap: CatchUpGap?
         var failure: (any Error)?
-        /// A catch-up from kept records found more than one page since them: nothing was read past
-        /// the attach reply, and the chat opens on its newest page instead (``dropKept()``).
-        var keptTooOld = false
+        /// The Mac said the cursor is not its log's (`reset`: past the log's end, the chat's
+        /// history replaced under its id): nothing was read past the attach reply, and the chat
+        /// forgets what it holds and opens fresh (``dropKept()``).
+        var reset = false
     }
 
     /// The next catch-up of attach `generation`, or nil when it is no longer current.
@@ -1734,7 +1732,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard generation == self.generation else { return nil }
         refillPending = false
         return CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
-                           fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+                           timeBreakdownVersion: timeBreakdownVersion)
     }
 
     /// The `beforeSeq` of a tail-first reattach: past any seq, so the page is the newest
@@ -1790,7 +1788,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
             } else {
                 params["afterSeq"] = .number(Double(read.after))
-                if read.allowGap, !read.fromKept {
+                if read.allowGap {
                     // Tail-first: with both cursors acpmux reads the newest `limit` records
                     // between them (`_acpmux/attach`, cmux-tui acpmux server/requests.rs),
                     // capped as an open is, so a reattach after hours away reads what an
@@ -1799,8 +1797,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     params["maxBytes"] = .number(Double(openBytes))
                     params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
                 }
-                // From kept records the read stays forward: a gap past one page drops the kept
-                // copy (`keptTooOld`) instead of filling in behind it.
+                // From kept records too: the kept rows stay, the newest page shows after them
+                // with the gap marked, and the gap fills in behind (`startGapFill`).
             }
             out.result = try await request("_acpmux/attach", params)
             let page = out.result["events"]?.arrayValue ?? []
@@ -1813,17 +1811,24 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // Without that (one gap filling already, a Mac that pages forward only, a newest
             // page inside one turn longer than itself) the reattach pages forward from the
             // last record applied until a page reaches the log's end, as it always did.
-            if read.fromKept, out.result["hasMore"] == .bool(true) {
-                // The kept copy is more than a page behind: open on the newest page instead
-                // (``dropKept()``), not on a gap after an old copy.
-                out.page = page
-                out.keptTooOld = true
+            if !read.firstAttach, out.result["reset"] == .bool(true) {
+                // The Mac decides the cursor is not its log's (cmux-tui acpmux `_acpmux/attach`).
+                out.reset = true
                 return out
             }
             if !read.firstAttach {
                 var more = out.result["hasMore"] == .bool(true)
                 var cursor: Double?
                 if more, read.allowGap, let first = page.first?["seq"]?.numberValue, Int(first) > read.after + 1,
+                   let newest = page.last?["seq"]?.numberValue, Int(newest) >= stateSeq(out.result),
+                   let tail = tailStart(page, after: read.after) {
+                    // The page reaches the reply's `lastSeq`: it is the newest records (a Mac that
+                    // ignores `beforeSeq` sends the oldest, short of it while `hasMore`), so no read
+                    // after it is needed to tell them apart.
+                    out.page = Array(page[tail.index...])
+                    out.gap = tail.gap
+                    more = false
+                } else if more, read.allowGap, let first = page.first?["seq"]?.numberValue, Int(first) > read.after + 1,
                    let newest = page.last?["seq"]?.numberValue {
                     // Records are missing before the page. acpmux sent the newest ones (its
                     // `hasMore`: older records after `afterSeq`); a Mac that ignores
@@ -1902,7 +1907,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let version = pages.result["timeBreakdownVersion"]?.stringValue {
             timeBreakdownVersion = version
         }
-        if pages.keptTooOld {
+        if pages.reset {
             dropKept()
             return true
         }
