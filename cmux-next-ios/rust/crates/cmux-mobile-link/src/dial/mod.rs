@@ -211,13 +211,12 @@ pub struct DialOptions {
     /// instead ([`crate::keepalive`]).
     pub aligned_keepalives: bool,
     /// WireGuard: the idle air gap for the tunnel's routine path probes
-    /// (`cmux_wg::WgNet::set_idle_air_gap`). `None` (the default) probes on
-    /// schedule.
+    /// (`cmux_wg::WgNet::set_idle_air_gap`), [`IDLE_AIR_GAP`] by default;
+    /// `None` probes on schedule.
     pub idle_air_gap: Option<Duration>,
-    /// WireGuard: the longest the tunnel stays silent
-    /// (`cmux_wg::WgNet::set_air_floor`), so a phone's radio does not
-    /// sleep between keys. `None` (the default): only the persistent
-    /// keepalive.
+    /// WireGuard, the dialing phone only: the longest its tunnel stays
+    /// silent (`cmux_wg::WgNet::set_air_floor`), [`PHONE_AIR_FLOOR`] by
+    /// default; `None` leaves only the persistent keepalive.
     pub air_floor: Option<Duration>,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
@@ -255,6 +254,22 @@ impl UltraSetting {
     }
 }
 
+/// The phone's air floor: LTE and NR carriers put an idle radio to sleep
+/// after 5 to 12 s of nothing on the air (an LTE RRC inactivity timer; Huang
+/// et al., MobiSys 2012, measured 11.6 s), and the next key then waits for
+/// the radio's promotion (about 260 ms) and, for the echo, a paging slot (up
+/// to 1.28 s). Something goes on the air at least this often, below the
+/// shortest timer: at most 13 empty 32-byte keepalives a minute on an idle
+/// link, about 25 KB an hour. `typing_echo --radio lte --radio-tail-ms 5000`:
+/// 22 radio wakes in 5 min and a first-key p90 of 190 ms without it, 1 wake
+/// and 74 ms with it.
+pub const PHONE_AIR_FLOOR: Duration = Duration::from_millis(4500);
+
+/// The idle air gap for routine path probes: with the air floor holding the
+/// radio awake, a probe gap only saves bytes, and 20 s saved as much as 30 s
+/// (a third of an idle link's datagrams in `typing_echo`).
+pub const IDLE_AIR_GAP: Duration = Duration::from_secs(20);
+
 impl Default for DialOptions {
     fn default() -> Self {
         Self {
@@ -279,8 +294,8 @@ impl Default for DialOptions {
             stock_ice_waits: false,
             ultra: UltraSetting::Auto,
             aligned_keepalives: false,
-            idle_air_gap: None,
-            air_floor: None,
+            idle_air_gap: Some(IDLE_AIR_GAP),
+            air_floor: Some(PHONE_AIR_FLOOR),
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),

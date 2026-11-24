@@ -161,7 +161,6 @@ async fn main() {
         timeout: Duration::from_secs(40),
         turn_tls_roots: Some(turn.roots.clone()),
         impair_inbound: Some(shape_uplink),
-        idle_air_gap: args.idle_air_gap_ms.map(Duration::from_millis),
         ..DialOptions::default()
     };
     match args.row.as_str() {
@@ -214,8 +213,13 @@ async fn main() {
         });
     }
     options.impair_inbound = Some(shape_downlink);
-    // The phone's radio is the one that sleeps: only its tunnel keeps the floor.
-    options.air_floor = args.air_floor_ms.map(Duration::from_millis);
+    // `--air-floor-ms 0` turns the phone's floor off.
+    if let Some(ms) = args.idle_air_gap_ms {
+        options.idle_air_gap = (ms > 0).then(|| Duration::from_millis(ms));
+    }
+    if let Some(ms) = args.air_floor_ms {
+        options.air_floor = (ms > 0).then(|| Duration::from_millis(ms));
+    }
     let phone_config = LinkConfig { foreground_probe: args.foreground_probe, ..LinkConfig::default() };
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone =
