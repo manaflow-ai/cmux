@@ -454,6 +454,38 @@ class StatusMapping(unittest.TestCase):
         self.assertRegex(self.stdout, NO_VERDICT_LINE)
         self.assertEqual(self.output, "")
 
+    def test_a_superseded_push_with_the_service_down_ends_green(self):
+        """note-556: 2026-11-24 14:50Z five feat-cmux-next pushes the preflight had found superseded (so FALLBACK
+        false) failed this job in about a minute on "results service down, HTTP 000", each a base red. The branch
+        moved on, so the newer tip's check covers the commit: a no-verdict status, and the job ends green."""
+        newer = "b" * 40
+        for probe in ("530", "000"):
+            with self.subTest(probe=probe):
+                code, posts, reads = self.run_step(self.reply("pass"), PROBE_CODE=probe, HEAD_SHA=newer)
+                self.assertEqual((code, reads, len(self.git_reads)), (0, [], 1))
+                self.assertEqual([p["state"] for p in posts], ["pending", "error"])
+                said = posts[-1]["description"]
+                self.assertTrue(said.startswith(f"[no-verdict] [superseded] Results service down (HTTP {probe}); "), said)
+                self.assertLessEqual(len(said), 140)
+                self.assertRegex(said, base_red_excuse().COMPILE_STATUS_NO_VERDICT)
+                self.assertNotRegex(self.stdout, NO_VERDICT_LINE)
+        # Down after the bad-answer bound, too.
+        code, posts, _ = self.run_step(None, CODES="503", BAD_BOUND="2", READ_GAP="1", WAIT_SECONDS="2400",
+                                       HEAD_SHA=newer)
+        self.assertEqual(code, 0)
+        self.assertTrue(posts[-1]["description"].startswith("[no-verdict] [superseded] Results service down (HTTP 503 for "))
+        # The head not moved, unreadable, or the gate off: no verdict and a red, as before.
+        for env in ({"HEAD_SHA": SHA}, {}, {"HEAD_SHA": newer, "SUPERSEDED_GATE": "0"}):
+            with self.subTest(env=env):
+                code, posts, _ = self.run_step(self.reply("pass"), PROBE_CODE="530", **env)
+                self.assertEqual(code, 1)
+                self.assertIn("no fallback compile runs here, re-run this job", posts[-1]["description"])
+                self.assertRegex(self.stdout, NO_VERDICT_LINE)
+        # A pull request head never reads the branch: the overflow compile takes it.
+        code, posts, _ = self.run_step(self.reply("pass"), PROBE_CODE="530", HEAD_SHA=newer, PR="28059")
+        self.assertEqual((code, self.git_reads), (0, []))
+        self.assertTrue(posts[-1]["description"].startswith("[overflow] "))
+
     def test_a_service_that_answers_nothing_usable_is_down_after_the_bound(self):
         # Probes see a 404 (the service up), then every read is a 503 or a 530: handed off after BAD_BOUND.
         for bad in ("503", "530", "000", "403"):
@@ -717,8 +749,9 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertIn("the overflow compile posts cmux-next/compile", stdout)
 
     def test_a_push_with_no_fallback_says_no_verdict(self):
-        """The overflow compile takes only pull request heads: a superseded push still says no verdict."""
-        code, stdout, output = self.compile_status(FALLBACK="false")
+        """The overflow compile takes only pull request heads: a push with no fallback whose branch head is not read
+        as moved on (here the gate off, so no real `git ls-remote`) still says no verdict and fails."""
+        code, stdout, output = self.compile_status(FALLBACK="false", SUPERSEDED_GATE="0")
         self.assertEqual((code, output), (1, ""))
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "error"])
         self.assertIn("no fallback compile runs here, re-run this job", self.server.posts[-1]["description"])
