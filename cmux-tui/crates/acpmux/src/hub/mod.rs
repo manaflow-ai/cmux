@@ -233,6 +233,7 @@ pub use model_options::{
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
+mod hybrid_hold;
 pub mod ledger;
 mod list_order;
 mod model_alias;
