@@ -9,6 +9,9 @@ import Testing
 /// a fresh derivation would not give, and a read answered from it must still register the Observation dependency a view
 /// laid out with it relies on to lay out again when a setting changes.
 @MainActor @Suite(.serialized) struct PaneChromeMetricsCacheTests {
+    // Nonisolated: onChange runs outside the main actor (this target is main-actor by default).
+    private nonisolated final class Flag: @unchecked Sendable { var raised = false }
+
     private func restore(_ settings: DesignSettings, density: DensityTokens, chrome: PaneChromeOverrides,
                          position: TabBarPosition, override: CGFloat?) {
         settings.densityTokens = density
@@ -57,9 +60,9 @@ import Testing
         let density = settings.densityTokens
         defer { settings.densityTokens = density }
         _ = PaneChromeMetrics.current  // the next read is a hit
-        var changed = false
-        withObservationTracking { _ = PaneChromeMetrics.current } onChange: { changed = true }
+        let changed = Flag()
+        withObservationTracking { _ = PaneChromeMetrics.current } onChange: { changed.raised = true }
         settings.densityTokens = density == .compact ? DensityPreset.comfortable.tokens : .compact
-        #expect(changed, "a view that read the cached metrics would not lay out again on a density change")
+        #expect(changed.raised, "a view that read the cached metrics would not lay out again on a density change")
     }
 }
