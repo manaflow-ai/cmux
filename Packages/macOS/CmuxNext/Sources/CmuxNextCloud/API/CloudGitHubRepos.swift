@@ -204,9 +204,6 @@ public final class CloudGitHubConnects {
         }
     }
 
-    /// Whether this launch's picker holds a flow for `team` it can resume (its page, or a key whose answer may be lost).
-    public func resumable(team: String) -> Bool { flows[team] != nil }
-
     /// A connect that gave no page: a 408, 429 or 5xx, a timeout, no cmux or no sign-in may have run (the key stays);
     /// any other refusal, or a reply this client will not use, is refused.
     nonisolated static func answer(_ failure: CloudAPIError) -> Answer {
@@ -357,11 +354,9 @@ public struct CloudGitHubPicker {
         case open(URL)
         /// The team is connected already: nothing to open.
         case connected
-        /// A connection this picker can't resume is pending (Settings' Connect, another launch's): finish that one.
-        case pending
         /// Signed out, no App here, a team policy that disallows GitHub, or no answer from the status route.
         case unavailable(Unavailable)
-        /// The team has no connection and `integration.connect` (or the pending check before it) gave no page.
+        /// The team has no connection and `integration.connect` gave no page.
         case failed
     }
 
@@ -375,14 +370,8 @@ public struct CloudGitHubPicker {
         guard let owner = await owner(), let status = await owner.client.gitHubStatus(team: owner.team) else { return .unavailable(.unreachable) }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
         let client = owner.client
-        // As Settings' Connect (`!pending || resumable`): another connect beside a pending one would add a second.
-        if !connects.resumable(team: owner.team) {
-            switch await client.gitHubConnectPending() {
-            case false?: break
-            case true?: return .pending
-            case nil: return .failed
-            }
-        }
+        // A pending connection never blocks a click (#46018): one this launch can't resume (another launch's, or one
+        // whose return failed) can't be finished, and it expires on its own; the API adds a new one beside it.
         let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
         // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
         // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
