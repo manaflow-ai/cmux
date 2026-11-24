@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "build": "4532878579001",
+  "notes": "notes/4532878579001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 52730,
+      "title": "deadline_http: a broken-off answer is retried once (reads) and raised as URLError",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52295,
+      "title": "Cloud start and resume: past a stated time, say it is taking longer and offer a way out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53117,
+      "title": "gateway priority: interactive chats and coordinators keep a reserved share",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49972,
+      "title": "link project: log the projection gate's split (listing, encoding, mount)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53131,
+      "title": "cmux-tui spec: git.worktree.setup.run in the operation table (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52633,
+      "title": "cmux-next-ios: plan for right-size first frame, landscape, sideways scroll, smooth scroll, normal long-press",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51081,
+      "title": "Sidebar: review follow-ups (#37908 F1/F2, #37835 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53088,
+      "title": "cmux-api: install.register signs out the stalest client installs past 200 instead of owner.state_full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51989,
+      "title": "session move: the receipt comes at the commit, not 20 s after",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52008,
+      "title": "acpmux: the owner's own daemon forks and starts chats on a peer (#50026)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52708,
+      "title": "carrier.routes: an ssh why code names the platform's refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53175,
+      "title": "backend CI: the three deploy jobs get 30 minutes, so a slow history fetch no longer cancels a staging deploy",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44714,
+      "title": "acpmux: stop LOWER modules from using Hub, Session, Conn, tailnet serve, vault env, sender harness (layering for the lib split)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44714/hv-22e3c9397c74-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52988,
+      "title": "acpmux: a hub that answers again drains the outbox at once, with a 30 s 503 duress test (RFD 0086 item 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53013,
+      "title": "acpmux: stop forcing short and medium shell calls into the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53020,
+      "title": "screen-share-vs.py --apple-viewer: Apple Screen Sharing to the presented frame in one command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52995,
+      "title": "projection: projection-extend-v1 (head dial barrier, in-place extend)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52146,
+      "title": "iOS composer: one keyed Send, kept across a reconnect (no lost Return, no double send)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
