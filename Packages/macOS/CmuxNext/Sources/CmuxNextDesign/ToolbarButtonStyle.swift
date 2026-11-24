@@ -1,5 +1,5 @@
-/// `appearance.toolbarButtonStyle`: how the buttons at a pane's top right (its pinned tab bar buttons, Exit Zoom and
-/// the ⋮) and the tab bar's + and ⌄ draw. A theme file sets it like any `appearance.*` key, and a change applies at
+/// `appearance.toolbarButtonStyle`: how the buttons at a pane's top right (its pinned tab bar buttons and Exit Zoom)
+/// and the tab bar's + and ⌄ draw. A theme file sets it like any `appearance.*` key, and a change applies at
 /// once (`PaneToolbarView`, `TabStripView`).
 ///
 /// Leo 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session
