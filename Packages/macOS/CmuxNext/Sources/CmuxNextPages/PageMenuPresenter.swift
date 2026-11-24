@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Pops a native menu over a page view on the next main run loop turn, outside the page call that
 /// asked for it (AppKit's menu tracking runs its own loop), and resumes once the menu closes.
@@ -12,7 +13,7 @@ enum PageMenuPresenter {
                     // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
                     if let view, view.window != nil {
                         let at = view.isFlipped ? point : CGPoint(x: point.x, y: view.bounds.height - point.y)
-                        menu.popUp(positioning: nil, at: at, in: view)
+                        menu.popUpAtPointer(at, in: view)
                     }
                     continuation.resume()
                 }
