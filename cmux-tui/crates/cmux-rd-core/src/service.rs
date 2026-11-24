@@ -35,6 +35,11 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// Frames over one FEC block (255 shards) keep their parity, split across interleaved
+    /// blocks (cmux-rd-proto `fec_blocks`); the viewer rebuilds each block on its own. A
+    /// viewer that does not offer it refuses such headers, so it gets those frames with
+    /// only the parity one block holds.
+    pub const FEC_BLOCKS: &str = "fec.blocks";
     /// The viewer shows a picture smaller than the stream scaled up to the stream's size and
     /// keeps sending input in stream pixels, so the host may encode a smaller picture under
     /// the bits-per-pixel floor (the resolution ladder, design D5). A viewer that does not
@@ -51,7 +56,7 @@ pub mod caps {
     /// High. A viewer that does not offer it (VideoToolbox) gets the host's profile.
     pub const H264_BASELINE: &str = "h264.baseline";
     /// Every named cap.
-    pub const ALL: [&str; 12] = [
+    pub const ALL: [&str; 13] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
@@ -60,6 +65,7 @@ pub mod caps {
         CLOCK,
         LINK_UDP,
         CURSOR,
+        FEC_BLOCKS,
         VIDEO_SCALED,
         LEDGER,
         CLIPBOARD_TEXT,

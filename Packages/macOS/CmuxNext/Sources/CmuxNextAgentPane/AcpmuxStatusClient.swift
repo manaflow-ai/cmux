@@ -104,6 +104,20 @@ nonisolated enum AcpmuxStatusClient {
         _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
     }
 
+    /// `_acpmux/shutdown` with `swapIfReplaced` to the daemon of `home`, for one whose executable
+    /// an update replaced: an acpmux that has a build at its installed path swaps to it
+    /// make-before-break (`daemon/exe_swap.rs`) instead of stopping, and answers `swapping` (true
+    /// here): it serves until the new build takes the home, and serves on if it never does. One
+    /// from before the flag, or with no build to swap to, stops as ``shutdown`` asks (false).
+    @concurrent static func swapOrStop(socketPath: String, home: URL, reason: String,
+                                       deadline: Duration = .seconds(2)) async throws -> Bool {
+        let running = try await status(socketPath: socketPath, deadline: deadline)
+        guard running.serves(home: home) else { throw Failure.otherHome(running.home ?? "") }
+        let params: [String: any Sendable] = ["reason": "app: " + reason, "swapIfReplaced": true]
+        let result = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
+        return result["swapping"] as? Bool == true
+    }
+
     /// `_acpmux/sessions`: a page of session summaries. Callers that need the
     /// complete set use ``sessionPages`` so a large peer mirror never crosses
     /// the single-reply limit.

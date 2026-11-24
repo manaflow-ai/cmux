@@ -18,6 +18,7 @@ fn session(profile: EncodeProfile) -> MediaSession {
     let cfg = SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: profile,
         start_kbps: (START_BPS / 1000) as u32,
@@ -34,6 +35,7 @@ fn session(profile: EncodeProfile) -> MediaSession {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        rtt_tail_probe: false,
         resolution_ladder: false,
         max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,

@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture replies, not shipped UI.
 // A turn the agent ran on its own draws its tool calls as normal tool calls, with no "Background
 // update" line over them (backgroundTurnLook.experiment.ts `inline`; Leo, 2026-11-11: "it should maybe
-// arguably just be treated like a normal tool call"). Its quiet reply still draws nothing.
+// arguably just be treated like a normal tool call"). Its quiet reply still draws nothing. Once it ends,
+// its calls fold under one "Worked for", as a prompt's turn's do (cmux#49592).
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
@@ -65,7 +66,7 @@ const ids = (rows: AcpmuxRow[]) => rows.filter((entry) => entry.kind !== "date")
 // 2026-11-21: "there's no buttons at the bottom even thuogh you have visibly stopped doing things").
 test("a quiet background turn draws its tool call and its row, with no line and no reply", () => {
   const rows = transcript({ quiet: true });
-  const drawn = ["prompt", "worked-prompt", "reply", "summary", "check", "backgroundEnd-bg"];
+  const drawn = ["prompt", "worked-prompt", "reply", "summary", "worked-backgroundTurn-bg", "backgroundEnd-bg"];
   expect(ids(turnView(rows, new Set()))).toEqual(drawn);
   // A fold key left from the line look opens nothing: the reply stays hidden.
   expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual(drawn);
@@ -87,7 +88,7 @@ test("a silent turn no call took that ended with something to say draws its repl
 
 test("a background turn with something to say draws as before", () => {
   const view = ids(turnView(transcript({ quiet: false }), new Set()));
-  expect(view).toEqual(["prompt", "worked-prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
+  expect(view).toEqual(["prompt", "worked-prompt", "reply", "summary", "worked-backgroundTurn-bg", "note", "backgroundEnd-bg"]);
 });
 
 test('quiet background turns in a row draw no "N background updates" line', () => {
@@ -109,9 +110,9 @@ test('quiet background turns in a row draw no "N background updates" line', () =
     "worked-prompt",
     "reply",
     "summary",
-    "a-check",
+    "worked-backgroundTurn-a",
     "backgroundEnd-a",
-    "b-check",
+    "worked-backgroundTurn-b",
     "backgroundEnd-b",
   ]);
 });
@@ -136,8 +137,8 @@ test("in the `last` arm only the chat's last quiet turn ends on its row", () => 
     "worked-prompt",
     "reply",
     "summary",
-    "a-check",
-    "b-check",
+    "worked-backgroundTurn-a",
+    "worked-backgroundTurn-b",
     "backgroundEnd-b",
   ]);
   globalThis.cmuxExperiments = {
@@ -151,8 +152,8 @@ test("in the `last` arm only the chat's last quiet turn ends on its row", () => 
     "worked-prompt",
     "reply",
     "summary",
-    "a-check",
-    "b-check",
+    "worked-backgroundTurn-a",
+    "worked-backgroundTurn-b",
   ]);
 });
 

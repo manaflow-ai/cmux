@@ -925,6 +925,34 @@ fn persistent_exit_record_failure_does_not_block_host_progress() {
 }
 
 #[test]
+fn exit_publisher_thread_starts_only_once_the_child_exit_is_known() {
+    let host = test_host_shared();
+    assert!(host.exit_publisher.lock().unwrap().is_some(), "the publisher is armed at start");
+
+    // A running program: requests (every host start makes one) start nothing.
+    host.publish_exit_if_drained();
+    host.publish_exit_if_drained();
+    assert!(
+        host.exit_publisher.lock().unwrap().is_some(),
+        "a host whose program runs started its exit publisher thread"
+    );
+
+    // The child thread stores the exit and asks while it holds the lock.
+    {
+        let mut exit = host.child_exit.0.lock().unwrap();
+        *exit = Some(TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+            exited_at_ms: 1,
+        });
+        host.publish_exit_if_drained();
+    }
+    assert!(
+        host.exit_publisher.lock().unwrap().is_none(),
+        "the request after the child's exit did not start the publisher thread"
+    );
+}
+
+#[test]
 fn forced_drain_waits_for_late_bytes_then_exits_with_writer_still_open() {
     let (mut pty_reader, mut retained_writer) = UnixStream::pair().unwrap();
     let (mut drain_waiter, mut drain_waker) = UnixStream::pair().unwrap();

@@ -147,7 +147,7 @@ test("a substantive answer with a table stays visible before a tool and its shor
   // while the tool is still running, then the completed projection above must preserve it on reload.
   expect(drawn(rows.slice(0, -1), new Set(), true)).toEqual([
     "user:u",
-    "working:working-u",
+    "worked:worked-u",
     "assistant:answer-before-tool",
     "activity:ask-lane",
     "assistant:receipt",
@@ -183,12 +183,20 @@ test("completed compactions fold, while subagent lifecycle lines and refusals st
 
 test("a running turn draws as before: nothing folds", () => {
   const shaped = drawn(leosTurn().slice(0, -1), new Set(), true);
-  expect(shaped.filter((entry) => entry.startsWith("worked:"))).toEqual([]);
+  // Its one line is the turn's header in its running phase, the row its end draws Worked for in.
+  expect(shaped.filter((entry) => entry.startsWith("worked:"))).toEqual(["worked:worked-u"]);
   expect(shaped).toContain("assistant:first");
 });
 
-test("a turn with only its answer draws no fold", () => {
-  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual(["user:u", "assistant:only", "turnSummary:end"]);
+// Its Worked for line stays, closed over nothing, where its Working for stood (turns.ts `holdsHeader`, #51896);
+// nothing folds under it. Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
+test("a turn with only its answer keeps its Worked for line, and nothing folds under it", () => {
+  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:only",
+    "turnSummary:end",
+  ]);
 });
 
 test("an empty last message never takes the answer's place", () => {

@@ -16,7 +16,19 @@ export type StackSurface = {
   bottom: number;
   radiusLeft: number;
   radiusRight: number;
+  /** The composer's card (`.acpmux-composer-box`), the one surface the dock band arms reach under. */
+  card?: boolean;
 };
+
+/// How much of the transcript shows in the band at the stack's foot, the composer card and the quiet
+/// row under it (dockBand.experiment.ts; Leo, 2026-11-22: "I KINDA HATE HOW MUCH SOLID + BLUR
+/// THERE IS AT THE BOTTOM [...] OF THE BOX"). `height` is the scroller's own height: the pane's
+/// bottom edge, where the quiet row ends.
+export type DockBand = { arm: DockBandArm; height: number };
+export type DockBandArm = "shipped" | "frost" | "frost-ramp" | "frost-through";
+
+/// The ramp under the card in `frost-ramp`: the rows fade out over it, into the quiet row.
+export const DOCK_BAND_RAMP = 16;
 
 /// The extra mask layers: as many images as sizes and positions, comma-joined, or undefined for none.
 export type BesideMask = { images: string; sizes: string; positions: string };
@@ -25,7 +37,7 @@ const px = (value: number) => `${Math.round(value * 2) / 2}px`;
 
 /// The mask layers that keep the rows in sight beside `surfaces` (top to bottom, any order in),
 /// in a scroller `width` wide. Undefined when nothing is beside them.
-export function besideMask(surfaces: readonly StackSurface[], width: number): BesideMask | undefined {
+export function besideMask(surfaces: readonly StackSurface[], width: number, band?: DockBand): BesideMask | undefined {
   const sorted = [...surfaces].filter((s) => s.right > s.left && s.bottom > s.top).sort((a, b) => a.top - b.top);
   const images: string[] = [];
   const sizes: string[] = [];
@@ -37,6 +49,19 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
     positions.push(`${px(x)} ${px(y)}`);
   };
   const solid = "linear-gradient(#000, #000)"; // colour-allow: a mask layer's alpha only, never painted
+  // The frost arms: the rows run on under the card, where its own glass frosts them (the one stack
+  // material, composerStates.css; no blur of their own), and past its bottom edge as the arm says.
+  const underCard = (card: StackSurface, { arm, height }: DockBand) => {
+    if (arm === "shipped") return;
+    add(solid, card.left, card.top, card.right - card.left, card.bottom - card.top);
+    const ramp =
+      arm === "frost-ramp"
+        ? Math.min(DOCK_BAND_RAMP, height - card.bottom)
+        : arm === "frost-through"
+          ? height - card.bottom
+          : 0;
+    add("linear-gradient(#000, transparent)", 0, card.bottom, width, ramp); // colour-allow: a mask ramp, alpha only
+  };
   sorted.forEach((surface, at) => {
     const next = sorted[at + 1];
     const previous = sorted[at - 1];
@@ -83,6 +108,7 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
         Math.min(q, surface.bottom - surface.top),
       );
     }
+    if (surface.card && band) underCard(surface, band);
   });
   if (!images.length) return undefined;
   return { images: images.join(", "), sizes: sizes.join(", "), positions: positions.join(", ") };

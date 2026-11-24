@@ -60,8 +60,13 @@ other="$APP_PATH/Contents/Library/cmux Computer Use.app"
 [[ ! -e "$other" ]] || fail "$other ships beside $(basename "$helper"): a second Screen Recording holder asks the person twice"
 
 helper_id="$("$PLISTBUDDY" -c "Print :CFBundleIdentifier" "$helper/Contents/Info.plist")"
-[[ "$helper_id" == "$app_id.screen-sharing" ]] \
-  || fail "$(basename "$helper") is $helper_id, not $app_id.screen-sharing"
+# One helper id per channel: every DEV build shares one (bundle-screen-sharing-helper.sh helper_id_for).
+case "$app_id" in
+  com.cmuxterm.app.debug|com.cmuxterm.app.debug.*) expected_helper_id=com.cmuxterm.app.debug.screen-sharing ;;
+  *) expected_helper_id="$app_id.screen-sharing" ;;
+esac
+[[ "$helper_id" == "$expected_helper_id" ]] \
+  || fail "$(basename "$helper") is $helper_id, not $expected_helper_id"
 pinned="$(pinned_helper_id "$app_id")"
 [[ -z "$pinned" || "$helper_id" == "$pinned" ]] \
   || fail "$app_id's helper is $helper_id; its grants live under $pinned (pinned in $0)"

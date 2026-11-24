@@ -1062,6 +1062,12 @@ impl OutputStore {
         self.writer.mark_dirty(Duration::ZERO);
     }
 
+    /// A parked terminal mirror (surface/mirror_park.rs) is rebuilt at the
+    /// configured scrollback: its budget limit is measured afresh.
+    pub(crate) fn forget_scrollback_budget(&self, terminal_id: &TerminalPublicId) {
+        self.memory_budget.forget(terminal_id);
+    }
+
     /// Forget a terminal runtime that left this daemon: its memory. Its
     /// files stay while the terminal is in the session (a respawn after a
     /// lost host reads them); the next write pass removes the files of

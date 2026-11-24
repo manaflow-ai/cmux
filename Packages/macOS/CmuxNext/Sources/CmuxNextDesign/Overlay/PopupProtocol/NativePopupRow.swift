@@ -10,6 +10,8 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
     public var `shortcut`: String?
     public var `disabled`: Bool?
     public var `disabledReason`: String?
+    /// The row's work is running (`experiments.menuRowStates`): a spinner in its trailing slot, no pick.
+    public var `loading`: Bool?
     public var `checked`: Bool?
     public var `value`: String?
     public var `keepOpen`: Bool?
@@ -31,7 +33,7 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
     /// A rail tab's text mark when it has no `mark` (its name's initial, or an emoji icon).
     public var `monogram`: String?
 
-    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil, completion: String? = nil, editSequence: Int? = nil, sideLabel: String? = nil, mark: String? = nil, monogram: String? = nil) {
+    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, loading: Bool? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil, completion: String? = nil, editSequence: Int? = nil, sideLabel: String? = nil, mark: String? = nil, monogram: String? = nil) {
         self.id = id
         self.kind = kind
         self.label = label
@@ -40,6 +42,7 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
         self.shortcut = shortcut
         self.disabled = disabled
         self.disabledReason = disabledReason
+        self.loading = loading
         self.checked = checked
         self.value = value
         self.keepOpen = keepOpen

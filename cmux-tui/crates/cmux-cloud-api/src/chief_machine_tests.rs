@@ -106,6 +106,7 @@ fn start(until_machine: bool) -> Start {
         team: None,
         api: "https://api.example".into(),
         until_machine,
+        keep_awake: false,
     }
 }
 
@@ -132,15 +133,31 @@ async fn a_new_start_makes_pairs_places_and_starts_the_host() {
     assert_eq!(answer["host_unit"], "image");
     let calls = fake.calls();
     assert!(calls.contains(&"cloud.machine.create chief-machine-k1-create".to_owned()));
-    assert!(calls.contains(&"cloud.machine.idle_policy.set chief-machine-k1-idle".to_owned()));
+    // It pauses when idle (RFD 0037): the short policy, not "never".
+    assert!(calls.contains(&"cloud.machine.idle_policy.set chief-machine-k1-idle-180".to_owned()));
     assert!(calls.contains(&"cloud.machine.keep chief-machine-k1-keep".to_owned()));
     assert!(calls.contains(&"server.pair.approve chief-machine-k1-approve-abcd2345".to_owned()));
     assert!(calls.contains(&"chief.create chief-machine-k1-chief".to_owned()));
     assert_eq!(fake.count("exec pair"), 1);
     assert_eq!(fake.count("exec host"), 1);
-    // The team came from the person's policy, the Chief is not the default.
-    assert_eq!(fake.count("team.policy.get"), 1);
+    // The team came from the person's policy (for the approval and the place), the Chief is not the default.
+    assert_eq!(fake.count("team.policy.get"), 2);
     assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["install"], "inst_1");
+    // The place names the machine and team, so a message resumes a paused machine (cmux-api).
+    assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["machine"], answer["machine"]);
+    assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["team"], "team_1");
+}
+
+#[tokio::test]
+async fn keep_awake_sets_no_idle_pause() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    let mut s = start(false);
+    s.keep_awake = true;
+    run(&fake, &s).await.unwrap();
+    assert!(
+        fake.calls().contains(&"cloud.machine.idle_policy.set chief-machine-k1-idle-0".to_owned())
+    );
 }
 
 #[tokio::test]
@@ -184,7 +201,9 @@ async fn until_machine_stops_before_the_machine_is_touched() {
     let answer = run(&fake, &start(true)).await.unwrap();
     assert_eq!(answer["stage"], "machine");
     assert_eq!(fake.count("exec"), 0);
-    assert_eq!(fake.count("cloud.machine.idle_policy.set"), 1);
+    // Not kept nor given its idle policy until its host runs.
+    assert_eq!(fake.count("cloud.machine.idle_policy.set"), 0);
+    assert_eq!(fake.count("cloud.machine.keep"), 0);
 }
 
 #[tokio::test]
@@ -202,6 +221,9 @@ async fn an_image_without_a_host_is_refused_with_what_to_do() {
     let Err(Failure::Http { code, .. }) = run(&fake, &start(false)).await else { panic!() };
     assert_eq!(code.as_deref(), Some("chief.host_missing"));
     assert_eq!(fake.count("server.pair.approve"), 0);
+    // A failed start leaves no kept machine that never pauses (review of #50110).
+    assert_eq!(fake.count("cloud.machine.keep"), 0);
+    assert_eq!(fake.count("cloud.machine.idle_policy.set"), 0);
 }
 
 #[tokio::test]

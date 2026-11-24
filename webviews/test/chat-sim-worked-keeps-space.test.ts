@@ -50,9 +50,16 @@ for (const name of ["churn", "send-after-settle"]) {
       expect(gone).toEqual([]);
     });
 
-    test("no shift of drawn rows after the send", () => {
+    // The turn's end folds its own work under its closed "Worked for" and the reply under it moves up by that work's
+    // height, as every turn's end does (turn 1's here too): the fold, not the heading. The heading keeps one row from
+    // the turn's start to its end (turns.ts `turnHeaderId`), so a heading that came, went or moved shows here.
+    test("no shift of drawn rows after the send but the turn's end folding its own work", () => {
       const at = traces[sendAt]!.t;
-      expect(result.shifts.filter((shift) => shift.at >= at)).toEqual([]);
+      expect(
+        result.shifts.filter(
+          (shift) => shift.at >= at && (shift.phase === "mid-turn" || /^[-+~](worked|working) /.test(shift.cause)),
+        ),
+      ).toEqual([]);
     });
   });
 }

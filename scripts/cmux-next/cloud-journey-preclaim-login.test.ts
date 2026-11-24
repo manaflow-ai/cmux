@@ -9,7 +9,7 @@ describe("the production journey copies the login on spare.ready, as the app's S
       const { steps, log } = runJourney({ preclaim, login: FIXTURE_LOGIN });
       expect(steps.find((step) => step.step === "create machine")?.status).toBe("pass");
       const sizes = log.filter((line) => line.startsWith("create size ")).map((line) => JSON.parse(line.slice("create size ".length)));
-      expect(sizes).toEqual([{ cpu: 4, memory_mb: 16384, disk_mb: 65536 }]);
+      expect(sizes).toEqual([{ cpu: 2, memory_mb: 4096, disk_mb: 20480 }]);
     }
   });
 
@@ -20,13 +20,19 @@ describe("the production journey copies the login on spare.ready, as the app's S
     // The copy happened on the spare, before create; none after it.
     expect(log.slice(0, create)).toContain("fs/write credential");
     expect(log.slice(create)).not.toContain("fs/write credential");
-    // The login step after the claim is the launcher check alone.
+    // The app reads the receipt from its ledger and runs no launcher check before the chat: the journey's check
+    // still runs, after the first text, so it is outside create_to_first_text_ms.
     expect(log.slice(create)).toContain("own-login check");
     const pre = steps.find((s) => s.step === "preclaim login (spare.ready)");
     expect(pre?.status).toBe("pass");
     const login = steps.find((s) => s.step === "pass Claude login");
     expect(login?.status).toBe("pass");
     expect(login?.detail).toContain("receipt installed");
+    const names = steps.map((s) => s.step);
+    const launcher = names.indexOf("login seen by the launcher");
+    expect(steps[launcher]?.status).toBe("pass");
+    expect(launcher).toBeGreaterThan(names.indexOf("reply"));
+    expect(names.indexOf("reply")).toBeGreaterThan(-1);
     expect(probe.login_path).toBe("receipt");
     expect(probe.outcome).toBe("ok");
     // Before create, so outside the first-text window.
