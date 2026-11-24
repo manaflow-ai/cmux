@@ -741,10 +741,6 @@ impl Peer {
     }
 }
 
-/// The longest a handshake reading its watch list in pages may take in all: each page moves its
-/// deadline on by the handshake's own (`LinkTimings::handshake`), never past this.
-const HANDSHAKE_MOST: Duration = Duration::from_secs(300);
-
 /// The rows of the first watch page read by count (`Peer::watch_row_pages`): about 5 MB
 /// without tools at the incident's row sizes (2.3 KB).
 const WATCH_FIRST_ROWS: u64 = 2048;

@@ -569,12 +569,16 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
         # #51750 reads R2 first (./.github/actions/cache-restore, backend r2), then the GitHub store's restore step.
+        restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], "Restore the Bun package cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
-            restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], name)
-            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
             r2 = step_named(steps, f"{name} from R2")
             self.assertEqual(r2["uses"], "./.github/actions/cache-restore", name)
             self.assertEqual(r2["with"]["backend"], "r2", name)
+        # The lint tools never change per PR and are off the GitHub store (RFD 0148 row 19): R2 only, and a miss
+        # is prepush-gate.py's sha256-checked download.
+        self.assertEqual([s["name"] for s in steps if s["name"].startswith("Restore the pinned lint tools")],
+                         ["Restore the pinned lint tools from R2"])
 
     def test_the_bun_cache_restore_is_bounded_and_never_left_half_done(self):
         # 2026-11-23: on a Freestyle VM the 710 MB restore ran at about 1 MB/s, and at 600 s its link expired.
