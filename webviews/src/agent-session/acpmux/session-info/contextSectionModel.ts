@@ -15,9 +15,21 @@ export function contextParts(usage: { used: number; size: number }): ContextPart
 }
 
 type Kind = AcpmuxContextBreakdown["categories"][number]["kind"];
+/// A used category's color, as Claude Code desktop's Context card colors it (Lucas, 2026-11-23:
+/// "make it more identical to claude"): Messages blue, MCP tools orange, System prompt green, Skills
+/// yellow, every other used category one grey (ContextSection.css `data-hue`).
+export type BreakdownHue = "messages" | "mcpTools" | "systemPrompt" | "skills" | "other";
 /// A breakdown row: `share` is of the window (0 to 1), none for a deferred category, which takes no
-/// room until it loads; `tone` picks a used category's color (0 to TONES - 1, largest first).
-export type BreakdownRow = { name: string; tokens: number; kind: Kind; share?: number; tone?: number };
+/// room until it loads; `tone` picks a used category's step for the App's panel (0 to TONES - 1,
+/// largest first); `hue` is a used category's color in the page's.
+export type BreakdownRow = {
+  name: string;
+  tokens: number;
+  kind: Kind;
+  share?: number;
+  tone?: number;
+  hue?: BreakdownHue;
+};
 export type BreakdownItem = { name: string; detail?: string; tokens: number };
 export type Breakdown = {
   rows: BreakdownRow[];
@@ -26,7 +38,18 @@ export type Breakdown = {
 
 /// How many colors the used categories cycle through (ContextSection.css `data-tone`).
 const TONES = 6;
-const KINDS: readonly Kind[] = ["used", "buffer", "deferred", "free"];
+/// Claude Code desktop's order: what is used, the autocompact buffer and the free space (which add
+/// up to the window), then the deferred categories, which take no room yet.
+const KINDS: readonly Kind[] = ["used", "buffer", "free", "deferred"];
+/// Claude Code's category ids (or its display names, snake-cased, where it sent no id) to a hue.
+const HUES: Readonly<Record<string, BreakdownHue>> = {
+  messages: "messages",
+  mcp_tools: "mcpTools",
+  system_prompt: "systemPrompt",
+  skills: "skills",
+};
+const hueOf = (id: string | undefined, name: string): BreakdownHue =>
+  HUES[id ?? name.toLowerCase().replace(/[^a-z]+/g, "_")] ?? "other";
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0);
 const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const records = (value: unknown): Record<string, unknown>[] =>
@@ -34,7 +57,7 @@ const records = (value: unknown): Record<string, unknown>[] =>
 const tail = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
 
 /// The rows and folds a breakdown draws, or none when it is malformed or names no window. Used
-/// categories come largest first, then the buffer, the deferred ones and the free space last; each
+/// categories come largest first, then the buffer, the free space and the deferred ones last; each
 /// share is of the window, clamped to it. A category without a name or a known kind is dropped.
 export function contextBreakdown(value: unknown): Breakdown | undefined {
   if (value === null || typeof value !== "object") return undefined;
@@ -44,7 +67,15 @@ export function contextBreakdown(value: unknown): Breakdown | undefined {
   const rows = records(source.categories).flatMap((category): BreakdownRow[] => {
     const name = named(category.name);
     const kind = KINDS.find((known) => known === category.kind);
-    return name && kind ? [{ name, kind, tokens: count(category.tokens) }] : [];
+    if (!name || !kind) return [];
+    return [
+      {
+        name,
+        kind,
+        tokens: count(category.tokens),
+        ...(kind === "used" ? { hue: hueOf(named(category.id), name) } : {}),
+      },
+    ];
   });
   if (rows.length === 0) return undefined;
   const ordered = KINDS.flatMap((kind) =>

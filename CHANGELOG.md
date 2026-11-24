@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [Unreleased]
 
 ### Added
+- `acpmux fetch URL -o FILE` reads a large file over 16 parallel range requests (a Cloud VM's IPv4 path from GitHub is 11x faster that way), and the managed Codex install switches to it when one stream is slow.
 - Read files, byte ranges, and directory listings from paused VMs with `cmux vm file read` and `cmux vm file ls`, without starting the machine.
 
 ### Fixed

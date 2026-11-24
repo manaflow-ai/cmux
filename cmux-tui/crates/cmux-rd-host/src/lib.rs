@@ -4,12 +4,12 @@
 //!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264] [--no-udp-link] [--link-stun HOST:PORT,...]
 //!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
-//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--monitor N (Linux X11: one monitor)] [--window ID (one window followed through moves, ends when it is closed or resized; Linux X11: an X window id, macOS: a CGWindowID from serve's `windows` line)] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
 //!   bench    --addr HOST:4103 --token-fd N [--mode view|control] [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
-//!   testapp  --display :99 --workload marker|text|motion|idle
+//!   testapp  --display :99 --workload marker|text|motion|idle [--geometry WxH+X+Y (a titled window there, not full screen)]
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
 //!            stdin and stdout (src/serve.rs); macOS and Linux
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
@@ -122,11 +122,15 @@ mod testapp;
 mod token;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
+// `__webrtc-host`: the app's WebRTC screen host as the Screen Sharing helper's child (its grants).
+pub mod webrtc_child;
 // `cmux-rd view`: the Linux viewer of a device hub session (Windows follows from the same module).
 #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
 mod view;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod wg_carrier;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -139,6 +143,8 @@ mod workload;
 mod x11;
 #[cfg(target_os = "linux")]
 mod x11_view;
+#[cfg(target_os = "linux")]
+mod x11_window;
 #[cfg(feature = "x264")]
 mod x264;
 
@@ -263,6 +269,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
     }
+    // The app's iPhone viewer host, started as this helper's child so its capture and input use the
+    // helper's Screen Recording and Accessibility grants; stdio is the app's, passed through.
+    if cmd == webrtc_child::MODE {
+        return webrtc_child::run(&args[1..]);
+    }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");
         return 0;
@@ -340,9 +351,11 @@ pub fn run_cli(args: &[String]) -> i32 {
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
-        "serve" => serve::run(&opts),
+        // Versioned aliases prove the worker supports signed carrier selection.
+        // Old app callers keep their original commands and legacy setup format.
+        "serve" | "serve-v2" => serve::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
-        "connect" => connect::run(),
+        "connect" | "connect-v2" => connect::run(),
         "permissions" => permissions::run(),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
