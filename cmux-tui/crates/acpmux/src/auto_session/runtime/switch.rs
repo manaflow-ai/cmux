@@ -215,13 +215,17 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 self.ctx.start("auto-session inbox post", task);
             }
             Some(State::Stopped { .. }) => answer(Some(reply), Err(waits_for_network())),
+            // `Giving` and `Returning`: a move by hand is not run by the daemon yet, so no chat
+            // is in either.
             Some(
                 State::Off
                 | State::Registering
                 | State::Holding { .. }
+                | State::Giving { .. }
                 | State::Away
                 | State::Taking { .. }
-                | State::Serving { .. },
+                | State::Serving { .. }
+                | State::Returning { .. },
             )
             | None => answer(Some(reply), Err(not_here())),
         }

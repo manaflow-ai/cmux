@@ -75,6 +75,13 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Effect::DrainInbox => self.lane(id, LaneOp::Drain),
             Effect::Import { reason, epoch } => self.lane(id, LaneOp::Import { reason, epoch }),
             Effect::AckAssignment { epoch } => self.lane(id, LaneOp::Ack { epoch }),
+            // A move by hand is not run by the daemon yet. No answer it reads carries a wish, so
+            // the holder asks for none of these; a give that began anyway ends at the next
+            // renewal, whose answer has no wish.
+            Effect::StopTurn | Effect::Give { .. } | Effect::Stay | Effect::NotMoved { .. } => {
+                let effect = effect.kind();
+                tracing::warn!(session = %id, effect, "auto session: a move by hand is not run");
+            }
             // The row reads `Chat::blocked` when the record is written (`chats.rs`).
             Effect::ShowBlocked { .. } => {}
             Effect::ScheduleAt { at } => {
