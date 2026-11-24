@@ -130,6 +130,15 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// Which of `endpoints` are public addresses the sender's router
+        /// mapped for it (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
+        /// endpoints"); absent from older peers, which offer none, and older
+        /// peers ignore it (the address is still one of `endpoints`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mapped: Vec<String>,
+        /// Which protocol mapped them: `pcp`, `nat-pmp` or `upnp`.
+        #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
+        mapped_by: Option<String>,
     },
     #[serde(rename = "bye")]
     Bye {

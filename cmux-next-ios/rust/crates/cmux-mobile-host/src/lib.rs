@@ -42,6 +42,7 @@ mod notify_waiting;
 pub mod paint_latency;
 pub mod pair_requests;
 pub mod pairing;
+pub mod portmap;
 pub mod path_probe;
 pub mod peer;
 pub mod phone_frames;
