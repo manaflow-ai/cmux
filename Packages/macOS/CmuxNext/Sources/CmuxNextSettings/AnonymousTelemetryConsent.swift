@@ -10,7 +10,8 @@ import Foundation
 /// preference at the next launch (`CrashReportingPolicy.telemetryOptIn(in:)`); the Chief host
 /// re-reads it while it runs. A synced or hand-edited file alone never turns sending on here.
 @MainActor
-public enum AnonymousTelemetryConsent {
+public struct AnonymousTelemetryConsent {
+    public init() {}
     /// The setting's path in `cmux-next.json` (schemas/settings/source/hang-reports.json).
     public static let configPath = HangReportsSettingsSchema.sendAnonymousTelemetryPath
     /// The app preference crash reporting and the Chief host read (`CrashReportingPolicy.telemetryKey`).
