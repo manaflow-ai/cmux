@@ -839,9 +839,6 @@ class EvidenceTests(unittest.TestCase):
         out = run("Takes back #41113: its rule reached base before its purpose split")
         self.assertIn("takes_back=false", out)
         self.assertIn("takes_back_fix=\n", out)
-        held = (ROOT / ".github/workflows/risk-tier.yml").read_text()
-        self.assertIn("TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}", held)
-        self.assertIn('echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"', held)
 
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
@@ -1331,11 +1328,6 @@ class RateLimitedPrModeTests(unittest.TestCase):
     def test_the_off_switch_turns_a_rate_limit_red_again(self):
         with self.assertRaises(risk.RateLimited):
             self.run_pr({risk.RATE_LIMIT_FAILS_ENV: "1"})
-
-    def test_the_workflow_sets_no_label_on_an_ungraded_run(self):
-        workflow = (ROOT / ".github/workflows/risk-tier.yml").read_text(encoding="utf-8")
-        step = workflow[workflow.index("- name: Set the risk label"):]
-        self.assertIn("if: steps.grade.outputs.label != ''", step[:step.index("run:")])
 
 
 class GhFailureTests(unittest.TestCase):

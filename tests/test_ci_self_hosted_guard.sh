@@ -1030,9 +1030,6 @@ check_no_github_hosted_runners() {
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
   local -a exceptions=(
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
-    "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
-    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
-    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification"
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "cmux-tui-nightly.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
@@ -1043,9 +1040,6 @@ check_no_github_hosted_runners() {
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not (review of #46492, F1).
-    # The one file still on the CI_TRUSTED_RUNNER selector that admits ubuntu-24.04: its own guard refuses a
-    # change to it without Leo's leo-approved-port label; a follow-up PR carries it.
-    "language-boundaries.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
     # The signer jobs and their picks, a measured exception: notarization-bound, not CPU-bound (HQ
     # build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s, signer-build
     # 7 s, the pick 11 s; 74 picks already ran hosted, p50 9 s). Hosted Ubuntu is trusted like Blacksmith and

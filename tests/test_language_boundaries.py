@@ -15,7 +15,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "language_boundaries.py"
 MANIFEST = ROOT / ".github" / "language-boundaries.toml"
-WORKFLOW = ROOT / ".github" / "workflows" / "language-boundaries.yml"
 FIXTURE = ROOT / "tests" / "fixtures" / "language-boundaries" / "pr-37777-name-status.tsv"
 PURE_DELETION = ROOT / "tests" / "fixtures" / "language-boundaries" / "pr-45562-name-status.tsv"
 
@@ -451,31 +450,6 @@ class CliAndWorkflowTests(unittest.TestCase):
             broken = Path(tmp) / "m.toml"
             broken.write_text("[[area]]\nname = 1\n")
             self.assertEqual(cli(["--files", str(files), "--manifest", str(broken)]), 3)
-
-    def test_workflow_runs_the_base_copy_with_a_stable_check_name(self) -> None:
-        text = WORKFLOW.read_text()
-        self.assertIn("pull_request_target:", text)
-        self.assertIn("branches: [main, feat-cmux-next]", text)
-        self.assertIn("labeled, unlabeled", text)
-        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
-        self.assertIn("    name: language-boundaries\n", text)
-        self.assertIn("scripts/ci/language_boundaries.py", text)
-        self.assertIn(".github/language-boundaries.toml", text)
-        self.assertNotIn("github.event.pull_request.head.sha }}\n          fetch-depth", text)
-        # The script reads one JSON object per line; gh's --jq would print an object across many lines.
-        self.assertEqual(text.count("| tojson'"), 4)
-        # Both listings carry every path byte for byte: REST as JSON, the git fallback NUL-separated.
-        self.assertIn("git diff -z --name-status -M", text)
-        self.assertIn("path: .filename, old: (.previous_filename // \"\")} | tojson'", text)
-        self.assertNotIn("@tsv", text)
-        self.assertIn('--format "$format"', text)
-        # Every author's type and app are read, and reviews are marked so they never approve.
-        self.assertIn("type: (.actor.type // null)", text)
-        self.assertEqual(text.count("type: (.user.type // null)"), 2)
-        self.assertIn('source: "review"', text)
-        self.assertNotIn("app: null", text)
-        # react-port-ok reads who added it too.
-        self.assertIn("leo-approved-port|react-port-ok", text)
 
 
 if __name__ == "__main__":

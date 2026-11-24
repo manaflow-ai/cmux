@@ -496,17 +496,12 @@ def workflow_problem(workflow: dict) -> str | None:
 DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
-READS_DESCRIPTION = {
-    "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
-}
+READS_DESCRIPTION: dict[str, str] = {}
 
 
 # Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow
 # already passes the edit rule fails the test, so it is removed when that pull request lands.
-EDIT_SKIP_PENDING = {
-    "language-boundaries.yml": "changing the language-boundaries check itself merges only with Leo's "
-    "leo-approved-port label, so its edit skip is split out (branch lane/pr-edit-fanout-language-boundaries)",
-}
+EDIT_SKIP_PENDING: dict[str, str] = {}
 
 
 def edit_context(workflow: dict, event: str, changes: dict) -> dict[str, Any]:
