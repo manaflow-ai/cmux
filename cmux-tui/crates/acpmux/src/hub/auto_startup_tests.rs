@@ -15,7 +15,6 @@ use crate::auto_session::{
 };
 
 const OTHER_HOLDS: &str = "other-holds";
-const CLOUD_DOWN: &str = "cloud-down";
 const MINE: &str = "mine";
 
 struct NoImport;
@@ -67,30 +66,37 @@ async fn saved_auto_chats_do_no_local_work_until_the_store_confirms() {
     register(&cloud.as_owner(), OTHER_HOLDS, "laptop-2").await;
     register(&cloud.as_owner(), MINE, "laptop-1").await;
 
-    // The daemon will run the loop: its saved Auto chats are frozen as they load.
-    hub.expect_auto();
+    // The daemon loads its saved Auto chats before the loop has heard the store.
     let others = saved(&hub, OTHER_HOLDS);
-    let down = saved(&hub, CLOUD_DOWN);
     let mine = saved(&hub, MINE);
-    for chat in [&others, &down, &mine] {
+    for chat in [&others, &mine] {
         assert!(hub.auto_held(chat), "{} was free before the store spoke", chat.id);
     }
 
-    // The loop starts; the store is reachable for two chats of three and says one is another
-    // device's. The restored queues are resumed, as the daemon does after adoption.
-    let reach = cloud.as_owner();
+    // The loop starts with the store unreachable: nothing is confirmed, nothing runs.
+    cloud.set_offline(true);
     let options = HolderOptions { clock: clock.clone(), network: None, new_chats: None };
     spawn_holder_with(
         hub.clone(),
-        Arc::new(reach),
+        Arc::new(cloud.as_owner()),
         Holder::device("laptop-1"),
         Arc::new(NoImport),
         options,
     );
     hub.resume_queues();
     tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(hub.auto_held(&others), "a chat ran here with the store unreachable");
+    assert!(hub.auto_held(&mine), "a chat ran here with the store unreachable");
 
-    assert!(hub.auto_held(&others), "the chat another device holds ran here");
-    assert!(hub.auto_held(&down), "a chat the store does not know ran here");
+    // The store answers: the chat another device holds stays frozen, the laptop's own is freed.
+    cloud.set_offline(false);
+    clock.advance(cmux_auto_session::consts::RENEW_MS);
+    for _ in 0..100 {
+        if !hub.auto_held(&mine) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     assert!(!hub.auto_held(&mine), "the chat the store says is this laptop's stayed frozen");
+    assert!(hub.auto_held(&others), "the chat another device holds ran here");
 }

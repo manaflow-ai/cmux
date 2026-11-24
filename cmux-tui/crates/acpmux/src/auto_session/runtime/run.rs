@@ -134,7 +134,10 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 Chat::resume(Side::Machine, record.epoch, record.snapshot, now)
             }
             // The store assigns it again if it is still this machine's.
-            Side::Machine => return,
+            Side::Machine => {
+                self.hub.auto_hold(&session, false);
+                return;
+            }
         };
         let mut tracked = Tracked::new(chat);
         tracked.anchor = record.anchor.clone();

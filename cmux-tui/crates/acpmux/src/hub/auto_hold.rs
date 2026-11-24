@@ -90,9 +90,30 @@ impl Hub {
         }
     }
 
-    /// Says this daemon runs Auto mode, so its saved Auto chats are frozen from the moment they
-    /// exist.
-    pub(crate) fn expect_auto(&self) {}
+    /// The holder loop accepted the chat's import: it is this machine's now. Frees it and
+    /// runs its restored queue, the continuation first, once (`queue.rs` `resume_queues`).
+    pub(crate) fn auto_activate(self: &Arc<Self>, session: &Arc<Session>) {
+        {
+            let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+            if moving.as_deref() == Some(AUTO_AWAY) {
+                *moving = None;
+            }
+        }
+        let (hub, followed) = (self.clone(), session.clone());
+        tokio::spawn(async move {
+            hub.follow_policy(&followed).await;
+            followed.queue_moved.notify_waiters();
+        });
+        self.resume_queues();
+    }
+
+    /// Frees every chat Auto froze at startup: no holder loop runs to say which are this
+    /// machine's (`auto_session/laptop.rs`).
+    pub(crate) fn auto_release_all(&self) {
+        for session in self.sessions() {
+            self.auto_hold(&session, false);
+        }
+    }
 
     /// Whether Auto froze the chat.
     pub(crate) fn auto_held(&self, session: &Session) -> bool {

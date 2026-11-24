@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use cmux_auto_session::AutoCloud;
-use cmux_auto_session::holder::{Change, Effect, Event};
+use cmux_auto_session::holder::{self, Change, Effect, Event};
 use cmux_auto_session::wire::ErrorCode;
 
 use super::chats::LaneOp;
@@ -198,9 +198,19 @@ impl<C: AutoCloud + 'static> Loop<C> {
         epoch: u64,
         result: Result<Imported, ImportError>,
     ) {
+        let mut accepted = false;
         let event = match result {
             Ok(imported) => {
-                if let Some(tracked) = self.chats.get_mut(id) {
+                let done = Event::ImportDone { epoch: imported.epoch, snapshot: imported.snapshot };
+                // Decided before anything changes: this import is the chat's now only when the
+                // state machine takes it (this epoch, a lease heard from lately).
+                let now = self.now();
+                accepted = imported.session_id == id
+                    && self.chats.get(id).is_some_and(|tracked| {
+                        let (after, _) = holder::step(tracked.chat, done, now);
+                        after.may_run() && after.epoch() == Some(imported.epoch)
+                    });
+                if let Some(tracked) = self.chats.get_mut(id).filter(|_| accepted) {
                     // The chat's log here is the store's now, and the folder is the snapshot's:
                     // the next copy sets the tree a leftover patch is cut against.
                     tracked.sent = imported.last_seq;
@@ -212,7 +222,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     // of this one (`settle.rs`).
                     tracked.settling = false;
                 }
-                Event::ImportDone { epoch: imported.epoch, snapshot: imported.snapshot }
+                done
             }
             Err(error) => {
                 tracing::warn!(session = %id, "auto session: {error}");
@@ -220,6 +230,14 @@ impl<C: AutoCloud + 'static> Loop<C> {
             }
         };
         self.step(id, event).await;
+        // The import was accepted and the chat may run: its hold ends and its queue runs, once.
+        // Any other result leaves the chat frozen as it was.
+        if accepted
+            && self.chats.get(id).is_some_and(|tracked| tracked.chat.may_run())
+            && let Some(session) = self.hub.auto_session(id)
+        {
+            self.hub.auto_activate(&session);
+        }
     }
 
     /// The leftover patch was written: the chat's record names it until the person settles it.

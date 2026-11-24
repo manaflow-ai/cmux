@@ -309,6 +309,13 @@ impl<C: AutoCloud + 'static> Ctx<C> {
             Some(view) => view,
             None => self.cloud.get(id).await?,
         };
+        // Whatever view it came from, the import is for this machine at this epoch only.
+        if view.epoch != epoch || view.holder != self.me {
+            return Err(ImportError::Local(format!(
+                "the chat is not this machine's at epoch {epoch} (the store: {:?} at {})",
+                view.holder, view.epoch
+            )));
+        }
         self.importer.import(&view, reason).await
     }
 }

@@ -60,6 +60,8 @@ pub fn start(hub: Arc<Hub>) -> Option<HolderHandle> {
         Ok(device) => device,
         Err(error) => {
             tracing::warn!("auto session: this machine has no device id: {error:#}");
+            // No loop will say which chats are this machine's: none is frozen for it.
+            hub.auto_release_all();
             return None;
         }
     };

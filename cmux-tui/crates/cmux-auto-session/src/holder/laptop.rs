@@ -289,7 +289,12 @@ pub(super) fn coming_home(out: &mut Out, epoch: u64, failed: bool, event: Event,
             out.answered(request);
         }
         Event::ImportDone { epoch: done, snapshot } => {
-            if done == epoch {
+            // An import that finished after the lease may have gone to another holder is not
+            // accepted: ask the store again and keep the chat frozen until it answers.
+            if done == epoch && now >= out.chat.fresh_at.saturating_add(SELF_STOP_MS) {
+                out.to(State::ComingHome { epoch, failed: true });
+                out.renew(now);
+            } else if done == epoch {
                 out.chat.snapshot = out.chat.snapshot.max(snapshot);
                 out.chat.too_large = false;
                 out.to(State::Holding { epoch });
