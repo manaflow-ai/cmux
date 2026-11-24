@@ -244,6 +244,8 @@ extension MacScreenHomeView {
             if on {
                 self?.actions.shareThisMac()
             } else {
+                // The person's click: their off outranks the join default (Z4).
+                CmuxRemoteShareConsent.recordDecline()
                 hubHost?.stopSession(immediately: true)
                 // task-owner: one sharing-off write; the switch follows the hub's record
                 Task { try? await hubHost?.setSharing(false) }
