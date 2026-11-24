@@ -1,15 +1,16 @@
 // Does malloc_zone_pressure_relief give back the free-but-dirty part of a fragmented default zone?
 // cmuxterm-hq goals/ram-baseline.md: the idle app's DefaultMallocZone is 34.7 MB dirty, 45% fragmented
 // (about 15 MB of freed blocks whose pages malloc keeps). This probe builds a default-zone heap of that
-// shape (Swift/ObjC-sized blocks, 16 B to 4 KB, about 60 MB), frees a share of it, and then calls
+// shape (Swift/ObjC-sized blocks, 16 B to 4 KB, about 64 MB), frees a share of it, and then calls
 // malloc_zone_pressure_relief(NULL, 0), and per zone with a goal, reading phys_footprint and the zone's
 // statistics before and after each call.
 //
 // Free patterns: random (every block has the same chance) and runs (whole consecutive runs of 64 blocks,
 // as launch-time temporaries freed together leave whole free pages behind).
 //
-// Build and run: clang -O2 -o /tmp/relief relief.c && /tmp/relief random 45 && /tmp/relief runs 45
-// Compare with MallocSpaceEfficient=1 /tmp/relief random 45 (malloc reads it at exec).
+// argv: PATTERN (random or runs) PERCENT [early]. early installs CmuxNextMallocZone's delegating zone first, as
+// CmuxNextApp.main does, so the zone list matches the app's. run.sh relief builds it and runs every combination,
+// also under MallocSpaceEfficient=1 (malloc reads it at exec).
 // Prints one RELIEF line per step; exit 0 always (a measurement, not a test).
 #include <mach/mach.h>
 #include <malloc/malloc.h>
@@ -18,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "CmuxNextMallocZone.h"
 
 static double footprint_mb(void) {
   task_vm_info_data_t info;
@@ -26,9 +28,22 @@ static double footprint_mb(void) {
   return info.phys_footprint / 1048576.0;
 }
 
+// The system zone vmmap calls DefaultMallocZone: with the early zone installed, malloc_default_zone() is the
+// delegating zone, whose statistics are zero.
+static malloc_zone_t* system_zone(void) {
+  vm_address_t* zones = NULL;
+  unsigned count = 0;
+  if (malloc_get_all_zones(mach_task_self(), NULL, &zones, &count) == KERN_SUCCESS)
+    for (unsigned z = 0; z < count; z++) {
+      const char* name = malloc_get_zone_name((malloc_zone_t*)zones[z]);
+      if (name && strcmp(name, "DefaultMallocZone") == 0) return (malloc_zone_t*)zones[z];
+    }
+  return malloc_default_zone();
+}
+
 static void report(const char* step, size_t released) {
   malloc_statistics_t st;
-  malloc_zone_statistics(malloc_default_zone(), &st);
+  malloc_zone_statistics(system_zone(), &st);
   printf("RELIEF step=%s footprint_mb=%.1f zone_in_use_mb=%.1f zone_allocated_mb=%.1f released_bytes=%zu\n", step,
          footprint_mb(), st.size_in_use / 1048576.0, st.size_allocated / 1048576.0, released);
   fflush(stdout);
@@ -44,7 +59,9 @@ static void vmmap_line(const char* step) {
 int main(int argc, char** argv) {
   const char* pattern = argc > 1 ? argv[1] : "random";
   int percent = argc > 2 ? atoi(argv[2]) : 45;
-  enum { COUNT = 400000 };
+  int early = argc > 3 && strcmp(argv[3], "early") == 0;
+  if (early) cmux_early_malloc_zone_registration();
+  enum { COUNT = 200000 };  // about 64 MB at the mean block size (about 320 B)
   void** blocks = calloc(COUNT, sizeof(void*));
   srand(571);
   report("start", 0);
@@ -70,7 +87,7 @@ int main(int argc, char** argv) {
   sleep(2);
   report("relief_all", all);
   vmmap_line("relief_all");
-  size_t one = malloc_zone_pressure_relief(malloc_default_zone(), 64u << 20);
+  size_t one = malloc_zone_pressure_relief(system_zone(), 64u << 20);
   sleep(2);
   report("relief_default_goal64m", one);
   vmmap_line("relief_default_goal64m");
@@ -82,7 +99,7 @@ int main(int argc, char** argv) {
   sleep(2);
   report("relief_each_zone", each);
   vmmap_line("relief_each_zone");
-  printf("RELIEF pattern=%s percent=%d zones=%u space_efficient=%s\n", pattern, percent, zone_count,
+  printf("RELIEF pattern=%s percent=%d early_zone=%d zones=%u space_efficient=%s\n", pattern, percent, early, zone_count,
          getenv("MallocSpaceEfficient") ? getenv("MallocSpaceEfficient") : "unset");
   return 0;
 }

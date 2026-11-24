@@ -20,6 +20,12 @@
 #          system zone), that libmalloc ended (an abort, such as "not allocated") or that gave no
 #          verdict, and prints the first failure's output. Exit 0 when every run was clean.
 #        run.sh size
+#        run.sh relief
+#   relief: relief.c, no CEF needed: does malloc_zone_pressure_relief give back a fragmented default zone's
+#          free pages (cmuxterm-hq goals/ram-baseline.md: the idle app's DefaultMallocZone, 34.7 MB at 45%
+#          fragmentation)? Random and run-shaped frees, with and without the early zone, with and without
+#          MallocSpaceEfficient=1. Prints RELIEF and VMMAP lines; a measurement, exit 0.
+#        run.sh size
 #   size: size.c, no CEF needed: with the early zone installed, malloc_default_zone()->size(p)
 #          and malloc_size(p) report every block the default zone made (SQLite's Apple
 #          allocator sizes its hash tables this way; a 0 crashed nightly 4294166855401).
@@ -28,6 +34,25 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
 mode=race
 if [[ "${1:-}" == corrupt ]]; then mode=corrupt; shift; fi
+if [[ "${1:-}" == relief ]]; then
+  zone="$root/Packages/macOS/CmuxNext/Sources/CmuxNextMallocZone"
+  dir="$(mktemp -d)"
+  trap 'rm -rf "$dir"' EXIT
+  clang -O2 -I"$zone/include" "$here/relief.c" "$zone/early_zone.c" -o "$dir/relief"
+  echo "RELIEF macos=$(sw_vers -productVersion) arch=$(uname -m) host=$(hostname -s)"
+  for efficient in 0 1; do
+    for pattern in random runs; do
+      for early in plain early; do
+        if [[ "$efficient" == 1 ]]; then
+          MallocSpaceEfficient=1 "$dir/relief" "$pattern" 45 "$early"
+        else
+          "$dir/relief" "$pattern" 45 "$early"
+        fi
+      done
+    done
+  done
+  exit 0
+fi
 if [[ "${1:-}" == size ]]; then
   zone="$root/Packages/macOS/CmuxNext/Sources/CmuxNextMallocZone"
   dir="$(mktemp -d)"
