@@ -85,6 +85,30 @@ struct AgentResumeArgvTests {
                 "/tmp/extra repo",
             ]
         )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "antigravity",
+                sessionId: "conversation-123",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--dangerously-skip-permissions",
+                    "--model",
+                    "gemini-2.5-pro",
+                    "--effort",
+                    "xhigh",
+                ]
+            ) == [
+                "/Users/example/.local/bin/agy",
+                "--conversation",
+                "conversation-123",
+                "--dangerously-skip-permissions",
+                "--model",
+                "gemini-2.5-pro",
+                "--effort",
+                "xhigh",
+            ]
+        )
     }
 
     @Test("Antigravity restore renders through its per-surface wrapper and preserves a custom binary")
