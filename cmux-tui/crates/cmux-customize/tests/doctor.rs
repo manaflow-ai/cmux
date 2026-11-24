@@ -194,6 +194,39 @@ fn a_layer_folder_no_entry_uses_is_left_over_and_removal_keeps_a_copy() {
 }
 
 #[test]
+fn live_bridge_settings_and_migration_inputs_load_without_a_toast() {
+    let home = Home::new();
+    let settings = json!({
+        "agents": {"desktopBridge": {"enabled": true, "entrypoints": ["claude-desktop"]}},
+        "status": {"working": "legacy"},
+        "tunable": {"diagnostics": {"focusLog": false}},
+        "remote": {"ultraMode": true},
+        "appearance.tabBarBackground": "dark",
+    });
+    home.write("cmux-next.json", &settings.to_string());
+    let report = home.customize().doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(kinds(&report), Vec::new());
+    assert_eq!(report.announce, None);
+}
+
+#[test]
+fn a_typo_beside_a_live_or_retired_key_still_reports_the_exact_key() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        &json!({
+            "agents.desktopBridge": {"enabled": false, "entrypoint": []},
+            "tunable": {"diagnostics": {"focusLog": true, "foucusLog": true}},
+        })
+        .to_string(),
+    );
+    let report = home.customize().doctor(&at(NOW));
+    assert_eq!(report.findings.len(), 2);
+    find(&report, "unknown-key:agents.desktopBridge.entrypoint");
+    find(&report, "unknown-key:tunable.diagnostics.foucusLog");
+}
+
+#[test]
 fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
     let home = Home::new();
     home.write(
