@@ -31,8 +31,8 @@ private struct OutgoingMessageRow: View {
                 }
                 Text(status).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                     .contentTransition(.numericText())
-                if let fraction = message.progress?.fraction, message.progress?.phase != .saving {
-                    ProgressView(value: fraction).progressViewStyle(.linear)
+                if let progress = message.progress, progress.phase == .sending {
+                    ProgressView(value: progress.fraction).progressViewStyle(.linear)
                 } else {
                     ProgressView().progressViewStyle(.linear)
                 }

@@ -1098,32 +1098,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     ///   `resource` block with its text when it is UTF-8 text up to 256 KiB, or
     ///   a `resource_link` to the uploaded path (the agent reads it there).
     /// A failed upload throws, so nothing is sent without its attachments.
-    /// Each upload's progress shows on the message (``AgentSessionEvent/promptUploading(promptID:_:)``);
-    /// an upload the link loses goes on over the next link, waiting up to ``uploadLinkWait`` for it.
+    /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
+    /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
+    /// lane/ios-attachment-send).
     func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub) async throws -> [JSONValue] {
-        let wait = Self.uploadLinkWait
-        let nextLink: @Sendable () async -> (any MacLink)? = { [weak hub] in await Self.readyLink(hub, within: wait) }
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
         return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: progress, nextLink: nextLink)
-    }
-
-    /// How long an upload the link lost waits for the next link before the message comes back.
-    nonisolated static let uploadLinkWait: Duration = .seconds(120)
-
-    /// The hub's link once it is ready again, or nil after `within`.
-    static func readyLink(_ hub: AcpmuxHub?, within: Duration) async -> (any MacLink)? {
-        guard let hub, await hub.waitUntilReady(timeout: within, clock: ContinuousClock()) else { return nil }
-        return hub.macLink
+                                           macName: summary.macName, progress: progress)
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
-                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
-                             nextLink: (@Sendable () async -> (any MacLink)?)? = nil) async throws -> [JSONValue] {
+                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -1144,16 +1133,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
             guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
-            let name = attachment.name
-            let options = LinkUpload.Options(nextLink: nextLink, progress: progress.map { report in
-                { @Sendable step in
-                    report(AgentUploadProgress(name: name, sent: step.sent, total: step.total,
-                                               phase: AgentUploadProgress.Phase(rawValue: step.phase.rawValue) ?? .sending,
-                                               attempt: step.attempt))
-                }
-            })
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link,
-                                                            macName: macName, options: options)
+            progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
+                                          phase: .opening, attempt: 1))
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {
@@ -1180,14 +1162,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
-    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String,
-                       options: LinkUpload.Options = LinkUpload.Options()) async throws -> String {
+    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
         do {
-            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link, options: options)
+            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            var fresh = options
-            fresh.id = UUID().uuidString.lowercased()
-            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link, options: fresh)
+            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }

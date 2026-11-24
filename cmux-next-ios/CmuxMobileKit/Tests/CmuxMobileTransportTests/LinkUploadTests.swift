@@ -146,9 +146,7 @@ import Testing
         let path = try await LinkUpload.upload(fileAt: url, name: "big.bin", cwd: "/w", over: link)
 
         #expect(path == "/w/.cmux/attachments/phone-1/big.bin")
-        #expect(link.args?.filter { $0.key != "id" } == ["name": "big.bin", "size": String(size), "cwd": "/w"])
-        // Every upload names itself, so a link loss can resume it (`upload-status`).
-        #expect(link.args?["id"]?.isEmpty == false)
+        #expect(link.args == ["name": "big.bin", "size": String(size), "cwd": "/w"])
         let received = link.channel.received
         #expect(received.bytes == size)
         #expect(received.largestWrite <= LinkUpload.chunkBytes)
@@ -162,7 +160,7 @@ import Testing
         let path = try await LinkUpload.upload(.data(data), name: "a.png", cwd: nil, over: link)
 
         #expect(path == "/w/.cmux/attachments/phone-1/big.bin")
-        #expect(link.args?.filter { $0.key != "id" } == ["name": "a.png", "size": String(data.count)])
+        #expect(link.args == ["name": "a.png", "size": String(data.count)])
         #expect(link.channel.received.bytes == data.count)
         #expect(link.channel.received.largestWrite == LinkUpload.chunkBytes)
     }
@@ -267,190 +265,5 @@ import Testing
         _ = try await LinkUpload.upload(.data(Data([1, 2, 3])), name: "a.png", cwd: nil, over: UploadLink(), scope: scope)
         #expect(scope.starts == 0)
         #expect(scope.stops == 0)
-    }
-
-    // MARK: Bounds, resume, progress (Leo 2026-11-24: "it just blocked me endlessly on a send")
-
-    /// A Mac that never answers: the upload ends as `stalled` within its bound, never spins.
-    @Test(.timeLimit(.minutes(1))) func aMacThatNeverAnswersEndsAsStalled() async throws {
-        let link = StalledLink()
-        let options = LinkUpload.Options(replyWithin: .milliseconds(200))
-
-        await #expect(throws: LinkUpload.Failure.self) {
-            _ = try await LinkUpload.upload(.data(Data(count: 10)), name: "a.mov", cwd: nil, over: link, options: options)
-        }
-        #expect(link.channel.closedWith == "cancelled")
-    }
-
-    /// A link that drops mid-stream: the next link resumes from the Mac's copy, sending only the rest.
-    @Test(.timeLimit(.minutes(1))) func aDroppedUploadResumesWhereTheMacStopped() async throws {
-        let size = LinkUpload.chunkBytes * 4
-        let kept = LinkUpload.chunkBytes * 2
-        let first = ScriptedLink(dropAfter: kept, status: nil)
-        let second = ScriptedLink(dropAfter: nil, status: #"{"offset":\#(kept)}"#)
-        let steps = Steps()
-        let options = LinkUpload.Options(nextLink: { second }, progress: { steps.add($0) })
-
-        let path = try await LinkUpload.upload(.data(Data(count: size)), name: "big.mov", cwd: nil, over: first, options: options)
-
-        #expect(path == "/up/big.mov")
-        #expect(second.uploadArgs?["offset"] == String(kept))
-        #expect(second.uploadArgs?["id"] == first.uploadArgs?["id"])
-        #expect(second.received == size - kept)
-        let all = steps.all
-        #expect(all.contains { $0.phase == .waitingForLink })
-        #expect(all.last?.phase == .saving)
-        #expect(all.last?.sent == size)
-    }
-
-    /// A Mac without `upload-status` (older): the next attempt sends the file from the start.
-    @Test(.timeLimit(.minutes(1))) func anOlderMacStartsOver() async throws {
-        let size = LinkUpload.chunkBytes * 3
-        let first = ScriptedLink(dropAfter: LinkUpload.chunkBytes, status: nil)
-        let second = ScriptedLink(dropAfter: nil, status: nil)
-        let options = LinkUpload.Options(nextLink: { second })
-
-        _ = try await LinkUpload.upload(.data(Data(count: size)), name: "big.mov", cwd: nil, over: first, options: options)
-
-        #expect(second.uploadArgs?["offset"] == nil)
-        #expect(second.received == size)
-    }
-
-    /// The Mac saved it but its reply was lost: the next link learns the path, sends nothing.
-    @Test(.timeLimit(.minutes(1))) func aSavedUploadWhoseReplyWasLostIsNotSentAgain() async throws {
-        let first = ScriptedLink(dropAfter: 0, status: nil)
-        let second = ScriptedLink(dropAfter: nil, status: #"{"path":"/up/done.mov","size":9}"#)
-        let options = LinkUpload.Options(nextLink: { second })
-
-        let path = try await LinkUpload.upload(.data(Data(count: 9)), name: "done.mov", cwd: nil, over: first, options: options)
-
-        #expect(path == "/up/done.mov")
-        #expect(second.uploadArgs == nil)
-    }
-
-    /// No next link (the Mac stays away): the upload fails after its loss, it does not wait forever.
-    @Test(.timeLimit(.minutes(1))) func noNextLinkFailsTheUpload() async throws {
-        let first = ScriptedLink(dropAfter: 0, status: nil)
-        let options = LinkUpload.Options(nextLink: { nil })
-
-        await #expect(throws: LinkUpload.Failure.self) {
-            _ = try await LinkUpload.upload(.data(Data(count: 9)), name: "a.mov", cwd: nil, over: first, options: options)
-        }
-    }
-
-    /// Per-hop timing comes back once, with the attempts and where it resumed.
-    @Test(.timeLimit(.minutes(1))) func timingReportsTheHops() async throws {
-        let size = LinkUpload.chunkBytes * 2
-        let first = ScriptedLink(dropAfter: LinkUpload.chunkBytes, status: nil)
-        let second = ScriptedLink(dropAfter: nil, status: #"{"offset":\#(LinkUpload.chunkBytes)}"#)
-        let got = Steps.Timings()
-        let options = LinkUpload.Options(nextLink: { second }, timing: { got.add($0) })
-
-        _ = try await LinkUpload.upload(.data(Data(count: size)), name: "a.mov", cwd: nil, over: first, options: options)
-
-        let timings = got.all
-        #expect(timings.count == 1)
-        #expect(timings.first?.attempts == 2)
-        #expect(timings.first?.resumedFrom == LinkUpload.chunkBytes)
-        #expect(timings.first?.outcome == "sent")
-        #expect(timings.first?.line.contains("outcome=sent") == true)
-    }
-
-    /// A Mac link for resume: its `upload` channel drops after `dropAfter` bytes (nil: never),
-    /// its `upload-status` answers `status` (nil: an older Mac that refuses it).
-    final class ScriptedLink: MacLink, @unchecked Sendable {
-        let transport: TransportKind = .webRTC
-        let states = AsyncStream<LinkState> { $0.finish() }
-        let dropAfter: Int?
-        let status: String?
-        private let lock = NSLock()
-        private var args: [String: String]?
-        private var bytes = 0
-
-        init(dropAfter: Int?, status: String?) {
-            self.dropAfter = dropAfter
-            self.status = status
-        }
-
-        var uploadArgs: [String: String]? { lock.withLock { args } }
-        var received: Int { lock.withLock { bytes } }
-
-        func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
-            if service == "upload-status" {
-                guard let status else { throw LinkError(code: "unknown_service", message: "no upload-status") }
-                return ReplyChannel(reply: Data(status.utf8))
-            }
-            lock.withLock { self.args = args }
-            return ScriptedChannel(link: self, start: Int(args["offset"] ?? "0") ?? 0, name: args["name"] ?? "")
-        }
-
-        /// Takes `count` bytes; false once the link has dropped.
-        func take(_ count: Int) -> Bool {
-            lock.withLock {
-                if let dropAfter, bytes + count > dropAfter { return false }
-                bytes += count
-                return true
-            }
-        }
-
-        func ping() async throws -> UInt32 { 1 }
-        func close() async {}
-    }
-
-    final class ScriptedChannel: LinkChannel, @unchecked Sendable {
-        let id: UInt32 = 3
-        let link: ScriptedLink
-        let name: String
-        private let lock = NSLock()
-        private var dropped = false
-        private var answered = false
-
-        init(link: ScriptedLink, start: Int, name: String) {
-            self.link = link
-            self.name = name
-        }
-
-        func send(_ data: Data) async throws {
-            guard link.take(data.count) else {
-                lock.withLock { dropped = true }
-                throw LinkError(code: "closed", message: "the link dropped")
-            }
-        }
-
-        func receive() async throws -> Data? {
-            lock.withLock { () -> Data? in
-                guard !dropped, !answered else { return nil }
-                answered = true
-                return Data(#"{"path":"/up/\#(name)","size":1}"#.utf8)
-            }
-        }
-
-        func close(code: String, reason: String) async {}
-    }
-
-    final class ReplyChannel: LinkChannel, @unchecked Sendable {
-        let id: UInt32 = 4
-        private let lock = NSLock()
-        private var reply: Data?
-
-        init(reply: Data) { self.reply = reply }
-
-        func send(_ data: Data) async throws {}
-        func receive() async throws -> Data? { lock.withLock { defer { reply = nil }; return reply } }
-        func close(code: String, reason: String) async {}
-    }
-
-    final class Steps: @unchecked Sendable {
-        private let lock = NSLock()
-        private var steps: [LinkUpload.Progress] = []
-        func add(_ step: LinkUpload.Progress) { lock.withLock { steps.append(step) } }
-        var all: [LinkUpload.Progress] { lock.withLock { steps } }
-
-        final class Timings: @unchecked Sendable {
-            private let lock = NSLock()
-            private var timings: [LinkUpload.Timing] = []
-            func add(_ timing: LinkUpload.Timing) { lock.withLock { timings.append(timing) } }
-            var all: [LinkUpload.Timing] { lock.withLock { timings } }
-        }
     }
 }
