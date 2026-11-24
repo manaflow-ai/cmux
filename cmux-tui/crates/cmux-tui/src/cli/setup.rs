@@ -114,11 +114,16 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
 
 /// `cmux setup computer-use`'s report, for `cmux computer-use setup` (the person's command,
 /// which also opens Set Up Computer Use in the app and runs a quick test once it is ready).
-pub(super) fn computer_use_report(global: &GlobalArgs, dry_run: bool) -> Result<Value, String> {
+/// A refusal is its exit code (2 for wrong arguments, 1 for a failure) and its message.
+pub(super) fn computer_use_report(
+    global: &GlobalArgs,
+    dry_run: bool,
+) -> Result<Value, (i32, String)> {
     let args = if dry_run { vec!["--dry-run".to_owned()] } else { Vec::new() };
     match computer_use::run(global, &args) {
         Ok(outcome) => Ok(outcome.report),
-        Err(Refusal::Usage(message) | Refusal::Failed(message)) => Err(message),
+        Err(Refusal::Usage(message)) => Err((2, message)),
+        Err(Refusal::Failed(message)) => Err((1, message)),
     }
 }
 

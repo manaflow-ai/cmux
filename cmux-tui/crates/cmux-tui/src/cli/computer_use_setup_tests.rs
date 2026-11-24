@@ -93,3 +93,14 @@ fn setup_parses_its_flags() {
     );
     assert!(parse(&words(&["setup", "--machine", "m"])).is_err());
 }
+
+/// Off macOS the person reads that there is nothing to set up; a window that did not open says so.
+#[test]
+fn not_applicable_and_a_window_that_did_not_open_read_plainly() {
+    let text = human(&json!({"state": "not_applicable"}));
+    assert!(text.contains("nothing to set up here"), "{text}");
+    let mut report = grant_report();
+    report.set("window", json!({"error": {"code": "app.unreachable", "message": "no app"}}));
+    let text = human(&report);
+    assert!(text.starts_with("cmux did not open Set Up Computer Use (no app)"), "{text}");
+}

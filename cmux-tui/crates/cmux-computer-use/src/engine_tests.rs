@@ -1595,6 +1595,7 @@ fn default_acting_calls_wait_no_virtual_time() {
 
 /// A missing OS grant tells the agent to ask the person and how they set it up (the app's
 /// Set Up Computer Use, or `cmux computer-use setup`), and names the setup for a chat's button.
+#[cfg(target_os = "macos")]
 #[test]
 fn a_missing_permission_says_how_the_person_sets_it_up() {
     let out = ToolOutput::desktop(&DesktopError::PermissionMissing("screen_capture".into()));
@@ -1619,4 +1620,14 @@ fn a_missing_permission_says_how_the_person_sets_it_up() {
     // Any other failure keeps its plain message and no setup fields.
     let other = ToolOutput::desktop(&DesktopError::Failed("boom".into()));
     assert!(other.body.get("setup").is_none());
+}
+
+/// Off macOS a missing grant keeps its plain message: there is no cmux setup for it there.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn a_missing_permission_off_macos_names_no_setup() {
+    let out = ToolOutput::desktop(&DesktopError::PermissionMissing("input".into()));
+    assert_eq!(out.code.as_deref(), Some("permission_missing"));
+    assert_eq!(out.body["error"], "the input permission is not granted");
+    assert!(out.body.get("setup").is_none());
 }

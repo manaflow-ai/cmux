@@ -25,11 +25,12 @@ const SETUP_ACTION: &str = "palette.computerUse.setup";
 pub(super) fn run(global: &GlobalArgs, dry_run: bool, window: bool, json_flag: bool) -> i32 {
     let mut report = match super::super::setup::computer_use_report(global, dry_run) {
         Ok(report) => report,
-        Err(message) => {
+        Err((code, message)) => {
             eprintln!("cmux computer-use setup: {message}");
-            return 2;
+            return code;
         }
     };
+    let applies = report["state"] != "not_applicable";
     if !dry_run && window && opens_window(&report) {
         report.set("window", open_window(global));
     }
@@ -54,7 +55,8 @@ pub(super) fn run(global: &GlobalArgs, dry_run: bool, window: bool, json_flag: b
         (_, OutputMode::Quiet) => {}
         (_, OutputMode::Human) => print!("{}", human(&report)),
     }
-    i32::from(!(ready && test_ok))
+    // Off macOS there is nothing to set up, as `cmux setup computer-use` says.
+    i32::from(applies && !(ready && test_ok))
 }
 
 /// Whether the person still has a macOS grant to give: the window walks them through it.
@@ -79,7 +81,7 @@ fn open_window(global: &GlobalArgs) -> Value {
         global,
         "action.run",
         params,
-        super::super::app::READ_TIMEOUT,
+        super::super::app::waiting_run_timeout(SETUP_ACTION),
         None,
     ) {
         Ok(_) => json!("opened"),
@@ -90,6 +92,12 @@ fn open_window(global: &GlobalArgs) -> Value {
 /// What the person reads: where things stand and the one thing to do next.
 pub(super) fn human(report: &Value) -> String {
     let mut out = String::new();
+    if report["state"] == "not_applicable" {
+        out.push_str(
+            "Computer Use setup is for the cmux app on macOS; there is nothing to set up here.\n",
+        );
+        return out;
+    }
     let status = if report["after"].is_null() { &report["before"] } else { &report["after"] };
     let helper = status["helper"].as_str().filter(|name| !name.trim().is_empty());
     if let Some(test) = report.get("test") {
@@ -119,6 +127,11 @@ pub(super) fn human(report: &Value) -> String {
     }
     if report["window"] == "opened" {
         out.push_str("Set Up Computer Use is open in cmux.\n");
+    } else if let Some(error) = report["window"].get("error") {
+        let why = error["message"].as_str().or(error["code"].as_str()).unwrap_or("no answer");
+        out.push_str(&format!(
+            "cmux did not open Set Up Computer Use ({why}); open it from the command palette.\n"
+        ));
     }
     if let Some(action) = report.get("user_action").filter(|action| !action.is_null()) {
         if let Some(text) = action["text"].as_str() {

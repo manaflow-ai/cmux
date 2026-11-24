@@ -114,9 +114,13 @@ impl ToolOutput {
         Self::error(refusal.code(), refusal.message(app))
     }
     fn desktop(e: &DesktopError) -> Self {
+        // macOS only: elsewhere the grant is not one the person turns on in cmux's setup.
         let DesktopError::PermissionMissing(which) = e else {
             return Self::error(e.code(), e.to_string());
         };
+        if !cfg!(target_os = "macos") {
+            return Self::error(e.code(), e.to_string());
+        }
         // A missing OS grant is the person's to fix, never the agent's: the result says how, as
         // Codex's does ("in the ChatGPT Computer Use window"), and names the setup the app and
         // the CLI offer, so a chat can show its Set Up Computer Use button.
