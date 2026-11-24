@@ -610,6 +610,7 @@ dependencies = [
  "bytes",
  "cmux-braid-carrier",
  "cmux-build-space",
+ "cmux-fault",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
