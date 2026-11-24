@@ -341,7 +341,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Absent (an older page, or a page's fallback paths) means as before.
     /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
     /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
-    case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false)
+    case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false, live: Bool = false)
     /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).

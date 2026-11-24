@@ -324,6 +324,7 @@ impl Hub {
             fire: fire_notice(notice.as_ref()),
             tool_notice: notice,
             surge_held: true,
+            verdict: None,
             noticed: true,
             read: false,
             answer: None,
