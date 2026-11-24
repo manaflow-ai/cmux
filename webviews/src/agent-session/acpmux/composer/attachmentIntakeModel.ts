@@ -916,7 +916,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       // A file whose bytes are still being made (a huge paste's text) is not one yet.
       // One the chat's host may not take (`uploads` false) could only be refused: the send waits as before.
       const file = source && "file" in source && source.uploads && !("then" in source.file) ? source.file : undefined;
-      return chip.image || chip.failed || chip.bound || chip.uploadFailed || !file ? undefined : { chip, file };
+      return chip.image || chip.failed || chip.bound || chip.retrying || !file ? undefined : { chip, file };
     });
     if (files.some((entry) => entry === undefined)) return undefined;
     const standIns = files.map((entry) => {
