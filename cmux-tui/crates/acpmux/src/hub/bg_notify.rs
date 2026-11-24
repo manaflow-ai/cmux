@@ -41,6 +41,8 @@ const NOTICE_TAIL: u64 = 4 << 10;
 const SENDER: &str = "acpmux";
 /// A notice's prompt id starts with this, then the task's id.
 pub(super) const PROMPT_PREFIX: &str = "bg-done-";
+/// The provenance key naming the task whose end a notice is (`inbox_surge.rs` never holds one).
+pub(super) const TASK_KEY: &str = "bgTaskId";
 
 impl Hub {
     /// Watches task `record` of folder `dir` and sends its end to its chat ([`Hub::bg_notify`])
@@ -190,7 +192,7 @@ comes to you."
         }
         let text = crate::prompt_provenance::notice_text(&notice, &body);
         let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
-        provenance.set("bgTaskId", json!(id));
+        provenance.set(TASK_KEY, json!(id));
         // What the chat's chip calls it: its own description, else "Background task".
         if let Some(description) =
             record.description.as_deref().map(str::trim).filter(|d| !d.is_empty())

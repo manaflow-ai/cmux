@@ -2287,10 +2287,10 @@ impl Hub {
                         reader: None,
                     };
                     if item.surge_held {
-                        if recent_held.len() == KEEP {
-                            recent_held.pop_front();
-                        }
                         recent_held.push_back(item);
+                        if recent_held.len() > 2 * KEEP {
+                            keep_held(&mut recent_held, &counts);
+                        }
                     } else {
                         items.push(item);
                     }
@@ -2320,6 +2320,7 @@ impl Hub {
             }
             true
         });
+        keep_held(&mut recent_held, &counts);
         items.extend(recent_held);
         if scanned.is_err() || (items.is_empty() && counts.seq == 0) {
             return;
@@ -2507,6 +2508,10 @@ impl Hub {
         }
         let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
         threads.sort_by_key(|(_, list)| std::cmp::Reverse(newest(list)));
+        let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((held, through)) = held_now {
+            counts.settle_held(held, through);
+        }
         let rows: Vec<Value> = threads
             .iter()
             .map(|(key, list)| {
@@ -2530,7 +2535,8 @@ impl Hub {
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
-                    "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // Held and still waiting for triage: what the chat's held row lists.
+                    "surgeHeld": list.iter().any(|i| i.surge_held && counts.pending(&i.prompt_id)),
                     // The held bar's "need you" filter: an unread message for the person.
                     // A program's notice that is no FIRE never is, held before that rule or not.
                     "needYou": unread.iter().any(|i| {
@@ -2544,14 +2550,7 @@ impl Hub {
                 })
             })
             .collect();
-        let counts = {
-            let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((held, through)) = held_now {
-                counts.settle_held(held, through);
-            }
-            counts.json()
-        };
-        json!({"sessionId": session.id, "threads": rows, "surge": counts})
+        json!({"sessionId": session.id, "threads": rows, "surge": counts.json()})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
@@ -2674,6 +2673,33 @@ fn answered_record(msg: &Value) -> Option<(String, super::queue::Answer)> {
     Some((notice, Err(error)))
 }
 
+/// Keeps at most [`KEEP`] of the held messages a restore read, in their order: the newest still
+/// waiting for triage first (the listing shows those), then the newest decided ones. The rest
+/// are the archive's.
+fn keep_held(held: &mut std::collections::VecDeque<Item>, counts: &surge::Counts) {
+    if held.len() <= KEEP {
+        return;
+    }
+    let mut keep = vec![false; held.len()];
+    let mut room = KEEP;
+    for want_pending in [true, false] {
+        for (at, item) in held.iter().enumerate().rev() {
+            if room == 0 {
+                break;
+            }
+            if !keep[at] && counts.pending(&item.prompt_id) == want_pending {
+                keep[at] = true;
+                room -= 1;
+            }
+        }
+    }
+    let mut at = 0;
+    held.retain(|_| {
+        at += 1;
+        keep[at - 1]
+    });
+}
+
 /// Keeps at most [`KEEP`] messages: the oldest read and noticed ones go first.
 fn trim(inbox: &mut Inbox) {
     if inbox.items.len() <= KEEP {
@@ -2687,12 +2713,21 @@ fn trim(inbox: &mut Inbox) {
         .chain(inbox.carrying.iter().map(|c| &c.ids))
         .flat_map(|ids| ids.iter().cloned())
         .collect();
+    // A held message still waiting for triage stays, since the listing shows it until triage (or
+    // its fail-open) decides it, unless more than KEEP are held: then the oldest goes, so a
+    // surge stays bounded. An evicted one is still read from the archive (`held_evicted`).
+    let counts = inbox.surge_counts.clone();
+    let counts = counts.lock().unwrap_or_else(|e| e.into_inner());
     while inbox.items.len() > KEEP {
         let gone = |i: &Item| {
-            i.surge_held
+            (i.surge_held && !counts.pending(&i.prompt_id))
                 || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
         };
-        match inbox.items.iter().position(gone) {
+        let at = inbox.items.iter().position(gone).or_else(|| {
+            let held = inbox.items.iter().filter(|i| i.surge_held).count();
+            (held > KEEP).then(|| inbox.items.iter().position(|i| i.surge_held)).flatten()
+        });
+        match at {
             Some(i) => {
                 let item = inbox.items.remove(i);
                 // The archive reader and resend ledger still resolve an evicted held post.

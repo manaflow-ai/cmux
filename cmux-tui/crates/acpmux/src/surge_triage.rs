@@ -23,8 +23,10 @@
 //! - a blocker or a question (`class` block or question) is `needs_this_session` with no model
 //!   ([`split_urgent`]);
 //! - a message the model skips, garbles or answers twice, and every message of a call that
-//!   failed or timed out, is undecided: it stays held and pending, so a model outage wakes no
-//!   one and only messages a model actually called actionable reach a digest;
+//!   failed or timed out, is undecided: it stays held and pending, so a short model outage
+//!   wakes no one and only messages a model actually called actionable reach a digest. None
+//!   stays held for good: one held past [`MAX_UNTRIAGED_MS`], or left when the chat's retries
+//!   are spent, reaches the chat's digest untriaged ([`untriaged`]), which says so;
 //! - an owner comes only from sessions that subscribed themselves to a thread ([`Owners`]),
 //!   never from message or model text; a message the model gives its owner when its thread has
 //!   none (or the owner is this chat) is `needs_this_session`.
@@ -82,6 +84,9 @@ pub struct Held {
     /// `block`, `question`, `result` or `fyi` (`prompt_class::PromptClass`).
     pub class: String,
     pub text: String,
+    /// When it was held (ms): one held past [`MAX_UNTRIAGED_MS`] is delivered untriaged.
+    #[serde(default)]
+    pub at: u64,
     /// A program sent it, no agent session ([`program_notice`]): an inbox fyi by rule.
     #[serde(default)]
     pub program: bool,
@@ -233,6 +238,7 @@ pub fn held_from_inbox(msg: &Value) -> Option<Held> {
         from: s("from"),
         class: msg.get("class").and_then(Value::as_str).unwrap_or("fyi").to_owned(),
         text: s("text"),
+        at: 0,
         program: msg.get("program").and_then(Value::as_bool) == Some(true) || program_notice(msg),
     };
     (!held.prompt_id.is_empty() && !held.thread_id.is_empty()).then_some(held)
@@ -376,6 +382,34 @@ pub enum DecidedBy {
     /// The model gave it to its owner, but no session subscribed to its thread (or this chat
     /// did): it reaches this chat.
     Fallback,
+    /// No model answered for it in time ([`untriaged`]): it reaches this chat as it came.
+    Untriaged,
+}
+
+/// A held message no model decided within this long reaches the chat untriaged: a triage outage
+/// (a harness that cannot answer headless) never keeps a chat's messages from it for good.
+pub const MAX_UNTRIAGED_MS: u64 = 10 * 60 * 1000;
+
+/// Fills the messages of `batch` that `decided` (its [`decide`]) left undecided with
+/// `needs_this_session`, [`DecidedBy::Untriaged`]: every one when `all` (the chat's retries are
+/// spent), else those held [`MAX_UNTRIAGED_MS`] or longer at `now`. Returns how many it filled.
+pub fn untriaged(batch: &Batch, decided: &mut [Option<Decision>], now: u64, all: bool) -> usize {
+    let mut filled = 0;
+    for (m, d) in batch.messages.iter().zip(decided.iter_mut()) {
+        if d.is_some() || !(all || now.saturating_sub(m.at) >= MAX_UNTRIAGED_MS) {
+            continue;
+        }
+        *d = Some(Decision {
+            prompt_id: m.prompt_id.clone(),
+            thread_id: m.thread_id.clone(),
+            category: Category::NeedsThisSession,
+            decided_by: DecidedBy::Untriaged,
+            owner: None,
+            repeat_of: None,
+        });
+        filled += 1;
+    }
+    filled
 }
 
 /// The chat's own thread owners: `threadId -> ownerSessionId`, read from its
@@ -668,6 +702,9 @@ pub struct Line {
     pub fingerprint: String,
     #[serde(default)]
     pub repeat_of: Option<String>,
+    /// Who decided it; an old record without it reads as None.
+    #[serde(default)]
+    pub decided_by: Option<DecidedBy>,
 }
 
 /// The items of a [`triaged_record`].
@@ -766,11 +803,17 @@ pub fn digest(session: &str, lines: &[Line]) -> Option<String> {
         return None;
     }
     let threads: BTreeSet<&str> = need.iter().map(|l| l.thread_id.as_str()).collect();
-    let head = format!(
+    let mut head = format!(
         "Held during a message surge: {} message(s) in {} thread(s) need you. Routine and handled ones stay in your inbox archive.\n",
         need.len(),
         threads.len()
     );
+    let untriaged = need.iter().filter(|l| l.decided_by == Some(DecidedBy::Untriaged)).count();
+    if untriaged > 0 {
+        head.push_str(&format!(
+            "{untriaged} of them were not triaged (no triage model answered in time), so they are here as they came: read each thread.\n"
+        ));
+    }
     Some(render(head, session, &need, true))
 }
 

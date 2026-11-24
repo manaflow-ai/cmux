@@ -2,11 +2,20 @@
 //! measured reply period. Keep one arrival timestamp regardless of how many senders it has.
 use super::*;
 
-/// The last journaled snapshot powers the single chat row even when older posts leave memory.
-#[derive(Clone, Copy, Default)]
+/// The chat's surge row: `held` is the held messages no `inbox_triaged` record decided yet (the
+/// ones still waiting for triage), never a tally of every message ever held, so the row drains to
+/// 0 as triage (or its fail-open, `surge_triage.rs`) decides them. Mango's chat, 2026-11-22,
+/// showed "100 held" from a running tally of 130 holds while triage had decided none and the
+/// listing showed none. Each journaled surge event carries its snapshot (`surge`); a restore
+/// rebuilds the pending set from the records themselves, not from old snapshots.
+#[derive(Clone, Default)]
 pub(super) struct Counts {
     pub(super) seq: u64,
-    held: u64,
+    /// Held prompt ids still undecided.
+    pending: std::collections::BTreeSet<String>,
+    /// The journal's own count and the seq it was read at (`settle_held`); it stands until a
+    /// newer record changes the set.
+    settled: Option<(u64, u64)>,
     need_you: u64,
 }
 
@@ -16,7 +25,42 @@ impl Counts {
     }
 
     pub(super) fn json(&self) -> Value {
-        json!({"held": self.held, "needYou": self.need_you})
+        json!({"held": self.held(), "needYou": self.need_you})
+    }
+
+    /// The undecided held messages: the journal's settled count while no newer record came,
+    /// else the pending set.
+    fn held(&self) -> u64 {
+        match self.settled {
+            Some((held, at)) if at == self.seq => held,
+            _ => self.pending.len() as u64,
+        }
+    }
+
+    /// Whether held message `prompt_id` still waits for triage.
+    pub(super) fn pending(&self, prompt_id: &str) -> bool {
+        self.pending.contains(prompt_id)
+    }
+
+    /// One record's change: a held `inbox` record adds its message, an `inbox_triaged` record
+    /// takes out what it decided and sets the open topics it names.
+    fn apply(&mut self, kind: &str, msg: &Value) {
+        match kind {
+            "inbox" => {
+                if let Some(h) = crate::surge_triage::held_from_inbox(msg) {
+                    self.pending.insert(h.prompt_id);
+                }
+            }
+            crate::surge_triage::RECORD_KIND => {
+                for id in crate::surge_triage::triaged_ids(msg) {
+                    self.pending.remove(&id);
+                }
+                if let Some(n) = msg.pointer("/surge/needYou").and_then(Value::as_u64) {
+                    self.need_you = n;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Sets `held` to the journal's count of undecided held messages, read through record
@@ -25,7 +69,7 @@ impl Counts {
     /// (`Hub::surge_held_now`).
     pub(super) fn settle_held(&mut self, held: u64, through: u64) {
         if self.seq <= through {
-            self.held = held;
+            self.settled = Some((held, self.seq));
         }
     }
 
@@ -33,15 +77,8 @@ impl Counts {
         if event.seq <= self.seq {
             return;
         }
-        if let (Some(held), Some(need_you)) = (
-            event.msg.pointer("/surge/held").and_then(Value::as_u64),
-            event.msg.pointer("/surge/needYou").and_then(Value::as_u64),
-        ) {
-            *self = Self { seq: event.seq, held, need_you };
-        } else if event.kind == "inbox"
-            && event.msg.get("surgeHeld").and_then(Value::as_bool) == Some(true)
-        {
-            self.held = self.held.saturating_add(1);
+        if event.kind == "inbox" || event.kind == crate::surge_triage::RECORD_KIND {
+            self.apply(&event.kind, &event.msg);
             self.seq = event.seq;
         }
     }
@@ -83,6 +120,10 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || super::super::forum::slash_command(blocks).is_some()
         // The receiver's own batch must reach it. External tool notices have kind "notice".
         || provenance.and_then(|p| p["kind"].as_str()) == Some(super::NOTICE_KIND)
+        // The end of the chat's own background command: the agent waits on it to go on, so it
+        // is never held (Mango's chat, 2026-11-22: 49 of 130 held messages were these).
+        || provenance.is_some_and(|p| p.get(super::super::bg_notify::TASK_KEY).is_some())
+        || opts.prompt_id.as_deref().is_some_and(|id| id.starts_with(super::super::bg_notify::PROMPT_PREFIX))
     {
         return None;
     }
@@ -99,33 +140,23 @@ impl Hub {
         batch: Value,
         actionable_topics: u64,
     ) -> Result<(), RpcError> {
-        let released =
-            u64::try_from(crate::surge_triage::triaged_ids(&batch).count()).unwrap_or(u64::MAX);
-        self.persist_surge_event(
-            session,
-            "inbox_triaged",
-            batch,
-            Some((actionable_topics, released)),
-        )
+        self.persist_surge_event(session, "inbox_triaged", batch, Some(actionable_topics))
     }
 
-    fn persist_surge_event(
+    pub(in crate::hub) fn persist_surge_event(
         &self,
         session: &Session,
         kind: &str,
         mut msg: Value,
-        triaged: Option<(u64, u64)>,
+        actionable_topics: Option<u64>,
     ) -> Result<(), RpcError> {
         let state = session.inbox().surge_counts.clone();
         let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
-        let mut next = *counts;
-        match triaged {
-            Some((topics, released)) => {
-                next.need_you = topics;
-                next.held = next.held.saturating_sub(released);
-            }
-            None => next.held = next.held.saturating_add(1),
+        let mut next = counts.clone();
+        if let Some(n) = actionable_topics {
+            crate::surge_triage::set_key(&mut msg, "surge", json!({"needYou": n}));
         }
+        next.apply(kind, &msg);
         crate::surge_triage::set_key(&mut msg, "surge", next.json());
         // The caller retries a failed append. A parked copy must not be replayed behind it.
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -383,5 +414,32 @@ mod tests {
             "receiver",
         ));
         assert!(eligible(&opts, &blocks).is_none());
+    }
+
+    #[test]
+    fn the_end_of_the_chats_own_background_command_is_never_held() {
+        let blocks = [
+            json!({"type":"text","text":"[notice from acpmux] Background command finished: build (exit 0)"}),
+        ];
+        let mut provenance = crate::prompt_provenance::notice(
+            &json!({"sender":"acpmux","severity":"info","title":"Background command finished"}),
+            "receiver",
+        );
+        let opts = PromptOptions {
+            agent: Some("acpmux".into()),
+            provenance: Some(provenance.clone()),
+            class: Some(PromptClass::Result),
+            ..Default::default()
+        };
+        assert!(eligible(&opts, &blocks).is_some(), "another tool's notice may be held");
+        crate::surge_triage::set_key(&mut provenance, "bgTaskId", json!("bg-1"));
+        let held = PromptOptions { provenance: Some(provenance), ..opts };
+        assert!(eligible(&held, &blocks).is_none(), "its task end reaches it");
+        let by_id = PromptOptions {
+            agent: Some("acpmux".into()),
+            prompt_id: Some("bg-done-bg-2".into()),
+            ..Default::default()
+        };
+        assert!(eligible(&by_id, &blocks).is_none());
     }
 }
