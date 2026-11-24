@@ -75,6 +75,32 @@ import Testing
         #expect(try Self.alpha(fade, at: 2) > 0, "no hidden band: the fade begins at the list's top")
     }
 
+    /// The bottom band eases out over its own, taller height: no step anywhere in it, and it
+    /// leaves full ink and reaches the edge flat, so neither end of the band reads as a line
+    /// (Leo 2026-11-22: "there's simultaneously a fade AND a hard break ideally lessen the hard break").
+    @Test func theBottomBandEasesOutWithNoLine() throws {
+        let height: CGFloat = 300
+        let (fade, scroll) = Self.fadeView(height: height)
+        Self.scroll(scroll, to: 120, fade)
+        #expect(fade.edges.contains(.bottom))
+        let band = Metrics.scrollEdgeFadeBottom
+        #expect(band > Metrics.scrollEdgeFade, "the bottom band is taller than the top's")
+        #expect(try Self.alpha(fade, at: height - band - 1) == 1)
+        #expect(try Self.alpha(fade, at: height) == 0)
+        var last: CGFloat = 1, steepest: CGFloat = 0
+        for y in stride(from: height - band, through: height, by: 0.5) {
+            let alpha = try Self.alpha(fade, at: y)
+            #expect(alpha <= last + 0.0001, "the band only fades toward the edge, at \(y) pt")
+            steepest = max(steepest, last - alpha)
+            last = alpha
+        }
+        // A linear band drops 0.5 / band per half point everywhere; eased, its first and last
+        // points barely move.
+        let start = try 1 - Self.alpha(fade, at: height - band + 2)
+        #expect(start < 2 / band * 0.5, "the band leaves full ink gently (\(start))")
+        #expect(steepest < 0.5 / band * 1.6, "no step steeper than the curve's middle (\(steepest))")
+    }
+
     private static func sidebar(titlebarRow: CGFloat, windowControls: Bool = true) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let workspaces = (0..<60).map { SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "workspace \($0)") }
