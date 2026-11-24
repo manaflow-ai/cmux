@@ -10,6 +10,39 @@
 use super::*;
 use std::sync::Arc;
 
+/// The kinds a keyed scan reads from held heads: a resend's prompt state (`hub/prompt_ledger.rs`
+/// `PROMPT_STATE_KINDS`) and its inbox answer (`hub/inbox.rs` `INBOX_ANSWER_KINDS`), which a test
+/// keeps within these. Only their heads are held: a chat's other indexed records (a busy
+/// coordinator's `process_update` and `background_task_update`, half its copies' lines) are
+/// never shown to a keyed scan's `keep`, and holding their heads too put one chat of Leo's past
+/// [`BUDGET`], so every resend read every one of its copies again (below). A keyed scan of any
+/// other kind reads the log as a scan of a kind no copy holds does.
+pub(crate) const KEYED_KINDS: &[&str] = &[
+    "turn_stop_requested",
+    "queued",
+    "user_message",
+    "turn_started",
+    "turn_result",
+    "prompt_refused",
+    "queue_declined",
+    "queue_removed",
+    "dequeued",
+    "inbox",
+    "inbox_noticed",
+    "inbox_answered",
+    "inbox_removed",
+];
+
+/// Whether a line's head is held: its kind is keyed, or its head does not say (it is read, and
+/// shown unread when it does not parse).
+fn keyed(line: &[u8]) -> bool {
+    #[cfg(test)]
+    if EVERY_KIND.with(std::cell::Cell::get) {
+        return kind_index::indexed(line);
+    }
+    record_kind(line).is_none_or(|kind| KEYED_KINDS.iter().any(|k| k.as_bytes() == kind))
+}
+
 /// What [`Store::scan_kinds_keyed`] shows of a record before it is read whole.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KindHead<'a> {
@@ -330,25 +363,42 @@ impl KindHeads {
         None
     }
 
-    /// Keeps `heads` as segment `index` of chat `id`'s, the least recently read going past
-    /// [`BUDGET`].
+    /// Keeps `heads` as segment `index` of chat `id`'s, other chats' least recently read going
+    /// past [`BUDGET`]. A chat's own heads are never evicted for its own: a keyed scan reads a
+    /// chat's segments in order, and a least-recently-read eviction of a chat larger than the
+    /// budget dropped each segment's heads just before the next scan asked for them, so every
+    /// scan read every copy whole again (cmux NEXT nightly, 2026-11-22: `prompt_with`'s resend
+    /// reads 23% of the daemon's CPU, `read_kind_index`, `fnv_on` and `Head::read` most of it, of
+    /// a chat of 771 segments and 221,388 indexed lines). Such a chat keeps the heads it fit,
+    /// its first segments, and the scan reads only the rest's copies.
     fn put(&self, id: &str, index: u32, heads: Arc<SegmentHeads>) {
         let mut map = self.lock();
         map.tick = map.tick.wrapping_add(1);
         let tick = map.tick;
         let bytes = heads.bytes;
-        if let Some((old, _)) = map.map.insert((id.to_owned(), index), (heads, tick)) {
+        let key = (id.to_owned(), index);
+        if let Some((old, _)) = map.map.insert(key.clone(), (heads, tick)) {
             map.bytes = map.bytes.saturating_sub(old.bytes);
         }
         map.bytes = map.bytes.saturating_add(bytes);
-        while map.bytes > BUDGET {
-            let Some(oldest) =
-                map.map.iter().min_by_key(|(_, (_, used))| *used).map(|(k, _)| k.clone())
-            else {
-                break;
-            };
+        let budget = budget();
+        while map.bytes > budget {
+            #[cfg(test)]
+            let any_chat = EVERY_KIND.with(std::cell::Cell::get);
+            #[cfg(not(test))]
+            let any_chat = false;
+            let oldest = map
+                .map
+                .iter()
+                .filter(|((chat, _), _)| any_chat || chat != id)
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(k, _)| k.clone())
+                .unwrap_or_else(|| key.clone());
             if let Some((gone, _)) = map.map.remove(&oldest) {
                 map.bytes = map.bytes.saturating_sub(gone.bytes);
+            }
+            if oldest == key {
+                break;
             }
         }
     }
@@ -373,6 +423,12 @@ impl KindHeads {
         if let Some((gone, _)) = map.map.remove(&(id.to_owned(), index)) {
             map.bytes = map.bytes.saturating_sub(gone.bytes);
         }
+    }
+
+    /// The heads' bytes held, as [`BUDGET`] counts them.
+    #[cfg(test)]
+    pub(super) fn held_bytes(&self) -> usize {
+        self.lock().bytes
     }
 
     /// Drops chat `id`'s heads (its folder is gone).
@@ -419,7 +475,7 @@ impl LocalStore {
         keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        if !kinds.iter().all(|k| INDEXED_KINDS.contains(k)) {
+        if !kinds.iter().all(|k| KEYED_KINDS.contains(k)) {
             return self.scan_kinds_in(id, kinds, false, &mut |rec| {
                 let kept = keep(&KindHead::of(&rec));
                 !kept || visit(rec)
@@ -530,7 +586,7 @@ impl LocalStore {
                 // No copy yet: the segment is scanned whole, which makes one (on a system that
                 // names a birth time); the next keyed scan reads its heads from it.
                 let copy = self.read_kind_index(id, index, &stamp);
-                let Some((lines, from, _)) = copy else {
+                let Some(kind_index::Copied { lines, len: from, .. }) = copy else {
                     return self.keyed_whole(id, index, path, &scan, keep, visit);
                 };
                 let mut heads = SegmentHeads {
@@ -542,8 +598,10 @@ impl LocalStore {
                     bytes: std::mem::size_of::<SegmentHeads>(),
                 };
                 let mut at = kind_index::HEADER_WIDTH as u64;
+                #[cfg(test)]
+                COPY_READS.with(|n| n.set(n.get() + 1));
                 for line in lines.split_inclusive(|b| *b == b'\n') {
-                    if !line.iter().all(u8::is_ascii_whitespace) {
+                    if !line.iter().all(u8::is_ascii_whitespace) && keyed(line) {
                         heads.push(Head::read(line, Place::Copy, at));
                     }
                     at = at.saturating_add(line.len() as u64);
@@ -563,7 +621,7 @@ impl LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 || !line.ends_with(b"\n") {
                     break;
                 }
-                if !line.iter().all(u8::is_ascii_whitespace) && kind_index::indexed(&line) {
+                if !line.iter().all(u8::is_ascii_whitespace) && keyed(&line) {
                     heads.push(Head::read(&line, Place::Segment, heads.len));
                 }
                 heads.len = heads.len.saturating_add(line.len() as u64);
@@ -688,9 +746,26 @@ thread_local! {
     pub(super) static SEALED_HITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Segments a keyed scan on this thread opened.
     pub(super) static SEGMENT_OPENS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Copies a keyed scan on this thread read whole for their heads (a held heads miss).
+    pub(super) static COPY_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// [`BUDGET`] for this thread's scans, when a test sets it.
+    pub(super) static BUDGET_FOR: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+    /// The heads held before `KEYED_KINDS`, for a before-and-after bench: every indexed kind's,
+    /// any chat's evicted for any other's.
+    pub(super) static EVERY_KIND: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// [`SETTLED`] for this thread's scans, when a test sets it.
     pub(super) static SETTLED_FOR: std::cell::Cell<Option<std::time::Duration>> =
         const { std::cell::Cell::new(None) };
+}
+
+/// [`BUDGET`], or a test's own.
+fn budget() -> usize {
+    #[cfg(test)]
+    if let Some(budget) = BUDGET_FOR.with(std::cell::Cell::get) {
+        return budget;
+    }
+    BUDGET
 }
 
 /// [`SETTLED`], or a test's own.
