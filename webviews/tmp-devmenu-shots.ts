@@ -14,7 +14,7 @@ const port = (vite.httpServer!.address() as { port: number }).port;
 const url = (variant: string) =>
   `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer-context&entryPath=src/agent-session/acpmux/ComposerContext.gallery.tsx&variant=${variant}`;
 const browser = await chromium.launch({ headless: true });
-const open = async (variant: string, height = 420) => {
+const open = async (variant: string, height = 520) => {
   const page = await browser.newPage({ viewport: { width: 760, height }, deviceScaleFactor: 2 });
   await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
   for (let tries = 0; ; tries++) {

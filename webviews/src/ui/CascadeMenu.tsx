@@ -78,8 +78,9 @@ export function CascadeMenu({
         onKeyDown={(event) => {
           // A search field keeps ← for its caret until it is empty.
           if (event.key !== "ArrowLeft" || event.defaultPrevented) return;
-          const target = event.target;
-          if (target instanceof HTMLInputElement && target.value !== "") return;
+          // By tag, not instanceof: the element may come from another window's realm (a test DOM, a frame).
+          const target = event.target as HTMLInputElement;
+          if (target.tagName === "INPUT" && target.value !== "") return;
           event.preventDefault();
           event.stopPropagation();
           onClose(true);

@@ -1051,6 +1051,9 @@ export function EnvironmentPicker({
             <span className="acpmux-menu-label">{action.text}</span>
             {action.reason && <span className="acpmux-menu-description">{action.reason}</span>}
           </span>
+          {value === MACHINES_MENU && machinesNumber !== undefined && digits && (
+            <kbd className="acpmux-env-key">⌥⌘{machinesNumber}</kbd>
+          )}
           {/* Checked while a manual machine (This Mac or one of the person's own) is the pick; its chevron
               still opens them. */}
           {value === MACHINES_MENU && checked && (

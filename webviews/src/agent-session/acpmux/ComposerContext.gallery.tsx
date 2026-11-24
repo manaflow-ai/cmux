@@ -668,13 +668,13 @@ const placeVariants = {
     play: openCombined,
   },
   "place-machine-cascade": {
-    height: 330,
+    height: 460,
     note: "SHIPPED. Machine… cascades BESIDE the list, which stays open and clickable (Leo: 'i cant click back' of the drill-in): This Mac, then the person's own machines with a green dot and 'N live' or nothing (never 'SSH'), the one still connecting greyed, Add Machine… last. ← and Esc go back one level, → opens it, a click outside closes both.",
     props: placeMachines,
     play: openMachines,
   },
   "place-machine-picked": {
-    height: 330,
+    height: 460,
     note: "A manual pick (huge-blue) holds for this chat only: Auto is unchecked, Machine… is checked and its cascade checks the machine; the chip names it. The next new chat is on Auto again.",
     props: { ...placeMachines, ...onMachine("huge-blue") },
     play: openMachines,
@@ -686,7 +686,7 @@ const placeVariants = {
     play: openCombined,
   },
   "place-no-own-machines": {
-    height: 330,
+    height: 460,
     note: "No machine of the person's yet: Machine… still opens, with This Mac and Add Machine….",
     props: {
       ...placeMachines,
