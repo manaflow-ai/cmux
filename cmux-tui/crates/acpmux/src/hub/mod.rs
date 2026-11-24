@@ -13,7 +13,7 @@ mod activity;
 mod app_exit;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
 mod usage_share;
-// A foreground shell still running after a minute goes to the background (Claude Code).
+// A foreground shell still running after five minutes goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
@@ -151,12 +151,15 @@ pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
 pub use tool_start::{ToolStart, tool_start};
 pub(crate) mod book_tee;
+pub mod chat_activity;
+mod chat_index;
 mod closed_rows;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
 mod live_ages;
@@ -452,7 +455,12 @@ mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
+mod background_cause;
+pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod drafts;
+mod goal_tools;
 pub(crate) mod history_search;
 pub(crate) mod open_delivery;
 pub(crate) mod outbox;
@@ -461,9 +469,15 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod pause;
+pub mod plan_build;
+#[cfg(test)]
+mod refused_append_tests;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
+pub(crate) mod session_hold;
+#[cfg(feature = "sim")]
+mod sim_startup;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
 mod stop_settles_tests;
@@ -478,28 +492,17 @@ pub mod transfer_pull;
 mod transfer_watch;
 #[cfg(test)]
 mod translator_queue_tests;
+#[cfg(all(test, unix))]
+mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
-mod usage_view;
-pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
-mod background_cause;
-pub mod background_turn;
-#[cfg(test)]
-mod background_turn_end_tests;
-mod goal_tools;
-pub mod plan_build;
-#[cfg(test)]
-mod refused_append_tests;
-#[cfg(feature = "sim")]
-mod sim_startup;
-#[cfg(all(test, unix))]
-mod trigger_quiet_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+mod usage_view;
 pub(crate) mod usage_warnings;
 #[cfg(test)]
 mod usage_warnings_tests;
@@ -953,8 +956,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
-    /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
-    pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
+    pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
     /// as it was.
     pub(super) book_tee: std::sync::OnceLock<Arc<book_tee::BookTee>>,
@@ -1032,6 +1035,11 @@ pub struct Hub {
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
     pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
+    /// Hub-routed session reads shared by callers while the same network read is in flight.
+    pub(crate) mesh_read_flights: crate::single_flight::SingleFlight<
+        crate::server::mesh_relay::read::ReadKey,
+        Result<Value, crate::rpc::RpcError>,
+    >,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -1252,6 +1260,8 @@ pub struct Hub {
     /// Whether surge admission holds messages, set by tests; `None` reads Settings >
     /// Experimental > Labs > Show Preview Features (`inbox_surge.rs` `surge_inbox_on`).
     pub(super) surge_inbox: StdMutex<Option<bool>>,
+    /// The fleet hold as its file last read (`session_hold.rs`).
+    pub(crate) fleet_hold: StdMutex<session_hold::FleetHoldCache>,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1596,6 +1606,7 @@ impl Hub {
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
             mesh_read_parts: Default::default(),
+            mesh_read_flights: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
@@ -1700,6 +1711,7 @@ impl Hub {
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
             surge_inbox: StdMutex::new(None),
+            fleet_hold: StdMutex::new(session_hold::FleetHoldCache::default()),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -2241,6 +2253,8 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            resume_cut_ask: AtomicBool::new(false),
+            resumed_cut: AtomicBool::new(false),
             rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
@@ -2300,6 +2314,7 @@ impl Hub {
             idle: std::sync::atomic::AtomicUsize::new(0),
             turn_ended_seq: AtomicU64::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            exit_line: StdMutex::new(Default::default()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             kept_messages: StdMutex::new(std::collections::VecDeque::new()),
