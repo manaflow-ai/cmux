@@ -259,19 +259,32 @@ pub const ALL: &[Capability] = &[
     daemon(
         AGENT_CLI_HYBRID,
         "Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas.",
+        // Like `cloud-mobile-chat-v1`, the phone lists it in `set-client-info`.
+        &["control:set-client-info.capabilities/agent-cli-hybrid-v1"],
     ),
-    daemon(AGENT_CLI_HYBRID_LEAN, "With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`."),
+    daemon(
+        AGENT_CLI_HYBRID_LEAN,
+        "With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`.",
+        // Like `cloud-mobile-chat-v1`, the phone lists it in `set-client-info`.
+        &["control:set-client-info.capabilities/agent-cli-hybrid-v2"],
+    ),
     daemon(
         TERMINAL_SHELL_LINES,
         "With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program.",
+        // Like `cloud-mobile-chat-v1`, the phone lists it in `set-client-info`.
+        &["control:set-client-info.capabilities/terminal-shell-lines-v1"],
     ),
     daemon(
         ATTACH_OUTPUT_COALESCE,
         "`output` at most once per display frame for a terminal that stays on PTY bytes (#43373).",
+        // Like `cloud-mobile-chat-v1`, the phone lists it in `set-client-info`.
+        &["control:set-client-info.capabilities/attach-output-coalesce-v1"],
     ),
     daemon(
         TERMINAL_FULL_SCREEN_FRAMES,
         "With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565).",
+        // Like `cloud-mobile-chat-v1`, the phone lists it in `set-client-info`.
+        &["control:set-client-info.capabilities/terminal-full-screen-frames-v1"],
     ),
 ];
 
