@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from autodemo.cli import main  # noqa: E402
+
+sys.exit(main())
