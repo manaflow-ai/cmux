@@ -382,6 +382,8 @@ export type PaneBodyDeps = NewTabShown &
     reconnectPeer: (peer: string) => Promise<unknown>;
     previewShown: boolean;
     computerUsePreview: ComputerUsePreview | null;
+    /// The Environment card at the chat's top right (session-info/EnvironmentCard.tsx), null when off.
+    environmentCardNode: React.JSX.Element | null;
     viewedSandbox: SandboxRun | undefined;
     pendingWake: React.RefObject<ComposerWake | undefined>;
     sandboxWake: React.RefObject<ComposerWake | undefined>;
@@ -654,6 +656,7 @@ export function drawPaneBody({
   reconnectPeer,
   previewShown,
   computerUsePreview,
+  environmentCardNode,
   viewedSandbox,
   pendingWake,
   sandboxWake,
@@ -1491,6 +1494,7 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
+                {environmentCardNode}
                 {underHeader.watching &&
                   snapshot.summary?.watching &&
                   // A chat its terminal drives is a live view of the same session, not View Only.

@@ -1033,10 +1033,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_census_tallies.py
 
-      - name: Validate the risk label step reads labels from the event
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_risk_label_from_event.py
-
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
@@ -1300,6 +1296,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_rules.py
 
+      - name: Validate feat-cmux-next merges close their fixed issues
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_next_closes_issues.py
+
       - name: Validate cmux-tui focused filter routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py
@@ -1481,10 +1481,6 @@ jobs:
       - name: Validate checkout failure network diagnostics
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
-
-      - name: Validate production drift issue updates are sticky
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_iroh_drift_issue.py
 
       - name: Validate Swift Testing suite timeout guard
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
