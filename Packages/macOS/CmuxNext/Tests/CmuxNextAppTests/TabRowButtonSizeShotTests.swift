@@ -67,7 +67,7 @@ import Testing
         chrome.layoutSubtreeIfNeeded()
 
         let cell = try #require(strip.cells[TabID("shot")])
-        let pill = root.convert(cell.bounds, from: cell)
+        let pill = root.convert(cell.frame, from: strip.tabsClip)
         var buttons: [NSView] = [strip.newTabButton, strip.newTabMenuButton, tools.zoomButton] + tools.buttons
         buttons += [chrome.backButton, chrome.forwardButton, chrome.reloadButton]
         if let more = chrome.toolbarButtons.anchor(for: .overflow) { buttons.append(more) }
