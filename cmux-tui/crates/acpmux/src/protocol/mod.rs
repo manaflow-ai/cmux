@@ -331,6 +331,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_AUTO_SESSION_SET, Request),
         untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
         untyped(method::MUX_AUTO_SESSION_WAKE, Request),
+        untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),

@@ -1006,6 +1006,9 @@ pub mod method {
     pub const MUX_AUTO_SESSION_LEFTOVER: &str = "_acpmux/auto_session/leftover";
     /// The system woke from sleep (no params): every Auto chat stops and asks the Cloud first.
     pub const MUX_AUTO_SESSION_WAKE: &str = "_acpmux/auto_session/wake";
+    /// The Cloud's events of a chat another holder runs, read only: `{sessionId, after?,
+    /// version?}` -> `{version, projection, events, more}` (`auto_session/runtime/projection.rs`).
+    pub const MUX_AUTO_SESSION_TRANSCRIPT: &str = "_acpmux/auto_session/transcript";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
