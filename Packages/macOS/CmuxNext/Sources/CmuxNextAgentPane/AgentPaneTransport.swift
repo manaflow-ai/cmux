@@ -37,8 +37,10 @@ import CmuxPagePushBound
         /// `inputPending`): small enough that the page's apply of it leaves the frame to the key.
         public var inputFramesPerFlush = 64
         public var inputBytesPerFlush = 64 << 10
-        /// What a pane nobody can see holds of its stream: past it, stream notifications are shed,
-        /// and once the pane shows it reads what it missed after one `_acpmux/lagged`.
+        /// What a held page (one that stopped draining, ``AgentPaneTransport/pageStalled``) holds of its
+        /// stream: past it, stream notifications are shed, and once the page acks again it reads what it
+        /// missed after one `_acpmux/lagged`. A pane nobody can see holds none of its chat's stream
+        /// (``AcpmuxPaneSocket/setHidden(_:)``).
         public var hiddenQueuedFrames = 1024
         public var hiddenQueuedBytes = 1 << 20
         /// Longest wait for a page's ack of a push (``AgentPaneTransport/acked(connection:seq:inputPending:)``)
@@ -50,7 +52,7 @@ import CmuxPagePushBound
         /// A page whose main thread is stuck reads none of its pushes: each one that went on the
         /// deadline waited in its renderer, unread (Leo's NIGHTLY 9d514c685e48: a chat page spinning
         /// in a script grew its renderer to 14 GB, 11 GB of it in PartitionAlloc). Past either bound
-        /// the socket holds the stream as for a hidden pane (``hiddenQueuedBytes``) and sheds past it;
+        /// the socket holds the stream within ``hiddenQueuedBytes`` and sheds past it;
         /// the page's next ack resumes the pushes, and it reads what it missed after one `_acpmux/lagged`.
         public var maximumUnackedBytes = 8 << 20
         public var maximumUnackedPushes = 240
@@ -64,7 +66,7 @@ import CmuxPagePushBound
             PagePushLedger.Bounds(maximumUnackedBytes: maximumUnackedBytes, maximumUnackedPushes: maximumUnackedPushes)
         }
 
-        /// The queue bounds as the socket's held stream reads them (a held page: hidden or stalled).
+        /// The queue bounds as the socket's held stream reads them (a held page: one that stopped draining).
         var queueBounds: PageQueueBounds {
             PageQueueBounds(maximumFrames: maximumQueuedFrames, maximumBytes: maximumQueuedBytes,
                             heldFrames: hiddenQueuedFrames, heldBytes: hiddenQueuedBytes,
@@ -80,8 +82,26 @@ import CmuxPagePushBound
     /// Runs right before anything reaches the page: a push here, a script call or a picture
     /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
-    /// page that runs no script (a push's completion paces the next one).
-    public var beforePageWork: (@MainActor () -> Void)?
+    /// page that runs no script (a push's completion paces the next one). Set exactly while the page is
+    /// frozen: meanwhile other chats' rows are left out, not queued (``AcpmuxPaneSocket/setAsleep(_:)``).
+    public var beforePageWork: (@MainActor () -> Void)? {
+        didSet { syncSight() }
+    }
+    /// How much of the pane anyone can see (its pacer's probe, ``AgentPaneFramePacer/onSightChange``). Unseen: other
+    /// chats' rows are left out until it shows, as for a frozen page. Hidden: its chat's stream is left out too.
+    public var pageSight = AgentPaneSight.seen {
+        didSet { if pageSight != oldValue { syncSight() } }
+    }
+    /// Whether nobody can see the pane (``pageSight``).
+    public var pageUnseen: Bool { pageSight.unseen }
+
+    /// What the page hears now: other chats' rows (``AcpmuxPaneSocket/setAsleep(_:)``) and its chat's stream
+    /// (``AcpmuxPaneSocket/setHidden(_:)``). A frozen page hears neither: any push would thaw it.
+    func syncSight() {
+        let frozen = beforePageWork != nil
+        socket?.setAsleep(frozen || pageSight.unseen)
+        socket?.setHidden(frozen || pageSight.hidden)
+    }
     /// Tests: runs on the main actor after a pass's frames were read off it and before the main
     /// actor decides the next one, where a reconnect can land. Nil in the app.
     var afterAnalyze: (@MainActor () async -> Void)?
@@ -304,27 +324,18 @@ import CmuxPagePushBound
     /// Acks the page sent, and pushes that went on the deadline instead (tests, `debug.agent_pane pacer`).
     public private(set) var acks = 0
     public private(set) var ackTimeouts = 0
-    /// Nobody can see the pane (its pacer says so, ``AgentPaneFramePacer/onHiddenChange``): its socket
-    /// holds the stream within ``Limits/hiddenQueuedBytes`` and sheds past it, and the page reads
-    /// what it missed once it shows.
-    public var paneHidden = false {
-        didSet { if paneHidden != oldValue { socket?.setHidden(socketHolds) } }
-    }
-
     /// The pushes the page has not acked and whether the host holds its pushes (``PagePushLedger``).
     private var ledger: PagePushLedger
     /// The last push ``flush()`` made, so ``awaitAck(seq:_:)`` counts its bytes while it is unacked.
     private var lastPush: PagePushLedger.Push?
     /// The page stopped acking past ``Limits/maximumUnackedBytes`` or ``Limits/maximumUnackedPushes``:
-    /// no push goes until it answers again, and its socket holds the stream as for a hidden pane.
+    /// no push goes until it answers again, and its socket holds the stream within its held bound
+    /// (``AcpmuxPaneSocket/setHeld(_:)``) and sheds past it.
     public var pageStalled: Bool { ledger.stalled }
     /// Times the host stopped pushing a page that did not ack (tests, the bench).
     public var stalls: Int { ledger.stalls }
     /// Frame bytes pushed in all (tests, the bench).
     public private(set) var pushedBytes = 0
-
-    /// The socket holds the stream within its hidden bound: nobody sees the pane, or its page does not drain.
-    private var socketHolds: Bool { paneHidden || pageStalled }
 
     /// The page host's push carries no completion: the pacer's next push waits for the page's ack
     /// of `seq` (``acked(connection:seq:inputPending:)``), or ``Limits/ackDeadline``, whichever is first.
@@ -372,17 +383,17 @@ import CmuxPagePushBound
         waiting.done()
     }
 
-    /// Stops pushing a page that does not drain; its socket holds the stream within the hidden
-    /// bound and sheds past it, so neither the host nor the page's renderer grows while it is stuck.
+    /// Stops pushing a page that does not drain; its socket holds the stream within the held
+    /// bound (``Limits/hiddenQueuedBytes``) and sheds past it, so neither the host nor the page's renderer grows while it is stuck.
     private func stallPage() {
-        socket?.setHidden(socketHolds)
+        socket?.setHeld(pageStalled)
         Self.logger.error("agent pane transport: the page stopped draining, pushes held connection=\(self.current, privacy: .public) unacked_pushes=\(self.ledger.unacked.count, privacy: .public) unacked_bytes=\(self.ledger.unackedBytes, privacy: .public)")
     }
 
     /// The page answered: the held push's completion runs, so the next push brings what the socket
     /// held and one `_acpmux/lagged` if it shed, and the page reads the rest from its cursor.
     private func resumeStalledPage() {
-        socket?.setHidden(socketHolds)
+        socket?.setHeld(pageStalled)
         Self.logger.notice("agent pane transport: the page drains again connection=\(self.current, privacy: .public)")
         guard let waiting = awaitingAck else { return }
         awaitingAck = nil
@@ -479,8 +490,10 @@ import CmuxPagePushBound
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
-        socket.setHidden(socketHolds)
+        socket.setHeld(pageStalled)
         self.socket = socket
+        // A page hidden or frozen before this connection opened: its list notices wait for its show too.
+        syncSight()
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,

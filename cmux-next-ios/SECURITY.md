@@ -508,7 +508,8 @@ from the admitted `wg-init` / `wg-resp` exchange.
   allocation, and the dial goes on without that path.
 - **TURN credentials** come only from `/v1/ice` (short-lived Cloudflare TURN
   credentials, 1 h), never stored, and are the same ones WebRTC uses.
-- **The TeamHub carries no data.** It drops every binary frame and answers
+- **The TeamHub carries no data** (the session's WebSocket relay, below, is a
+  separate object). It drops every binary frame and answers
   `relay_retired` at most once per socket and session every 5 s, naming the
   session. It still admits and forwards signals only between the two
   devices of a session (or to a Mac of the sender's own user), now including
@@ -533,6 +534,45 @@ from the admitted `wg-init` / `wg-resp` exchange.
 | Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
 | Mutates or destroys objects the session does not own? | No. A `wg-endpoints` signal is admitted only within its session and changes only that session's candidate addresses. |
 | Reads local state the remote should not see? | No. The TURN server and the backend see ciphertext and addresses, as with TURN over UDP and the retired relay. |
+
+## Link transport: the WebSocket relay on cmux's host (API 0.17.0, `cnx-link-https-relay`)
+
+The last way a WireGuard link reaches the Mac (PROTOCOL.md "WebSocket
+relay"): WireGuard datagrams in WebSocket messages on the mobile Worker's own
+host, for networks that block UDP and every TURN host, or let only real HTTPS
+through. Like TURN it adds a way for ciphertext to travel, not a way into the
+Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/phone-link-https-relay.md).
+
+- **Confidentiality and integrity stay end to end.** The relay forwards
+  WireGuard datagrams it cannot decrypt or forge: the tunnel accepts only
+  what authenticates under the session's keys from the admitted `wg-init` /
+  `wg-resp` exchange. The Worker sees what a TURN operator sees: ciphertext,
+  sizes, timing, plus the two device ids it already knows from signaling.
+- **Who can join.** Only a device that the caller's own hub (one per user and
+  build space) bound to that session at its first admitted signal, with that
+  user's Stack token; a third device of the same user, another user, or a
+  session id no signal opened gets `403`. Each device gets one socket (a
+  newer join replaces it). The object is named by the verified owner key,
+  space and session id, so two users or two dev builds never share one.
+- **No impersonation.** The relay overwrites the frame's peer field with the
+  sender's authenticated device id; a receiving side drops frames that name
+  anyone but its session's peer. Frames go only to the other party's socket.
+- **Route confirmation stays in the tunnel.** `reach` still travels inside
+  WireGuard, so the relay can never confirm a route (the retired relay's
+  marker was authenticated only by the backend, which is why it went).
+- **Bounded.** Frames are 16 KiB at most, `datagrams` only, rate limited per
+  socket; the object keeps no storage. `LINK_RELAY_MODE=off` refuses every
+  join (`503 relay_off`); clients then fall back to their other paths and
+  report the relay as off.
+- **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator
+  `CMUX_MOBILE_DEV_FORCE_RELAY`) only narrows the phone's own paths, like
+  Block UDP.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
+| Mutates or destroys objects the session does not own? | No. A join admits only the session's two devices, and a `wg-relay` signal is admitted only within its session. |
+| Reads local state the remote should not see? | No. The Worker sees ciphertext, sizes and the two device ids, as TURN sees ciphertext and addresses. |
 
 ## Media lane: browser video as RTP (WebRTC track or WireGuard UDP)
 
@@ -597,6 +637,21 @@ the Mac.
 - **Rule 6 (tests):** `agent_tabs_get_this_macs_host` and
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
+- **Starting an unbound agent tab's chat** (ask-76b8e41001; Leo, 2026-11-18: "you should be able
+  to just start the chat right there"): a New Agent Chat tab the Mac made that nobody wrote in has
+  no session. Its first send on the phone starts the session over `acpmux` (`session/new`, the same
+  start and guard as the phone's New Agent Chat above), then binds the tab to it with
+  `bind-conversation-tab-session`, which is new on the allowlist. The phone starts only a tab
+  recorded for this Mac (`install:` host, or none); a tab whose chat another machine starts is
+  refused on the phone. `unbound_bind_refusal` narrows the command:
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It records which acpmux session an existing agent tab shows. The phone may send only `surface` (a number), `session` (a short identifier, as above) and `expected_session`, which must be `null`. Any other field is refused, `harness` included: the daemon changes a bound tab's harness when the named session is the tab's own, whatever `expected_session` says, so a phone could relabel a live chat. Without it, binding a tab's own session changes nothing, and the tab keeps the agent the Mac recorded. |
+| Mutates or destroys objects the session does not own? | Only a tab with no chat yet. `expected_session: null` is the daemon's compare-and-swap, so a tab that has a session (the Mac or another phone started one first) refuses with `conversation_tab.session_conflict`, and a phone never takes a chat away from a tab. The daemon also refuses a tab whose chat another machine starts (`machine:` host). |
+| Reads local state the remote should not see? | No new read. The tab then shows a session the phone can already attach to over `acpmux`, the same reach as `new-conversation-tab`'s `agent_session.session`. |
+
+  Tests: `a_phone_binds_only_an_unbound_agent_tab` (policy).
 
 ## `daemon`: terminal agents in the Feed
 
@@ -728,6 +783,53 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   question screen in the same terminal could receive the keys; they are still
   only the person's chosen option numbers and printable text, into a terminal
   the person already types into from the phone.
+
+### Answering a terminal agent's approval from the phone (`feat-cmux-next-terminal-feed-content`)
+
+A terminal-hosted Claude Code permission prompt ("Do you want to proceed?") is
+answered from its Feed card with **Allow once** or **Deny**, the same way a
+question is: by typing on that terminal's approval screen. No command is added
+to the allowlist: the phone uses `read-screen {surface}` and `send {surface,
+bytes}`, which its own keyboard already uses on the person's terminals.
+
+- Where the approval comes from: the agent hook reads Claude Code's
+  `PermissionRequest` tool input before redaction and sends `{harness, tool,
+  command?, target?, description?}` beside the journal event
+  (`live_approval`); the daemon keeps it in memory only, on the
+  notification's `list-notifications` row, while the agent is blocked on it
+  (never the journal, the ledger, the database or a log). While the daemon
+  cannot be reached, the hook's private per-agent queue (`hook-spool/`,
+  owner-only, deleted once the daemon answers) holds the request line with it,
+  as it already does for `live_prompt`, `live_reply` and `live_question`. It leaves when the
+  agent works, idles or ends (`an_approval_leaves_the_ledger_row_once_the_agent_moves_on`).
+  Only Claude Code's (`claude`, `claude-code`) and never for AskUserQuestion
+  (its own card) or ExitPlanMode (a plan review keeps "Answer in Terminal").
+- What is typed: one key. Allow once is `1` (Claude Code's "1. Yes"); Deny is
+  Escape (its "No" / "Esc to cancel"). A lasting grant ("Yes, and don't ask
+  again", "switch to auto mode") is never offered from a phone, as for agent
+  chats (`ACPPermissionRequest.phoneOptions`).
+- Which approval: right before typing, the phone makes its own
+  `list-notifications` request for this answer (never its last read, nor a
+  coalesced read that may not run) and goes on only while this very row still
+  carries this very approval (the agent still blocked on it). A failed read
+  types nothing.
+- Where it is typed: only while `read-screen` shows Claude Code's approval
+  dialog at the bottom of the screen: from the last horizontal rule above
+  "Do you want to" down to "Esc to cancel" as the last line, with "1. Yes" as
+  the row under the question. A command must show in full above the question
+  (spaces and line breaks ignored, so a wrapped command still matches; the
+  first 400 characters of a longer one); a file's name must be in the question
+  ("Do you want to create todo.txt?"). The transcript above the dialog never
+  counts, so a stale card can never answer a newer approval, even one whose
+  command starts the same way. An approval the dialog cannot be told by (no
+  command and no file: an MCP tool, a URL) gets no buttons and keeps "Answer
+  in Terminal". A terminal that moved on gets nothing, and the card says so.
+- Who: the paired owner's phone only, over its approved link (the same
+  admission as the terminal keyboard and the Feed reply).
+- Residual: as for questions, the screen check reads text, so an agent that
+  draws a lookalike approval screen in the same terminal could receive the
+  `1`; it is still one key into a terminal the person already types into
+  from the phone.
 
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 
@@ -1038,6 +1140,37 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   behind `auth` wait for it, one `auth` per link, a refusal silences new keys
   from that device id, and nothing is asked before the app's list arrives).
 
+## `pair-requests`: another paired device answers a waiting pairing
+
+Leo, 2026-11-22: "ok surely we dont need to be bottled this hard by a click. and esp on a single
+machine." A probe phone of the person's own account should pair without a gesture on the Mac. The
+person's devices that this Mac already paired can now answer it (`src/pair_requests.rs`):
+
+- `{"action":"list"}` returns the requests hostd holds open in `auth` now (id, name, kind, the
+  16-hex fingerprint of the approval key, or the identity key for a machine, and how long each has
+  waited). `{"action":"answer","deviceId","fingerprint","allow"}` answers one.
+- **Same account only.** The link reaches hostd only through the team hub's admission
+  (`host::admitted`: `fromUserId` is the Mac's own user), so a device of another account never gets
+  a link to open it on, and a probe of another account never reaches `auth` to wait.
+- **Only a device already paired with this Mac.** The service sits behind the pairing gate like
+  every other: a Stack token alone (audit B2) or a device still waiting opens nothing (`unpaired`).
+  A machine needs the Control grant (`peer::need_for`). A device never answers its own request
+  (`forbidden`).
+- **Named, not guessed.** The answer names the device id and at least 8 hex of the fingerprint
+  the Mac's prompt shows (`fingerprint_mismatch` otherwise), and only a request hostd waits on now
+  can be answered: with none, `no_waiting_request`. Other keys under the same id are another request.
+- **The app still decides.** hostd emits `pair_answer` with the keys; the app answers only its own
+  waiting prompt with the same keys, only while the answering device is still on its paired list,
+  through the same path as the person's Allow or Don't Allow (`IPhoneHostService.answerFromPairedDevice`).
+  The answer is recorded in Activity.
+- Not changed: the first device of an account still needs the Mac's Allow (or a pairing code),
+  and nothing approves with account credentials alone.
+
+Tests: `pair_requests::tests` (paired device approves, unpaired refused, nothing waiting, other keys
+and self answers, deny forwarded, machines named by identity key, Control needed) and
+`tests/host.rs` `a_paired_device_of_the_same_account_approves_a_waiting_request` (end to end over a
+link, including another account's dial refused).
+
 ## Parity round 2: Codex, model proxies, Restart Shell, the Mac's last pick (`feat-cnx-ios-parity2`)
 
 ### `acpmux`: Codex from a phone, always asking
@@ -1243,16 +1376,17 @@ computer, and that prompt was one the person never meant to answer (2026-11-17: 
 phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
 nothing: it only hides a request from the prompt.
 
-## End-of-task hand-off: pairing by the Mac's own code, and a readiness receipt (DEBUG builds)
+## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 
 `scripts/review.sh` pairs each phone with the same-tag Mac without anyone at the Mac, and changes
-no trust rule to do it. It reads the tagged Mac's live pairing code from its Mobile Pairing page
-(`cmux.mobilePairing.status` over the tag's own control socket, the pair-e2e route) and hands it to
-the phone's DEBUG launch environment (`CMUX_MOBILE_PAIR_URL`), the same single-use, minutes-long
-code a scan of the Mac's screen would open; it is never printed or logged, and a code is used for
-one phone only. The Mac shows a code only while its person has iPhone connections on and it is
-signed in, and hostd still refuses a phone of another account. It sets no pairing seed, presses
-no Allow, writes no pairing state and turns no setting on.
+no trust rule to do it. The Mac's pairing code (a QR with a single-use pre-approval) is retired
+(2026-11-20): the phone, signed in to the Mac's account, asks as every phone does, and the tagged
+Mac's DEBUG dev auto-approve (above) allows its own tag's phone. The hand-off reads the tagged Mac's
+iPhone-host device id from the Settings page's `iphone` card (`cmux.settings.host.lists` over the
+tag's own control socket) and names it in the phone's DEBUG launch environment
+(`CMUX_MOBILE_FOCUS_MAC`), which only makes that build the team's picked Mac, as a tap in the Macs
+list does; it carries no secret and grants nothing. hostd still refuses a phone of another
+account. It sets no pairing seed, presses no Allow, writes no pairing state and turns no setting on.
 
 A DEBUG launch with `CMUX_DOGFOOD_READINESS_NONCE` writes
 `Library/Application Support/cmux-dogfood/readiness.json` in the app's own container
@@ -1262,7 +1396,7 @@ token, password or key; the checker refuses a receipt with a secret-like field. 
 compile none of it. A launch that resolves signed out writes a signed-out receipt (no account, no
 Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-only
 `CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
-ships. `--manual-pairing` hands the phone no code at all.
+ships. `--manual-pairing` names no Mac to the phone.
 
 ## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
 
@@ -1270,21 +1404,70 @@ The hand-off can point a tag's Mac and phone builds at that tag's own backend st
 (`scripts/cmux-next/cloud-dev-stack.sh`) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
 token to that origin, so the origin is allowlisted in each app, not only in the script:
 
-- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`) and a tailnet
-  origin, `https://<host>.<tailnet>.ts.net[:port]` (HTTPS only; no path, user, query or IP). Anything
-  else is refused and changes nothing (iOS `CloudBackendOverride`, Rust `cmux-cloud-environment`,
-  `review_mac.py backend-check`). The check accepts any `*.ts.net` name, not only this team's tailnet,
-  and a Tailscale Funnel name is public, so the allowlist is not a network boundary: it limits which
-  kinds of origin a DEBUG build can be pointed at by someone who can already set its launch
-  environment or write its files. Shipped builds never take a tailnet origin from any source.
+- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`), one machine
+  of the team's tailnet, `https://<machine>.tail137216.ts.net[:port]`, and one public slot's API host,
+  `https://api.s<N>.wdev.cmux.dev` (N is 1-3 digits; no port). All HTTPS only, with no path, user,
+  query or IP. Anything else is refused and changes nothing: iOS `CloudBackendOverride`, Rust
+  `cmux-cloud-environment` and `review_mac.py backend-check` hold the same three patterns.
+  - Another tailnet's `*.ts.net` name is refused. A Tailscale Funnel name is public, so before this
+    rule any Funnel host could be named.
+  - Under `cmux.dev`, only a slot's `api.` host is a backend. Its `mobile.` and `hub.` siblings are
+    reached only through that API's client-config.
+  - The allowlist limits what a DEBUG build can be pointed at by someone who can already set its launch
+    environment or write its files. Shipped builds never take a tailnet or public stack origin from any
+    source.
+- **Public origin (a phone off the tailnet):** the same stack also answers on `api.`, `mobile.` and
+  `hub.` hosts of its slot under `wdev.cmux.dev`. The Worker `cmux-wdev-gateway`
+  (`scripts/cmux-next/cloud-dev-stack/gateway`) serves those hosts.
+  - **What it admits.** The gateway refuses every request that does not carry a credential it verified
+    itself, before the stack's unmerged code runs. It accepts:
+    - a Stack Auth access token of the development project, signed by the project's key, unexpired, not
+      anonymous or restricted, with a verified email in a cmux team domain (`manaflow.ai`); or
+    - a token that stack signed of a kind that stands for a signed-in account: the API's access tokens
+      (`aud` `api`), the hub's sessions (`iss` `device-hub`) and its tickets (`typ` `dh-ticket`),
+      checked against that stack's public keys. The stack issues these only to an account the gateway
+      admitted. Every other token it signs (OAuth state, model gateway run tokens, free inference) is
+      refused, though its signature is the stack's.
+
+    The only open paths carry no data: `GET /v1/health`, and the API's `GET /v1/client-config` and
+    `/.well-known/jwks.json`. Anyone can send them, so on a public host they never wake a stopped stack
+    or count as its activity; only a request that passed the gateway's check does. A token under a key
+    the gateway has not cached refetches the key set at most once a minute.
+  - **The path to the VM.** The gateway reaches the VM through a Workers VPC service and the Cloudflare
+    Tunnel `cmux-wdev` (`cloudflared` on the VM, `cmux-wdev-tunnel.service`), which ends at the VM's
+    router on 127.0.0.1. The tunnel has no public hostname or ingress rule, so the gateway is the only
+    way in from the internet; a request to the tunnel by any other route gets 503. Within the Cloudflare
+    account, another Worker could bind the same VPC service; account access is already a higher trust
+    level than a tag stack's data.
+  - **Slot reuse.** The router serves a public host only for the stack that holds that slot. It refuses
+    a request whose `X-Cmux-Build-Space` names another tag, without naming either tag: for example, a
+    phone that kept a released stack's origin after the slot went to another tag.
+  - **What's left.** Anyone with a cmux team account can reach any slot's stack, the same as any tailnet
+    member can reach any stack today. The tunnel token lives only on the VM
+    (`<base>/secrets/tunnel.token`, mode 0600). The tunnel must have no private-network routes, so a
+    WARP client in the account cannot reach the router directly. The stack's JWKS key id contains its
+    tag, so `/.well-known/jwks.json` names the tag.
+  - **Team keys on the VM.** Two team credentials reach every stack's Workers, so a stack's unmerged code
+    can use them, as the hq classic per-tag stacks on the same VM already can:
+    - the Cloudflare TURN key (1Password "Cloudflare TURN Server API Key"), from which each stack's
+      mobile Worker mints the 1 h TURN credentials of `/v1/ice`, as the shared dev Worker does. An up
+      sends it with `op` over SSH stdin to `<base>/secrets/turn.json` (mode 0600). It is sent only when
+      the VM has none or Cloudflare refuses that copy, and it is never printed.
+    - the development Stack project's server key, which the stack's API needs to read a person's teams
+      from Stack. The VM's classic dev backend already keeps it (`/srv/cmux-dev/secrets/runtime.json`),
+      and a stack reads it there only when it names the API's own development project.
+
+    Each reaches its Worker only through a mode-0600 `.dev.vars`, and log tails that a refused start
+    or wake prints have both values removed.
 - **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
   out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
   (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app
   keeps it in its own defaults for later launches, and an empty value clears it.
 - **Mac:** read only by DEV bundles (`com.cmuxterm.app.debug[.<tag>]`), from the launch or the tag's
-  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet origin. A tailnet
-  backend's client-config may name only its own host for other services, and no other backend's
-  may name a tailnet host. Each override has its own sign-in storage, so no other backend's session
+  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet or public stack origin.
+  A tailnet backend's client-config may name only its own host for other services, and a public one
+  only its own slot's `mobile.` and `hub.` hosts. No other backend's client-config may name a tailnet
+  host or a slot's host. Each override has its own sign-in storage, so no other backend's session
   is sent there.
 - **Visible:** Settings > Developer > Cloud backend (phone), Settings > Accounts (Mac), the DEBUG
   readiness receipt's `cloud_backend` and the Mac's `auth.status`; the hand-off checks both apps

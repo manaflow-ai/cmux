@@ -7,20 +7,19 @@ import Testing
 /// completion fired on the next turn, not after the page ran the push, so a slow page got push
 /// after push of up to 512 frames or 4 MiB each while the person typed. And a hidden pane got its
 /// stream backlog every quarter second. Now the page acks each push (`transport.ack`), the next
-/// one waits for the ack, a push is at most 64 frames or 64 KiB while the page reports input, and
-/// a hidden pane's stream waits within a byte bound, is shed past it, and is read again on show.
+/// one waits for the ack, and a push is at most 64 frames or 64 KiB while the page reports input.
+/// A held page's stream (one that stopped draining) waits within a byte bound, is shed past it, and
+/// is read again once it acks. A hidden pane's stream is left out (AgentPaneTransportHiddenTests).
 @Suite(.serialized)
 @MainActor
 struct AgentPaneTransportAckTests {
     typealias Calls = AgentPaneHiddenHoldTests.Calls
 
     /// A page host page: no completion with the push, only the ack the test sends.
-    private static func pageHostTransport(limits: AgentPaneTransport.Limits = Limits.longAck,
-                                          hidden: Bool = false) -> (AgentPaneTransport, Calls, Seqs) {
+    private static func pageHostTransport(limits: AgentPaneTransport.Limits = Limits.longAck) -> (AgentPaneTransport, Calls, Seqs) {
         let pacer = AgentPaneFramePacer(frames: AgentPaneHiddenPacingTests.Ticks(),
-                                        fallback: AgentPaneHiddenHoldTests.SoonDeadline(), isHidden: { hidden })
+                                        fallback: AgentPaneHiddenHoldTests.SoonDeadline(), isHidden: { false })
         let transport = AgentPaneTransport(limits: limits, pacer: pacer)
-        transport.paneHidden = hidden
         let calls = Calls()
         let seqs = Seqs()
         transport.deliver = { [weak transport] event, done in
@@ -109,29 +108,12 @@ struct AgentPaneTransportAckTests {
         _ = await calls.call(containing: #""s":1,"#)
         #expect(transport.ackTimeouts >= 1)
     }
-
-    @Test func aHiddenPanesStreamBacklogWaitsForItToShow() async throws {
-        let server = AcpmuxStandInServer()
-        try await server.start()
-        defer { server.stop() }
-        let (transport, calls, seqs) = Self.pageHostTransport(hidden: true)
-        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
-        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
-        _ = await calls.call(containing: #""id":0"#)
-        transport.acked(connection: id, seq: try #require(seqs.values.last), inputPending: false)
-        let before = calls.count
-        // More than a full flush of stream: before, it reached the hidden page as a backlog.
-        let full = transport.limits.maximumFramesPerFlush
-        for seq in 1...(full + 9) { server.push(AcpmuxStandInServer.benchFrame(seq), to: 0) }
-        try await Self.waitQueued(transport, full + 9)
-        #expect(transport.socket?.pageWaits == false, "a hidden pane's stream counted as a backlog its page waits on")
-        #expect(calls.count == before, "a hidden pane got its stream backlog")
-    }
 }
 
-/// A hidden pane's socket holds its stream within a byte bound and sheds past it; once shown, the
-/// page gets what was held and one `_acpmux/lagged`, and reads the rest again from its cursor.
-struct AgentPaneHiddenSocketBoundTests {
+/// A held page's socket (``AcpmuxPaneSocket/setHeld(_:)``: the page stopped draining) holds its
+/// stream within a byte bound and sheds past it; once released, the page gets what was held and one
+/// `_acpmux/lagged`, and reads the rest again from its cursor.
+struct AgentPaneHeldSocketBoundTests {
     private static func socket(_ limits: AgentPaneTransport.Limits) throws -> AcpmuxPaneSocket {
         let url = try #require(URL(string: "ws://127.0.0.1"))
         return AcpmuxPaneSocket(request: URLRequest(url: url), limits: limits, options: AcpmuxPermissionOptions(),
@@ -142,20 +124,20 @@ struct AgentPaneHiddenSocketBoundTests {
         #"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":\#(seq),"record":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}"#
     }
 
-    @Test func aHiddenSocketShedsPastItsBoundAndNeverCallsItABacklog() throws {
+    @Test func aHeldSocketShedsPastItsBoundAndNeverCallsItABacklog() throws {
         var limits = AgentPaneTransport.Limits()
         limits.hiddenQueuedFrames = 16
         let socket = try Self.socket(limits)
-        socket.setHidden(true)
+        socket.setHeld(true)
         for seq in 1...(limits.maximumFramesPerFlush + 100) { socket.receiveLocalReply(Self.chunk(seq)) }
         socket.waitForInboundPasses()
-        #expect(socket.queuedFrames <= limits.hiddenQueuedFrames, "a hidden pane held \(socket.queuedFrames) frames")
-        #expect(!socket.pageWaits, "a hidden pane's stream counted as a backlog its page waits on")
-        // Still hidden: no lag marker yet, so the page reads what it missed once, on show.
+        #expect(socket.queuedFrames <= limits.hiddenQueuedFrames, "a held page held \(socket.queuedFrames) frames")
+        #expect(!socket.pageWaits, "a held page's stream counted as a backlog its page waits on")
+        // Still held: no lag marker yet, so the page reads what it missed once, on release.
         let held = socket.take(maximumFrames: 512, maximumBytes: 64 << 20)
         socket.waitForInboundPasses()
         #expect(!held.frames.contains { $0.contains("_acpmux/lagged") })
-        socket.setHidden(false)
+        socket.setHeld(false)
         socket.waitForInboundPasses()
         let shown = socket.take(maximumFrames: 512, maximumBytes: 64 << 20)
         #expect(shown.frames.filter { $0.contains("_acpmux/lagged") }.count == 1)

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A zero-size subview of an agent pane that says when the pane may have come into sight: it
 /// moved to a window, it or an ancestor was shown or hidden, or its window's occlusion changed. The pane's
@@ -18,6 +19,9 @@ import CmuxNextCompat
         if let window {
             occlusion = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: window) { [weak self] in
                 self?.onChange?()
+                // A Space switch can post occlusion before `isOnActiveSpace` turns true, and the pacer's
+                // sight reads it: look once more after this pass's commit so a shown chat never keeps its stream out.
+                AfterFrameCommit().run { [weak self] in self?.onChange?() }
             }
         }
         onChange?()
@@ -28,10 +32,8 @@ import CmuxNextCompat
         onChange?()
     }
 
-    /// It or an ancestor was hidden: the pane's chat rows host stops handing batches at once, and
-    /// the pacer tells the transport, so the socket holds the stream within its hidden bound from
-    /// here (``AgentPaneFramePacer/onHiddenChange``). Every other owner reads visibility again on a
-    /// change, and a hidden pane is a no-op for them.
+    /// It or an ancestor was hidden: the pane's chat rows host stops handing batches at once.
+    /// Every other owner reads visibility again on a change, and a hidden pane is a no-op for them.
     override func viewDidHide() {
         super.viewDidHide()
         onChange?()

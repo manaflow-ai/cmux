@@ -7,7 +7,7 @@ import Testing
 /// spun in a script and its renderer grew 80-120 MB a minute to 14 GB, 11 GB of it in PartitionAlloc:
 /// the host pushed on every ack deadline (a quarter second, up to 4 MiB a push) to a page that read
 /// none of it, and each push waited in the renderer. Now, past the unacked bounds the host stops
-/// pushing, the socket holds the stream within its hidden bound and sheds past it, and the page's
+/// pushing, the socket holds the stream within its held bound and sheds past it, and the page's
 /// next ack resumes: it gets one `_acpmux/lagged` and reads what it missed from the daemon.
 @Suite(.serialized)
 @MainActor
@@ -84,7 +84,7 @@ struct AgentPaneTransportStallTests {
         socket.waitForInboundPasses()
         let heldAtStall = socket.heldBytes
         // More stream, and many deadlines: nothing more is pushed, and the host's queue stays at its
-        // bound: what waited when the page stopped (within the visible bound) or the hidden bound.
+        // bound: what waited when the page stopped (within the visible bound) or the held bound.
         try await Self.stream(server, from: 3001, count: 3000)
         try await Task.sleep(for: .milliseconds(200))
         socket.waitForInboundPasses()

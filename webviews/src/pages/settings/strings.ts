@@ -4,6 +4,8 @@
 // English plus the active locale before the app runs (window.__cmuxStrings). Tests and the dev
 // server install the full table with installCatalog().
 import type { LocalizedText } from "./schema";
+import { appLanguages } from "../shared/appLanguage";
+import { resolveLanguage } from "../shared/i18n";
 
 type Catalog = Record<string, Record<string, string>>;
 
@@ -30,21 +32,9 @@ export function locales(): string[] {
   return Object.keys(catalogNow());
 }
 
-/** Maps an app or browser language tag onto one of the catalog's locales. */
+/** Maps an app or browser language tag onto one of the catalog's locales (shared/i18n.ts). */
 export function resolveLocale(tag: string | null | undefined): string {
-  if (!tag) return "en";
-  const parts = tag.replace(/_/g, "-").split("-");
-  const language = parts[0]!.toLowerCase();
-  const rest = parts.slice(1);
-  const candidates: string[] = [tag];
-  if (language === "zh") {
-    const traditional = rest.some((part) => /^(hant|tw|hk|mo)$/i.test(part));
-    candidates.push(traditional ? "zh-Hant" : "zh-Hans");
-  }
-  if (language === "pt") candidates.push("pt-BR");
-  if (language === "no" || language === "nn") candidates.push("nb");
-  candidates.push(language);
-  return candidates.find((candidate) => candidate in catalogNow()) ?? "en";
+  return tag ? resolveLanguage([tag], locales()) : "en";
 }
 
 export function setLocale(tag: string | null | undefined): string {
@@ -54,6 +44,26 @@ export function setLocale(tag: string | null | undefined): string {
   return currentLocale;
 }
 
+/** The catalog locale for the app's language now (the Language setting's, else the browser's). */
+export function appLocale(): string {
+  return resolveLanguage(appLanguages(), locales());
+}
+
+/**
+ * Follows the app's language: on each `languagechange` (shared/appLanguage.ts dispatches one once
+ * the new locale's table is in) the page's locale becomes `appLocale()`, then `listener` runs.
+ * Returns the unsubscribe function.
+ */
+export function subscribeLocale(listener: () => void): () => void {
+  const view = globalThis.document?.defaultView ?? globalThis.window;
+  const follow = () => {
+    setLocale(appLocale());
+    listener();
+  };
+  view?.addEventListener("languagechange", follow);
+  return () => view?.removeEventListener("languagechange", follow);
+}
+
 export function locale(): string {
   return currentLocale;
 }
@@ -61,8 +71,15 @@ export function locale(): string {
 /** A page string by key; `%@` placeholders take `args` in order. */
 export function t(key: string, ...args: Array<string | number>): string {
   let text = current[key] ?? catalogNow().en?.[key] ?? key;
+  // Positional `%1$@` first (a translation may reorder them), then plain `%@` in order.
+  text = text.replace(/%(\d+)\$@/g, (whole, n) => (Number(n) <= args.length ? String(args[Number(n) - 1]) : whole));
   for (const arg of args) text = text.replace("%@", String(arg));
   return text;
+}
+
+/** A page string by key in English, whatever the page's language (search matches both). */
+export function english(key: string): string {
+  return catalogNow().en?.[key] ?? key;
 }
 
 /** A schema string: its catalog key when it has one, else the English text (proper names). */

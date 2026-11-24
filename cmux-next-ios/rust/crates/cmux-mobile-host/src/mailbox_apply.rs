@@ -387,7 +387,7 @@ pub fn foreground_program(info: &Value) -> Option<String> {
 }
 
 /// The daemon capability of `send` `expect_agent` and `submit` (#24205).
-pub const SEND_EXPECT_AGENT: &str = "send-expect-agent-v1";
+pub const SEND_EXPECT_AGENT: &str = cmux_mobile_link::names::SEND_EXPECT_AGENT;
 
 /// Whether the daemon's `identify` answer lists `capability`.
 pub fn has_capability(identify: &Value, capability: &str) -> bool {

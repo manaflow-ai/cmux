@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "engraving",
+  "description": "A Dore engraving behind dark glass, pure grays, separate panes and serif pages.",
+  "settings": {
+    "appearance.themeFile": "engraving",
+    "markdown.font.preset": "serif"
+  }
+}

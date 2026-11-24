@@ -41,7 +41,12 @@ public struct PageStreamShedding: Sendable {
 
     /// Whether `text` may be dropped from a held stream (the type's rules).
     public func sheddable(_ text: String) -> Bool {
-        guard let method = notificationMethod(text) else { return false }
+        sheddable(text, method: notificationMethod(text))
+    }
+
+    /// ``sheddable(_:)`` with the frame's ``notificationMethod(_:)`` already read.
+    public func sheddable(_ text: String, method: String?) -> Bool {
+        guard let method else { return false }
         if Self.keptMethods.contains(method) { return false }
         if Self.recordMethods.contains(method) {
             return !Self.keptRecordMarkers.contains(where: { text.contains($0) })
