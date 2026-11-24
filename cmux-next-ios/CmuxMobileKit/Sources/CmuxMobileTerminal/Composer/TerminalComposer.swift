@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
 /// cmuxterm-hq docs/design/ios-composer-controls.md. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
-/// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
+/// Jump to bottom floats above the key row and takes no space (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
