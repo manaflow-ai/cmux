@@ -26,6 +26,24 @@ pub struct TransportPathSnapshot {
     pub remote: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt_micros: Option<u64>,
+    /// How the carrier's own TCP and TLS left this machine, where the provider knows (the relay):
+    /// `None` for a path that has not connected yet or a provider that does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outer: Option<OuterPathSnapshot>,
+}
+
+/// The outer path of a carrier (`provider::proxied`): telemetry only, since the Noise session
+/// inside is end to end whatever carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OuterPathSnapshot {
+    /// The proxy the connection went through (`HTTP proxy host:port`, never its credentials),
+    /// `None` for a direct connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
+    /// The server's TLS chain is not one the public web PKI vouches for: a proxy that inspects
+    /// TLS re-signed it with a company root the OS trusts (or the server uses a private CA).
+    #[serde(default)]
+    pub tls_inspected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
