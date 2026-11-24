@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, SeekFrom};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, Instant, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -2225,9 +2225,13 @@ async fn receive_upload(
     let folder = upload_folder(config, peer, cwd).await?;
     let Some(upload_id) = upload_id else {
         let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let mut file = options
             .open(&part)
             .await
             .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
@@ -2245,10 +2249,13 @@ async fn receive_upload(
 
     cleanup_stale_upload_parts(&folder);
     let part = folder.join(format!(".{upload_id}.part"));
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = options
         .open(&part)
         .await
         .map_err(|e| Refusal::new("io", format!("cannot create the upload: {e}")))?;
@@ -2260,6 +2267,9 @@ async fn receive_upload(
     if offset > length {
         let _ = sender.send(Bytes::from(format!("{{\"error\":\"resume_gap\",\"have\":{length}}}\n"))).await;
         return Err(Refusal::new("resume_gap", format!("the upload has {length} bytes")));
+    }
+    if offset > size {
+        return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
     }
     file.set_len(offset).await.map_err(|e| Refusal::new("io", format!("cannot seek the upload: {e}")))?;
     file.seek(SeekFrom::Start(offset))
@@ -2297,12 +2307,13 @@ async fn receive_upload_bytes(
     let resumable = initial.is_some();
     let mut received = initial.unwrap_or(0);
     let mut acknowledged = received;
+    let mut stall_deadline = stall_timeout.map(|duration| Instant::now() + duration);
     async {
         while received < size {
             let event = if resumable {
-                match timeout(stall_timeout.expect("resumable uploads have a stall timeout"), receiver.recv())
-                    .await
-                {
+                let deadline = stall_deadline.expect("resumable uploads have a stall timeout");
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                match timeout(remaining, receiver.recv()).await {
                     Ok(event) => event,
                     Err(_) => {
                         if let Some(sender) = sender {
@@ -2315,12 +2326,19 @@ async fn receive_upload_bytes(
                 receiver.recv().await
             };
             match event {
+                Some(ChannelEvent::Data(bytes)) if bytes.is_empty() => {}
                 Some(ChannelEvent::Data(bytes)) => {
-                    received += bytes.len() as u64;
-                    if received > size {
+                    let next = received
+                        .checked_add(bytes.len() as u64)
+                        .ok_or_else(|| Refusal::new("bad_request", "more bytes than the declared size"))?;
+                    if next > size {
                         return Err(Refusal::new("bad_request", "more bytes than the declared size"));
                     }
                     file.write_all(&bytes).await.map_err(|e| Refusal::new("io", e.to_string()))?;
+                    received = next;
+                    if let Some(stall_timeout) = stall_timeout {
+                        stall_deadline = Some(Instant::now() + stall_timeout);
+                    }
                     if let Some(sender) = sender {
                         while received - acknowledged >= UPLOAD_ACK_BYTES {
                             acknowledged += UPLOAD_ACK_BYTES;
@@ -2337,7 +2355,7 @@ async fn receive_upload_bytes(
             }
         }
         if let Some(sender) = sender
-            && acknowledged != received
+            && (acknowledged != received || received == initial.unwrap_or(received))
         {
             send_upload_ack(sender, received).await;
         }

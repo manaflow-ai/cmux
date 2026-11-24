@@ -1194,12 +1194,13 @@ async fn resumable_upload_stall_keeps_part_and_refuses() {
         .link
         .open(
             "upload",
-            serde_json::json!({"name": "stall.bin", "size": 1, "upload_id": upload_id, "_stall_timeout_ms": 1}),
+            serde_json::json!({"name": "stall.bin", "size": 2, "upload_id": upload_id, "_stall_timeout_ms": 100}),
         )
         .await
         .unwrap();
     let mut buffer = Vec::new();
     assert_eq!(next_line(&mut upload, &mut buffer).await, serde_json::json!({"have": 0}));
+    upload.send(Bytes::from_static(b"x")).await.unwrap();
     let (reply, code) = drain(&mut upload).await;
     assert_eq!(code, "stalled");
     let lines: Vec<serde_json::Value> = reply
@@ -1210,10 +1211,12 @@ async fn resumable_upload_stall_keeps_part_and_refuses() {
     assert_eq!(
         lines,
         vec![
-            serde_json::json!({"ack": 0}),
+            serde_json::json!({"ack": 1}),
             serde_json::json!({"error": "stalled", "message": "no upload data for 120 seconds"})
         ]
     );
+    let session = std::fs::read_dir(&fixture.uploads).unwrap().next().unwrap().unwrap().path();
+    assert_eq!(std::fs::read(session.join(format!(".{upload_id}.part"))).unwrap(), b"x");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
