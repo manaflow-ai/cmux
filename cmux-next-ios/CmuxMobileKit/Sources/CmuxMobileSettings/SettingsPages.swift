@@ -379,6 +379,9 @@ struct ComposerPage: View {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
                 }
+                Toggle(isOn: $settings.swipeDownCollapsesComposer) {
+                    SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
+                }
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
                 } label: {

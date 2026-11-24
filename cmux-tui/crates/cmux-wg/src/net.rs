@@ -408,6 +408,8 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
+    /// Give a crossed handshake one REKEY_TIMEOUT to finish before the queue starts another.
+    wait_for_handshake_until: Option<Instant>,
     /// When the peer's last authenticated data arrived, and whether it came
     /// after a silence of [`RESUME_GAP`] (a blackout ending on the same path).
     last_inbound: Option<Instant>,
@@ -415,25 +417,8 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
-    /// When this side last answered the peer's handshake initiation
-    /// ([`ANSWER_WAIT`]).
-    answered_at: Option<Instant>,
     scratch: Vec<u8>,
 }
-
-/// After answering the peer's handshake initiation, how long data waiting for
-/// a session holds off this side's own new initiation. The peer's first data
-/// (its keepalive, at once) makes the answered session current within one
-/// round trip. A new initiation sooner would replace the one this side may
-/// have in flight (boringtun keeps one pending initiation besides the state it
-/// answers from), so when both peers initiate at the same moment each would
-/// discard what the other is answering, forever: two cmux-mobile-link ends
-/// that both reasserted after one announced a new TURN allocation traded about
-/// 18,000 handshakes in 17 s without a session, 2 to 3 dials in 6 on macOS
-/// (cmux-next-ios/rust/crates/cmux-mobile-link/tests/corporate_networks.rs,
-/// `a_firewall_that_drops_wireguard_still_links_over_turn_tls`; 0 in 20 with
-/// this). Past it, a lost answer is retried as before.
-const ANSWER_WAIT: Duration = Duration::from_secs(2);
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -508,11 +493,11 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
+            wait_for_handshake_until: None,
             last_inbound: None,
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
-            answered_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -610,9 +595,10 @@ impl Driver {
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
-        let class = classify(datagram);
-        let handshake =
-            matches!(class, DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse);
+        let handshake = matches!(
+            classify(datagram),
+            DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
+        );
         let mut replay = Vec::new();
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
@@ -634,7 +620,12 @@ impl Driver {
                     // rate limiter's answer) proves only the public key.
                     // Nor does it begin a session: the handshake it
                     // answers is unchecked, so it leaves the watchdog armed.
-                    let cookie = classify(packet) == DatagramClass::WireGuardCookieReply;
+                    let kind = classify(packet);
+                    let cookie = kind == DatagramClass::WireGuardCookieReply;
+                    if kind == DatagramClass::WireGuardResponse {
+                        self.wait_for_handshake_until
+                            .get_or_insert_with(|| Instant::now() + Duration::from_secs(5));
+                    }
                     if !cookie {
                         self.underlay.authenticated(origin);
                         self.schedule.on_activity(Instant::now());
@@ -643,9 +634,6 @@ impl Driver {
                     // An answered handshake message begins a new session.
                     if handshake && !cookie && !input.is_empty() {
                         replay = self.watchdog.on_new_session();
-                    }
-                    if class == DatagramClass::WireGuardInitiation && !cookie && !input.is_empty() {
-                        self.answered_at = Some(Instant::now());
                     }
                     input = &[];
                 }
@@ -720,12 +708,13 @@ impl Driver {
         self.run_ultra_auto();
         self.pace_deadline = None;
         // Without a session boringtun would hold the segment through the
-        // handshake, and the pacer would time that wait as a round trip. Not
-        // right after answering the peer's initiation: its data on that
-        // session is on the way ([`ANSWER_WAIT`]).
-        let answering =
-            self.answered_at.is_some_and(|at| now.saturating_duration_since(at) < ANSWER_WAIT);
-        if self.tunn.time_since_last_handshake().is_none() && self.pacer.has_queued() && !answering
+        // handshake, and the pacer would time that wait as a round trip.
+        // Starting again after replying to a crossed initiation would make
+        // boringtun discard the state for our own outstanding initiation.
+        self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
+        if self.tunn.time_since_last_handshake().is_none()
+            && self.pacer.has_queued()
+            && self.wait_for_handshake_until.is_none()
         {
             self.initiate_handshake();
         }
