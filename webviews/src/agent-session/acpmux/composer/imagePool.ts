@@ -15,6 +15,7 @@ export const imageJobDeadline = { ms: 20_000 };
 
 export type ImageJob =
   | { id: number; kind: "prepare"; file: Blob }
+  | { id: number; kind: "fileThumb"; file: Blob }
   | { id: number; kind: "thumb"; image: { mimeType: string; data: string } };
 /// `unsupported`: the worker cannot draw (no OffscreenCanvas there); the page does the job.
 export type ImageJobResult = { id: number; value: PreparedImage | Thumb | undefined; unsupported?: boolean };
@@ -76,6 +77,8 @@ function stopWorker(stopped: Worker, then: "page" | "fresh") {
 }
 
 function here(job: Job): Promise<PreparedImage | Thumb | undefined> {
+  // Path links are already sendable. Display work for them never falls back to the typing thread.
+  if (job.kind === "fileThumb") return Promise.resolve(undefined);
   return job.kind === "prepare" ? prepareImage(job.file) : thumbnailOf(job.image);
 }
 
@@ -87,20 +90,42 @@ function run(job: Job): Promise<PreparedImage | Thumb | undefined> {
     const deadline = setTimeout(() => {
       if (waiting.has(id)) stopWorker(started, "fresh");
     }, imageJobDeadline.ms);
+    const fallback = job.kind === "fileThumb" ? undefined : job;
     waiting.set(id, {
       worker: started,
       settle: (value, onPage) => {
         clearTimeout(deadline);
-        resolve(onPage ? here(job) : value);
+        resolve(onPage && fallback ? here(fallback) : value);
       },
     });
-    started.postMessage({ ...job, id });
+    try {
+      started.postMessage({ ...job, id });
+    } catch {
+      waiting.delete(id);
+      clearTimeout(deadline);
+      resolve(undefined);
+    }
   });
 }
 
 /// An image's metadata-free preview and its thumbnail, made off the main thread.
 export function prepareImageOffThread(file: Blob): Promise<PreparedImage | undefined> {
   return run({ kind: "prepare", file }) as Promise<PreparedImage | undefined>;
+}
+
+/// A fresh chip's worker preview survives object spreads, but is omitted from drafts and prompts.
+export const localImagePreview = Symbol("local image preview");
+
+export function previewForFile(file: Blob): () => Promise<Thumb | undefined> {
+  let original: Blob | undefined = file;
+  let preview: Promise<Thumb | undefined>;
+  return () => {
+    if (original) {
+      preview = run({ kind: "fileThumb", file: original }) as Promise<Thumb | undefined>;
+      original = undefined;
+    }
+    return preview;
+  };
 }
 
 /// The thumbnail of a staged image's bytes, made off the main thread.

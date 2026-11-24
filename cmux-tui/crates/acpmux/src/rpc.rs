@@ -591,6 +591,10 @@ pub mod method {
     /// The app lends this daemon its cmux sign-in for GitHub App tokens, or takes it back
     /// (`github_app_token.rs`); the unix socket only.
     pub const MUX_GITHUB_APP_LEASE: &str = "_acpmux/github_app_lease";
+    /// The app's own GitHub calls (its PR page, checks, merge, re-run, chip, Create PR), with a
+    /// minted App token or the person's `gh` (`github_rest_op.rs`); the person over the unix
+    /// socket only.
+    pub const MUX_GITHUB_REST: &str = "_acpmux/github_rest";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";

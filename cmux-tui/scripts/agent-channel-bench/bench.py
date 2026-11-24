@@ -4,8 +4,7 @@ between two real daemons in two netns joined by a netem link (netns.sh).  Python
 
   bench.py cold --carrier ssh|ssh-kept|ws [--rtt 50] [--runs 20]   cold connect: peer_add(wait) -> ready
   bench.py send [--rtt 50] [--runs 20]                              warm link: `acpmux send box/lane-x`
-  bench.py channel ...   (reserved: open a named byte channel, send 1 byte, time until the listener
-                          has it and the echo is back; same netns/daemons, same stats printer)
+  bench.py channel [--rtt 50] [--runs 20]                           warm link: `acpmux channel open --text --reply`
 
 Env: ACPMUX_BIN (default target/release/acpmux of the cargo target below), ACB_DIR (/tmp/acb).
 The "Mac end" is daemon A in netns acb-a, the Linux peer is daemon B in acb-b: both Linux.
@@ -194,16 +193,50 @@ def send(args, a):
     print(stats("send cmd start -> status=delivered seen (includes B's ack, 1 RTT, and status poll ~20-40 ms)", dlv))
 
 
+def channel(args, a):
+    """Row "agent channel open to first byte": B listens on `review` and echoes; A opens a channel
+    with the first bytes in the open frame (`acpmux channel open box review --text hi --reply`).
+    Same warm ssh peer link and same clock as `send`: from the command's start, to the first
+    byte at B's NIC (tcpdump) and to the echo printed back by A's CLI."""
+    rpc = Rpc("a")
+    kw = dict(zip(("token", "peerToken"), peer_tokens()))
+    rpc.call("_acpmux/peer_add", name="box", url=f"ssh://box:{PORT}", **kw)
+    lis = nsrun("b", [BIN, "channel", "listen", "review", "--echo"], envfor("b"),
+                stdout=open(f"{D}/hb/listen.log", "w"), stderr=subprocess.STDOUT, cwd="/tmp")
+    time.sleep(4)
+    cap = capture(); marks = []
+    for i in range(args.runs + 1):
+        t0 = time.time()
+        r = cli("a", "--json", "channel", "open", "box", "review", "--text", f"hi {i}", "--reply")
+        t1 = time.time()
+        if r.returncode: print("open failed:", r.stdout, r.stderr, file=sys.stderr); continue
+        try: v = json.loads(r.stdout)
+        except ValueError: print("unparsed:", repr(r.stdout[:300]), repr(r.stderr[-300:]), file=sys.stderr); continue
+        marks.append((i, t0, t1, v)); time.sleep(0.6)
+    lis.terminate()
+    rows = payload_times(cap, "10.77.0.1")
+    arr, wall, opn, first = [], [], [], []
+    for i, t0, t1, v in marks:
+        if not i: continue
+        nxt = [t for t, n in rows if t >= t0]
+        if nxt: arr.append((nxt[0] - t0) * 1000)
+        wall.append((t1 - t0) * 1000); opn.append(v["openMs"]); first.append(v["firstReplyMs"])
+    print(f"RTT={args.rtt}ms host={os.uname().sysname} (both ends Linux) warm ssh peer link, `acpmux channel open box review --text --reply`")
+    print(stats("open cmd start -> first byte at B's NIC (one-way + CLI + local daemon)", arr))
+    print(stats("open cmd start -> echo printed, CLI exited (1 RTT + B's listener)", wall))
+    print(stats("  CLI's own: open request -> channelId answered", opn))
+    print(stats("  CLI's own: open request -> first reply byte", first))
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["cold", "send", "channel", "down"])
     ap.add_argument("--carrier", default="ssh"); ap.add_argument("--rtt", type=int, default=50)
     ap.add_argument("--runs", type=int, default=20); ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
     if args.mode == "down": kill_lab(); return
-    if args.mode == "channel": raise SystemExit("channel mode not implemented yet (needs named byte channels)")
     a, b = setup(args)
     try:
-        {"cold": cold, "send": send}[args.mode](args, a)
+        {"cold": cold, "send": send, "channel": channel}[args.mode](args, a)
     finally:
         if not args.keep:
             kill_lab()
