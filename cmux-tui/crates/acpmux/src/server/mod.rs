@@ -2740,6 +2740,7 @@ pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
 mod chunk_deltas;
+mod felt;
 pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
