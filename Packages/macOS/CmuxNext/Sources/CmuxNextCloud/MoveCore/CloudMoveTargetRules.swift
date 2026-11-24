@@ -97,26 +97,17 @@ public nonisolated struct CloudMoveTargetRules: Sendable {
         return .success((call.args, call.moved, call.destination, call.source))
     }
 
-    /// One outcome from the move process. A dry run is ready when no error and `ready` are true;
-    /// actual moves additionally return the target host and imported session id.
-    public struct MoveOutcome: Decodable, Sendable {
-        public var moved = false
-        public var error: String?
-        public var errorCode: String?
-        public var preflight: Preflight?
-        public var host: String?
-        public var targetSessionId: String?
-        public var dryRun = false
-        public var ready = false
-        public var needsConfirmation = false
-        public init() {}
-        public struct Preflight: Decodable, Sendable { public var running: Bool; public var dirty: Bool? }
-    }
-
-    public func sshMoveOutcome(stdout: String, stderr: String, status: Int32) -> MoveOutcome {
-        struct Request: Encodable { var stdout: String, stderr: String, status: Int32 }
-        guard let reply = CloudMoveCore().call("ssh_move_outcome", Request(stdout: stdout, stderr: stderr, status: status), as: MoveOutcome.self) else { return MoveOutcome() }
-        return reply
+    /// What the move `call` ran says (`ssh_move_run`): the session the tab opens, the one question, or the failure.
+    public func sshMoveRun(stdout: String, stderr: String, status: Int32, moved: String, destination: String?, dryRun: Bool) -> MoveResult {
+        struct Request: Encodable { var stdout: String, stderr: String, status: Int32, moved: String, destination: String?, dryRun: Bool }
+        struct Reply: Decodable { var kind: String, session: String?, code: String?, dirty: Bool?, message: String? }
+        let request = Request(stdout: stdout, stderr: stderr, status: status, moved: moved, destination: destination, dryRun: dryRun)
+        let reply = CloudMoveCore().call("ssh_move_run", request, as: Reply.self)
+        switch reply?.kind {
+        case "moved"?: return .moved(session: reply?.session ?? "")
+        case "needs_confirmation"?: return .needsConfirmation(code: reply?.code ?? "", dirty: reply?.dirty)
+        default: return .failed(reply?.message ?? "")
+        }
     }
 }
 
@@ -150,27 +141,7 @@ public nonisolated struct SSHChatMoveRun: Sendable {
         }
         guard let result = try? await ProcessRunner.run(executable: executable, arguments: call.args, environment: environment,
                                                         timeout: Self.limit, clock: ContinuousClock()) else { return .failed("") }
-        let outcome = rules.sshMoveOutcome(stdout: String(decoding: result.stdout, as: UTF8.self),
-                                            stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
-        if let code = outcome.errorCode, outcome.needsConfirmation {
-            return .needsConfirmation(code: code, dirty: outcome.preflight?.dirty)
-        }
-        guard outcome.error == nil, outcome.moved || (options.dryRun && outcome.ready) else {
-            return .failed(outcome.error ?? "")
-        }
-        if options.dryRun { return .moved(session: call.moved) }
-        if call.destination == "auto" {
-            guard let host = outcome.host, !host.isEmpty,
-                  let id = outcome.targetSessionId, !id.isEmpty else {
-                return .failed("Move did not report its destination.")
-            }
-            return .moved(session: "\(host)/\(id)")
-        }
-        let imported = outcome.targetSessionId.flatMap { id -> String? in
-            guard !id.isEmpty else { return nil }
-            guard call.destination != "local", let host = outcome.host, !host.isEmpty else { return id }
-            return "\(host)/\(id)"
-        }
-        return .moved(session: imported ?? call.moved)
+        return rules.sshMoveRun(stdout: String(decoding: result.stdout, as: UTF8.self), stderr: String(decoding: result.stderr, as: UTF8.self),
+                                status: result.status, moved: call.moved, destination: call.destination, dryRun: options.dryRun)
     }
 }
