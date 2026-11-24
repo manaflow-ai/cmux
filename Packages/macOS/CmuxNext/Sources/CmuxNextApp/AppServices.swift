@@ -647,9 +647,9 @@ final class AppServices {
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
         _ = ssh  // built here, as before
-        BrowserLifecycleTrace.shared.configure { tab, event in
-            InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
-        }
+        BrowserLifecycleTrace.shared.configure { tab, event in  // the first page painted: the relaunch bench's (b)
+            if event.hasPrefix("cef-first-paint committed=true") { DebugTimings.markLaunch("browser.first_paint") }
+            InputJournal.shared.append(window: nil, .content(tab: tab, event: event)) }
         _ = cache  // built here, as before
         DebugTimings.markLaunch("services.cache")
         _ = themes  // built here, as before
@@ -677,6 +677,8 @@ final class AppServices {
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
+        cache.pageFrames = BrowserPageFrames(beside: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        cache.pageFrames?.prefetch(on: work) // read off the main thread while windows restore
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
