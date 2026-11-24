@@ -470,7 +470,10 @@ on HOST_IP:4181; the viewer half builds the tools at its commit and runs the led
 `--local-mac` and the host `--via peer`: each host command is one HTTP POST with the run token. The
 server takes the first private-address client that holds the token and that one only, runs what it
 posts as the step's user, and ends at the viewer's `/done` or after 2 hours. Apple's presented Total
-logs in with the login the worker writes for a `--vnc-login` step (`CMUX_CI_VNC_LOGIN_FILE`). The
+logs in with the login the worker writes for a `--vnc-login` step (`CMUX_CI_VNC_LOGIN_FILE`), or,
+with no `--vnc-login` (a controller with no fleet login source refuses it), with the fleet password
+in the viewer's login keychain (`manaflow-fleet-sudo`, which `fleet-sudo --login-keychain VIEWER_MAC`
+stores), copied to a 0600 file in the step's output for the run and removed after it. The
 ledger, its log and the printed table are `stage-table/` in evidence.tar.gz. A shaped leg
 (`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
 holds the rest. Trust as above, except that this server runs any command it is handed, so the token

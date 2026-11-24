@@ -231,6 +231,8 @@ mod session_move_as;
 mod session_move_ask;
 #[path = "transfer_cli/session_move_follow.rs"]
 mod session_move_follow;
+#[path = "transfer_cli/session_move_history.rs"]
+mod session_move_history;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
 #[path = "transfer_cli/session_move_reachable.rs"]
