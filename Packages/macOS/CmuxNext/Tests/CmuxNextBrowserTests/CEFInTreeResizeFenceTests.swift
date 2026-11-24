@@ -64,4 +64,21 @@ import Testing
             #expect(fork.fences == 0, "a resize inside the window held the window's commit for the page's frame")
         }
     }
+
+    @Test func aResizeOfTheWindowItselfHoldsItsCommitForThePagesFrame() {
+        withInTreeOn {
+            let (hosting, _, window) = makeInTree { CEFInTreeHosting(schedule: $0, resizeFences: $1) }
+            defer { window.close() }
+            hosting.pageViewResized()  // the first resize only learns the window's size
+            window.setContentSize(NSSize(width: 520, height: 360))
+            hosting.pageViewResized()
+            #expect(fork.fences == 1, "a window resize showed the window before the page's frame at its size")
+        }
+    }
+
+    @Test func aFullScreenTransitionNeverHoldsTheWindowsCommit() {
+        #expect(!CEFInTreeHosting.joinsFence(windowResized: true, fullScreenTransition: true))
+        #expect(CEFInTreeHosting.joinsFence(windowResized: true, fullScreenTransition: false))
+        #expect(!CEFInTreeHosting.joinsFence(windowResized: false, fullScreenTransition: false))
+    }
 }
