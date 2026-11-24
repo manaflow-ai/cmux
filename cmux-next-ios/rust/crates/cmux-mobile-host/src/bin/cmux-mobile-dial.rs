@@ -5,6 +5,7 @@
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
 //!            [--no-turn-prewarm] [--relay] [--force-https-relay]
+//!            [--peer-hint ADDR]...
 //!   cmux-mobile-dial --local --mac MAC_DEVICE_ID [--local-addr HOST:PORT]... [...]
 //!
 //! `--local` (ultra-connectivity P7) dials with no Worker and no internet:
@@ -48,6 +49,10 @@
 //! `--relay-only` (TURN, UDP first) and `--block-udp` (TURN over TLS) it lets
 //! a harness force each relayed path instead of waiting for a network to
 //! block the others.
+//!
+//! `--peer-hint ADDR` (repeatable) is an address the Mac answered from before
+//! (`DialOptions::peer_addr_hints`, what the app keeps across launches): the
+//! TURN allocation permits it before the Mac answers.
 //!
 //! As the app does, `GET /v1/ice` runs beside the signaling socket's open
 //! (the device registration, which the app does at sign-in, comes first and
@@ -98,6 +103,7 @@ struct Args {
     network_probe_ms: u64,
     relay: bool,
     force_https_relay: bool,
+    peer_hints: Vec<std::net::SocketAddr>,
 }
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
@@ -123,6 +129,7 @@ fn parse() -> Result<Args> {
     let (mut hold_seconds, mut probe_ms, mut watch_net, mut dead_after_ms) = (0.0, 200, false, 0);
     let mut device_file = None;
     let (mut relay, mut force_https_relay) = (false, false);
+    let mut peer_hints = Vec::new();
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -161,6 +168,7 @@ fn parse() -> Result<Args> {
             "--watch-net" => watch_net = true,
             "--dead-after-ms" => dead_after_ms = value()?.parse()?,
             "--device-file" => device_file = Some(value()?),
+            "--peer-hint" => peer_hints.push(value()?.parse().context("--peer-hint takes IP:PORT")?),
             other => bail!("unknown argument {other}"),
         }
     }
@@ -212,6 +220,7 @@ fn parse() -> Result<Args> {
         network_probe_ms,
         relay,
         force_https_relay,
+        peer_hints,
     })
 }
 
@@ -276,6 +285,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         )
     });
     options.force_relay = args.force_https_relay;
+    options.peer_addr_hints = args.peer_hints.clone();
     // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
     // allocation starts once ICE answers.
     let ice = async {
@@ -487,6 +497,7 @@ async fn measure(
         "no_turn": args.no_turn,
         "relay": args.relay,
         "force_https_relay": args.force_https_relay,
+        "peer_hints": args.peer_hints.iter().map(|addr| addr.to_string()).collect::<Vec<_>>(),
         "path": path,
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),
