@@ -2457,6 +2457,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/host_overload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/vm_host",
       "params": true,
       "result": true
@@ -2920,6 +2926,7 @@
         "effort": true,
         "env": true,
         "ephemeral": true,
+        "features": true,
         "forceAdmit": true,
         "forwardProjection": true,
         "fromAgent": true,

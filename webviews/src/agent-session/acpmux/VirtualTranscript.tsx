@@ -4172,12 +4172,6 @@ function TranscriptView({
   // `:has()` on the scroller over its whole subtree is checked again for every node a commit inserts into
   // any row, and each check restyles every element under the scroller that some `X:has(...) Y` rule names
   // (test/agent-pane-stream-composer-still.test.ts), about 1.5 ms of forced layout per tool call in a long chat.
-  const diagKey = useRef({ key: "", top: 0 });
-  useLayoutEffect(() => {
-    const was = diagKey.current;
-    acpmuxPerf.span(was.key === mountedRangeKey ? (renderScroll.top === was.top ? "diag.same.top" : "diag.same.moved") : renderScroll.top === was.top ? "diag.window.still" : "diag.window.moved", 1);
-    diagKey.current = { key: mountedRangeKey, top: renderScroll.top };
-  });
   const liveLineMounted = mountedIndexOf(rows, mountedRanges, LIVE_THINKING) >= 0;
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
