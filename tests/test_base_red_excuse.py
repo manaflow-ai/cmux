@@ -8586,9 +8586,11 @@ class WsCheckPerTest(unittest.TestCase):
                                              + json.dumps(receipt))
         self.squashed = []
 
+        trees = {self.gh.TIP: self.SQUASHED, self.gh.OLDER: "6" * 40, self.gh.MERGE_BASE: "7" * 40}
+
         def squash(repo, head, tip):
             self.squashed.append((repo, head, tip))
-            return self.SQUASHED if (head, tip) == (HEAD, self.gh.TIP) else "6" * 40
+            return trees.get(tip, "8" * 40) if head == HEAD else "4" * 40
         patch = unittest.mock.patch.object(excuse, "ws_check_squash_tree", squash, create=True)
         patch.start()
         self.addCleanup(patch.stop)
@@ -8612,13 +8614,34 @@ class WsCheckPerTest(unittest.TestCase):
         self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
         self.assertIn("every failure", self.judge()[0])
 
-    def test_a_merge_tested_run_against_an_older_base_is_refused(self):
-        # Its tree is the head merged with an older main: not what a squash onto main's tip makes now.
+    def test_a_merge_tested_run_against_an_older_base_commit_is_read_against_that_commit(self):
+        # Its tree is the head merged with main's commit before the tip. main moves faster than one ws-check run of its
+        # own (2026-11-24: 16.8 merges/hour, median gap 104 s, against a 2000 s run), so demanding the tip refused every
+        # head and the remedy the refusal named (merge main in, run again) could never finish either. The run is a
+        # verdict on the commit it did test, and main's newer commits could only have fixed what it found.
         snapshot = self.snapshot_runs(tree="6" * 40)
         self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
-        with self.assertRaisesRegex(excuse.Refused, f"run 1 tested tree 666666666666, not {HEAD[:12]} merged with "
-                                                    f"main's tip {self.gh.TIP[:12]} .*another base or head"):
+        self.gh.verdict(self.gh.OLDER, 3, {self.RELAY: self.relay_lint()})
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"red on main {self.gh.OLDER[:12]} too", "\n".join(audit))  # the commit the run tested, not TIP
+        self.assertEqual(self.squashed, [(self.gh.REPO, HEAD, self.gh.TIP), (self.gh.REPO, HEAD, self.gh.OLDER)])
+
+    def test_a_merge_tested_run_of_another_head_is_refused(self):
+        # No commit in the window makes its tree, so it tested another head: no verdict on what lands.
+        snapshot = self.snapshot_runs(tree="8" * 40)
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 49c43a9c14094ce1b147dbfea24afa01"
+        with self.assertRaisesRegex(excuse.Refused, f"run 1 tested tree 888888888888, not {HEAD[:12]} merged with any "
+                                                    f"of main's 3 newest commits .*another base or head"):
             self.judge()
+
+    def test_the_tested_tree_window_is_bounded(self):
+        # One local merge-tree per commit tried: the window is WS_CHECK_TESTED_TIPS, not every commit read for a verdict.
+        self.gh.base_commits = [self.gh.TIP] + [f"{n:040x}" for n in range(excuse.WS_CHECK_TESTED_TIPS + 5)]
+        self.snapshot_runs(tree="3" * 40)  # a tree no commit in the window makes ("8" is the mock's unknown-tip tree)
+        with self.assertRaisesRegex(excuse.Refused, f"of main's {excuse.WS_CHECK_TESTED_TIPS} newest commits"):
+            self.judge()
+        self.assertEqual(len(self.squashed), excuse.WS_CHECK_TESTED_TIPS)
 
     def test_a_run_naming_no_tested_tree_is_refused(self):
         self.snapshot_runs(tree=None)
@@ -9184,13 +9207,17 @@ class WsCheckSquashTree(unittest.TestCase):
     def test_a_run_from_another_checkout_with_the_same_head_and_base_is_accepted(self):
         self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.head, self.tip), self.squashed(self.head, self.tip))
 
-    def test_a_run_against_an_older_base_is_refused(self):
+    def test_a_run_against_an_older_base_names_the_commit_it_tested(self):
         older = excuse.ws_check_squash_tree(self.REPO, self.head, self.old)
         self.assertNotEqual(older, excuse.ws_check_squash_tree(self.REPO, self.head, self.tip))
-        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):
-            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": older}, self.tip)
-        excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": self.squashed(self.head, self.tip)},
-                                    self.tip)
+        with self.assertRaisesRegex(excuse.Refused, "tested another base or head"):  # outside the window: no verdict
+            excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": older}, [self.tip])
+        # In the window, the run is a verdict on the commit whose tree it tested.
+        self.assertEqual(excuse.ws_check_tested_tree(self.REPO, "main", self.head, {"run": "7", "tree": older},
+                                                     [self.tip, self.old]), self.old)
+        self.assertEqual(excuse.ws_check_tested_tree(self.REPO, "main", self.head,
+                                                     {"run": "7", "tree": self.squashed(self.head, self.tip)},
+                                                     [self.tip, self.old]), self.tip)
 
     def test_a_run_of_a_different_head_is_refused(self):
         theirs = excuse.ws_check_squash_tree(self.REPO, self.other, self.tip)
