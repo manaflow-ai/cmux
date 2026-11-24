@@ -489,7 +489,8 @@ async fn codex_store_moves(way: Way) {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let rollout = std::fs::read(&on_source[0]).unwrap();
 
-    let destination = target.home.join("arrived");
+    // Under the target's HOME: a guarded receive (the app's move) takes only a folder there.
+    let destination = home_of(&format!("{tag}-t")).join("arrived");
     let mut dst = Rpc::connect(&target.socket).await;
     match way {
         Way::Cli => {
@@ -605,7 +606,8 @@ async fn claude_subagent_folds_move(way: Way) {
     std::fs::write(folder.join(format!("{agent_id}.jsonl")), &transcript).unwrap();
     std::fs::write(folder.join(agent_id).join("subagents/agent-a1.jsonl"), &child).unwrap();
 
-    let destination = target.home.join("arrived");
+    // Under the target's HOME: a guarded receive (the app's move) takes only a folder there.
+    let destination = home_of(&format!("{tag}-t")).join("arrived");
     let mut dst = Rpc::connect(&target.socket).await;
     match way {
         Way::Cli => {
