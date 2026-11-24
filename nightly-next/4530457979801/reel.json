@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "build": "4530457979801",
+  "notes": "notes/4530457979801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 50832,
+      "title": "Webview tests: the transcript tests check today's transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51920,
+      "title": "acpmux surge: program notices file as fyi; needYou counts only real asks and drops on read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52599,
+      "title": "acpmux: a standing pre-grant lets a local tool allow one tool ask",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49477,
+      "title": "acpmux: the owner's own daemon starts a remote chat in a git checkout outside webRoots",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49477/hv-9a80bf76f844-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52880,
+      "title": "next: no trap when cloud.computerControl misses the pinned catalog",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50389,
+      "title": "acpmux: a session move matrix; a moved chat keeps its images and composer text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52090,
+      "title": "cmux NEXT: bind Switch Host and Forward Port actions in the app (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52770,
+      "title": "cmux-tui: wait for guest relay attach readiness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44482,
+      "title": "acpmux: recover stalled session moves",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44482/hv-0d4e6b3fa5be-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49629,
+      "title": "dashboard: send an app's GitHub connect back to the app with a plain 302 (#46018)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52866,
+      "title": "screen-share-vs.py: the stage ledger of every leg in one table, macOS Screen Sharing to the presented frame (carries #47210)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
