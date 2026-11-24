@@ -859,6 +859,7 @@ impl Hub {
             create_key: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
+            close: None,
             idle_launch: None,
             start_level: None,
             moved_to: None,
@@ -911,6 +912,7 @@ impl Hub {
             } else {
                 None
             },
+            task_cost_usd: None,
             // A fork is the person's new chat, never a sub-session of the parent's parent; one
             // an agent started of its own chat is that chat's sub-session (`sub`).
             subsession,

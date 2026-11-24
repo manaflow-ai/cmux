@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -36,8 +37,10 @@ dependencies = [
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1421,6 +1424,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1856,6 +1867,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -1915,6 +1927,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -2301,10 +2320,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-egress",
  "cmux-file-lock",
  "cmux-process",
  "flate2",
  "fuser",
+ "ignore",
  "libc",
  "reqwest",
  "rustls",
@@ -2356,12 +2377,17 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "windows",
  "windows-sys 0.61.2",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2414,6 +2440,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2693,6 +2720,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -2756,6 +2791,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"
@@ -2839,6 +2877,7 @@ dependencies = [
  "cmux-customize-recipes",
  "cmux-daemon-launch-core",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
@@ -2867,6 +2906,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
