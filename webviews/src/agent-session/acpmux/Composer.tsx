@@ -7,6 +7,7 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useInsertionEffect,
   useLayoutEffect,
@@ -14,7 +15,6 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -31,8 +31,8 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  inlineTokenSpans,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -70,12 +70,12 @@ import {
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
-  mentionPath,
   mentionSelection,
-  mentionWantsFiles,
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
+  mentionPath,
+  mentionWantsFiles,
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
@@ -123,10 +123,10 @@ import {
   readDurableDraftState,
   readsDurableDrafts,
   readPersistedDraft,
-  restoredPrompt,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
+  restoredPrompt,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -888,10 +888,10 @@ function ComposerFrame({
   const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
   /// asked for (`pendingCaret`) is applied after the field takes the text.
+  const [, setWrites] = useState(0);
   const writeText = (value: string, at: number) => {
-    if (field.current && field.current.value() !== value) field.current.reset(value);
     promptRef.current.set(value, at);
-    promptRef.current.draw();
+    setWrites((count) => count + 1);
   };
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
   /// handler that made it, as React's flush of the change ran them.
@@ -1901,7 +1901,7 @@ function ComposerFrame({
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
     promptRef.current.set(value, at, true);
-    if (!typed) promptRef.current.draw();
+    if (!typed) setWrites((count) => count + 1);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -3477,9 +3477,8 @@ function ComposerFrame({
           className: shell
             ? "acpmux-composer-prompt is-hidden"
             : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
-          // The editor updates its own content for each key. This value is the frame's last drawn
-          // snapshot, so the box only renders when the prompt's visible facts change.
-          value: facts.text,
+          // ComposerBox reads the text itself (`prompt`), so a key renders the box, not this frame.
+          value: "",
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:
