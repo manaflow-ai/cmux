@@ -19,7 +19,6 @@ import {
   type Ref,
   type UIEventHandler,
 } from "react";
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import "./popupSurface.css";
@@ -209,7 +208,7 @@ export function Listbox<T>({
 
   const list = (
     <div
-      ref={attachScroller}
+      ref={attachList}
       id={listId}
       className={cx("ui-listbox ui-scroll-edge-fade", shellClassName !== undefined && "ui-popup-scroll", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native select cannot hold rich rows.
@@ -228,12 +227,12 @@ export function Listbox<T>({
     >
       {/* One flat keyed array: a row that moves between segments keeps its element. */}
       {segments.flatMap((segment, place) => [
-        segment.before > 0 && <div key={`space-${place}`} aria-hidden="true" style={{ height: segment.before }} />,
+        segment.before > 0 && <div key={`space:${place}`} aria-hidden="true" style={{ height: segment.before }} />,
         ...items.slice(segment.start, segment.end).map((item, offset) => {
           const index = segment.start + offset;
           return (
             <ListboxRow
-              key={getKey(item)}
+              key={`row:${getKey(item)}`}
               item={item}
               index={index}
               id={getItemId?.(item, index) ?? `${id}-${index}`}
