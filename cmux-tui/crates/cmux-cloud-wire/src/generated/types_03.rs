@@ -25,6 +25,26 @@ pub struct HomeThreadSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Host {
+    pub id: HostId,
+    pub name: String,
+    pub platform: Platform,
+    pub owner_user: UserId,
+    pub enrolled_by: InstallId,
+    pub enrolled_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<HostKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wg_public_key: Option<WgPublicKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<ServerNetworkState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<HostOrphaned>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HostOrphaned {
     pub at: i64,
     pub former_owner: UserId,
