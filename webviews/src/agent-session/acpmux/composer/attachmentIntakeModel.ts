@@ -12,14 +12,14 @@ import {
   type AttachmentSource,
   type ComposerAttachment,
   type DroppedKind,
-  type SourceKind,
   type KnownPaths,
+  type SourceKind,
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { decoded, keptThumb, keepThumb } from "./imagePool";
 import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
-import { intakeFiles, type IntakeError, alignPaths } from "./intakeFiles";
+import { alignPaths, intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
