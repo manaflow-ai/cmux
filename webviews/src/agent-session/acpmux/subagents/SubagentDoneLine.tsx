@@ -212,7 +212,6 @@ function DoneLine({
     ].join(" · ") || t("subagents.state.failed");
   // The quiet line opens the subagent's view from anywhere on it, as a tool row opens.
   const quietOpen = quiet ? open : undefined;
-  const cutFailure = error !== undefined && shortReason(error) !== error.trim();
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
@@ -366,9 +365,9 @@ function DoneLine({
           {quiet ? (
             // What it was asked to do and why it failed, in the line itself: no chip, no ring and
             // no hover card over the row above (cmux#52916, on "Subagent  Failed" with a ringed
-            // chip and a "Failed · 0s" card). The whole failure shows only where the line cuts it.
-            // tooltip-allow: the line cuts the failure to its first sentence; its whole text
-            <span className="cv-tool__text cv-subagent-failed__text" title={cutFailure ? whole : undefined}>
+            // chip and a "Failed · 0s" card). No tooltip either, not even for a cut failure: it drew
+            // over the next row. The whole failure is in the button's name and in the view it opens.
+            <span className="cv-tool__text cv-subagent-failed__text">
               <span className="cv-subagent-failed__title">{name}</span>
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
