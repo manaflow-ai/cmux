@@ -1240,6 +1240,7 @@ impl HybridUnderlay {
                 self.last_marker = None;
                 // What we sent toward its old network may be lost.
                 self.replay_recent(true);
+                self.resend_initiation_now();
             }
             Control::Reached { from, via_turn } => self.reached(from, via_turn),
             Control::Blackhole => {
@@ -1555,6 +1556,28 @@ impl HybridUnderlay {
             timer: Box::pin(tokio::time::sleep(HANDSHAKE_REPEATS[0])),
         });
         // The receive task polls the timer: have it register this one.
+        self.wake_receiver();
+    }
+
+    /// Send the unanswered handshake initiation again now, the peer having
+    /// just named addresses it may not have reached before: a Mac behind NAT
+    /// answers `wg-init` with private addresses only and trickles its public
+    /// one after its STUN, so the first initiation through TURN had no target
+    /// and would wait out [`HANDSHAKE_REPEATS`]`[0]` (netlab: link ready 117
+    /// or 295 ms, by whether the trickle beat the first send). With a route
+    /// already chosen, the replay above has sent it.
+    fn resend_initiation_now(&mut self) {
+        if self.direct.is_some() {
+            return;
+        }
+        let Some(repeat) = &mut self.handshake_repeat else { return };
+        let (datagram, class) = (repeat.datagram.clone(), repeat.class);
+        repeat
+            .timer
+            .as_mut()
+            .reset(Instant::now() + HANDSHAKE_REPEATS[repeat.sent.min(HANDSHAKE_REPEATS.len() - 1)]);
+        tracing::debug!("WireGuard resends its handshake initiation to the peer's new addresses");
+        self.send_on_relays(&datagram, class);
         self.wake_receiver();
     }
 
