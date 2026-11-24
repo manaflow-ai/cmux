@@ -38,6 +38,15 @@ Otherwise the run keeps the default, exactly as before: when the picker would
 have chosen a Blacksmith pool (12vcpu overflow, say), iOS still takes its own
 variable, so MACOS_RUNNER_IOS keeps meaning what it meant.
 
+Granted default. A same-repository manaflow-ai run that would keep the
+6vcpu macOS 26 default automatically (no runner input or variable naming
+another pool, no blocker above) asks instead for `${CI_OVERFLOW_MAC or
+'cmux-mac'}` with SIM_LABEL and its xcode-<version>, so the CI controller can
+grant it to any free owned or AWS Mac with an iOS simulator runtime
+(granted_default()). Leo, 2026-11-24: "we can do it better, no? simply have
+a scheduler that does better." A fork keeps its fallback, a CI_OVERFLOW_MAC
+naming another label keeps Blacksmith, and re-runs take Blacksmith.
+
 Queue rounds. The pool rule is pull request CI's with its
 vars.CI_PR_POOL_QUEUE_ROUNDS (`--queue-rounds`): an owned pool takes the run
 while its jobs start there within that many job lengths, whatever
@@ -245,6 +254,16 @@ SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 # role and an iOS 26.x runtime. Requested beside the owned pool label.
 SIM_LABEL = "glaeda-ios-sim"
 assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
+# The plain Mac label the CI controller grants (scripts/ci/mac_grants.py MAC_LABEL, not imported: the pickers'
+# sparse checkouts list their files), and its overflow switch: a same-repository run the owned pool does not take
+# asks for it with SIM_LABEL and its xcode-<version> (see Granted default), unless vars.CI_OVERFLOW_MAC names
+# another label during an outage.
+GRANT_LABEL = "cmux-mac"
+OVERFLOW_VARIABLE = "CI_OVERFLOW_MAC"
+OWNER = "manaflow-ai"
+# The version in /Applications/Xcode_26.6.app or glaeda-std-xcode-26.6 (mac_grants._XCODE).
+XCODE_IN = re.compile(r"(?:-xcode-|(?:^|/)Xcode[_-])(?P<version>[0-9]+(?:\.[0-9]+)*)(?:\.app)?(?:/|$)")
+XCODE_PINS = Path(__file__).resolve().parent / "xcode-pins.txt"
 # The `runner` choice that forces the owned pool for a proof run.
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
@@ -357,6 +376,8 @@ class Route:
     persistent: bool
     # The sim-first label ios-simulator-build takes instead of runs_on, or "" (see Build placement).
     build_label: str = ""
+    # A granted default (see Granted default): every label of runs_on, GRANT_LABEL first, SIM_LABEL included.
+    grant_labels: tuple[str, ...] = ()
 
     @property
     def runs_on(self) -> str:
@@ -364,6 +385,8 @@ class Route:
 
         The sim-first label stands alone: its runner carries neither the pool label nor SIM_LABEL.
         """
+        if self.grant_labels:
+            return json.dumps(list(self.grant_labels))
         if pr_runner_pool.sim_first(self.label):
             return json.dumps([self.label])
         return json.dumps([self.label, SIM_LABEL] if self.persistent else self.label)
@@ -376,6 +399,8 @@ class Route:
     @property
     def package_runs_on(self) -> str:
         """runs-on as JSON for mobile-core-package, which needs no simulator."""
+        if self.grant_labels:
+            return json.dumps([label for label in self.grant_labels if label != SIM_LABEL])
         return json.dumps(self.label)
 
     @property
@@ -902,6 +927,57 @@ def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None,
                if run.get("id") != exclude_run_id and run.get("status") != "completed")
 
 
+def pinned_xcode(macos_major: str = "26", path: Path = XCODE_PINS) -> str:
+    """The Xcode scripts/select-ci-xcode.sh selects on a macOS `macos_major` host (xcode-pins.txt), or ""."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        fields = line.split("#", 1)[0].split()
+        if len(fields) == 2 and fields[0] == macos_major:
+            return fields[1]
+    return ""
+
+
+def granted_default(route: Route, *, fork: bool, owner: str, requested: str | None, variable: str | None,
+                    blocker: str, overflow: str | None, pr_xcode_app: str | None,
+                    log: Callable[[str], None] = lambda message: None) -> Route:
+    """Granted default: `route` on GRANT_LABEL with SIM_LABEL and its xcode-<version> when it is the default.
+
+    Leo, 2026-11-24: "we can do it better, no? simply have a scheduler that does better." About 20 of these
+    simulator jobs waited on Blacksmith at 05:57Z while owned and AWS Macs with an iOS simulator runtime sat
+    free. A same-repository manaflow-ai run the owned pool did not take, routed automatically to Blacksmith (the
+    6vcpu macOS 26 default, or an overflow pool the simple picker chose), takes
+    `${CI_OVERFLOW_MAC or 'cmux-mac'}` instead, as other own-branch Mac workflows do (vars.CI_OVERFLOW_MAC ||
+    'cmux-mac'), with SIM_LABEL and xcode-<version>: the shared glaeda runners carrying all three take it, and
+    the CI controller grants it to any free Mac whose asker reports that Xcode and an iOS simulator runtime
+    (cmuxterm-hq build-fleet/internal/sched/grant.go). mobile-core-package drops SIM_LABEL. Its Xcode is the
+    lane's vars.CMUX_CI_XCODE_APP_PR, else the macOS 26 row of xcode-pins.txt, which select-ci-xcode.sh picks
+    on such a Mac (CMUX_CI_XCODE_APP stays empty off a glaeda- label).
+
+    Unchanged: a fork's pull request (its fallback stays as it is), another owner, an explicit runner input
+    or runner variable, an owned route, a blocker (ios_version, an upload, a release call, seed_cache), and a
+    CI_OVERFLOW_MAC naming another label (an outage: Blacksmith, as before). Re-runs keep SMALL_RUNNER.
+    """
+    if fork or owner != OWNER or route.persistent or blocker:
+        return route
+    if (requested or "").strip() not in ("", "auto") or (variable or "").strip() not in ("", SMALL_RUNNER):
+        return route
+    if not route.label.startswith(pr_runner_pool.EPHEMERAL_PREFIX):
+        return route
+    kind = (overflow or "").strip() or GRANT_LABEL
+    if kind != GRANT_LABEL:
+        log(f"vars.{OVERFLOW_VARIABLE} is {kind}; staying on {route.label}")
+        return route
+    match = XCODE_IN.search((pr_xcode_app or "").strip())
+    version = match.group("version") if match else pinned_xcode()
+    xcode = f"xcode-{version}" if version else ""
+    labels = tuple(label for label in (GRANT_LABEL, SIM_LABEL, xcode) if label)
+    log(f"granted default: {route.label} -> {list(labels)} (re-runs take {SMALL_RUNNER})")
+    return Route(GRANT_LABEL, SMALL_RUNNER, False, grant_labels=labels)
+
+
 def runner_variable(value: str) -> str:
     """The lane's runner variable, unless it names a capability or the sim-first label, which no runner takes alone.
 
@@ -942,6 +1018,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--called", default="", help="'true' when another workflow called this one")
     args = parser.parse_args(argv)
     args.variable = runner_variable(args.variable)
+    repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
+    grant_args = dict(
+        fork=args.fork.strip() == "true",
+        owner=(env.get("GITHUB_REPOSITORY_OWNER") or repository.partition("/")[0]).strip(),
+        requested=args.requested, variable=args.variable,
+        blocker=owned_blocker(ios_version=args.ios_version, upload=args.upload, called=args.called,
+                              seed_cache=args.seed_cache),
+        overflow=env.get(OVERFLOW_VARIABLE), pr_xcode_app=args.pr_xcode_app,
+        log=lambda message: print(message, file=sys.stderr))
 
     # Simulator-aware runs with an Actions token retain the lane's capability
     # accounting below. Plain automatic package/screenshot routing shares the
@@ -961,6 +1046,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         persistent = choice.owned and args.owned.strip() == "1" and args.ios_owned.strip() == "1"
         lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios"
                                                   else run_jobs(args.lane, device_family=args.device_family))
+        granted = granted_default(Route(label, label, persistent), **grant_args)
+        if granted.grant_labels:
+            for key, value in {"label": granted.label, "retry_label": granted.retry_label,
+                               "runs_on": granted.runs_on, "build_runs_on": granted.build_runs_on,
+                               "package_runs_on": granted.package_runs_on, "retry_runs_on": granted.retry_runs_on,
+                               "persistent": "false", "jobs": str(lane_jobs), "sim_jobs": "0"}.items():
+                print(f"{key}={value}")
+            return 0
         for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
                            "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "build_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
@@ -1053,6 +1146,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                   file=sys.stderr)
     route = build_route(route, lane=args.lane, swift_package=args.swift_package, sim_first_label=first_label,
                         idle=idle_sim_first(listed.get("runners") or [], first_label), log=log)
+    route = granted_default(route, **grant_args)
     print(f"label={route.label}")
     print(f"retry_label={route.retry_label}")
     print(f"runs_on={route.runs_on}")
