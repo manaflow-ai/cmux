@@ -41,8 +41,11 @@ pub(crate) const LOWAT_HORIZON: Duration = Duration::from_millis(5);
 /// `DATA_CHUNK`), so a slow or idle connection still takes a whole frame
 /// and holds the next one ready. At 10 Mbit/s it is 13 ms of data.
 pub(crate) const MIN_LOWAT_BYTES: usize = 16 * 1024;
-/// The ceiling: the socket's send buffer, the bound before this gate.
-pub(crate) const MAX_LOWAT_BYTES: usize = crate::tcp_stack::SOCKET_BUFFER_BYTES;
+/// The ceiling: the send buffer this gate replaced as the bound (256 KiB),
+/// 51 ms at 40 Mbit/s and still past [`LOWAT_HORIZON`] at 400 Mbit/s. A
+/// larger window ([`crate::tcp_stack::DEFAULT_STREAM_WINDOW`]) adds bytes in
+/// flight, not unsent bytes an echo waits behind.
+pub(crate) const MAX_LOWAT_BYTES: usize = 256 * 1024;
 /// The shortest delivery-rate sample: below it a sample is mostly the
 /// granularity of ACKs.
 const MIN_SAMPLE: Duration = Duration::from_millis(10);
