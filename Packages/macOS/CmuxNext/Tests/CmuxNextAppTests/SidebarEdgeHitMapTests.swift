@@ -112,6 +112,36 @@ import Testing
         }
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/53360: the band wins over the scroller at every
+    /// density. Each app density (its gutter and divider metrics) and each sidebar row density keeps
+    /// every band point a resize level with the shown knob, the band at least its minimum width, and
+    /// the knob's columns beside the band a scroll.
+    @Test(arguments: Density.allCases, SidebarDensity.allCases)
+    func theBandWinsOverTheScrollerAtEveryDensity(density: Density, sidebarDensity: SidebarDensity) throws {
+        let savedTokens = DesignSettings.shared.densityTokens
+        let savedFromThemeFile = DesignSettings.shared.densityFromThemeFile
+        let savedSidebar = DesignSettings.shared.sidebarSections.density
+        DesignSettings.shared.density = density
+        DesignSettings.shared.sidebarSections.density = sidebarDensity
+        defer {
+            DesignSettings.shared.densityTokens = savedTokens
+            DesignSettings.shared.densityFromThemeFile = savedFromThemeFile
+            DesignSettings.shared.sidebarSections.density = savedSidebar
+        }
+        let f = try Self.fixture()
+        defer { f.window.close() }
+        let knob = try Self.knob(f)
+        let band = f.root.convert(f.handle.bounds, from: f.handle)
+        let label = "\(density)/\(sidebarDensity)"
+        #expect(band.width >= SidebarResizeBand.minimumWidth, "\(label)")
+        for x in stride(from: band.minX + 0.25, to: band.maxX, by: 0.5) {
+            #expect(Self.target(atX: x, y: knob.midY, in: f) == .resize, "\(label): a press at x \(x - band.minX) pt into the band")
+        }
+        for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) where !(band.minX..<band.maxX).contains(x) {
+            #expect(Self.target(atX: x, y: knob.midY, in: f) == .scroller, "\(label): a press on the knob at x \(x - band.minX) pt from the band")
+        }
+    }
+
     /// Hover alone shows no knob (at any x across the strip, the band's included), and a pointer in
     /// the band does not widen a knob a scroll showed: a press there resizes.
     @Test func hoverAloneShowsNoKnobAndTheBandDoesNotWidenIt() throws {
