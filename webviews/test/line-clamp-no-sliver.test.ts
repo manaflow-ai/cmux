@@ -4,7 +4,7 @@
 // the line after the last one it keeps. The room around such a line is a transparent border.
 //
 // On the gallery stage, in real Chromium and WebKit: every clamped box on the page (computed
-// `-webkit-line-clamp` set, overflow hidden) whose words run past its lines clips to exactly its lines,
+// `-webkit-line-clamp` set, overflow clipped; Chromium computes the display as flow-root) whose words run past its lines clips to exactly its lines,
 // its padding box no taller than the lines it keeps.
 //
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/line-clamp-no-sliver.test.ts
@@ -73,7 +73,7 @@ await requireBrowserLane("line-clamp-no-sliver.test.ts", async () => {
           [...document.querySelectorAll<HTMLElement>("*")].flatMap((node) => {
             const style = getComputedStyle(node);
             const clamp = Number.parseInt(style.getPropertyValue("-webkit-line-clamp"), 10);
-            if (!(clamp > 0) || style.overflowY === "visible" || style.display !== "-webkit-box") return [];
+            if (!(clamp > 0) || style.overflowY === "visible") return [];
             // Only a box whose words run past the lines it keeps has a next line to show.
             if (node.scrollHeight <= node.clientHeight + 1) return [];
             const pitch = Number.parseFloat(style.lineHeight);
