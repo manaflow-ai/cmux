@@ -52,8 +52,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", {
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { GuestPage, loadGuestTranscript, endedBy } =
-  await import("../src/agent-session/guest/GuestPage");
+const { GuestPage, loadGuestTranscript, endedBy } = await import("../src/agent-session/guest/GuestPage");
 // The transcript is its own chunk (GuestTranscript.tsx); load it once so the room's frames draw at once.
 await loadGuestTranscript();
 const { attemptId } = await import("../src/agent-session/guest/redeem");
@@ -97,10 +96,7 @@ async function mount(props: Partial<Props>) {
 
 async function typeName(host: HTMLElement, value: string) {
   const input = host.querySelector("input")!;
-  const setter = Object.getOwnPropertyDescriptor(
-    dom.window.HTMLInputElement.prototype,
-    "value",
-  )!.set!;
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setter.call(input, value);
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
@@ -111,13 +107,10 @@ const roomFrames = () =>
   act(async () => {
     for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
   });
-const joinButton = (host: HTMLElement) =>
-  host.querySelector("button[type=submit]") as HTMLButtonElement;
+const joinButton = (host: HTMLElement) => host.querySelector("button[type=submit]") as HTMLButtonElement;
 const submit = (host: HTMLElement) =>
   act(async () => {
-    host
-      .querySelector("form")!
-      .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    host.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
   });
 
 test("the join page shows nothing of the chat, and Join waits for a valid name", async () => {
@@ -159,9 +152,7 @@ test("the owner offline: the page says so, and Join again is the same attempt", 
   });
   await typeName(page.host, "Ana");
   await submit(page.host);
-  expect(page.host.querySelector("[role=alert]")?.textContent).toBe(
-    translate("guest.join.hostOffline"),
-  );
+  expect(page.host.querySelector("[role=alert]")?.textContent).toBe(translate("guest.join.hostOffline"));
   await submit(page.host);
   expect(asked.length).toBe(2);
   expect(asked[0]).toEqual({
@@ -191,29 +182,21 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   const page = await mount({ guestId: "g1", openSocket: fakeRoom(joinFrames(askingRecords())) });
   await roomFrames();
   expect(page.host.textContent).toContain("Fix the flaky upload retry test");
-  expect(page.host.textContent).toContain(
-    translate("guest.live.sharedBy", { owner: "Sam Rivera" }),
-  );
+  expect(page.host.textContent).toContain(translate("guest.live.sharedBy", { owner: "Sam Rivera" }));
   // The owner's `bun test src/upload.test.ts --rerun-each 5` failed, so its row keeps the command
   // line: a failed call never reads as what it would have done (commandActions.ts).
   expect(page.host.textContent).toContain("Ran bun test src/upload.test.ts --rerun-each 5");
   expect(page.host.textContent).not.toContain("Ran tests in upload.test.ts");
-  expect(page.host.textContent).toContain(
-    translate("guest.live.waitingAnswer", { owner: "Sam Rivera" }),
-  );
+  expect(page.host.textContent).toContain(translate("guest.live.waitingAnswer", { owner: "Sam Rivera" }));
   // Who else is here: the owner, never this guest.
   expect(page.host.querySelector(".cv-presence__label")?.textContent).toBe(
     translate("multiplayer.viewing", { names: "Sam Rivera" }),
   );
-  const labels = [...page.host.querySelectorAll("button")].map(
-    (button) => button.textContent ?? "",
-  );
+  const labels = [...page.host.querySelectorAll("button")].map((button) => button.textContent ?? "");
   expect(labels.some((label) => /^(Allow|Reject)$/.test(label))).toBe(false);
   // The only field is the guest's own composer, never the owner's.
   expect(
-    page.host.querySelector(
-      ".guest-live__transcript textarea, .guest-live__transcript [contenteditable='true']",
-    ),
+    page.host.querySelector(".guest-live__transcript textarea, .guest-live__transcript [contenteditable='true']"),
   ).toBeNull();
   await page.unmount();
 });
@@ -331,9 +314,7 @@ test("a link guest watches unless the redeem names talk (a signed-in account on 
     const role = answered ?? "view";
     expect(joined).toEqual([["g1", "Ana", role, "link"]]);
     expect(page.host.textContent?.includes(translate("guest.live.viewOnly"))).toBe(role === "view");
-    expect(page.host.querySelector("textarea, [contenteditable='true']") === null).toBe(
-      role === "view",
-    );
+    expect(page.host.querySelector("textarea, [contenteditable='true']") === null).toBe(role === "view");
     await page.unmount();
   }
 });
@@ -355,9 +336,7 @@ test("a view invitee watches: no composer, and the page says it can only watch",
 test("the invite join text hedges message approval in every app locale", () => {
   expect(translate("guest.invite.detail", {}, "en")).toContain("If you can send messages");
   for (const lang of ["en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"] as const)
-    expect(translate("guest.invite.detail", {}, lang)).not.toBe(
-      translate("guest.live.viewOnly", {}, lang),
-    );
+    expect(translate("guest.invite.detail", {}, lang)).not.toBe(translate("guest.live.viewOnly", {}, lang));
 });
 
 // The owner's thread rail is pane chrome: on the guest page it drew a lone tick at the left edge (#33925).
@@ -413,9 +392,7 @@ test("a transcript chunk that fails to load says so; Retry loads it and the chat
   expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
   fail = false;
   await act(async () => {
-    alert!
-      .querySelector("button")!
-      .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
   await roomFrames();
   expect(asked).toBe(2);
@@ -440,9 +417,7 @@ test("a Retry whose load fails too reloads the page", async () => {
   expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
   expect(reloads).toBe(0);
   await act(async () => {
-    alert!
-      .querySelector("button")!
-      .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
   await roomFrames();
   expect(reloads).toBe(1);
@@ -469,19 +444,13 @@ test("a link opened signed in: Join as the account with its picture, no name fie
   await roomFrames();
   expect(asked).toEqual([SHARE]);
   expect(page.host.querySelector("input")).toBeNull();
-  expect(joinButton(page.host).textContent).toBe(
-    translate("guest.join.as", { name: "Priya Raman" }),
-  );
-  expect(joinButton(page.host).querySelector("img")?.getAttribute("src")).toBe(
-    "https://avatars.example.com/priya.png",
-  );
+  expect(joinButton(page.host).textContent).toBe(translate("guest.join.as", { name: "Priya Raman" }));
+  expect(joinButton(page.host).querySelector("img")?.getAttribute("src")).toBe("https://avatars.example.com/priya.png");
   expect(page.host.textContent).toContain(translate("guest.join.editName"));
   await submit(page.host);
   await roomFrames();
   // The page sends only the attempt, the secret and the shown name: the room adds the account.
-  expect(requests).toEqual([
-    { attempt_id: "a".repeat(32), secret: "c2VjcmV0LWFiY2RlZmdo", name: "Priya Raman" },
-  ]);
+  expect(requests).toEqual([{ attempt_id: "a".repeat(32), secret: "c2VjcmV0LWFiY2RlZmdo", name: "Priya Raman" }]);
   // A talk redeem shows the composer.
   expect(page.host.querySelector("textarea, [contenteditable='true']")).not.toBeNull();
   await page.unmount();
@@ -574,9 +543,7 @@ test("another guest's message draws as a prompt under their picture and name", a
   await roomFrames();
   const author = page.host.querySelector(".cv-author");
   expect(author?.textContent).toBe(translate("multiplayer.guestName", { name: "Priya Raman" }));
-  expect(author?.querySelector("img")?.getAttribute("src")).toBe(
-    "https://avatars.example.com/priya.png",
-  );
+  expect(author?.querySelector("img")?.getAttribute("src")).toBe("https://avatars.example.com/priya.png");
   await page.unmount();
 });
 
