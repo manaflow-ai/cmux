@@ -2747,6 +2747,10 @@ describe("Iroh trust broker database behavior", () => {
         from iroh_endpoint_bindings
         where user_id = ${userId}
       `;
+      // The index exists to read one user's revoked rows already in (revoked_at, id) order. On
+      // a near-empty table user_idx plus a Sort costs about the same, so the planner flips between
+      // them; with sorting priced out, only an index that serves the order wins.
+      await planSql`set local enable_sort = off`;
       const revokedCleanupPlan = await planSql`
         explain (format json)
         select id
