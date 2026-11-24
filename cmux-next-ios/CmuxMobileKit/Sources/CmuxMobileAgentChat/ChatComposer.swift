@@ -41,6 +41,8 @@ struct ChatComposer: View {
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
+    /// Picked videos Photos is still copying out (a large one takes seconds): a chip each.
+    @State private var preparingVideos = 0
     /// An attachment tapped before sending: previewed full screen.
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
@@ -246,7 +248,7 @@ struct ChatComposer: View {
     /// own over the controls, 96 pt tall at one line with 10 pt between the text and the buttons.
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !collapsed, !attachments.isEmpty {
+            if !collapsed, !attachments.isEmpty || preparingVideos > 0 {
                 attachmentStrip
             }
             ComposerRowLayout(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
@@ -648,6 +650,18 @@ struct ChatComposer: View {
                     }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
+                if preparingVideos > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 56)
+                    .background(Color.cmuxMobileFill, in: .rect(cornerRadius: 12, style: .continuous))
+                    .accessibilityElement(children: .combine)
+                    .transition(.opacity)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
@@ -749,7 +763,13 @@ struct ChatComposer: View {
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
             if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
+                preparingVideos += 1
+                let started = ContinuousClock.now
+                let picked = try? await item.loadTransferable(type: PickedMovie.self)
+                preparingVideos -= 1
+                let elapsed = ContinuousClock.now - started
+                PickedMovie.log.info("pick ms=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000) ok=\(picked != nil)")
+                guard let movie = picked else {
                     store.clientError = String(localized: "Couldn't read the video.")
                     continue
                 }
