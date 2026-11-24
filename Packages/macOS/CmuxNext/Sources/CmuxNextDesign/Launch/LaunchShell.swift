@@ -1,5 +1,6 @@
 public import AppKit
 import CCmuxLaunchShellFFI
+import CCmuxLayoutCacheFFI
 import CmuxNextCompat
 public import CmuxNextWakeups
 import ImageIO
@@ -29,6 +30,7 @@ public final class LaunchShell {
     private let backstopTimer = DemandTimer(owner: "LaunchShell.backstop")
     private let framedTimer = DemandTimer(owner: "LaunchShell.framed")
     private let bareTimer = DemandTimer(owner: "LaunchShell.bareBound")
+    private let contentTimer = DemandTimer(owner: "LaunchShell.contentBound")
     /// Stage 0 shows the bare launch's content (its swap waits for Home: `presented`).
     private var showsBare = false
     /// Stage 0 drew the saved image, so a held click aimed at a place in it (`replays`).
@@ -168,6 +170,27 @@ public final class LaunchShell {
         // Stage 0 went first (the backstop): what it held goes to this window now.
         guard let frame, let window else { return replay(to: real) }
         if real.frame != frame { real.setFrame(frame, display: false) }
+        // Over the saved image or the plain shell the real window waits below until what it shows
+        // matches stage 0 (every visible region has its saved or live content: `contentReady`), at
+        // most the Rust bound (cmux-layout-cache `swap_wait_ms`), so the swap shows no blank pane
+        // filling in afterwards (Leo, 2026-11-24: "it's another to say \"ok it's already loaded\"").
+        if !showsBare, let contentReady = content.contentReady {
+            real.order(.below, relativeTo: window.windowNumber)
+            let kind: UInt8 = showedImage ? 0 : 1
+            let elapsed = { [shownAt] in UInt64(max(0, shownAt.duration(to: .now) / .milliseconds(1))) }
+            var swapped = false
+            let swapOnce: @MainActor (String) -> Void = { [weak self, weak real] reason in
+                guard !swapped, let self, let real, self.window != nil else { return }
+                swapped = true
+                self.contentTimer.cancel()
+                self.mark("launch_shell.content_\(reason)")
+                self.swap(to: real, front: true)
+            }
+            let wait = cmux_layout_cache_swap_wait_ms(kind, 1, 0, elapsed())
+            contentTimer.schedule(after: .milliseconds(Int(wait))) { @MainActor in swapOnce("timeout") }
+            contentReady { swapOnce("ready") }
+            return
+        }
         guard showsBare, let bareReady = content.bareReady else {
             CATransaction.setMainCompletion { [weak self, weak real] in if let real { self?.swap(to: real) } }
             return
@@ -231,6 +254,11 @@ public final class LaunchShell {
     /// (the bare lane's marks); the swap waits for it, at most `LaunchShell.bareBound` after
     /// `show`. Nil: the swap is at the real window's first commit.
     public var bareReady: ((_ ready: @escaping @MainActor () -> Void) -> Void)?
+    /// Calls `ready` (on the main actor, once) when the real window's visible regions (sidebar,
+    /// tab strips, panes) have their saved or live content, so it looks as stage 0's image does;
+    /// over the image or the plain shell the swap waits for it, at most the Rust bound. Nil: the
+    /// swap is at the real window's first commit.
+    public var contentReady: ((_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Called with `bare`'s view at the swap, before stage 0 closes: the bare lane takes what was
     /// typed and sent into it (its own store; the real Home claims it).
     public var handoff: ((NSView) -> Void)?
