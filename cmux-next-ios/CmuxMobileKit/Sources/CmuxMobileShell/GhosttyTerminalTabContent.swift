@@ -204,6 +204,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
+    /// The App Review demo account (its terminals open ready for typing).
+    var reviewDemo = false
     /// The workspace's Mac, for the connecting placeholder's label.
     var macName: (@MainActor (Workspace) -> String?)?
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
@@ -247,7 +249,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A live tab never builds the mock: without a session it shows the
         // honest connecting placeholder (TerminalSessionChoice).
         let mock = mockDataEnabled && live == nil && sessionProvider == nil
-        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: macName?(workspace), programName: tab.title)
+        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, reviewDemo: mock && reviewDemo,
+                                                    macName: macName?(workspace), programName: tab.title)
         let artifacts = live == nil ? nil : artifactSourceProvider?(tab, workspace.macID)
         let model = TerminalModel(
             session: session,
@@ -437,10 +440,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         feeds[id] = Task { [weak indicator, model] in
             for await state in Observations({ model.connectionState }) {
                 guard let indicator else { return }
-                if case .offline = state { indicator.update(offline: true); continue }
-                indicator.update(offline: false)
-                // Any outage (a reattach, a first connect, a failure) says so in
-                // the pill past the quiet bound: the page has no status row.
+                if case .offline = state { indicator.update(offline: true) } else { indicator.update(offline: false) }
+                // Any outage (a reattach, a first connect, a failure, an offline
+                // Mac) says so in the pill past the quiet bound: the page has no
+                // status row, and a blip draws nothing.
                 indicator.update(reattaching: !state.isAttached)
             }
         }
@@ -454,14 +457,15 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect") while its outage has lasted
-    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
-    /// place a terminal tab shows its connection: no row by the composer
-    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
+    /// "Connecting…", "Can't connect", "Mac offline") only once its outage has
+    /// lasted `QuietStatusGate.threshold`; before that the tab shows its last
+    /// frame and says nothing. The only place a terminal tab shows its
+    /// connection: no row by the composer (Leo, 2026-11-17: "The reconnect
+    /// takes an extra line").
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
-        if indicator.isOffline { return "Mac offline" }
         guard indicator.isShown else { return nil }
+        if indicator.isOffline { return "Mac offline" }
         return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
@@ -484,6 +488,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A card shown before its tab was prepared (or after its slot was
         // cooled): its host and slot are made now, once.
         let host = host(for: tab, in: workspace)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         let slot = slot(for: tab.id, host: host)
         // A new host (first card, or after a cool or a Mac swap) asks for the
         // Mac's screen after this update, as `prepareCard` does.
@@ -494,15 +499,29 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return cardView(tab.id, slot: slot)
     }
 
+    /// The screen the Mac pushed of a tab not opened in this launch (its `tabs` service, kept
+    /// on disk across launches): the card draws it at once, with no round trip, or as soon as the
+    /// disk read brings it (a cold launch builds the cards before that read is done). The read
+    /// below replaces it with the Mac's screen now.
+    private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
+        guard model.cardScreenText == nil, !model.pageStarted,
+              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id) else { return }
+        MacTabCards.shared.whenScreen(key) { [weak model] screen in
+            guard let model, model.cardScreenText == nil, !model.pageStarted else { return }
+            model.cardScreenText = screen
+        }
+    }
+
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
         let host = host(for: tab, in: workspace)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
     }
 
     private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
         if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
-        let view = AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
         cardViews[id] = (ObjectIdentifier(slot), view)
         return view
     }
@@ -830,11 +849,15 @@ struct TerminalTabSlotPage: View {
 
 struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
+    /// For the UI tests' face probe (`TabCardFaceRecord`).
+    let tabID: String
     let insets: EdgeInsets
 
     var body: some View {
-        TerminalTabCard(model: slot.host.model, insets: insets)
+        let card = TerminalTabCard(model: slot.host.model, insets: insets)
+        card
             .id(ObjectIdentifier(slot.host))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: "\(card.content)"))
     }
 }
 #endif

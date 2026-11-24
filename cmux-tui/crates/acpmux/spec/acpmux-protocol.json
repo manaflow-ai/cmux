@@ -132,6 +132,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/request_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "acp.session.fork",
       "params": {
         "$ref": "#/types/ForkParams"
@@ -224,6 +230,12 @@
     {
       "kind": "request",
       "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/felt_snapshot",
       "params": true,
       "result": true
     },
@@ -559,6 +571,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/native_history",
       "params": {
         "$ref": "#/types/NativeHistoryParams"
@@ -636,6 +656,12 @@
     {
       "kind": "request",
       "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_rest",
       "params": true,
       "result": true
     },
@@ -724,6 +750,22 @@
       "name": "_acpmux/memory_resolve",
       "params": {
         "$ref": "#/types/MemoryResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_home",
+      "params": {
+        "$ref": "#/types/AgentHomeParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_home_resolve",
+      "params": {
+        "$ref": "#/types/AgentHomeResolveParams"
       },
       "result": true
     },
@@ -1006,6 +1048,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true
@@ -1064,6 +1118,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/controls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true
@@ -1071,6 +1131,12 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard",
       "params": true,
       "result": true
     },
@@ -1594,6 +1660,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_files_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keys_mint",
       "params": true,
       "result": true
@@ -1827,6 +1899,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_end_stale",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_finish",
       "params": true,
       "result": true
@@ -1839,7 +1923,37 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_export",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_have",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_progress",
       "params": true,
       "result": true
     },
@@ -2361,6 +2475,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_chat",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/move_targets",
       "params": {
         "$ref": "#/types/MoveTargetsParams"
@@ -2668,6 +2800,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/control",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harness_inventory",
       "params": true
     },
@@ -2774,6 +2911,7 @@
         "cliHost": true,
         "compression": true,
         "context": true,
+        "createKey": true,
         "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
@@ -2810,6 +2948,8 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "personVerified": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -2819,6 +2959,7 @@
         "provenance": true,
         "reportTo": true,
         "requestId": true,
+        "requireAsking": true,
         "requireFullAccess": true,
         "resend": true,
         "restricted": true,
@@ -2856,6 +2997,28 @@
           "$ref": "#/types/RequestMeta"
         },
         "held": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentHomeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentHomeResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "drop": true,
         "sessionId": true
       },
       "type": "object"
@@ -3898,8 +4061,15 @@
             "null"
           ]
         },
+        "mode": {
+          "description": "With `live`: the permission mode the fork starts in, one of the modes the chat's harness\nlists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
-          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "description": "The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the\nchat's own harness's (set before the reply, or the fork is refused and removed).",
           "type": [
             "string",
             "null"
@@ -3914,6 +4084,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagentId": {
+          "description": "With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's\nown conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`\nnames it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).\nA Claude Code or Codex chat only; a running subagent forks through its last settled step.\nCapability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "throughSeq": {
           "format": "uint64",
@@ -4284,6 +4461,15 @@
             "null"
           ]
         },
+        "heldUntil": {
+          "description": "When a `capacity` turn's continuation runs, while it waits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "promptId": {
           "type": [
             "string",
@@ -4298,7 +4484,7 @@
           ]
         },
         "status": {
-          "description": "`completed`, `failed` or `cancelled`.",
+          "description": "`completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a\ncapacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).",
           "type": [
             "string",
             "null"
@@ -5638,6 +5824,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"
@@ -6676,6 +6864,10 @@
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -7263,7 +7455,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -7649,6 +7841,10 @@
           ],
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
+        },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
         },
         "currentModeId": {
           "type": [
@@ -8224,7 +8420,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -8543,6 +8739,17 @@
       ],
       "type": "string"
     },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "SubagentStopParams": {
       "additionalProperties": false,
       "properties": {
@@ -8757,6 +8964,13 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "promptId": {
+          "description": "The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn\nby its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "startAt": {
           "format": "uint64",

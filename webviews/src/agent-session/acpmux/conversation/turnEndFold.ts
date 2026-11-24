@@ -139,11 +139,11 @@ export const TURN_END_SNAPSHOT_ATTR = "data-fold-snapshot";
 /// How the turn's closing recap (the wrap-up's next-step card, wrapUp.ts) comes in under the answer as
 /// the turn ends, in the sliding looks. Leo, 2026-11-22: "that's the recap". It arrives with the fold
 /// and waits until no row that moves crosses its box (`clearFraction`), then:
-/// - `hold` (shipped): fades in over the fold's clock;
+/// - `hold`: fades in over the fold's clock;
 /// - `rise`: fades in as it rises half a line into its place, on the house ease-out;
 /// - `unfurl`: opens down from its top edge (a clip) as it fades in, as if poured into its room;
 /// - `bead`: fades in as it grows from 96% of its size from its top, the way a drop joins the surface.
-/// - `place`: drawn at full ink in its place in the frame it comes, no entrance at all.
+/// - `place` (shipped): drawn at full ink in its place in the frame it comes, no entrance at all.
 /// - `open`: full ink from its first frame, its room opening down from its top edge (a clip, no fade),
 ///   while the rows above rise into the room on the follow's chase at a line a frame, instead of the
 ///   card's whole height in one frame (VirtualTranscript `recapCame`). Nothing fades up from below.
@@ -365,12 +365,12 @@ function snapshotOf(node: HTMLElement, id: string): HTMLElement {
   return copy;
 }
 
-/// The recap entrance set over `node`, else the dev setting's, else the shipped `hold`.
+/// The recap entrance set over `node`, else the dev setting's, else the shipped `place`.
 export function turnEndRecap(node: Element): TurnEndRecap {
   const set = node.closest(`[${TURN_END_RECAP_ATTR}]`)?.getAttribute(TURN_END_RECAP_ATTR);
   if (TURN_END_RECAPS.includes(set as TurnEndRecap)) return set as TurnEndRecap;
   const arm = experimentArm(turnEndRecapLook);
-  return TURN_END_RECAPS.includes(arm) ? arm : "hold";
+  return TURN_END_RECAPS.includes(arm) ? arm : "place";
 }
 
 /// The attribute a recap card that arrives live carries: its entrance (conversation.css plays it).
@@ -730,6 +730,64 @@ const SPROUT_FADE_MS = MOTION_MS.micro;
 const DEFER_MS = MOTION_MS.large * 4;
 /// How many points of a wipe's edge each clip's keyframes sample (on the straight line between them).
 const WIPE_POINTS = 24;
+/// One stretch of the view a wipe's edge runs over: from `from` to `to` (px, in the view).
+export type WipeSpan = { from: number; to: number };
+
+/// The stretches a wipe's edge runs over: the boxes that change, merged where they touch or overlap and
+/// clipped to the view (`top`, `bottom`), top to bottom. The rows between them that did not change are
+/// left out of the run: the edge crossing them changed nothing on screen, so a fold whose changes sat
+/// apart (the summary up top, the answer below the kept steers) played as two or three motions with
+/// stills between them (the fold fuzzer: 78 of 500 seeds). Over the spans it changes something on every
+/// frame, one motion. Never empty: with nothing in the view, a 1 px run where the first box starts.
+export function wipeSpans(boxes: { top: number; height: number }[], top?: number, bottom?: number): WipeSpan[] {
+  const sorted = boxes
+    .map((box) => ({
+      from: top === undefined ? box.top : Math.max(top, box.top),
+      to: bottom === undefined ? box.top + box.height : Math.min(bottom, box.top + box.height),
+    }))
+    .filter((span) => span.to > span.from)
+    .sort((a, b) => a.from - b.from);
+  const spans: WipeSpan[] = [];
+  for (const span of sorted) {
+    const last = spans.at(-1);
+    if (last && span.from <= last.to + WIPE_SPAN_JOIN_PX) last.to = Math.max(last.to, span.to);
+    else spans.push({ ...span });
+  }
+  if (spans.length) return spans;
+  const at = Math.min(...boxes.map((box) => box.top), bottom ?? Infinity);
+  return [{ from: Number.isFinite(at) ? at : 0, to: (Number.isFinite(at) ? at : 0) + 1 }];
+}
+
+/// Rows closer than this are one stretch of a wipe's run: a gap a frame's step crosses anyway.
+const WIPE_SPAN_JOIN_PX = 8;
+
+/// Where the edge is (px, in the view) once it has run `along` (0 to 1) of the spans' length.
+export function wipeEdge(spans: WipeSpan[], along: number, up = false): number {
+  const total = spans.reduce((sum, span) => sum + span.to - span.from, 0);
+  let left = Math.min(1, Math.max(0, up ? 1 - along : along)) * total;
+  for (const span of spans) {
+    const length = span.to - span.from;
+    if (left <= length) return span.from + left;
+    left -= length;
+  }
+  return spans.at(-1)!.to;
+}
+
+/// How far along the spans (0 to 1) the edge reaches `y`; the inverse of `wipeEdge`.
+export function wipeReach(spans: WipeSpan[], y: number, up = false): number {
+  const total = spans.reduce((sum, span) => sum + span.to - span.from, 0);
+  let before = 0;
+  for (const span of spans) {
+    if (y < span.to) {
+      before += Math.max(0, y - span.from);
+      break;
+    }
+    before += span.to - span.from;
+  }
+  const along = total > 0 ? Math.min(1, before / total) : 0;
+  return up ? 1 - along : along;
+}
+
 /// A clip that hides `top` px of a box's top and nothing past its other edges.
 const clipTop = (top: number) => `inset(${top}px -4096px -4096px -4096px)`;
 /// The reader's gestures that end `defer`'s hold. Scrolls alone are not among them: the view scrolls
@@ -765,10 +823,10 @@ function playReplace(
   /// When the swap starts: the first painted frame, `defer`'s hold after it, or the reader's gesture.
   let startsAt: number | undefined;
   let hold = look === "defer" ? DEFER_MS : 0;
-  /// The edge's run, in the view: fixed at the first pass, from the top of what changes to its bottom.
-  /// `up`: it runs from the bottom up, when the rows that move go down more than up, so it reaches
-  /// most moved rows' new place before their old one.
-  let edge: { from: number; to: number; up: boolean } | undefined;
+  /// The edge's run, in the view: fixed at the first pass, over what changes (`spans`, the boxes that
+  /// change merged, the rows between them that stay skipped). `up`: it runs from the bottom up, when the
+  /// rows that move go down more than up, so it reaches most moved rows' new place before their old one.
+  let edge: { spans: WipeSpan[]; up: boolean } | undefined;
   const played = new Map<HTMLElement, { key: string; animations: Animation[] }>();
   const toStart = () => (startsAt === undefined ? hold : startsAt - now());
   const arm = () => {
@@ -782,9 +840,22 @@ function playReplace(
     }
     played.delete(element);
   };
-  /// Plays `frames` on `element` on the swap's clock, unless what it plays has not changed (`key`).
-  const play = (element: HTMLElement, key: string, frames: () => [Keyframe[], KeyframeAnimationOptions][]) => {
-    if (played.get(element)?.key === key) return;
+  /// Plays `frames` on `element` on the swap's clock, unless what it plays has not changed (`key`), or
+  /// the box it plays over is outside the view (`seen`, read by the caller with the places: a rect read
+  /// here, between the `animate()` writes, would force a style pass per row, chat-render-pipeline R2).
+  ///
+  /// The view test is here, with the key test, rather than at each call site: this is the one door to
+  /// `element.animate` in this path, so a call site added later cannot animate a row the reader cannot
+  /// see. It comes before `drop` below, so what is already running is left to run out instead of being
+  /// cancelled part way -- every keyframe set here ends at the new frame drawn whole and the old gone,
+  /// which is the final state anyway, so a row carried out of the view finishes there quietly.
+  const play = (
+    element: HTMLElement,
+    key: string,
+    seen: boolean,
+    frames: () => [Keyframe[], KeyframeAnimationOptions][],
+  ) => {
+    if (!seen || played.get(element)?.key === key) return;
     drop(element);
     const animations = frames().map(([keyframes, timing]) => {
       const animation = element.animate(keyframes, {
@@ -853,25 +924,19 @@ function playReplace(
     if (!edge) {
       const boxes = [...fresh, ...stale];
       if (boxes.length === 0) return;
-      const top = Math.min(...boxes.map((box) => box.top));
-      const bottom = Math.max(...boxes.map((box) => box.top + box.height));
-      edge = {
-        from: view ? Math.max(view.top, top) : top,
-        to: view ? Math.min(view.bottom, bottom) : bottom,
-        up: travel > 0,
-      };
-      if (!(edge.to > edge.from)) edge.to = edge.from + 1;
+      edge = { spans: wipeSpans(boxes, view?.top, view?.bottom), up: travel > 0 };
     }
-    const { from, to, up } = edge;
+    const { spans, up } = edge;
     /// Where a box of the view crosses the edge's run, as a fraction of it (0 where it starts, 1 at its end).
-    const reach = (y: number) => {
-      const along = Math.min(1, Math.max(0, (y - from) / (to - from)));
-      return up ? 1 - along : along;
-    };
-    /// The edge at `step` of WIPE_POINTS.
-    const edgeY = (step: number) => {
-      const along = edgeAt(step / WIPE_POINTS);
-      return up ? to - (to - from) * along : from + (to - from) * along;
+    const reach = (y: number) => wipeReach(spans, y, up);
+    /// The edge at `step` of WIPE_POINTS. The run is the part of the view that changes, so a box past
+    /// the view's edge or its spans' ends is still partly clipped when the edge stops there: the last
+    /// point puts the edge past every box (`top`, `height`), so the new frame ends wholly drawn and the
+    /// old wholly gone on the edge's last step, with nothing left for the animation's end to settle.
+    const edgeY = (step: number, top: number, height: number) => {
+      const y = wipeEdge(spans, edgeAt(step / WIPE_POINTS), up);
+      if (step < WIPE_POINTS) return y;
+      return up ? Math.min(y, top) : Math.max(y, top + height);
     };
     /// A box's clip at edge `y`: the new frame shows on the side the edge has passed, the old on the other.
     const clipAt = (fresh: boolean, top: number, height: number, y: number) => {
@@ -880,49 +945,91 @@ function playReplace(
       // Running down, the edge has passed what is above it; running up, what is below it.
       return fresh === !up ? clipBottom(below) : clipTop(above);
     };
+    /// Whether a box meets the view, edge included, as `captureTurnEnd`'s own `seen`. A view of no
+    /// height has not been laid out yet, so everything counts as seen there (`unmeasured`).
+    /// Nothing slides in a replace look -- every row is drawn where it lands from the first frame -- so
+    /// a box is the whole of what it ever covers, and one outside the view is a swap the reader never
+    /// sees happen. It takes its final state instead: the new frame drawn whole, unclipped, full ink.
+    /// `wipeSpans` above still read every box, in view or not: the edge's run is the part of the view
+    /// that changes, and narrowing it to the seen boxes alone would change where the edge starts and
+    /// stops, so the rows the reader IS looking at would animate differently than they do today. What
+    /// the guard changes is which rows animate, never the edge they animate against.
+    const boxSeen = (top: number, height: number) =>
+      !view || view.height === 0 || (top + height >= view.top && top <= view.bottom);
     // `snapshot`: the new frame comes in on the ease-out as the old goes on the ease-in, all on one clock.
     // `sprout`: each box crossfades over the micro step once the edge reaches its middle.
     // `wipe`, `defer`: each box is clipped at the edge, the new above it and the old below it.
     for (const { node, top, height } of fresh) {
       const key = `${Math.round(top)} ${Math.round(height)}`;
+      // Out of view the row is simply drawn where it lands, whole: no fade, no clip, nothing played
+      // (`play` above). Not latched: a later placement pass animates it once it is seen. The reader's
+      // scroll never does: it ends the swap (`endOnReaderScroll` below).
+      const seen = boxSeen(top, height);
       // A row still playing its own entrance keeps its fade; the clip alone is the swap's. Its class
       // stays once the entrance ended, so the entrance itself is what counts.
       const enters =
         node.matches(".acpmux-row--enter, .acpmux-row--message-enter") &&
         node.getAnimations().some((animation) => animation.playState === "running" || animation.playState === "paused");
       if (look === "snapshot") {
-        if (!enters) play(node, key, () => [[[{ opacity: 0 }, { opacity: 1 }], { easing: MOTION_EASE_OUT }]]);
+        if (!enters) play(node, key, seen, () => [[[{ opacity: 0 }, { opacity: 1 }], { easing: MOTION_EASE_OUT }]]);
       } else if (look === "sprout") {
         const delay = reach(top + height / 2) * SPROUT_TRAVEL_MS;
         if (!enters)
-          play(node, key, () => [
+          play(node, key, seen, () => [
             [[{ opacity: 0 }, { opacity: 1 }], { delay, duration: SPROUT_FADE_MS, easing: MOTION_EASE_OUT }],
           ]);
       } else
-        play(node, key, () => [
+        play(node, key, seen, () => [
           [
             Array.from({ length: WIPE_POINTS + 1 }, (_, step) => ({
-              clipPath: clipAt(true, top, height, edgeY(step)),
+              clipPath: clipAt(true, top, height, edgeY(step, top, height)),
             })),
             { easing: "linear" },
           ],
         ]);
     }
     for (const { element, top, height, lands } of stale) {
+      // The old frame's copy of a row no one can see: its final state is gone, so it goes now, the way
+      // a copy whose row never moved goes (`still` above) -- `drop`, out of the thread, out of
+      // `fold.copies`. Left drawn with no animation it would hold the old frame at full ink for the
+      // fold's whole length and then vanish in one frame. The edge was already measured over every
+      // box, this one included, so the rows in view keep the run they have today.
+      // A copy already playing is left alone: its fade ends at no ink and its clip at the old frame
+      // gone, so it reaches that same final state on its own, and taking it out mid-animation would
+      // drop the old frame in one frame where the reader may yet scroll back to it.
+      if (!played.has(element) && !boxSeen(top, height)) {
+        drop(element);
+        element.remove();
+        fold.copies.delete(element);
+        continue;
+      }
       const key = `${Math.round(top)} ${Math.round(height)}`;
+      // An unseen copy went above instead of taking a final state where it stands, so one that reaches
+      // here is in the view, or is already playing and is left to run out to the same end.
+      const seen = boxSeen(top, height) || played.has(element);
       if (look === "snapshot")
-        play(element, key, () => [[[{ opacity: 1 }, { opacity: 0 }], { easing: EASE_IN, fill: "both" }]]);
+        play(element, key, seen, () => [[[{ opacity: 1 }, { opacity: 0 }], { easing: EASE_IN, fill: "both" }]]);
       else if (look === "sprout") {
         const delay = reach(top + height / 2) * SPROUT_TRAVEL_MS;
-        play(element, key, () => [
+        play(element, key, seen, () => [
           [[{ opacity: 1 }, { opacity: 0 }], { delay, duration: SPROUT_FADE_MS, easing: EASE_IN, fill: "both" }],
         ]);
       } else
-        play(element, key, () => [
+        play(element, key, seen, () => [
           [
             Array.from({ length: WIPE_POINTS + 1 }, (_, step) => {
-              const y = edgeY(step);
-              const drawnThere = !lands || (up ? y <= lands.top : y >= lands.top + lands.height);
+              const y = edgeY(step, top, height);
+              // On the last step the row is drawn in its new place, wherever that is: the old copy goes.
+              // A row that lands where its copy is drawn is drawn once either side of the edge, and one
+              // that lands wholly past the run's far end (out of view) is not drawn in view either way:
+              // both copies go with the edge. Held whole to the last step, such a copy (14 px in view)
+              // went in one frame 60 ms after the edge stopped (wipe seed 193 on cmux#50751).
+              const drawnThere =
+                !lands ||
+                step === WIPE_POINTS ||
+                (Math.abs(lands.top - top) < 0.5 && Math.abs(lands.height - height) < 0.5) ||
+                (up ? lands.top + lands.height <= spans[0]!.from : lands.top >= spans.at(-1)!.to) ||
+                (up ? y <= lands.top : y >= lands.top + lands.height);
               return { clipPath: drawnThere ? clipAt(false, top, height, y) : clipTop(0) };
             }),
             { easing: "linear", fill: "both" },
@@ -970,11 +1077,21 @@ function playReplace(
     attributes: true,
     attributeFilter: ["style", "aria-posinset"],
   });
+  // The reader's own scroll ends the swap at once, as it ends `playTurnEnd`'s fold (rule 4): every row
+  // drawn where it lands, the old frame's copies gone. Played on, the `scroll` pass below read the
+  // scroll as a new place for every row (its key is a top in the view) and started each one's wipe
+  // again, on rows the reader scrolled to and rows it carried past the edge (the motion gate's
+  // `offscreen-start` residual). Registered first, so the reader's scroll settles the swap before
+  // that pass runs: `settleTurnEnd` takes the pass's listener off, and a listener taken off during a
+  // dispatch is not called. What still reaches the pass is the view's own scroll (the bottom kept
+  // pinned), which plays on from the same clock.
+  const unscroll = endOnReaderScroll(thread, scroller, fold);
   scroller?.addEventListener("scroll", pass, { passive: true });
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
+    unscroll();
     for (const name of READER_GESTURES) page.removeEventListener(name, gesture, true);
   };
   arm();
@@ -1109,6 +1226,12 @@ export function playTurnEnd(
   const laid = new Map<HTMLElement, number>();
   /// The copies taken out before the fold ended (a row came in under them, below).
   const dropped = new Set<HTMLElement>();
+  /// The copies put in their final state (no ink) because their whole travel was out of the view.
+  /// Latched, unlike a row: a row out of sight is drawn at its place, which is where it belongs
+  /// whenever the reader reaches it, so a later pass may still animate what is left of its path. A
+  /// copy's final state is gone, and a reader who scrolls to its place must find the swap there, not
+  /// a row the turn took away fading in from full ink.
+  const unseen = new Set<HTMLElement>();
   // `anchored`: the kept row the reader is on, the one drawn nearest the view's center before the swap.
   const anchor =
     look === "anchored" && scroller
@@ -1127,6 +1250,33 @@ export function playTurnEnd(
   /// The subagent block's snapshots (`swap`), by the row each pictures; in before the rows, as the copies.
   const snapshots = new Map<string, HTMLElement>();
   let snapshotsIn = subagentLook !== "swap";
+  /// The view as this pass read it, taken once with the places: a rect read between the `animate()`
+  /// writes below would force a style pass per row (chat-render-pipeline R2). Undefined until the
+  /// first pass, and on a pane with no scroller.
+  let viewNow: DOMRect | undefined;
+  /// Whether a box's band meets the view, edge included, as `captureTurnEnd`'s own `seen`: an empty
+  /// slot right at the edge is where the reader is looking. A view of no height has not been laid out
+  /// (a pane measured before its first layout), so everything counts as seen there, as `unmeasured`.
+  const bandSeen = (top: number, height: number) =>
+    !viewNow || viewNow.height === 0 || (top + height >= viewNow.top && top <= viewNow.bottom);
+  /// Whether the box an animation would START on meets the view: where the row is drawn at that
+  /// moment, not where it lands and not the band between.
+  ///
+  /// This is rule 1 of docs/design/transcript-animation-rules.md as written -- "a motion starts only on
+  /// a row whose box meets the scroller's box WHEN IT STARTS" -- and it is also exactly what the
+  /// detector measures (`strayStarts` reads `start.top`/`start.bottom`, the box at the start frame). A
+  /// looser "seen anywhere along the sweep" test passes almost every start the detector flags, because
+  /// most of them are rows sliding in from outside the view: measured over the fuzzer corpus it took
+  /// `offscreen-start` down only about a tenth, where this test is what the zero-stray gate needs.
+  ///
+  /// A row that starts outside and lands inside is therefore drawn at its landing place, whole, with no
+  /// animation -- the doc's "drawn in its final state". The reader who scrolls to it finds it where it
+  /// belongs rather than sliding in from a place he never saw it in.
+  ///
+  /// `captureTurnEnd` drops a fold no part of which is seen (`silent`). This is the same rule one row
+  /// at a time, for the rows of a fold that does play; `restart` below is where it is applied, and
+  /// says why there.
+  const startSeen = (from: number, height: number) => bandSeen(from, height);
   const pass = () => {
     let nodes = [...mounted(thread)];
     // Scrolled before any place is read, so the pass plays every row from where it was to where it is
@@ -1159,7 +1309,15 @@ export function playTurnEnd(
     }
     // Every place is read before anything plays, so a pass lays the page out once.
     const tops = layoutTops(nodes);
+    // Read with the places, for `bandSeen` below: what the reader can see of this pass.
+    viewNow = scroller?.getBoundingClientRect();
     const snapshotTops = layoutTops([...snapshots.values()]);
+    /// Where each row is DRAWN in this pass (its rect, so a translate still running counts), against
+    /// `tops`, where it is laid out. Taken here, in the pass's read phase with every other
+    /// measurement, so this costs no layout of its own; `restart` says why it needs it.
+    const drawnTop = new Map<HTMLElement, number>();
+    for (const node of nodes) drawnTop.set(node, node.getBoundingClientRect().top);
+    for (const snapshot of snapshots.values()) drawnTop.set(snapshot, snapshot.getBoundingClientRect().top);
     // The lowest row the swap kept, where it was drawn then, and how far from its place it starts. A
     // row that comes in under it (the next turn's prompt, its live line and reply, arriving while the
     // fold plays) moves with it: placed where it lands and drawn there at once, it sat over the kept
@@ -1199,6 +1357,8 @@ export function playTurnEnd(
           row.copy!.remove();
         }
     const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
+    // The copies' drawn tops, with the rows' above: still the pass's read phase, before anything plays.
+    for (const copy of copies) drawnTop.set(copy, copy.getBoundingClientRect().top);
     const copyTops = layoutTops(copies);
     // Each box's height and paddings, read with the places (only while a copy shows): where each row's
     // and copy's text draws (`coverClip`).
@@ -1288,12 +1448,18 @@ export function playTurnEnd(
     if (grew) {
       if (startedAt !== undefined) {
         // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
+        // Before the move starts (the exit lead) a clipped row is drawn as the first frame put it: its
+        // clip stays the one captured then, never read back from what is drawn, which moved the reply's
+        // clip 8 px on the fold's second frame and split the fold in two around the lead (fade seed 74
+        // on cmux#50751).
+        const moveRuns = movesAt !== undefined && now() >= movesAt;
         const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap((node) => {
           const top = laid.get(node);
           if (top === undefined) return [];
           const style = (View ?? window).getComputedStyle(node);
           const y = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
-          const clip = moving.get(node)?.clip ? clippedBottom(node) : 0;
+          const captured = moving.get(node)?.clip;
+          const clip = captured ? (moveRuns ? clippedBottom(node) : captured) : 0;
           const shown = clip > 0 ? top + y + node.offsetHeight - clip : undefined;
           return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity), shown }];
         });
@@ -1310,10 +1476,44 @@ export function playTurnEnd(
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
+      /// The band this animation covers: where the row starts, where it lands, and its height. A row
+      /// that does not move gives its place for both. Required, so a call site added later cannot
+      /// animate without saying what part of the page it animates over.
+      band: { from: number; to: number; height: number },
       next: Moving,
       keyframes: () => Keyframe[][],
       timing: KeyframeAnimationOptions = {},
     ) => {
+      /// Nothing plays on a row drawn outside the view at the moment it would start: the row is already laid out
+      /// at its place, so not animating it IS its final state, drawn once, full ink (Leo, 2026-11-22:
+      /// "i scroll down, some bullshit ABOVE folds...? and plays an animation!? so there's some
+      /// bullshit animation where i dont expect it to be, which is horrendous").
+      ///
+      /// The gate is here rather than in `play` because it has to be decided before the cancel below.
+      /// By the time `play` runs, `restart` has already cancelled whatever was running, so a gate there
+      /// would leave a row that scrolled out mid-move with no animation at all: it would snap to its
+      /// place, the same visual fault in another shape. Returning here instead leaves a running
+      /// animation to run out, which lands right -- every keyframe set ends at `translate: 0`, the row's
+      /// true place, and at full ink -- so a row carried out of the view finishes quietly where it
+      /// belongs. What is skipped is only the START of a new animation on a row the reader cannot see.
+      ///
+      /// Nothing is latched: `pass()` runs again on every scroll and every placement, so a row scrolled
+      /// into view mid-fold animates from that later pass, in step with the fold's clock (`play`'s
+      /// negative delay), over what is left of its path.
+      /// Two boxes have to meet the view, because `band.from` alone is not where the row is.
+      /// `from` is `startTop(node, before.top)`: the top this row was captured at, in the view's
+      /// coordinates of that moment. Only the anchor row is carried across a scroll (`scrollTop +=
+      /// moved` above), so for every other row a reader's scroll leaves `before.top` stale by the
+      /// distance he moved -- measured here at hundreds of pixels (a row tested at `from` 78 while it
+      /// was drawn at -534). Testing the stale box let a fold animate rows far outside the view, which
+      /// is the fault Leo reported.
+      ///
+      /// `drawnTop` is where the row is drawn in this pass, read with the other places so the pass
+      /// still lays the page out once (never a rect per row between `animate()` writes:
+      /// chat-render-pipeline R2).
+      const drawn = drawnTop.get(node);
+      if (drawn !== undefined && !bandSeen(drawn, band.height)) return;
+      if (!startSeen(band.from, band.height)) return;
       const last = store.get(node);
       if (
         !grew &&
@@ -1407,9 +1607,12 @@ export function playTurnEnd(
         holds = Math.max(holds, hold);
         const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
         const recap = node.classList.contains(`acpmux-${NEXT_STEP}`) ? recapLook : "hold";
+        // Its band is its place: it is already laid out there, holding at no ink and fading in. Out of
+        // the reader's view `restart` draws it at full ink instead, which is where that fade ends.
         restart(
           node,
           moving,
+          { from: tops[index]!, to: tops[index]!, height: heights[index]! },
           { delta: 0, fades: true, animations: [], hold },
           () => [recapEntrance(recap, from, node.offsetHeight)],
           { delay: hold, fill: "backwards", ...(recap !== "hold" && { easing: MOTION_EASE_OUT }) },
@@ -1420,7 +1623,16 @@ export function playTurnEnd(
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
         const from = starts.get(node)?.opacity ?? 0;
-        restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]]);
+        // Its band is where it lands. Out of view it is drawn there at full ink instead: a fade no one
+        // sees is a half-state to whoever scrolls to it (the closed "Worked for" of a turn that ended
+        // above the view).
+        restart(
+          node,
+          moving,
+          { from: tops[index]!, to: tops[index]!, height: heights[index]! },
+          { delta: 0, fades: true, animations: [] },
+          () => [[{ opacity: from }, { opacity: 1 }]],
+        );
         return;
       }
       const delta = startTop(node, before.top) - tops[index]!;
@@ -1440,12 +1652,24 @@ export function playTurnEnd(
       const height = heights[index]!;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      // A row the swap's render grew (the reply's last lines, shown in the commit that
+      // ends its stream: revealedMarkdownModel.ts) starts as tall as it drew and opens to its full height on the fold's clock. Grown
+      // at once in the swap's frame, the lines showed a frame of motion of their own before the fold
+      // began, a second motion (cmux#50299).
+      // Read as the capture read it (a box, not the rounded offsetHeight), so a row that did not grow clips nothing.
+      if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
+        clip = Math.max(clip, node.getBoundingClientRect().height - before.height);
       if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
         covers.push({ top: from, bottom: tops[index]! + height });
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
+      /// The band of this move, for `restart`'s gate: the start box, the landing box, and what the row
+      /// sweeps between them. The row's box stayed in `covers` and in `path` above whether it animates
+      /// or not, so every row and copy in the view is clipped against the same boxes it reads today --
+      /// the rule is which rows animate, never which rows exist.
+      const band = { from, to: tops[index]!, height };
       // `dissolve`: the row holds where it was while its ink goes, and comes back in at its place. Its two
       // halves are timed in the keyframes, so the animation runs on the straight line.
       const subagent = isSubagentNode(node) ? subagentLook : "slide";
@@ -1456,19 +1680,25 @@ export function playTurnEnd(
         const order = [...snapshots.values()].indexOf(snapshot);
         // Where the slide starts the row (`from`): its drawn top, carried with the rows mounted above since.
         snapshotPlaces.push([snapshot, from - snapshotTops[order]!]);
-        restart(node, moving, { delta, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
+        restart(node, moving, band, { delta, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
           easing: MOTION_EASE_OUT,
         });
-        restart(snapshot, moving, { delta, fades: true, animations: [] }, () => [[{ opacity: 1 }, { opacity: 0 }]], {
-          easing: EASE_IN,
-          fill: "both",
-        });
+        // The snapshot is drawn where the row started and fades there, so the move's band is its band too.
+        restart(
+          snapshot,
+          moving,
+          band,
+          { delta, fades: true, animations: [] },
+          () => [[{ opacity: 1 }, { opacity: 0 }]],
+          { easing: EASE_IN, fill: "both" },
+        );
         return;
       }
       if ((look === "dissolve" || subagent === "dip") && Math.abs(delta) >= 0.5 && clip < 0.5) {
         restart(
           node,
           moving,
+          band,
           { delta, fades: false, animations: [], clip },
           () => [
             [
@@ -1486,10 +1716,13 @@ export function playTurnEnd(
       restart(
         node,
         moving,
+        band,
         { delta, fades: false, animations: [], clip, ...(lag > 0 && { hold: lag }) },
         () => [
           [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
-          ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
+          // The clip as read, not rounded up: a whole pixel more hid part of a line the reader had seen,
+          // a step of up to 1 px on the fold's first frame (fade seed 74 on cmux#50751).
+          ...(clip >= 0.5 ? [[{ clipPath: clipBottom(clip) }, { clipPath: clipBottom(0) }]] : []),
         ],
         lag > 0 ? { delay: lag, fill: "backwards" } : {},
       );
@@ -1568,6 +1801,31 @@ export function playTurnEnd(
       const box = boxes[nodes.length + order]!;
       const cover = coverClip({ from, to: copyTops[order]! + end, ...box }, paths, clippedBottomOf(copy));
       const covered = cover ? JSON.stringify(cover) : undefined;
+      // A copy drawn outside the view where its animation would start takes its final state at once: no ink,
+      // no exit fade and no move. The row it pictures is gone from the new frame, so there is no other
+      // place it could be drawn -- but neither place is in the view, and the "drawn in at least one
+      // place" rule is about what the reader sees, so nothing of his is dropped.
+      // The element stays in the thread, at no ink, rather than being removed: it is still in
+      // `copyStarts`, `boundaries` and `covers`, so every row and copy that IS in view is clipped
+      // against exactly the box set it reads today. Removing it would change a visible row's clip on
+      // the next pass, which is the edge's-run problem in another shape.
+      // A copy already moving is gated the same way, and for the same reason `restart` gates a row that
+      // is: the test comes before the cancel below, so what is running is left to run out. Its exit
+      // ends at no ink and its move at its landing place, which is the final state this branch writes
+      // anyway, so a copy carried out of the view finishes there quietly instead of starting again.
+      // Latched, unlike a row: a row out of sight is drawn where it belongs, so a later pass may still
+      // animate what is left of its path, but a copy's final state is gone -- a reader who scrolls to
+      // its place must find the swap there, not a row the turn took away fading in from full ink.
+      /// `from` is remembered (`startTop`), so a scroll since the capture leaves it stale; `drawnTop`
+      /// is where this copy is drawn in this pass. Either box outside the view is a start the reader
+      /// cannot see (`restart` says it at length).
+      const copyDrawn = drawnTop.get(copy);
+      const copySeen = (copyDrawn === undefined || bandSeen(copyDrawn, height)) && startSeen(from, height);
+      if (unseen.has(copy) || !copySeen) {
+        unseen.add(copy);
+        copy.style.opacity = "0";
+        return;
+      }
       const last = copyMoves.get(copy);
       if (
         !grew &&

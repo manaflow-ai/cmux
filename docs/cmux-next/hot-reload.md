@@ -313,6 +313,32 @@ takes the dev build). At 0f92b5e9 the first PR applied 10.87 s after try-pr star
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 
+#### Background by default
+
+A side instance opens parked: `side-instance.sh launch` (and so `try-pr.sh`, `hot-verify.py look` and `cmux app
+try`) puts the copy's windows on a virtual display no person looks at, "cmux parked windows"
+(`scripts/cmux-next/park-display.m`), and starts the app with `CMUX_NEXT_NO_ACTIVATE=1` (it never activates and no
+window of it becomes key) and `CMUX_NEXT_TEST_WINDOW_SCREEN` set to that display. An agent trying a change on a
+person's Mac draws nothing on their screens and takes no focus. Leo, 2026-11-22: "when you guys are testing stuff
+on [a test Mac], if you're trying to capture or whatever, ideally you guys are in some sort of background, maybe."
+
+The park display sits below and right of the person's displays, touching the bottom-right one at an 8-point corner
+(macOS keeps displays contiguous), for this login session only. It goes when the copy stops (`side-instance.sh stop`
+or the copy's pid ending). Windows there still draw, so a window shot (`screencapture -l WINDOW`, CuaDriver's
+`get_window_state`) and a window recording (`media/record-window.swift`) see them; a capture of the main display
+does not. Where the copy opens:
+
+| | windows | focus |
+|---|---|---|
+| `--parked` (default) | the park display | never |
+| `--shown` | the person's screens, behind the front app | not taken |
+| `--front` | the person's screens, in front | taken: for a person who asked to look |
+
+`CMUX_SIDE_PLACEMENT=parked|shown|front` sets the default (`CMUX_SIDE_PLACEMENT=front cmux app try .` to watch a try yourself). `try-pr.sh` takes `--shown` and `--front` through.
+`hot-verify.py look --kit` launches `--shown` (the kit records the main display), as does
+`scripts/measure/try-pr-side-instance.sh` (it shoots the display). With no clang or no console session the park
+display cannot be made, and the copy opens `--shown`, which `launch` says.
+
 ### An agent's loop: apply, probe, roll back
 
 ```sh

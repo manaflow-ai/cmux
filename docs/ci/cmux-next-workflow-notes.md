@@ -4968,3 +4968,51 @@ macos-placement uploads the owned-pool-watch marker: ci-owned-pool-rescue.yml's 
 (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves queued or refuses. Bot attempt 2 and
 later drop the stale placement output and re-admits it through the same fast-checks/owned-Mac/Blacksmith
 order; a person's re-run stays on the side label.
+
+## note-554
+
+Above `SUPERSEDED_GATE` and `superseded="" head_read=""` in compile-status, and above `if [[ "$state" == superseded ]]` in
+release-compile-fast, in `.github/workflows/cmux-next.yml`.
+
+A feat-cmux-next push the controller will not check (its receipt reads `"state": "superseded"`, a newer push tip
+is checked instead: note-551, cmuxterm-hq cmux_next_tip_debounce.go) gets no compile result, ever. compile-status
+did not take that state as final: it read it every 30 s for its whole 40 minutes, then posted
+`[no-verdict] No compile result for this head in 40 minutes` and failed, and release-compile-fast then read it for
+20 more minutes and handed the head to the Mac fallback. 2026-11-21 04Z..11-23 05Z: 159 failed compile-status jobs
+on feat-cmux-next pushes, 5,774 runner-min (p50 40.1 min each), about 4 min per merged PR.
+
+Now both read the branch head once (anonymous `git ls-remote`, no token) when the receipt says superseded and the run
+has no pull request. A head that moved on ends the wait at once: compile-status posts cmux-next/compile `error`
+`[no-verdict] [superseded] ...` (still no verdict to base_red_excuse.py's COMPILE_STATUS_NO_VERDICT) and ends green;
+release-compile-fast ends green with verdict `superseded`, so neither the admission job nor the Mac Release compile
+runs, as for a push the preflight found superseded. A head that has not moved, or that cannot be read, waits as
+before. Nothing that compiles is skipped: the newer tip's check covers these commits, and a red there names them.
+Undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0'.
+
+## note-555
+
+Above `macos-placement: CI_FAST_TIER_FLEET_SPILL` in `.github/workflows/cmux-next.yml`.
+
+With Blacksmith macOS off, a FLEET_CLIENT_JOBS job (the fast tier) that no idle mini took is listed in
+fleet_jobs, so its build-fleet client runs it on an idle gateway runner instead of waiting on the owned
+label (next_macos_cascade.fleet_spill()). 2026-11-23 09-11Z the fast tier queued 46 to 65 min on
+glaeda-side-std-xcode-26.6 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
+76 over 10 min), oldest 318 min, and all 31 of its slots busy, while placement logged idle gateway runners.
+fleet_gateway() still keeps the job only with an idle gateway runner of its own, and a fleet verdict
+`queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
+no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
+spill off; unset or any other value leaves it on.
+
+## note-556
+
+Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,
+`cmux-next generated files` ran 581 times for 17,010 runner-min and passed 0 times: base push runs went 41 red,
+0 green, and every PR run was red for the base's reasons. There were two shapes. The first was SwiftPM exiting 1 with
+`error: cannot find 'PaneMoreShotsTests' in scope` buried in about 43k warning lines; base fixed it at e627e833 but
+long-queued PR merge refs predated the fix. The second was the action and settings export judges failing because the
+CCmuxAppFFI pin (app-ffi-pin.json) lags the Rust catalog, so the Swift tests read the old catalog; it waits on the
+re-pin PR. A PR run of a job red on the base tells nobody anything gh-merge-green does not already excuse, so a pull
+request skips it while the newest base push verdict is red (scripts/ci/base_red_skip.py: fails open, 10% audit, the
+full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.

@@ -239,6 +239,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the controller's idle classic API guard step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_advisory_idle_step.py
+
       - name: Validate the classic-frozen guard
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_frozen_guard.py
@@ -280,6 +284,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_outbound_hosts.py
 
+      # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
+      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
+      - name: Validate NEXT's outbound sites go through the egress gate
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_gate.py
+
+      # Every egress gate site has a test that sends planted secrets through the real client to cmux-egress's
+      # capture server and finds them in no request (tests/egress_seeded.json; its todo count may only go down).
+      - name: Validate every egress gate site has a seeded-secret test
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_seeded.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -303,6 +319,10 @@ jobs:
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
+
+      - name: Validate the base-red skip of PR jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_base_red_skip.py
 
       - name: Validate merge freezes as issues
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -340,6 +360,14 @@ jobs:
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
+
+      # scripts/ci/vm-image-qcow2.sh (RFD 0100 step 6): a tiny raw image and rootfs tarball become a qcow2 whose
+      # sha256 file verifies. qemu-img is not on every runner image; the test skips its conversions without it.
+      - name: Validate the VM image qcow2 export
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1023,10 +1051,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_census_tallies.py
 
-      - name: Validate the risk label step reads labels from the event
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_risk_label_from_event.py
-
       - name: Validate simple live macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
@@ -1114,10 +1138,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py
 
-      - name: Validate canonical root ownership boundary
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_take_canonical_root.py
-
       - name: Validate warm-state distance recording and routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_distance.py
@@ -1139,6 +1159,17 @@ jobs:
       - name: Validate that the persistent-pool rescue watches every owned-pool workflow
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
+
+      # A same-repository macOS job offers an owned Mac before Blacksmith ("job pinned to a paid queue").
+      - name: Validate that no same-repository macOS job is pinned to a paid queue
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_paid_queue_pin.py
+
+      # A same-repository Linux job starts on the persistent pool (cmux-linux), not a Blacksmith size. No
+      # workflow ran this from #49215 until 2026-11-24, and in that time five jobs went back to RUNNER_POOLS reads.
+      - name: Validate that same-repository Linux jobs start on the persistent pool
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_same_repo_linux_owned_first.py
 
       - name: Validate the backend migrations plan
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1258,6 +1289,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ui_review_advisory.py
 
+      - name: Validate the resident UI preview worker's plan, request check and receipts
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ui_preview_worker.py
+
       - name: Validate gh-call attribution lines make no extra API call
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_call_log.py
@@ -1293,6 +1328,10 @@ jobs:
       - name: Validate triage severity and area rules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_rules.py
+
+      - name: Validate feat-cmux-next merges close their fixed issues
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_next_closes_issues.py
 
       - name: Validate cmux-tui focused filter routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1476,10 +1515,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
 
-      - name: Validate production drift issue updates are sticky
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_iroh_drift_issue.py
-
       - name: Validate Swift Testing suite timeout guard
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
@@ -1503,11 +1538,6 @@ jobs:
       - name: Validate xcodebuild failure diagnostics
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
-
-      - name: Validate pipe-safe CI capture
-        if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
-        run: |
-          bash tests/test_ci_run_and_capture.sh
 
       - name: Validate focused test launcher
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}

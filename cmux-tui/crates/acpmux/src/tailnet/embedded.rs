@@ -1173,19 +1173,19 @@ impl Controller {
     }
 
     /// Daemon shutdown has begun: no start, resume or listener failure acts.
-    pub(super) fn stopping(&self) -> bool {
+    pub(crate) fn stopping(&self) -> bool {
         self.stopping.load(Ordering::Acquire)
     }
 
     #[cfg(test)]
-    pub(super) fn set_running_for_test(&self, node: Arc<Node>, dns_name: &str) {
+    pub(crate) fn set_running_for_test(&self, node: Arc<Node>, dns_name: &str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         inner.state = LifecycleState::Running(node);
         inner.snapshot.state = "running";
         inner.snapshot.dns_name = Some(dns_name.to_owned());
     }
 
-    pub(super) fn retirement_pending(&self) -> bool {
+    pub(crate) fn retirement_pending(&self) -> bool {
         self.pending_retirement.load(Ordering::Acquire)
     }
 
