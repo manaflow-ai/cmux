@@ -95,8 +95,6 @@ public struct RootView: View {
     /// The account whose preferences are live (`AccountPreferences`); sign-out
     /// puts them away under it.
     @State private var accountUserID: String?
-    /// A pairing code opened while signed out: applied once the account's live data starts.
-    @State private var heldInvite: PairInvite?
     /// A Mac's invite for a new machine (`https://cmux.com/pair?i=…`): Pair Another Machine, its code filled in.
     @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
@@ -297,7 +295,6 @@ public struct RootView: View {
             ConnectivityTelemetry.shared.setAccount(email: email)
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
-        // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
         // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
@@ -305,7 +302,7 @@ public struct RootView: View {
         }
         // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-            guard let url = activity.webpageURL, let opened = OpenedURL(webpage: url) else { return }
+            guard let url = activity.webpageURL, let opened = OpenedURL(url: url) else { return }
             open(opened)
         }
         .sheet(item: $machineInvite) { invite in
@@ -334,8 +331,6 @@ public struct RootView: View {
             machineInvite = invite
         case .link(let link):
             NotificationRouter.shared.open(link: link)
-        case .macPairingCode(let invite):
-            if let live { live.accept(invite) } else { heldInvite = invite }
         }
     }
 
@@ -489,17 +484,11 @@ public struct RootView: View {
         }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
-        if let invite = heldInvite {
-            heldInvite = nil
-            coordinator.accept(invite)
-        }
         #if DEBUG
-        // Test-only (compiled out of Release): the pair-e2e rig (scripts/ci/cmux_next_pair_e2e.py)
-        // hands this launch a Mac's pairing code in its environment, taken as a scanned code is
-        // (.onOpenURL above). A simulator asks "Open in cmux?" for `simctl openurl`, and nothing on
-        // a CI Mac answers it. Never logged; the code's token is single use and expires in minutes.
-        if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
-            coordinator.accept(invite)
+        // Test-only (compiled out of Release): the hand-off (scripts/review.sh) names the tagged Mac
+        // to focus; a device id, no secret. Pairing is still the Mac's decision.
+        if let mac = ProcessInfo.processInfo.environment["CMUX_MOBILE_FOCUS_MAC"], !mac.isEmpty {
+            coordinator.dogfoodFocusMacID = mac
         }
         // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
         DogfoodReadiness(auth: auth).start(auth: auth, live: coordinator, apiBase: base)

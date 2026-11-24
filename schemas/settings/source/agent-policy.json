@@ -1744,6 +1744,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.",
       "keys": [
         "mobile.terminalSizing",
