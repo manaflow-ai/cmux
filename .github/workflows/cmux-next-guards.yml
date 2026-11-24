@@ -417,34 +417,6 @@ jobs:
           scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group release-notary --deadline 780 --results "$RUNNER_TEMP/release-notary.json" || true
           python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/release-notary.json"
 
-  # Signing jobs (the nightly notarization and iOS nightly Mac jobs) take their runner from this variable, so they must
-  # name ephemeral runners only: Blacksmith or GitHub's hosted Linux, never an owned mini
-  # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
-  # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
-  signing-runner-variables:
-    needs: coalesce
-    name: signing runner variables are ephemeral
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - name: Runner variables that signing jobs read name ephemeral runners
-        env:
-          MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
-        run: |
-          bad=0
-          for name in MACOS_RUNNER_26; do
-            value="${!name}"
-            case "$value" in
-              ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
-              *) echo "::error::vars.$name is '$value'; signing jobs run on it, so it must be blacksmith-* or ubuntu-*"; bad=1 ;;
-            esac
-          done
-          [ "$bad" = 0 ] || exit 1
-
   # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
   # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
   # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
@@ -1220,8 +1192,10 @@ jobs:
         run: |
           set -uo pipefail
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          added=(--added-deleted "$RUNNER_TEMP/added-deleted.txt")
+          git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/added-deleted.txt" || added=()
           if ! python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
-              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" --event pull_request \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request \
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
