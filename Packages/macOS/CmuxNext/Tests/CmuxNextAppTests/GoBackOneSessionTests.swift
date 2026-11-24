@@ -27,17 +27,21 @@ struct GoBackOneSessionTests {
         let places = [Self.chat("a"), Self.terminal("t"), Self.chat("b", workspace: "two"), Self.chat("c", window: "w2")]
         Self.visit(places, chats: ["a", "b", "c"], into: &sessions)
         #expect(sessions.entries.map(\.location.title) == ["a", "b", "c"], "the terminal is not a session step")
-        #expect(try #require(sessions.back()).location.title == "b")
+        let back1 = sessions.back()
+        #expect(try #require(back1).location.title == "b")
         // The chat it focuses settles: absorbed, not a new step.
-        #expect(!sessions.record(Self.chat("b", workspace: "two"), at: Date(timeIntervalSince1970: 100)))
-        #expect(try #require(sessions.back()).location.title == "a")
+        let recorded2 = sessions.record(Self.chat("b", workspace: "two"), at: Date(timeIntervalSince1970: 100))
+        #expect(!recorded2)
+        let back3 = sessions.back()
+        #expect(try #require(back3).location.title == "a")
         #expect(sessions.back() == nil, "no earlier session: the action refuses quietly")
     }
 
     @Test func twoChatsInOneWorkspaceAreTwoSteps() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b")], chats: ["a", "b"], into: &sessions)
-        #expect(try #require(sessions.back()).location.title == "a")
+        let back4 = sessions.back()
+        #expect(try #require(back4).location.title == "a")
     }
 
     @Test func aClosedOrEndedChatIsSkippedNotDropped() throws {
@@ -51,10 +55,12 @@ struct GoBackOneSessionTests {
     @Test func openingAnotherChatAfterGoingBackDropsTheLaterSteps() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b"), Self.chat("c")], chats: ["a", "b", "c"], into: &sessions)
-        #expect(try #require(sessions.back()).location.title == "b")
+        let back5 = sessions.back()
+        #expect(try #require(back5).location.title == "b")
         sessions.record(Self.chat("b"), at: Date(timeIntervalSince1970: 100))
         sessions.record(Self.chat("d"), at: Date(timeIntervalSince1970: 200))
         #expect(sessions.entries.map(\.location.title) == ["a", "b", "d"])
-        #expect(try #require(sessions.back()).location.title == "b")
+        let back6 = sessions.back()
+        #expect(try #require(back6).location.title == "b")
     }
 }

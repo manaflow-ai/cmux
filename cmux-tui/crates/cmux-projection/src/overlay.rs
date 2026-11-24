@@ -37,6 +37,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
 
+use crate::lower::Lower;
 use crate::manifest::{Entry, Kind, Manifest, ROOT};
 use crate::upper::{SetTime, Stat, Upper};
 use crate::{Fetch, FetchError};
@@ -80,6 +81,7 @@ pub mod errno {
     pub const ENOENT: i32 = 2;
     pub const EIO: i32 = 5;
     pub const EBADF: i32 = 9;
+    pub const EACCES: i32 = 13;
     pub const EEXIST: i32 = 17;
     pub const EXDEV: i32 = 18;
     pub const ENOTDIR: i32 = 20;
@@ -89,7 +91,8 @@ pub mod errno {
     pub const ENOTEMPTY: i32 = 39;
 }
 use errno::{
-    EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM, EXDEV,
+    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
+    EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -347,7 +350,9 @@ pub type Listed = (u64, Type, String, Option<Attr>);
 
 /// A projected folder as the machine sees it.
 pub struct Overlay {
-    manifest: Arc<Manifest>,
+    /// The lower layer: the manifest the overlay opened on, and the fuller one after
+    /// [`Overlay::extend`] (ids stay the same, [`crate::lower`]).
+    manifest: Lower,
     fetch: Arc<dyn Fetch>,
     owner: (u32, u32),
     upper: Upper,
@@ -368,6 +373,8 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    /// Files kept on the Mac whose refusal was logged already (once each, not once per open).
+    told: Mutex<HashSet<u32>>,
     /// Told of every read the agent asked for that failed because the Mac is away.
     away: Option<Arc<crate::away::Away>>,
     cache_index: Mutex<CacheIndex>,
@@ -399,6 +406,11 @@ impl Drop for Claim<'_> {
         drop(inflight);
         self.overlay.landed.notify_all();
     }
+}
+
+/// The log line's words for a file kept on the Mac for `reason`.
+fn kept_text(reason: &str) -> String {
+    format!("kept on the Mac ({reason}); `cmux link access request PATH` asks the person for it")
 }
 
 fn io_errno(error: &std::io::Error) -> i32 {
@@ -517,7 +529,7 @@ fn append_entry(
 }
 
 /// Whether `folder` holds a [`MARKERS`] file (a project's folder).
-fn marked(manifest: &Manifest, folder: u32) -> bool {
+fn marked(manifest: &Lower, folder: u32) -> bool {
     MARKERS.iter().any(|name| {
         manifest
             .lookup(folder, name)
@@ -537,7 +549,7 @@ fn marked(manifest: &Manifest, folder: u32) -> bool {
 /// folder is not looked into. The faulting file's size counts against [`BATCH_BYTES`], the batch
 /// holds at most [`BATCH_FILES`] files with the faulting one, and a pick looks at most
 /// [`BATCH_SCAN`] entries. Each folder is looked into once, so no file is picked twice.
-fn read_ahead(manifest: &Manifest, index: u32, skip: impl Fn(u32, &Entry) -> bool) -> Vec<u32> {
+fn read_ahead(manifest: &Lower, index: u32, skip: impl Fn(u32, &Entry) -> bool) -> Vec<u32> {
     let Some(faulting) = manifest.entry(index) else { return Vec::new() };
     let own = faulting.parent;
     let mut pick =
@@ -546,16 +558,12 @@ fn read_ahead(manifest: &Manifest, index: u32, skip: impl Fn(u32, &Entry) -> boo
     if own == ROOT {
         return pick.picked;
     }
-    let Some(up) = manifest.entry(own).map(|entry| entry.parent) else { return pick.picked };
-    let (first, beside) = manifest.children(up);
-    for (at, folder) in beside.iter().enumerate() {
+    let Some(up) = manifest.parent(own) else { return pick.picked };
+    for (other, folder) in manifest.children(up) {
         if pick.full() {
             break;
         }
         pick.scanned += 1;
-        let Some(other) = u32::try_from(at).ok().and_then(|at| first.checked_add(at)) else {
-            break;
-        };
         if folder.kind != Kind::Dir
             || other == own
             || (pick.skip)(other, folder)
@@ -570,7 +578,7 @@ fn read_ahead(manifest: &Manifest, index: u32, skip: impl Fn(u32, &Entry) -> boo
 
 /// The state of one [`read_ahead`] walk.
 struct Pick<'a, F> {
-    manifest: &'a Manifest,
+    manifest: &'a Lower,
     index: u32,
     skip: F,
     picked: Vec<u32>,
@@ -585,15 +593,11 @@ impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
 
     /// Looks at the children of `folder` in name order and takes its small files.
     fn files(&mut self, folder: u32) {
-        let (first, children) = self.manifest.children(folder);
-        for (at, child) in children.iter().enumerate() {
+        for (other, child) in self.manifest.children(folder) {
             if self.full() {
                 return;
             }
             self.scanned += 1;
-            let Some(other) = u32::try_from(at).ok().and_then(|at| first.checked_add(at)) else {
-                return;
-            };
             if (self.skip)(other, child) {
                 continue;
             }
@@ -647,7 +651,7 @@ impl Overlay {
         let pins_file = state.join(pin::PINS_FILE);
         let pins = pin::read_pins(&pins_file)?;
         let overlay = Self {
-            manifest,
+            manifest: Lower::new(manifest),
             fetch,
             owner,
             upper,
@@ -675,6 +679,7 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            told: Mutex::new(HashSet::new()),
             away: None,
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
@@ -799,7 +804,8 @@ impl Overlay {
         }
         drop(inner);
         let index = ino.checked_sub(1).and_then(|index| u32::try_from(index).ok()).ok_or(ENOENT)?;
-        if (index as usize) < self.manifest.len() {
+        // Only a head path's number is its index + 1; the rest were handed out from the counter.
+        if (index as usize) < self.manifest.head_len() {
             Ok(self.manifest.path_of(index))
         } else {
             Err(ENOENT)
@@ -812,7 +818,9 @@ impl Overlay {
         if let Some(ino) = inner.inos.get(path) {
             return *ino;
         }
-        if let Some(index) = self.manifest.resolve(path) {
+        if let Some(index) =
+            self.manifest.resolve(path).filter(|index| (*index as usize) < self.manifest.head_len())
+        {
             let ino = u64::from(index) + 1;
             if !inner.paths.contains_key(&ino) && !inner.dead.contains(&ino) {
                 return ino;
@@ -850,7 +858,7 @@ impl Overlay {
         let primary = inner.paths.get(&ino).cloned().or_else(|| {
             ino.checked_sub(1)
                 .and_then(|index| u32::try_from(index).ok())
-                .filter(|index| (*index as usize) < self.manifest.len())
+                .filter(|index| (*index as usize) < self.manifest.head_len())
                 .map(|index| self.manifest.path_of(index))
         });
         if primary.as_deref() != Some(gone) {
@@ -871,7 +879,7 @@ impl Overlay {
             inner.paths.remove(&ino);
             // A number from the counter is never handed out twice; only a manifest path's own
             // number could be, so only those are kept (at most one per manifest entry).
-            if ino <= self.manifest.len() as u64 {
+            if ino <= self.manifest.head_len() as u64 {
                 inner.dead.insert(ino);
             }
             if let Some(key) = upper {
@@ -982,7 +990,7 @@ impl Overlay {
         self.attr_of(ino, node)
     }
 
-    fn kind(node: &Node, manifest: &Manifest) -> Type {
+    fn kind(node: &Node, manifest: &Lower) -> Type {
         match node {
             Node::Upper(stat) => Type::of_mode(stat.mode),
             Node::Lower(index) => {
@@ -1059,8 +1067,7 @@ impl Overlay {
         let before = inner.whiteouts.clone();
         inner.whiteouts.remove(path);
         if let Some(index) = self.manifest.resolve(path) {
-            let (_, children) = self.manifest.children(index);
-            for entry in children {
+            for (_, entry) in self.manifest.children(index) {
                 inner.whiteouts.insert(join(path, &entry.name));
             }
         }
@@ -1171,9 +1178,8 @@ impl Overlay {
         // The value: kind, the upper inode (an upper name), the manifest index (a lower name).
         let mut names: BTreeMap<String, (Type, Option<u64>, Option<u32>)> = BTreeMap::new();
         if let Some(index) = self.lower(&path) {
-            let (first, children) = self.manifest.children(index);
             let inner = self.lock();
-            for (at, entry) in (first..).zip(children) {
+            for (at, entry) in self.manifest.children(index) {
                 if !Self::hidden(&inner, &join(&path, &entry.name)) {
                     names.insert(entry.name.clone(), (Type::of_kind(entry.kind), None, Some(at)));
                 }
@@ -1236,7 +1242,22 @@ impl Overlay {
         }
     }
 
+    /// `EACCES` for a file the Mac keeps home (listed with its stat, its bytes never sent), with
+    /// why in this machine's log, once per file.
+    fn refuse_kept(&self, index: u32) -> Result<(), i32> {
+        let Some(reason) = self.manifest.kept(index) else { return Ok(()) };
+        if self.told.lock().unwrap_or_else(PoisonError::into_inner).insert(index) {
+            eprintln!(
+                "cmux-projection: {}: {} (EACCES)",
+                self.manifest.path_of(index),
+                kept_text(reason)
+            );
+        }
+        Err(EACCES)
+    }
+
     fn read_lower(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
+        self.refuse_kept(index)?;
         let entry = self.manifest.entry(index).ok_or(ENOENT)?;
         match entry.kind {
             Kind::Dir => return Err(EISDIR),
@@ -1385,7 +1406,8 @@ impl Overlay {
             let picked = {
                 let inner = self.lock();
                 read_ahead(&self.manifest, index, |other, entry| {
-                    Self::hidden(&inner, &self.manifest.path_of(other))
+                    self.manifest.kept(other).is_some()
+                        || Self::hidden(&inner, &self.manifest.path_of(other))
                         || (entry.kind == Kind::File && self.cache_path((other, WHOLE)).exists())
                 })
             };
@@ -1542,6 +1564,7 @@ impl Overlay {
 
     /// Copies lower `path` (entry `index`) into the upper layer, unless it is there already.
     fn copy_up(&self, path: &str, index: u32) -> Result<(), i32> {
+        self.refuse_kept(index)?;
         self.copy_up_keeping(path, index, true)
     }
 
@@ -1607,6 +1630,10 @@ impl Overlay {
             return Ok(self.add_handle(Handle { ino, file: None, lower: Some(index) }));
         }
         let path = self.path_of(ino)?;
+        // A file the Mac keeps home: its stat is listed, an open of it is refused.
+        if let Some(Node::Lower(index)) = self.node(&path) {
+            self.refuse_kept(index)?;
+        }
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
             match self.node(&path).ok_or(ENOENT)? {
@@ -2158,6 +2185,10 @@ pub mod pin;
 
 #[path = "overlay_swap.rs"]
 mod swap;
+
+#[path = "overlay_extend.rs"]
+mod extend;
+pub use extend::Extended;
 
 #[cfg(test)]
 #[path = "overlay_tests.rs"]

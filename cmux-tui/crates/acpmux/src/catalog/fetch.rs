@@ -81,7 +81,7 @@ impl HttpsFetcher {
 
     async fn get_one(&self, url: &str, etag: Option<&str>) -> Result<FetchOutcome, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let client = crate::happy_dial::http_client()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(TIMEOUT)

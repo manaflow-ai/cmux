@@ -135,6 +135,7 @@ public struct WorkspaceScreen: View {
             // The grid's view stays "visible" in the background: its refresh stops here.
             // Inactive (Control Center, the app switcher's first moment) still shows it.
             .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
@@ -183,8 +184,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {

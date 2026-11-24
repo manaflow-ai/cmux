@@ -4,7 +4,8 @@
 2026-11-21: a merge push from a blobless clone (`--filter=blob:none`, what wt mirrors are) spent the pre-push
 gate's whole 600 s limit inside git_batch.cat_file, three times in a row: `cat-file --batch` fetched each of the
 ~9,000 missing blobs of the gate's temp trees with its own round trip to the promisor remote. cat_file now
-reads with GIT_NO_LAZY_FETCH first, fetches the blobs that read missed in one fetch, and reads those again.
+reads with GIT_NO_LAZY_FETCH first, fetches the blobs that read missed in one fetch, and reads those again. A git
+before 2.44, which ignores GIT_NO_LAZY_FETCH, asks rev-list which blobs it lacks and fetches those in one fetch.
 
 The test makes a source repository, clones it blobless over file:// and reads every file through cat_file with
 GIT_TRACE2_EVENT on, counting the `git fetch` processes git started (git's lazy fetch is a `git fetch` child,
@@ -86,17 +87,27 @@ class GitBatchPrefetchTest(unittest.TestCase):
         return path
 
     def missing(self, clone: Path) -> int:
-        quiet = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
-        out = git(clone, "cat-file", "--batch-check", env=quiet,
-                  data="".join(f"HEAD:{name}\n" for name in FILES).encode()).decode()
-        return sum(line.endswith(" missing") for line in out.splitlines())
+        """The files' blobs CLONE lacks, asked of rev-list (git_batch.lacking): a `cat-file --batch-check` probe
+        would fetch them itself on a git before 2.44."""
+        return len(git_batch.lacking(clone, git_batch.blob_ids(clone, [f"HEAD:{name}" for name in FILES])))
+
+    def old_git(self):
+        """cat_file as on a git before 2.44 (the GCP lane VMs' 2.43), which ignores GIT_NO_LAZY_FETCH."""
+        saved = git_batch.honors_no_lazy_fetch
+        git_batch.honors_no_lazy_fetch = lambda env=None: False
+        self.addCleanup(setattr, git_batch, "honors_no_lazy_fetch", saved)
+
+    def test_missing_blobs_come_in_one_fetch_on_an_old_git_too(self):
+        """fs-agent-lane-10, 2026-11-24 (git 2.43): reads blob by blob wrote a pack a second into the host's wt
+        mirror, 2372 in an hour. A git that ignores GIT_NO_LAZY_FETCH asks rev-list which blobs it lacks, then
+        fetches those in one fetch."""
+        self.old_git()
+        self.test_missing_blobs_come_in_one_fetch()
 
     def test_missing_blobs_come_in_one_fetch(self):
-        if not git_batch.honors_no_lazy_fetch():
-            self.skipTest("git older than 2.44 has no GIT_NO_LAZY_FETCH; cat_file reads as before")
-        clone = self.clone("prefetched")
+        clone = self.clone(f"prefetched-{len(list(self.root.iterdir()))}")
         self.assertEqual(self.missing(clone), len(FILES))
-        trace = self.root / "prefetched.trace"
+        trace = clone.with_suffix(".trace")
         ids: dict[str, str] = {}
         found = git_batch.cat_file(clone, self.specs, env={**os.environ, "GIT_TRACE2_EVENT": str(trace)}, ids=ids)
         self.assertEqual(fetches(trace), 1, "every missing blob in one fetch")
@@ -107,7 +118,7 @@ class GitBatchPrefetchTest(unittest.TestCase):
         self.assertIsNone(found["HEAD:no/such/file"])
         self.assertIsNone(found["HEAD:dir0"])
 
-        again = self.root / "again.trace"
+        again = clone.with_suffix(".again.trace")
         git_batch.cat_file(clone, self.specs, env={**os.environ, "GIT_TRACE2_EVENT": str(again)})
         self.assertEqual(fetches(again), 0, "a warm clone fetches nothing")
 
