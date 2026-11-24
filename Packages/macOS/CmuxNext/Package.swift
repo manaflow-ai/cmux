@@ -1720,6 +1720,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextApps",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the system calendar ops' rules (cmux-app-ffi src/system_calendar.rs).
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextBrowserCore",
                 "CmuxNextCompat",
