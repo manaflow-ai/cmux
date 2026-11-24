@@ -52,7 +52,9 @@ fn result_of(msgs: &[Message], want: i64) -> Option<Result<Value, String>> {
 async fn written(t: &Translator, msg: &Message) -> Vec<Value> {
     match t.outbound(msg).await {
         Outbound::Lines(lines) => lines,
-        Outbound::Reply(reply) => panic!("answered at once: {reply:?}"),
+        Outbound::Reply(reply) | Outbound::LinesThenReply(_, reply) => {
+            panic!("answered at once: {reply:?}")
+        }
     }
 }
 

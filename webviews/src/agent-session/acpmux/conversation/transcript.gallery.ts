@@ -4113,11 +4113,11 @@ function promptPendingLooks() {
     );
   return {
     "prompt-pending": {
-      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending; Queued, sends when the current turn ends for a steer behind the running turn), shown at rest; the row's buttons come with the pointer and the age takes the slot once it lands.",
+      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending), shown at rest, its row anchored at the bubble's right edge so Copy never moves; a steer queued behind the running turn looks sent (its age, no words; Leo, 2026-11-17); the row's buttons come with the pointer and the age takes the slot once it lands.",
       snapshot: rows(),
     },
     "prompt-pending-clock": {
-      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but a reader cannot tell a queued steer from a slow send without hovering.",
+      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but the clock alone says less than Sending.",
       snapshot: rows(),
       documentAttributes: { "prompt-pending-look": "clock" },
     },

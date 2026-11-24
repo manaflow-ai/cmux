@@ -45,6 +45,8 @@ export interface CatalogApp {
   hidden?: boolean;
   /** The owner's word: hidable, never removable (first-party apps; FIRST-PARTY-APPS). */
   hide_only?: boolean;
+  /** The app draws on the New Tab page (`cmux.newtab/1`), so it can be the New Tab app. */
+  new_tab?: boolean;
   /** Absent from an owner older than shelves: the page treats it as `store`. */
   shelf?: AppShelf;
   /** The host failed to load the app (the listing's install `failure`); Discover leaves it out. */
@@ -131,6 +133,8 @@ export interface InstalledApp {
   tier?: AppTier;
   /** The owner's word on Hide versus Remove; wins over `tier`. */
   hide_only?: boolean;
+  /** The app draws on the New Tab page (`cmux.newtab/1`). */
+  new_tab?: boolean;
   icon?: AppIconRef;
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */

@@ -271,12 +271,12 @@ public struct SidebarMapping {
         guard machineNamed else { return workspaceTitle }
         if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
         if let displayName, !displayName.isEmpty { return displayName }
-        for candidate in [chatTitle, taskSummary] {
-            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
-                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
-                  value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame else { continue }
-            return value
-        }
+        // A real chat title counts even when it reads as the session name: a chat renamed "mango"
+        // is titled "Mango" (`AgentTurnStates.isRenamed`), and skipping it left the row on its old name.
+        if let value = chatTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty { return value }
+        if let value = taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+           value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
+           value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame { return value }
         return workspaceTitle
     }
 

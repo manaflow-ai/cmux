@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""launch_tti_check.fresh_copy: a cold round's copy goes to a new folder, never back into the path the app just ran
+"""launch_tti_check.fresh_copy and updated_copy: a cold round's copy goes to a new folder, never back into the path the app just ran
 from. On 2026-11-20 (cmuxterm-hq run 44723138688) the re-copy in place hit "Operation not permitted" on every file
 of the bundle on cmux-austin-mini-0, every cold round failed, and the three launch-to-interaction rows read STALE.
 
@@ -64,6 +64,22 @@ class FreshCopy(unittest.TestCase):
         with mock.patch.object(M.subprocess, "run", fail):
             with self.assertRaises(subprocess.SubprocessError):
                 M.fresh_copy(self.app, self.pristine, 1)
+
+
+    def test_the_update_copy_is_prewarmed_in_a_staging_folder_then_renamed_into_place(self):
+        seen = []
+
+        def prewarm(app, env):
+            seen.append((app, (app / "Contents" / "MacOS" / "cmux").read_text(), env))
+            return {"runs": [], "frameworks": {"files": 0, "pages": 0}}
+        with mock.patch.object(M.subprocess, "run", fake_ditto), mock.patch.object(M, "staged_update_prewarm", prewarm):
+            new, record = M.updated_copy(self.app, self.pristine, 4, {"HOME": "h"})
+        self.assertEqual(seen, [(self.root / "app-cold-stage-4" / "cmux NIGHTLY.app", "new", {"HOME": "h"})])
+        self.assertEqual(new, self.root / "app-cold-4" / "cmux NIGHTLY.app")
+        self.assertEqual((new / "Contents" / "MacOS" / "cmux").read_text(), "new")
+        self.assertEqual(record, {"runs": [], "frameworks": {"files": 0, "pages": 0}})
+        self.assertFalse((self.root / "app-cold-stage-4").exists())
+        self.assertFalse(self.app.exists())
 
 
 class UpdaterOff(unittest.TestCase):
