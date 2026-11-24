@@ -804,7 +804,7 @@ requestAnimationFrame(() => {
 
   test("a live page whose rows do not reach the view's top keeps the copy up until an older page fills it", async () => {
     const context = await newContext(800, 600);
-    const before = await written(await context.newPage(), { atEnd: true });
+    const before = await written(await context.newPage(), HTML_ATTRIBUTES, undefined, { atEnd: true });
     const page = await context.newPage();
     await relaunched(page, before.snapshot, "theme-1", { atEnd: true, short: true });
     // The page drew the kept tail and asked to take over: its three rows would leave 352 px empty
