@@ -388,7 +388,7 @@ job = "linux"
 alone = true
 timeout = 1800
 title = "Old and new peers talk in both directions"
-about = "acpmux, cmux-remote and cmux-mobile-link run their new code against a peer that knows only the PR base's messages, both ways, and fail on a message the other side never listed; each protocol's wire manifest matches its code"
+about = "acpmux, cmux-remote, cmux-mobile-link and the relay frame run their new code against a peer that knows only the PR base's messages, both ways, and fail on a message the other side never listed; each protocol's wire manifest matches its code"
 needs = ["rust"]
 inputs = [
   "cmux-tui/spec/wire/**",
@@ -402,6 +402,8 @@ inputs = [
   "cmux-tui/crates/cmux-remote/**",
   "cmux-next-ios/rust/crates/cmux-mobile-link/**",
   "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+  "cmux-tui/crates/cmux-transport/src/relay_frame.rs",
+  "cmux-tui/crates/cmux-transport/tests/wire_lockstep.rs",
 ]
 run = '''
 export CMUX_WIRE_BASE_DIR="$(mktemp -d)"
@@ -412,6 +414,7 @@ rc=0
 cargo test --locked -p cmux-remote-protocol --lib wire_lockstep || rc=1
 cargo test --locked -p cmux-remote --lib wire_lockstep || rc=1
 cargo test --locked -p acpmux --test wire_lockstep || rc=1
+cargo test --locked -p cmux-transport --test wire_lockstep || rc=1
 cd ../cmux-next-ios/rust
 cargo test --locked -p cmux-mobile-link --test wire_lockstep || rc=1
 exit "$rc"
