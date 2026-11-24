@@ -47,7 +47,9 @@ final class ComposerSwipeCollapseUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
+        // The swipe is off by default (Settings → Composer → Swipe Down to Collapse): turn it on.
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmuxMobile.settings.swipeDownCollapsesComposer", "YES",
+                                "-cmux-mobile-demo", demo]
         app.launch()
         return app
     }

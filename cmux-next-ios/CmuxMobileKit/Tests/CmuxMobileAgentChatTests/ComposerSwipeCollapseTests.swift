@@ -48,10 +48,20 @@ import UIKit
 #if os(iOS)
 @MainActor
 @Suite struct ComposerSwipeCollapseViewTests {
-    @Test func everyComposerCollapsesOnSwipeDownByDefault() {
+    /// Off until the person turns on Settings → Composer → Swipe Down to Collapse (Leo, 2026-11-24:
+    /// "don't unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it).
+    @Test func theSwipeIsOffUntilTheSettingIsOn() {
+        let key = CmuxMobilePreferences.Key.swipeDownCollapsesComposer
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(saved, forKey: key) }
+        UserDefaults.standard.removeObject(forKey: key)
         let view = ComposerReturnTextView(policy: ComposerReturnPolicy(style: .chat, maxLines: 6))
-        #expect(view.collapsesOnSwipeDown)
         #expect(view.gestureRecognizers?.contains { $0 is UIPanGestureRecognizer && $0.cancelsTouchesInView == false } == true)
+        #expect(!view.swipeCollapseEnabled, "off by default")
+        UserDefaults.standard.set(true, forKey: key)
+        #expect(view.swipeCollapseEnabled, "the setting turns it on in every composer")
+        view.collapsesOnSwipeDown = false
+        #expect(!view.swipeCollapseEnabled, "one composer can opt out")
     }
 }
 #endif

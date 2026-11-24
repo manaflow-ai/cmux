@@ -29,8 +29,14 @@ open class ComposerReturnTextView: UITextView {
     public var onPasteAttachments: (() -> Void)?
     /// A downward swipe inside the text, starting at its top, ends editing:
     /// the keyboard goes down and the composer returns to its resting row
-    /// (`ComposerSwipeCollapse`). On by default in every composer.
+    /// (`ComposerSwipeCollapse`), when Settings → Composer → Swipe Down to
+    /// Collapse is on (`CmuxMobilePreferences.swipeDownCollapsesComposer`, off
+    /// by default). Set false to opt one composer out.
     public var collapsesOnSwipeDown = true
+    /// Whether the swipe is on for this view now: its own switch and the setting.
+    public var swipeCollapseEnabled: Bool {
+        collapsesOnSwipeDown && CmuxMobilePreferences.swipeDownCollapsesComposer()
+    }
     /// Called after a swipe down collapsed the composer.
     public var onSwipeCollapse: (() -> Void)?
 
@@ -219,7 +225,7 @@ open class ComposerReturnTextView: UITextView {
         case .began:
             swipeHeldFor = touchDownTime > 0 ? max(0, CACurrentMediaTime() - touchDownTime) : 0
         case .changed, .ended:
-            guard collapsesOnSwipeDown, isFirstResponder,
+            guard swipeCollapseEnabled, isFirstResponder,
                   swipeCollapseRule.collapses(translation: pan.translation(in: self), velocity: pan.velocity(in: self),
                                               beganAtTop: swipeBeganAtTop, heldFor: swipeHeldFor) else { return }
             // Stop this drag so it collapses once.
@@ -250,7 +256,7 @@ open class ComposerReturnTextView: UITextView {
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let view = gestureRecognizer.view as? ComposerReturnTextView else { return false }
-            return view.collapsesOnSwipeDown && view.isFirstResponder
+            return view.swipeCollapseEnabled && view.isFirstResponder
         }
     }
 
