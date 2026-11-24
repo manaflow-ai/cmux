@@ -190,12 +190,44 @@ async fn forcing_the_relay_without_one_fails_fast() {
     assert!(started.elapsed() < Duration::from_secs(1));
 }
 
-/// A join presents this device's own relay ticket, as the service stamped
-/// it on the session's signals to this device: without it (an older
-/// service, or a device that never received it) the relay refuses the join.
+/// As production: no tickets. A join is admitted by its Bearer token only for a
+/// device the session's first admitted signal bound: before any signal, `403`; after
+/// the phone's signal (an early `wg-relay`), both its devices
+/// join with no ticket, and a third device of the same user does not.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_join_without_its_ticket_is_refused() {
+async fn a_join_is_admitted_by_the_session_its_first_signal_bound() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
     let server = FakeSignaling::start(FakeOptions::default()).await;
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let _mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let session = uuid::Uuid::new_v4().to_string();
+    let endpoint = |device: &str| {
+        RelayEndpoint::with_token(server.base_url.clone(), None, device.to_owned(), "user:alice")
+    };
+    let refused =
+        RelayCarrier::join(&endpoint(&phone_id), &session, &mac_id, None).await.expect_err("no session");
+    assert!(matches!(refused, RelayFailure::Refused { status: 403, .. }), "{refused:?}");
+    phone.send_signal(&mac_id, &session, cmux_mobile_link::signaling::SignalPayload::WgRelay {}).unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let _phone =
+        RelayCarrier::join(&endpoint(&phone_id), &session, &mac_id, None).await.expect("the phone joins");
+    let _mac =
+        RelayCarrier::join(&endpoint(&mac_id), &session, &phone_id, None).await.expect("the Mac joins");
+    let stranger = uuid::Uuid::new_v4().to_string();
+    let refused =
+        RelayCarrier::join(&endpoint(&stranger), &session, &mac_id, None).await.expect_err("not a party");
+    assert!(matches!(refused, RelayFailure::Refused { status: 403, .. }), "{refused:?}");
+    assert_eq!(server.relay_joins(), 2);
+}
+
+/// A service that stamps relay tickets (`relay_tickets`): a join presents this
+/// device's own, as the service stamped it on the session's signals to this device;
+/// without it the relay refuses the join.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_tickets_a_join_without_its_ticket_is_refused() {
+    let server = FakeSignaling::start(FakeOptions { relay_tickets: true, ..FakeOptions::default() }).await;
     let endpoint = RelayEndpoint::with_token(
         server.base_url.clone(),
         None,
@@ -852,16 +884,16 @@ struct Timed {
 
 /// Direct UDP and TURN both fail, over a network of `leg` per one-way leg (zero: the
 /// in-process loopback). Each side's build is chosen: `phone` and `mac` (its
-/// `relay_first`, and for the phone `relay_ticket_early`); `old_worker` has the
-/// service refuse `relay_ticket` frames as a Worker before them does.
+/// `relay_first`, and for the phone `relay_join_early`); `tickets` has the service
+/// stamp relay tickets and require them on a join.
 async fn timed_relay_dial(
     leg: Duration,
     phone_first: bool,
     phone_early: bool,
     mac_first: bool,
-    old_worker: bool,
+    tickets: bool,
 ) -> Timed {
-    let fake = FakeOptions { signal_leg: leg, no_relay_ticket_frames: old_worker, ..FakeOptions::default() };
+    let fake = FakeOptions { signal_leg: leg, relay_tickets: tickets, ..FakeOptions::default() };
     let mac_options =
         DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
     let rig = rig(fake, mac_options, true).await;
@@ -869,7 +901,7 @@ async fn timed_relay_dial(
         drop_udp_to: Some(udp_to_the_peer_lost),
         relay: relay(&rig.server, &rig.phone_id),
         relay_first: phone_first,
-        relay_ticket_early: phone_early,
+        relay_join_early: phone_early,
         ..options()
     };
     let started = std::time::Instant::now();
@@ -894,11 +926,11 @@ fn median(mut times: Vec<Duration>) -> Duration {
     times[times.len() / 2]
 }
 
-/// Relay-only dial, one network leg 25 ms: asking for the relay ticket at the dial's
-/// start puts the phone's join (ticket 2 legs, join 4) beside the Mac's (wg-init 2, join
-/// 4) instead of after the Mac's `wg-resp` (2 + 2 + 4). Eight dials each, the median.
+/// Relay-only dial, one network leg 25 ms: joining right after the early `wg-relay`
+/// puts the phone's join (4 legs) beside the Mac's (the cue 2, join 4) instead of after
+/// the Mac's `wg-resp` (2 + 2 + 4). Eight dials each, the median.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_relay_ticket_at_the_dials_start_does_not_slow_a_relay_only_dial() {
+async fn the_phones_early_join_does_not_slow_a_relay_only_dial() {
     let leg = Duration::from_millis(25);
     let (mut off, mut on) = (Vec::new(), Vec::new());
     for _ in 0..8 {
@@ -907,20 +939,20 @@ async fn the_relay_ticket_at_the_dials_start_does_not_slow_a_relay_only_dial() {
     }
     let (off, on) = (median(off), median(on));
     eprintln!(
-        "ticket on the answer: {off:?} ({:.1} legs); ticket at the dial's start: {on:?} ({:.1} legs)",
+        "phone joins on the answer: {off:?} ({:.1} legs); right after its cue: {on:?} ({:.1} legs)",
         off.as_secs_f64() / leg.as_secs_f64(),
         on.as_secs_f64() / leg.as_secs_f64()
     );
-    // The Mac's join (its ticket rides `wg-init`: 2 legs + 4 to join) is the longer way
-    // and runs beside the phone's, so the early ticket saves up to two legs here, within
-    // the noise of a loaded runner: it must not cost one.
+    // The Mac's join (on the cue: 2 legs + 4 to join) is the longer way and runs beside
+    // the phone's, so the phone's early join saves up to two legs here, within the noise
+    // of a loaded runner: it must not cost one.
     assert!(on <= off + leg, "{on:?} against {off:?}");
 }
 
-/// An older phone (no ticket request) against a new Mac: the Mac's ticket comes on the
-/// phone's `wg-init` as always, both dial the relay first, and the link rides it.
+/// A phone that does not join early (an older build) against a new Mac: the Mac joins on
+/// the cue, the phone on the Mac's answer, and the link rides the relay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_older_phone_without_the_ticket_request_against_a_new_mac_still_rides_the_relay() {
+async fn an_older_phone_without_the_early_join_against_a_new_mac_still_rides_the_relay() {
     let timed = timed_relay_dial(Duration::ZERO, true, false, true, false).await;
     assert!(timed.up < Duration::from_secs(1), "link up after {:?}", timed.up);
     assert_eq!(timed.phone_joins.len(), 1, "{:?}", timed.phone_joins);
@@ -937,13 +969,15 @@ async fn a_new_phone_against_an_older_mac_keeps_the_three_second_rule_and_drops_
     assert!(last >= Duration::from_secs(3), "{:?}", timed.phone_joins);
 }
 
-/// A new phone against a Worker before `relay_ticket` (it refuses the frame): the
-/// refusal fails no dial, and the ticket comes on the Mac's answer as before.
+/// A service that stamps and requires relay tickets: the phone's ticketless early join
+/// is refused, the Mac's (its ticket on the cue) is not, and the phone joins with the
+/// ticket on the Mac's answer; the link still rides the relay at once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_new_phone_against_a_worker_without_the_ticket_request_still_rides_the_relay() {
+async fn with_tickets_a_refused_early_join_falls_back_to_the_ticket_on_the_answer() {
     let timed = timed_relay_dial(Duration::ZERO, true, true, true, true).await;
     assert!(timed.up < Duration::from_secs(1), "link up after {:?}", timed.up);
     assert_eq!(timed.phone_joins.len(), 1, "{:?}", timed.phone_joins);
+    assert!(timed.mac_joins[0] < Duration::from_millis(500), "{:?}", timed.mac_joins);
 }
 
 /// One bench dial: link-up, the phone's and the Mac's first relay join, and when
@@ -957,15 +991,14 @@ struct BenchDial {
 
 /// Both sides dial the relay first, direct UDP lost, relay joins taking 200 ms. `early_wg_relay`:
 /// the phone's early `wg-relay` reaches the Mac (else the server drops it, as an older Mac
-/// would). `ticket_frame`: the service answers the phone's `relay_ticket` frame (else it
-/// refuses it, as a Worker before the frame). `slow_gather`: a TURN host that never answers.
-async fn bench_dial(early_wg_relay: bool, ticket_frame: bool, slow_gather: bool) -> BenchDial {
+/// would). `phone_early`: the phone joins right after its cue (else on the Mac's answer).
+/// `slow_gather`: a TURN host that never answers. No relay tickets, as production.
+async fn bench_dial(early_wg_relay: bool, phone_early: bool, slow_gather: bool) -> BenchDial {
     let mac_options = DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: true, ..options() };
     let fake = FakeOptions {
         relay_join_delay: Duration::from_millis(200),
         enforce_signal_kinds: true,
         drop_early_wg_relay: !early_wg_relay,
-        no_relay_ticket_frames: !ticket_frame,
         ..FakeOptions::default()
     };
     let rig = rig(fake, mac_options, true).await;
@@ -982,7 +1015,7 @@ async fn bench_dial(early_wg_relay: bool, ticket_frame: bool, slow_gather: bool)
         drop_udp_to: Some(udp_to_the_peer_lost),
         relay: relay(&rig.server, &rig.phone_id),
         relay_first: true,
-        relay_ticket_early: ticket_frame,
+        relay_join_early: phone_early,
         ice_servers,
         ..options()
     };
@@ -1017,7 +1050,7 @@ fn percentile(times: &[Duration], p: f64) -> Duration {
 }
 
 /// Before/after for a relay-first dial with direct UDP lost: relay first alone, with the
-/// Mac's early join, and with both sides' early joins (the phone's `relay_ticket` frame too),
+/// Mac's early join, and with both sides' early joins (the phone's too, right after its cue),
 /// over a slow gather; and over a fast gather (no TURN host), where it must cost nothing.
 /// `cargo test -p cmux-mobile-link --test https_relay -- --ignored --nocapture bench_relay_first_dial`
 #[ignore = "bench: about two minutes"]
@@ -1036,10 +1069,10 @@ async fn bench_relay_first_dial() {
         "{:<38} {:>14} {:>14} {:>14} {:>14}",
         "p50 / p95 ms", "link up", "phone join", "Mac join", "wg-init"
     );
-    for (name, early, ticket, slow) in configs {
+    for (name, early, phone_early, slow) in configs {
         let mut dials = Vec::new();
         for _ in 0..RUNS {
-            dials.push(bench_dial(early, ticket, slow).await);
+            dials.push(bench_dial(early, phone_early, slow).await);
         }
         let cell = |pick: fn(&BenchDial) -> Duration| {
             let times: Vec<Duration> = dials.iter().map(pick).collect();

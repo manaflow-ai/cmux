@@ -112,41 +112,49 @@ pub(super) struct RelayPlan {
     /// Join as the tunnel starts: both sides offered `relay: "first"`, so the
     /// relay rides beside the direct race instead of joining 3 s later.
     pub first: bool,
-    /// This device's relay ticket for the session, as the service stamped it
-    /// on a signal to this device (`relayTicket`); `None` from a service that
-    /// stamps none, whose join is then refused.
+    /// This device's relay ticket for the session, if the service stamped one on
+    /// a signal to this device (`relayTicket`); `None` from a service that stamps
+    /// none (production), whose join the Bearer token and the session admit.
     pub ticket: Option<String>,
-    /// A join already under way, started at the dial's start with the ticket the
-    /// service handed over before the peer's answer ([`EarlyJoin`]); the relay watch
-    /// takes it instead of dialing again.
+    /// A join already under way, started on the phone's early `wg-relay` before the
+    /// tunnel ([`EarlyJoin`]); the relay watch takes it instead of dialing again.
     pub early: Option<Arc<EarlyJoin>>,
 }
 
-/// A relay join that began before the tunnel did (PROTOCOL.md "Relay ticket"): the
-/// phone asked the service for its ticket at the dial's start, and joins as it arrives.
-/// `None` out of it: the join failed, and the watch joins on its own as before. Dropped
-/// unused (the peer does not dial the relay first), it ends the join.
+/// A relay join that began before the tunnel did (PROTOCOL.md "Early join"): the
+/// phone's right after it sent its early `wg-relay`, the Mac's on receiving it. That
+/// signal bound the session, so the Bearer token admits the join (a ticket is
+/// presented only if the service stamped one). `None` out of it: the join failed, and
+/// the watch joins on its own as before. Dropped unused (the peer does not dial the
+/// relay first), it ends the join.
 #[derive(Debug)]
 pub(super) struct EarlyJoin(
     Mutex<Option<tokio::task::JoinHandle<Option<super::super::relay::RelayCarrier>>>>,
 );
 
-impl EarlyJoin {
-    pub(super) fn new(handle: tokio::task::JoinHandle<Option<super::super::relay::RelayCarrier>>) -> Self {
-        Self(Mutex::new(Some(handle)))
-    }
+/// How long an early join refused `403` waits before its one more try: the phone's
+/// join can reach the relay before its hub bound the session on the `wg-relay` sent
+/// just before it.
+const EARLY_JOIN_RETRY_AFTER: Duration = Duration::from_millis(100);
 
-    /// The Mac's join, started on the phone's early `wg-relay` before its `wg-init`
-    /// (with the ticket the service stamped on that signal).
+impl EarlyJoin {
     pub(super) fn start(
         endpoint: super::super::relay::RelayEndpoint,
         session: String,
         peer: String,
-        ticket: String,
+        ticket: Option<String>,
     ) -> Self {
-        Self::new(tokio::spawn(async move {
-            super::super::relay::RelayCarrier::join(&endpoint, &session, &peer, Some(&ticket)).await.ok()
-        }))
+        Self(Mutex::new(Some(tokio::spawn(async move {
+            use super::super::relay::{RelayCarrier, RelayFailure};
+            match RelayCarrier::join(&endpoint, &session, &peer, ticket.as_deref()).await {
+                Ok(carrier) => Some(carrier),
+                Err(RelayFailure::Refused { status: 403, .. }) => {
+                    tokio::time::sleep(EARLY_JOIN_RETRY_AFTER).await;
+                    RelayCarrier::join(&endpoint, &session, &peer, ticket.as_deref()).await.ok()
+                }
+                Err(_) => None,
+            }
+        }))))
     }
 
     /// The join's outcome, once: `None` when it failed or was taken already.
