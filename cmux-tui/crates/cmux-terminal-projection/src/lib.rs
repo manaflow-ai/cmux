@@ -274,6 +274,14 @@ impl Projection {
         self.view.as_ref().map_or((0, 0), |v| (v.bytes_out, v.resets))
     }
 
+    /// Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+    /// host's last row; `host_column`) lands on the phone's re-wrapped rows
+    /// ([`project::locate`]). None: the model does not hold that row.
+    pub fn locate(&self, host_from_bottom: usize, host_column: usize) -> Option<project::Located> {
+        let cols = self.viewport()?.0;
+        project::locate(&self.term, cols, self.compact, host_from_bottom, host_column)
+    }
+
     pub fn terminal(&self) -> &Terminal {
         &self.term
     }
