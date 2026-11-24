@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use anyhow::{Result, bail};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::cli::output::print_json;
@@ -80,18 +80,19 @@ async fn listen(service: &str, echo: bool, once: bool) -> Result<()> {
             method::MUX_CHANNEL_CLOSED => "closed",
             _ => continue,
         };
-        let mut line = params.clone();
-        line["event"] = json!(event);
-        print_json(&line);
+        let mut line = params.as_object().cloned().unwrap_or_default();
+        line.insert("event".into(), json!(event));
+        print_json(&Value::Object(line));
         let carries = params.get("text").is_some() || params.get("data").is_some();
         if echo && event != "closed" && carries {
-            let mut back = json!({"channelId": id});
+            let mut back = Map::new();
+            back.insert("channelId".into(), json!(id));
             for key in ["text", "data"] {
                 if let Some(v) = params.get(key) {
-                    back[key] = v.clone();
+                    back.insert(key.into(), v.clone());
                 }
             }
-            client.notify(method::MUX_CHANNEL_SEND, back).await?;
+            client.notify(method::MUX_CHANNEL_SEND, Value::Object(back)).await?;
         }
         if once && event == "closed" {
             break;
@@ -112,13 +113,15 @@ async fn open(
     }
     let client = crate::daemon::connect(true).await?;
     let Some(mut notes) = client.notifications().await else { bail!("no notification stream") };
-    let mut params = json!({"service": service});
+    let mut params = Map::new();
+    params.insert("service".into(), json!(service));
     if let Some(peer) = &peer {
-        params["peer"] = json!(peer);
+        params.insert("peer".into(), json!(peer));
     }
     if let Some(text) = &text {
-        params["text"] = json!(text);
+        params.insert("text".into(), json!(text));
     }
+    let params = Value::Object(params);
     let started = Instant::now();
     let answer = client.request(method::MUX_CHANNEL_OPEN, params).await?;
     let open_ms = started.elapsed().as_secs_f64() * 1000.0;
