@@ -159,6 +159,8 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
     // `server/fork_through.rs` `RETARGET_FEATURE` (private to the server).
     PeerFeature { id: "sessionForkRetarget", gates: &[] },
     PeerFeature { id: crate::hub::fork_subagent::FEATURE, gates: &[] },
+    // Sent to a link that listed it in its own `initialize` (`server/client_features.rs`).
+    PeerFeature { id: crate::server::client_features::UNSENT_FEATURE, gates: &[m::MUX_UNSENT] },
     PeerFeature { id: crate::link_v2::FEATURE, gates: &[m::MUX_V2] },
     PeerFeature { id: acpmux_core::hub::PEER_PAGES_FEATURE, gates: &[] },
     // `_acpmux/controls` and `_acpmux/control` (`server/controls.rs`), not in the registry.
@@ -169,6 +171,22 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
     PeerFeature { id: crate::hub::list_tee::HUB_ROWS_FEATURE, gates: &[] },
     PeerFeature { id: crate::author::QUEUE_GET_FEATURE, gates: &[m::MUX_QUEUE_GET] },
 ];
+
+/// The features of [`PEER_FEATURES`] that gate request or notification `method` (a registry name,
+/// or its `method:`/`notify:` wire form): a peer may be sent it only once it listed one of them.
+/// Empty: no feature gates it.
+pub fn gating(method: &str) -> Vec<&'static str> {
+    PEER_FEATURES
+        .iter()
+        .filter(|f| {
+            f.gates.iter().any(|g| {
+                let name = g.strip_prefix("method:").or_else(|| g.strip_prefix("notify:"));
+                name.unwrap_or(g) == method
+            })
+        })
+        .map(|f| f.id)
+        .collect()
+}
 
 impl Peer {
     pub fn supports_trust_gate(&self) -> bool {
