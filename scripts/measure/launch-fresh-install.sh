@@ -100,12 +100,13 @@ main() {
   PROMPT_BASELINE="$(prompts ids 2>/dev/null)"
   # Rows q and m raise Gatekeeper's prompt on purpose: say so to the fleet's dialog alarm for this run, and take the
   # word back on every exit, after a last sweep of any prompt the job left.
-  LOAD_PIDS=()
-  trap 'sweep_prompts Cancel exit; marker_remove; [[ ${#LOAD_PIDS[@]} -gt 0 ]] && kill "${LOAD_PIDS[@]}" 2>/dev/null' EXIT
+  LOAD_PIDS=""
+  # shellcheck disable=SC2086 # LOAD_PIDS is a space-separated pid list.
+  trap 'sweep_prompts Cancel exit; marker_remove; [[ -n "$LOAD_PIDS" ]] && kill $LOAD_PIDS 2>/dev/null' EXIT
   trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
   [[ ",$rows," == *,q,* || ",$rows," == *,m,* ]] && marker_write
   if [[ "$load" -gt 0 ]]; then
-    local j; for ((j = 0; j < load; j++)); do (while :; do :; done) & LOAD_PIDS+=("$!"); done
+    local j; for ((j = 0; j < load; j++)); do (while :; do :; done) & LOAD_PIDS="$LOAD_PIDS $!"; done
     wait_load() { :; }
     sleep 5
     echo "LF load $load busy loops, load1 $(load1)"
