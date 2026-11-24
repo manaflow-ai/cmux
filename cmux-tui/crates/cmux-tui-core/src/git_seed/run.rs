@@ -936,18 +936,21 @@ impl Seed {
 
     /// The ledger line for a path a tool waits on: a folder of WORK whole (`a/b/**`), or a
     /// file's own folder (`a/`, `/` for the root's); None for one no pattern names literally.
+    /// A path WORK does not have is in place as it is, absent (`a/b/**`): a Glob of a folder
+    /// that is not there goes ahead and finds nothing. Trees only (`ls-tree`): asking a
+    /// blob's type in a blobless clone would download it.
     fn want_line(&self, want: &str) -> Option<String> {
         let want = want.trim_matches('/');
         if want.is_empty() || !literal_path(want) {
             return None;
         }
-        let spec = format!("{}:{want}", self.params.work);
-        let is_tree =
-            self.git(&["cat-file", "-t", &spec]).is_ok_and(|kind| kind.starts_with(b"tree"));
-        Some(match (is_tree, want.rsplit_once('/')) {
-            (true, _) => format!("{want}/**"),
-            (false, Some((parent, _))) => format!("{parent}/"),
-            (false, None) => String::from("/"),
+        let listed = self.git(&["ls-tree", "-z", &self.params.work, "--", want]).ok()?;
+        // `<mode> <type> <oid>\t<path>`; nothing listed: WORK has no such path.
+        let is_file = listed.split(|byte| *byte == b' ').nth(1).is_some_and(|kind| kind != b"tree");
+        Some(match (is_file, want.rsplit_once('/')) {
+            (false, _) => format!("{want}/**"),
+            (true, Some((parent, _))) => format!("{parent}/"),
+            (true, None) => String::from("/"),
         })
     }
 
