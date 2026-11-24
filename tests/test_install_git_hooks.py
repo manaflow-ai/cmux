@@ -479,6 +479,35 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertFalse(Path(config).resolve().is_relative_to(self.repo.resolve()), config)
         self.assertEqual(self.git("show", ":Native/OptChat/probe/src/main.rs").stdout, source.read_text())
 
+    def test_an_edit_saved_while_rustfmt_runs_is_kept(self):
+        """Review F1 on #50609: the hook wrote rustfmt's earlier snapshot over the file, so an edit saved in an
+        editor while rustfmt ran was lost from both the worktree and the index."""
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", source="fn   main() {}\n")
+        env = self.formatter_env(with_rustfmt=True)
+        saved = "fn main() { saved_during_rustfmt(); }\n"
+        # This rustfmt reads its input, then the person saves the file, then it prints its output.
+        (self.root / "bin-rustfmt" / "rustfmt").write_text(
+            f"#!/bin/sh\nin=$({shlex.quote(shutil.which('cat'))})\n"
+            f"printf '%s' {shlex.quote(saved)} > {shlex.quote(str(source))}\n"
+            f"printf '%s\\n' \"$in\" | {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_text(), saved, "the edit saved during rustfmt survives")
+        self.assertIn("changed while rustfmt ran", result.stderr)
+        self.assertEqual(self.git("show", ":workers/probe/src/main.rs").stdout, "fn   main() {}\n",
+                         "the index keeps what was staged")
+
+    def test_an_unchanged_format_never_rewrites_the_file(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", source="fn main() {}\n")
+        before = source.stat().st_mtime_ns
+        os.utime(source, ns=(before - 10**9, before - 10**9))
+        before = source.stat().st_mtime_ns
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.stat().st_mtime_ns, before, "formatting changed nothing, so nothing is written")
+
     def test_pre_commit_uses_the_package_rustfmt_config(self):
         self.assertEqual(self.install().returncode, 0)
         self.stage_rust_package("workers/probe", "2021", source="fn   main() {}\n", config="max_width = 100\n")

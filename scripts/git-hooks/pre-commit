@@ -897,10 +897,25 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 # path) from a rust-toolchain file in the checkout: every
                 # argument is absolute.
                 for path in "${PACKAGE_PATHS[@]}"; do
+                    rel="${path#"$REPO_ROOT"/}"
+                    # A staged symlink is committed as the link: never write through it.
+                    [[ -L "$path" ]] && continue
+                    # Format the staged blob, not the worktree file, and write back
+                    # only when the file still holds exactly that blob: an edit saved
+                    # while rustfmt runs is kept, never overwritten.
+                    staged_blob="$("$TOOL_GIT" rev-parse --verify --quiet ":$rel" || true)"
+                    [[ -n "$staged_blob" ]] || continue
                     rustfmt_status=0
-                    (cd / && "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" <"$path" >"$RUSTFMT_OUT") || rustfmt_status=$?
+                    (cd / && "$TOOL_GIT" -C "$REPO_ROOT" cat-file blob "$staged_blob" \
+                        | "$PACKAGE_RUSTFMT" "${RUSTFMT_ARGS[@]}" >"$RUSTFMT_OUT") || rustfmt_status=$?
                     if (( rustfmt_status != 0 )); then
-                        formatter_missing "$PACKAGE_RUSTFMT exited $rustfmt_status on ${path#"$REPO_ROOT"/}"
+                        formatter_missing "$PACKAGE_RUSTFMT exited $rustfmt_status on $rel"
+                        continue
+                    fi
+                    formatted_blob="$("$TOOL_GIT" hash-object --path="$rel" -- "$RUSTFMT_OUT")"
+                    [[ "$formatted_blob" == "$staged_blob" ]] && continue
+                    if [[ "$("$TOOL_GIT" hash-object -- "$path")" != "$staged_blob" ]]; then
+                        echo "pre-commit: $rel changed while rustfmt ran; left as is (committing it unformatted; CI checks formatting)." >&2
                         continue
                     fi
                     "$TOOL_CAT" "$RUSTFMT_OUT" >"$path"
