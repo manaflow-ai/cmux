@@ -150545,6 +150545,306 @@
           }
         }
       }
+    },
+    "settingsPage.tailnet.cloudTitle": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines on Your Tailnet"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.cloudHelp": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a Cloud machine to Tailscale or Headscale with a key you enter for this join."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.join": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.leave": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave Tailnet"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.machine": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.key": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale auth key"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.credential": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auth key or OAuth secret"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.keyHelp": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used once for this join and sent through stdin. It is never saved."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.oauth": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OAuth client secret"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.oauthMode": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use OAuth credentials"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.switch": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch from another tailnet"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.switchHelp": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.joining": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joining\u2026"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.leaving": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaving\u2026"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.online": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.offline": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.dns": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS name"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.ips": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP addresses"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.tags": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tags"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.joinError": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join failed: %@"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.missingMachine": {
+      "comment": "Settings > Tailscale Cloud machine join validation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a Cloud machine."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.missingCredential": {
+      "comment": "Settings > Tailscale Cloud machine join validation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an auth key or OAuth secret."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.unknownError": {
+      "comment": "Settings > Tailscale Cloud machine join fallback error.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tailnet command did not return a result."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.leaveError": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave failed: %@"
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.empty": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
