@@ -304,6 +304,7 @@ struct Projected {
     /// extend, the full manifest's.
     digest: AtomicU64,
     at: PathBuf,
+    /// What the mount serves: its pins are read and changed here.
     #[cfg(target_os = "linux")]
     overlay: Arc<cmux_projection::overlay::Overlay>,
     /// The full manifest's mapping once the mount was extended (the streams then speak its indices).
@@ -314,9 +315,6 @@ struct Projected {
     barrier: Mutex<Option<BarrierSync>>,
     #[cfg(target_os = "linux")]
     mounted: Mutex<Option<cmux_projection::mount::Mounted>>,
-    /// What the mount serves: its pins are read and changed here.
-    #[cfg(target_os = "linux")]
-    overlay: Arc<cmux_projection::overlay::Overlay>,
     /// Its away episodes: the agent is told once of each ([`away_notice`]).
     #[cfg(target_os = "linux")]
     away: Arc<cmux_projection::away::Away>,
@@ -1181,7 +1179,6 @@ fn mount(
         ext: Mutex::new(None),
         barrier: Mutex::new(None),
         mounted: Mutex::new(Some(mounted)),
-        overlay: overlay.clone(),
         away,
     });
     table.insert(name.to_owned(), projected.clone());
