@@ -63,6 +63,7 @@ pub(super) struct Row {
     dry_run: bool,
     via: String,
     there: Option<String>,
+    target_session_id: Option<String>,
     error: Option<String>,
     timings: Option<Value>,
 }
@@ -78,6 +79,7 @@ impl Row {
             dry_run,
             via: "hub".into(),
             there: None,
+            target_session_id: None,
             error: None,
             timings: None,
         }
@@ -139,6 +141,7 @@ pub(crate) async fn move_out(
         dry_run: false,
         resume_there: false,
         from: None,
+        slow_ok: false,
         from_snapshot: false,
     };
     let result = async {
@@ -286,6 +289,7 @@ async fn steps(
     o.moved = true;
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
+    o.target_session_id = o.there.clone();
     Ok(())
 }
 
@@ -345,6 +349,7 @@ async fn precopy(src: &Client, id: &str, daemon: &str) -> Option<Staged> {
         prepare_id: field(&staged, "prepareId").as_str()?.to_owned(),
         after_seq: field(&staged, "afterSeq").as_u64()?,
         stage_id: field(&staged, "stageId").as_str()?.to_owned(),
+        history_later: false,
     })
 }
 
@@ -365,15 +370,12 @@ impl Moving<'_> {
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
+        // The hub carries the move: this end is the source's daemon here, asked on one
+        // connection. A staged prefix the source no longer holds as staged is sent whole
+        // (`begin_staged`).
         let turn_bound = args.after_turn.then_some(args.turn_timeout);
-        let begun =
-            match t::begin_move(src, &id, Some(to.clone()), running, turn_bound, staged).await {
-                // The target's copy diverged from what was staged: send the whole chat.
-                Err(e) if staged.is_some() && t::refused_diverged(&e) => {
-                    t::begin_move(src, &id, Some(to), running, turn_bound, None).await?
-                }
-                begun => begun?,
-            };
+        let src_end = &mut MoveEnd::new("source", src, None);
+        let begun = t::begin_staged(src_end, &id, Some(to), running, staged, turn_bound).await?;
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -410,7 +412,7 @@ impl Moving<'_> {
         let sent = match made {
             Ok(sent) => sent,
             Err(e) => {
-                super::super::transfer::abort_move(src, &id, &begun).await;
+                super::super::transfer::abort_move(src_end, &id, &begun).await;
                 return Err(e);
             }
         };
@@ -435,7 +437,7 @@ impl Moving<'_> {
                 let data =
                     e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
                 if data.as_ref().is_some_and(|d| d["refused"] == true) {
-                    super::super::transfer::abort_move(src, &id, &begun).await;
+                    super::super::transfer::abort_move(src_end, &id, &begun).await;
                     return Err(e);
                 }
                 bail!(

@@ -62,6 +62,29 @@ pub fn app_id(id: &str) -> String {
     format!("local/{}", name(id))
 }
 
+/// The app id a setup repo's views carry in the repo (`customize/cmux-app.json`), which the layer is
+/// written over with its own ([`app_id`]).
+pub const REPO_APP: &str = "local/customize";
+
+/// The settings whose value names an app: a whole New Tab page (`cmux.newtab/1`) shows only once
+/// `tabs.newTabApp` picks it.
+const APP_SETTINGS: &[&str] = &["tabs.newTabApp"];
+
+/// Setup `id`'s settings as they install over its own layer: a setting that names the repo's views
+/// app ([`REPO_APP`], what a look's `tabs.newTabApp` says in its repo) names the layer's app
+/// instead, `local/setup-OWNER-NAME`. So a New Tab look picks its own page, never the person's own
+/// `local/customize`; two looks each pick their own, and the higher one's pick shows (`cmux setup
+/// order`, `off`). Called only for a setup that has views; any other value stays as written.
+pub fn point_at_layer(settings: &mut BTreeMap<String, Value>, id: &str) {
+    for key in APP_SETTINGS {
+        if let Some(value) = settings.get_mut(*key)
+            && value.as_str() == Some(REPO_APP)
+        {
+            *value = Value::String(app_id(id));
+        }
+    }
+}
+
 /// Whether logical path `path` is a views file (`customize/...`).
 pub fn is_view(path: &str) -> bool {
     path.starts_with(VIEWS)

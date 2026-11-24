@@ -48,7 +48,7 @@ impl Hub {
         }
         let session =
             self.resolve(params.get("sessionId").and_then(Value::as_str).unwrap_or(""))?;
-        let prepared = self.transfer_prepare(&session, None)?;
+        let prepared = self.transfer_prepare(&session, None, None)?;
         let prepare_id = field(&prepared, "prepareId").as_str().unwrap_or_default().to_owned();
         let root = inside(&transfers_dir(), &prepare_id)?;
         let noted = crate::home_fs::write(root.join(super::transfer_pull::TO_HUB), daemon);
