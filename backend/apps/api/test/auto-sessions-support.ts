@@ -48,26 +48,46 @@ export const vmBearer = async (a: Person, machine: string): Promise<string> => {
 export const chatStub = (owner: string, id: string) => testEnv.AUTO_SESSION_DO.get(testEnv.AUTO_SESSION_DO.idFromName(`${owner}/${id}`))
 export const indexStub = (owner: string) => testEnv.AUTO_SESSION_INDEX_DO.get(testEnv.AUTO_SESSION_INDEX_DO.idFromName(owner))
 
-/** The platform's Cloud machine, as the store sees it: what a read answers, and the starts it was asked for. */
-export type FakeMachine = { status: string; revision: string; reads: number; starts: Array<string>; failStart: boolean; failRead: boolean }
+/** One Cloud machine as `cloud.machine.list` answers it (the fields the store's pick reads). */
+export type ListedMachine = { id: string; team: string; creator: string; status: string; classic: boolean; created_at: number; last_active_at: number | null }
+export const listed = (a: Person, id: string, more: Partial<ListedMachine> = {}): ListedMachine => ({ id, team: a.team, creator: a.user, status: "paused", classic: false, created_at: 1, last_active_at: null, ...more })
+/**
+ * The platform's Cloud, as the store sees it: what a read answers, and the starts it was asked for. `machines`:
+ * the machines of every team, for the tests of the store's own pick (`lists` counts the reads of a team's list).
+ * A machine not in it reads as the one machine `status` describes, as the tests that name their Auto machine expect.
+ */
+export type FakeMachine = { status: string; revision: string; reads: number; lists: number; machines: Array<ListedMachine>; starts: Array<string>; failStart: boolean; failRead: boolean }
 /** Puts a fake Cloud behind the owner's index object (the platform's CloudDO is not in this Worker). */
 export const fakeCloud = async (owner: string): Promise<FakeMachine> => {
-  const m: FakeMachine = { status: "paused", revision: "rev1", reads: 0, starts: [], failStart: false, failRead: false }
+  const m: FakeMachine = { status: "paused", revision: "rev1", reads: 0, lists: 0, machines: [], starts: [], failStart: false, failRead: false }
+  const down = { ok: false, code: "owner.unreachable", message: "down" }
   const cloud = {
-    readOp: async () => {
+    readOp: async (team: string, _p: unknown, op: string, params: { machine?: string } | null) => {
+      if (op === "cloud.machine.list") {
+        m.lists += 1
+        return m.failRead ? down : { ok: true, revision: "", value: { machines: m.machines.filter((x) => x.team === team), next_cursor: null, revision: m.revision } }
+      }
       m.reads += 1
-      return m.failRead ? { ok: false, code: "owner.unreachable", message: "down" } : { ok: true, revision: m.revision, value: { machine: { status: m.status } } }
+      if (m.failRead) return down
+      // Once the test lists machines, one that is not listed is gone.
+      const known = m.machines.find((x) => x.team === team && x.id === params?.machine)
+      if (m.machines.length > 0 && !known) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+      return known ? { ok: true, revision: m.revision, value: known } : { ok: true, revision: m.revision, value: { machine: { status: m.status } } }
     },
-    submit: async (_team: string, _p: unknown, frame: { idempotency_key: string }) => {
+    submit: async (_team: string, _p: unknown, frame: { idempotency_key: string; params?: { machine?: string } }) => {
       if (m.failStart) return { frames: [{ t: "reject", code: "cloud.capacity" }] }
       m.starts.push(frame.idempotency_key)
       m.status = "starting"
+      const known = m.machines.find((x) => x.id === frame.params?.machine)
+      if (known) known.status = "starting"
       return { frames: [{ t: "result" }] }
     }
   }
   await runIn(indexStub(owner), async (instance) => void (instance.env = { ...instance.env, CLOUD_DO: { idFromName: (x: string) => x, get: () => cloud } }))
   return m
 }
+/** The owner's index looks for a machine again: the clock passes the least time between two looks. */
+export const lookAgain = (): void => advance(10_001)
 export const starts = (owner: string) => runIn(indexStub(owner), async (_i, state) => state.storage.sql.exec(`SELECT * FROM starts`).toArray() as Array<Record<string, number | string>>)
 
 export const setMachine = (a: Person, machine = M) => call("PUT", "/v1/auto-sessions/machine", as(a.session), { team: a.team, machine })
