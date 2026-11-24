@@ -189,9 +189,13 @@ public final class LiveCoordinator {
     @ObservationIgnored private var snapshotSavePending = false
     /// Reads the cached rows past each Mac's first screen, after launch (`restoreRest`).
     @ObservationIgnored private var restTask: Task<Void, Never>?
-    /// The spaces on screen are the launch snapshot's one space, not the account's list yet
-    /// (Stack's team list has not answered): a pairing code is not judged against them.
-    @ObservationIgnored private(set) var spacesFromSnapshot = false
+    #if DEBUG
+    /// Test-only (compiled out of Release): the Mac the end-of-task hand-off names
+    /// (`CMUX_MOBILE_FOCUS_MAC`, cmux-next-ios/scripts/review.sh), remembered as its team's pick once
+    /// that team's Macs list it, so the phone focuses the tagged build and not another build of the
+    /// same computer. It only picks a Mac, as a tap in the Macs list does: the Mac still decides pairing.
+    @ObservationIgnored public var dogfoodFocusMacID: String?
+    #endif
     /// The team whose registration, Macs and presence are running or done.
     @ObservationIgnored private var startedTeamID: String?
     /// The team the Feed's items came from. Feed items carry no Mac, so on a switch they
@@ -491,7 +495,6 @@ public final class LiveCoordinator {
         self.snapshot = snapshot
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
-        spacesFromSnapshot = true
         var workspaces: [Workspace] = []
         var total = 0
         for mac in snapshot.macs {
@@ -587,11 +590,9 @@ public final class LiveCoordinator {
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
-        spacesFromSnapshot = false
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         discovery.start { [weak self] in await self?.lookForMacs() }
-        steerToInvite()
     }
 
     /// The user chose their personal space (setup's "Choose a space"): it
@@ -769,8 +770,13 @@ public final class LiveCoordinator {
         }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
                                            ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }, teamID: teamID)
+        #if DEBUG
+        if let id = dogfoodFocusMacID, macs.contains(where: { $0.deviceId.lowercased() == id.lowercased() }) {
+            UserDefaults.standard.set(id, forKey: "cmuxMobile.live.mac.\(teamID)")
+            dogfoodFocusMacID = nil
+        }
+        #endif
         retarget()
-        steerToInvite()
         scheduleSnapshotSave()
     }
 
@@ -780,8 +786,8 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        // The remembered Mac (one this phone picked or paired by its code) is the team's picked Mac:
-        // it takes the focus. Every build is listed on its own (``MacRoster``).
+        // The remembered Mac (one this phone picked) is the team's picked Mac: it takes the focus.
+        // Every build is listed on its own (``MacRoster``).
         store.setPickedMac(remembered, teamID: team.id)
         let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
@@ -833,8 +839,7 @@ public final class LiveCoordinator {
             live.isOnline = true
             return live
         }
-        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now,
-                                         pinned: pairing?.invites.pending()?.mac)
+        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now)
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name

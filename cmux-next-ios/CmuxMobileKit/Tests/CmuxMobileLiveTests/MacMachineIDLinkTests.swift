@@ -61,8 +61,8 @@ import Testing
         #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1", "m2"])
     }
 
-    /// The phone remembers the build it paired by that build's code (steerToInvite writes the pick):
-    /// the focus goes to that build, and the other build of the computer stays listed (2026-11-18,
+    /// The phone remembers the build it picked (the per-team pick in UserDefaults): the focus
+    /// goes to that build, and the other build of the computer stays listed (2026-11-18,
     /// review.sh on a real iPhone focused the other build).
     @Test func theRememberedBuildIsFocusedAndBothAreListed() async {
         let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"

@@ -219,8 +219,7 @@ public struct WorkspacesList: View {
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .submitLabel(.done)
                 Button("Cancel", role: .cancel) {}
@@ -235,8 +234,7 @@ public struct WorkspacesList: View {
         view
             .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { (ws: Workspace) in
                 TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Create") {
@@ -246,7 +244,6 @@ public struct WorkspacesList: View {
             }
             .alert("New Workspace Group", isPresented: isPresented($newGroupOnMac), presenting: newGroupOnMac) { (macID: String) in
                 TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
-                    .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("workspaces.newGroup.name")
                 Button("Cancel", role: .cancel) {}
@@ -257,8 +254,7 @@ public struct WorkspacesList: View {
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .submitLabel(.done)
                 Button("Cancel", role: .cancel) {}
