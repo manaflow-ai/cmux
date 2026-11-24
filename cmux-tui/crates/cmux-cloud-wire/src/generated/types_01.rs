@@ -902,9 +902,3 @@ pub struct CodeRef {
 }
 
 pub type CommitSha = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Concurrency {
-    pub max: i64,
-    pub on_limit: ConcurrencyOnLimit,
-}

@@ -4,6 +4,18 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRetiredExportResult {
+    pub vm: String,
+    pub path: String,
+    pub expires_at: i64,
+    pub files: i64,
+    pub bytes: i64,
+    pub archive_bytes: i64,
+    pub skipped: Vec<String>,
+    pub skipped_count: i64,
+}
+
 wire_errors! {
     /// The error codes team_vm.retired.export declares.
     TeamVmRetiredExportError {

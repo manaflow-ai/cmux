@@ -4,6 +4,45 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallCreateResultDestination {
+    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
+    pub vm_id: Option<String>,
+    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cidr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<FirewallCreateResultDestinationProtocol>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallCreateResult {
+    pub id: String,
+    pub action: LitAllow,
+    pub source: FirewallCreateResultSource,
+    pub destination: FirewallCreateResultDestination,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes firewall.create declares.
+    FirewallCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Delete one firewall rule owned by the caller.
     FirewallDeleteOp {
@@ -856,47 +895,5 @@ wire_enum! {
         Anyone = "anyone",
         Teams = "teams",
         Nobody = "nobody",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSettingsSetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discoverable_by_email: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discoverable_by_phone: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email_requests: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trust_same_domain: Option<bool>,
-}
-
-wire_enum! {
-    HomeSettingsSetResultAllowRequestsFrom {
-        Anyone = "anyone",
-        Teams = "teams",
-        Nobody = "nobody",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeSettingsSetResult {
-    pub discoverable_by_email: bool,
-    pub discoverable_by_phone: bool,
-    pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
-    pub email_requests: bool,
-    pub trust_same_domain: bool,
-}
-
-wire_errors! {
-    /// The error codes home.settings.set declares.
-    HomeSettingsSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }
