@@ -97,6 +97,7 @@ extension AppActions {
         }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
+        ChiefParticipantActions.bindSetMyPicture(into: services.registry, connection: { services.home.connection }, window: { services.windows.active?.window })
         bindHomeGroups(services)
         bindHomeMessaging(services)
         // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (`cmux chief edit|engine|adopt`).
