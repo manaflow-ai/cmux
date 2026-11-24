@@ -81,6 +81,7 @@ export default componentEntry<Props>({
     Promise.all([
       import("../styles.css"),
       import("../composerLocation.css"),
+      import("../header/header.css"),
       import("./TurnToPullRequestDesigns.gallery.css"),
     ]),
   widths: { normal: 560 },

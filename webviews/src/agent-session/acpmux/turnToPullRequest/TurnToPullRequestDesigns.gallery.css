@@ -39,9 +39,13 @@
 .ttp-chip[data-open]{background:var(--agent-control,var(--ds-surface-card))}
 .ttp-chip[data-state=red]{color:var(--agent-status-failure)}
 /* The chip's menu or checks, drawn open above the composer, at the chip's end (in the app a Popover). */
-.ttp-popup{align-self:flex-end;margin-right:var(--ds-space-6,24px);padding:var(--ds-space-1);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--ui-popup-shadow,var(--elevation-2))}
+.ttp-popup{align-self:flex-end;margin:0 var(--ds-space-6,24px) var(--ds-space-1) 0;padding:var(--ds-space-1);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--ui-popup-shadow,var(--elevation-2))}
 .ttp-popup.acpmux-pr-status{width:280px;padding:var(--ds-space-2) var(--ds-space-1) var(--ds-space-1)}
 .ttp-menu{min-width:224px}
 .ttp-menu-row{display:flex;align-items:center;gap:var(--ds-space-2);min-height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-md);color:var(--agent-text)}
 .ttp-menu-row[data-hot]{background:var(--acpmux-menu-hover)}
 .ttp-menu-end{margin-inline-start:auto}
+.ttp-popup .ttp-foot-end{padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-1)}
+/* header.css:101 outranks its own pending and failing rules (0,3,1 over 0,2,1), so the real chip's dot stays green; the sheets restore the intended colours. */
+.ttp .acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
+.ttp .acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
