@@ -1,5 +1,7 @@
-//! Parse errors that leave an agent a way out. An unknown root word that a command group takes
-//! (`acpmux restart NAME`, which is `acpmux session restart NAME`) is refused with that command,
+//! Parse errors that leave an agent a way out. An unknown root word that one command group takes
+//! (`acpmux inbox NAME`, which is `acpmux session inbox NAME`) runs as that command when the form
+//! is safe ([`meant`]; Leo, 2026-11-23: "not force yet another tool call"); a destructive one
+//! (`acpmux restart NAME`, `session restart`) or one two groups take is refused with that command,
 //! not with clap's nearest spellings: for `acpmux stop NAME` clap offered `shutdown`, which stops
 //! the daemon. Under `--json` every parse error is the error envelope (`usage`, exit 2) with a
 //! `data.reason` of `usage.*`, never clap's plain text. A lone `-` among `new`'s prompt words is
@@ -22,6 +24,52 @@ pub(crate) fn explain(
     at: usize,
     program: &str,
 ) -> Option<AppError> {
+    let (given, groups, rest) = takers(e, cli, argv, at)?;
+    let first = *groups.first()?;
+    let try_command = [program, first, given.as_str()]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(rest.iter().map(|w| quote(w)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let takers =
+        groups.iter().map(|g| format!("`{program} {g} {given}`")).collect::<Vec<_>>().join(", ");
+    let message = format!("{program} has no command {given}: {takers} is. Try: {try_command}");
+    let data = json!({
+        "reason": "usage.unknown_command",
+        "command": given,
+        "takenBy": groups,
+        "try": try_command,
+    });
+    Some(AppError::new(Code::Usage, "unknown_command", message).with_data(data))
+}
+
+/// The one command `argv` meant when its root word is a command of exactly one group that takes
+/// the rest (`acpmux inbox NAME` is `acpmux session inbox NAME`): the words after the program, with
+/// the group's name put before that word, for the caller to run when that form is safe. None when
+/// no group or two groups take it.
+pub(crate) fn meant(
+    e: &clap::Error,
+    cli: &clap::Command,
+    argv: &[OsString],
+    at: usize,
+) -> Option<(Vec<String>, String)> {
+    let (given, groups, _) = takers(e, cli, argv, at)?;
+    let [group] = groups.as_slice() else { return None };
+    let mut words: Vec<String> =
+        argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+    words.insert(at.checked_sub(1)?, (*group).to_owned());
+    Some((words, format!("`{group} {given}` for `{given}`")))
+}
+
+/// The unknown root word of clap's error `e`, the groups that take it as a command (those taking
+/// the words after it when there are any), and those words.
+fn takers<'a>(
+    e: &clap::Error,
+    cli: &'a clap::Command,
+    argv: &[OsString],
+    at: usize,
+) -> Option<(String, Vec<&'a str>, Vec<String>)> {
     if e.kind() != ErrorKind::InvalidSubcommand {
         return None;
     }
@@ -58,24 +106,9 @@ pub(crate) fn explain(
         found.iter().filter(|(_, c)| !named || takes_words(c)).map(|(g, _)| *g).collect();
     // None takes them: clap's own error, never a command that would drop the words (a daemon
     // command for a session's name).
-    let groups = if named { fitting } else { found.iter().map(|(g, _)| *g).collect() };
-    let first = *groups.first()?;
-    let try_command = [program, first, given.as_str()]
-        .into_iter()
-        .map(str::to_owned)
-        .chain(rest.iter().map(|w| quote(w)))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let takers =
-        groups.iter().map(|g| format!("`{program} {g} {given}`")).collect::<Vec<_>>().join(", ");
-    let message = format!("{program} has no command {given}: {takers} is. Try: {try_command}");
-    let data = json!({
-        "reason": "usage.unknown_command",
-        "command": given,
-        "takenBy": groups,
-        "try": try_command,
-    });
-    Some(AppError::new(Code::Usage, "unknown_command", message).with_data(data))
+    let groups: Vec<&'a str> =
+        if named { fitting } else { found.iter().map(|(g, _)| *g).collect() };
+    Some((given.clone(), groups, rest.to_vec()))
 }
 
 /// Clap's error `e` as the `--json` error envelope's error: `usage` (exit 2), its words as the

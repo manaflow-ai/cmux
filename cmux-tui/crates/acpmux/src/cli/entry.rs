@@ -241,6 +241,75 @@ struct Parsed {
     json_out: bool,
 }
 
+/// What `parse` does with a form clap refused.
+pub(crate) enum Meant {
+    /// The words (after the program) of the one safe form it meant: said on stderr, to run.
+    Run(Vec<String>),
+    /// A refusal that names the command to run instead (a destructive form's exact one).
+    Refuse(errors::AppError),
+    /// Clap's own error (or the `--json` envelope of it).
+    Clap,
+}
+
+/// What `argv` (the program name first, its command word at `at`), which clap refused with `e`,
+/// meant. Leo, 2026-11-23: "aka we need to be able to rewrite and correct their stuff", "aka not
+/// force yet another tool call": a form with one clear, safe reading runs in this same call, said
+/// in one line on `err`; a destructive or outward one is refused with its exact form; nothing is
+/// a suggestion alone when it could have run.
+pub(crate) fn meant(
+    e: &clap::Error,
+    grammar: &clap::Command,
+    argv: &[OsString],
+    at: usize,
+    name: &str,
+    err: &mut dyn std::io::Write,
+) -> Meant {
+    let words: Vec<String> =
+        argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+    let intent = !cmux_intent::off() && cmux_intent::eligible(e.kind());
+    let tbl = cmux_intent::Table::load();
+    // A flag another command takes: what does take it, and what to run instead.
+    if let Some(refusal) = crate::cli::unknown_flag::explain(e, grammar, argv, at, name) {
+        return Meant::Refuse(refusal);
+    }
+    // A root word one group takes (`inbox NAME`): that group's command, run when it is safe.
+    if intent
+        && let Some((fixed, note)) = crate::cli::unknown_command::meant(e, grammar, argv, at)
+        && grammar
+            .clone()
+            .try_get_matches_from(std::iter::once(name.to_owned()).chain(fixed.iter().cloned()))
+            .is_ok()
+        && cmux_intent::needs_exact(grammar, "acpmux", &fixed, tbl).is_none()
+    {
+        let ran = cmux_intent::Repair {
+            outcome: cmux_intent::Kind::Ran,
+            argv: fixed.clone(),
+            candidates: vec![cmux_intent::Candidate { argv: fixed.clone(), notes: vec![note] }],
+            error: e.to_string().lines().next().unwrap_or_default().to_owned(),
+            word: None,
+        };
+        cmux_intent::log(name, &words, &ran);
+        cmux_intent::say_to(name, &words, &ran, err);
+        return Meant::Run(fixed);
+    }
+    if let Some(refusal) = crate::cli::unknown_command::explain(e, grammar, argv, at, name) {
+        return Meant::Refuse(refusal);
+    }
+    // The one form a mistyped or wishful one meant (cmux-intent, the shared layer of
+    // tools/intent.py): run and said on stderr when clear and safe, else listed or refused with
+    // its exact form. A destructive or outward form is never rewritten.
+    if !intent {
+        return Meant::Clap;
+    }
+    let result = cmux_intent::repair(grammar, "acpmux", &words, tbl);
+    if result.outcome == cmux_intent::Kind::Ok {
+        return Meant::Clap;
+    }
+    cmux_intent::log(name, &words, &result);
+    cmux_intent::say_to(name, &words, &result, err);
+    if result.outcome == cmux_intent::Kind::Ran { Meant::Run(result.argv) } else { Meant::Clap }
+}
+
 fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     // `acpmux ls | head` must end quietly, not panic on a closed pipe.
     #[cfg(unix)]
@@ -288,20 +357,17 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
             } else {
                 e
             };
-            let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
-                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
-            if let Some(refusal) = refusal {
-                errors::exit_with(&refusal.into(), json_out)
-            }
-            // The one form a mistyped or wishful one meant (cmux-intent, the shared layer of
-            // tools/intent.py): run and said on stderr when clear and safe, else listed or
-            // refused with its exact form. A destructive or outward form is never rewritten.
-            let words: Vec<String> =
-                argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
-            let Some(fixed) = cmux_intent::recover(&grammar, "acpmux", name, &words, &e) else {
-                match json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten() {
-                    Some(refusal) => errors::exit_with(&refusal.into(), json_out),
-                    None => e.exit(),
+            let fixed = match meant(&e, &grammar, &argv, at, name, &mut std::io::stderr()) {
+                Meant::Run(fixed) => fixed,
+                Meant::Refuse(refusal) => errors::exit_with(&refusal.into(), json_out),
+                Meant::Clap => {
+                    match json_out
+                        .then(|| crate::cli::unknown_command::envelope(&e, name))
+                        .flatten()
+                    {
+                        Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                        None => e.exit(),
+                    }
                 }
             };
             argv = std::iter::once(argv[0].clone())

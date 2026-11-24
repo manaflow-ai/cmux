@@ -69,3 +69,52 @@ fn a_known_miss_session_inbox_mark_read_needs_a_thread() {
     let r = fix(&["session", "inbox", "lane-1", "--mark-read"]);
     assert_eq!(r.outcome, Kind::None, "{r:?}");
 }
+
+/// What `acpmux ARGS` does when clap refuses it (entry.rs's `meant`), and its stderr.
+fn parse_dead_end(args: &[&str]) -> (crate::cli::entry::Meant, String) {
+    let mut grammar = Cli::command().name("acpmux").bin_name("acpmux");
+    let argv: Vec<std::ffi::OsString> =
+        std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
+    let e = grammar.try_get_matches_from_mut(argv.clone()).expect_err("clap refuses it");
+    let mut err = Vec::new();
+    let meant = crate::cli::entry::meant(&e, &grammar, &argv, 1, "acpmux", &mut err);
+    let said = String::from_utf8(err).unwrap();
+    // The receipt for Leo's clause, in `cargo test -- --nocapture`.
+    eprintln!("receipt: acpmux {} -> {said}", args.join(" "));
+    (meant, said)
+}
+
+// Leo, 2026-11-23: "aka we need to be able to rewrite and correct their stuff", "aka not force yet
+// another tool call": a clear, safe misspelling runs in the same call with one note.
+#[test]
+fn a_typo_of_ls_runs_ls_in_the_same_call_with_one_note() {
+    let (meant, said) = parse_dead_end(&["lsit"]);
+    let crate::cli::entry::Meant::Run(fixed) = meant else { panic!("nothing ran: {said}") };
+    assert_eq!(fixed, ["ls"], "{said}");
+    assert_eq!(said.lines().count(), 1, "{said}");
+    assert!(said.starts_with("acpmux: ran `acpmux ls` for `acpmux lsit`"), "{said}");
+}
+
+#[test]
+fn a_root_word_one_group_takes_runs_that_command_when_it_is_safe() {
+    let (meant, said) = parse_dead_end(&["receipt", "msg-1"]);
+    let crate::cli::entry::Meant::Run(fixed) = meant else { panic!("nothing ran: {said}") };
+    assert_eq!(fixed, ["session", "receipt", "msg-1"], "{said}");
+    assert_eq!(said.lines().count(), 1, "{said}");
+}
+
+#[test]
+fn a_destructive_root_word_is_refused_with_its_exact_command() {
+    let (meant, said) = parse_dead_end(&["restart", "lane-1"]);
+    let crate::cli::entry::Meant::Refuse(refusal) = meant else { panic!("not refused: {said}") };
+    assert!(refusal.message.contains("Try: acpmux session restart lane-1"), "{}", refusal.message);
+    assert!(said.is_empty(), "{said}");
+}
+
+#[test]
+fn a_destructive_typo_runs_nothing_and_names_the_exact_form() {
+    let (meant, said) = parse_dead_end(&["archve", "lane-1"]);
+    assert!(matches!(meant, crate::cli::entry::Meant::Clap), "{said}");
+    assert!(said.contains("nothing ran: the exact form is needed"), "{said}");
+    assert!(said.contains("acpmux archive lane-1"), "{said}");
+}

@@ -469,7 +469,12 @@ fn message_edits(argv: &[String], walk: &Walk<'_>, err: &clap::Error, tbl: &Tabl
 }
 
 /// The word that makes `argv` destructive or outward (its form must be exact), else None.
-fn unsafe_in(root: &Command, argv: &[String], tbl: &Table, prog: &str) -> Option<String> {
+pub(crate) fn unsafe_in(
+    root: &Command,
+    argv: &[String],
+    tbl: &Table,
+    prog: &str,
+) -> Option<String> {
     let walk = walk::walk(root, argv);
     let typed = walk::typed_path(&walk, argv);
     let canon = walk::canonical_path(&walk);

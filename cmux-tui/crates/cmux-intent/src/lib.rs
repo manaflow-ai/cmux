@@ -68,6 +68,15 @@ pub fn recover_with(
     (result.outcome == Kind::Ran).then_some(result.argv)
 }
 
+/// The destructive or outward word of `args` (the words after the program), a form `cmd` takes, when
+/// its form must be exact (the table's `exact` paths and `unsafe` words), else None: a CLI that knows by
+/// itself which form was meant runs it only when this is None.
+pub fn needs_exact(cmd: &Command, key: &str, args: &[String], tbl: &Table) -> Option<String> {
+    let mut built = cmd.clone();
+    built.build();
+    repair::unsafe_in(&built, args, tbl, key)
+}
+
 /// `cmd`'s matches for `args`; when clap refuses, the one form meant (see `recover`) is parsed instead.
 pub fn matches(
     cmd: &Command,

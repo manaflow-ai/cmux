@@ -96,7 +96,7 @@ If a layer breaks the window itself, quit cmux and open it once on its built-in 
 does not start from a layer falls back on its own and turns the layer off, saying why.
 ";
 
-/// Every verb, for \"did you mean\".
+/// Every verb, for a mistyped one (run as the one it meant, else \"did you mean\").
 const VERBS: &[&str] = &[
     "status",
     "diff",
@@ -284,12 +284,22 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         "ask" => wish_of(rest).map(|(wish, options)| Request::Ask { wish, options }),
         "schema" => schema_of(rest),
         // A wish is said in words: one quoted argument with a space in it, or
-        // several words. One bare word is a verb, so a typo gets a suggestion
-        // instead of an agent.
+        // several words. One bare word is a verb, so a typo runs the verb it
+        // meant (or gets a suggestion), never an agent.
         _ if first.starts_with('-') || words.len() > 1 || first.contains(char::is_whitespace) => {
             wish_of(words).map(|(wish, options)| Request::Ask { wish, options })
         }
         _ => {
+            // A mistyped verb with one clear, safe reading runs as that verb, said on stderr
+            // (Leo, 2026-11-23: "aka not force yet another tool call"); a destructive or
+            // outward one (apply, discard, rollback) still needs its exact form (cmux-intent).
+            let known: Vec<String> = VERBS.iter().map(|verb| (*verb).to_owned()).collect();
+            let meant = cmux_intent::word(first, &known, "cmux", false, &["customize".to_owned()]);
+            if meant != *first {
+                let mut fixed = vec![meant];
+                fixed.extend(rest.iter().cloned());
+                return parse(&fixed);
+            }
             let near = VERBS
                 .iter()
                 .filter(|verb| super::scope_help::edit_distance(first, verb) <= 2)

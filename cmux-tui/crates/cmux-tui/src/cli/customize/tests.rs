@@ -69,9 +69,11 @@ fn a_wish_is_words_and_one_bare_word_is_a_verb() {
 }
 
 #[test]
-fn a_mistyped_verb_gets_a_suggestion_and_never_an_agent() {
-    let error = parse(&words(&["staus"])).unwrap_err();
-    assert!(error.contains("did you mean `status`?"), "{error}");
+fn a_mistyped_verb_runs_the_one_it_meant_and_never_an_agent() {
+    // Leo, 2026-11-23: "aka not force yet another tool call": one clear, safe verb runs.
+    assert_eq!(parse(&words(&["staus"])), Ok(Request::Status));
+    assert_eq!(parse(&words(&["profils"])), Ok(Request::Profiles));
+    // A destructive one still needs its exact form.
     let error = parse(&words(&["rolback"])).unwrap_err();
     assert!(error.contains("`rollback`"), "{error}");
     let error = parse(&words(&["zzz-not-a-command"])).unwrap_err();
