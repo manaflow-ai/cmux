@@ -64,7 +64,9 @@ if has resume || has fork || has soak; then
   PUBLISHED_BENCH_SAMPLES="$samples" PUBLISHED_BENCH_SOAK_SECS="$soak_secs" \
     cargo test --locked -p acpmux --release --test published_bench -- --ignored --nocapture \
     --test-threads 1 --exact "${tests[@]}" >"$out/bench.log" 2>&1 || status=$?
-  grep -E '^(PUBLISHED-BENCH|test result)' "$out/bench.log" | tee -a "$out/rows.log" || true
+  # The test harness prints `test NAME ... ` before a test's own output, on the same line.
+  grep -oE 'PUBLISHED-BENCH \{.*\}' "$out/bench.log" | tee -a "$out/rows.log" || true
+  grep -E '^test result' "$out/bench.log" || true
   # A build or test failure prints its own end, so a run with no row says why.
   if [[ "${status:-0}" != 0 ]]; then
     echo "published_bench exited ${status}:"; grep -E -A12 '^error' "$out/bench.log" | head -n 80; tail -n 40 "$out/bench.log"
@@ -82,16 +84,16 @@ if has move; then
   done
   python3 - "$out/move.log" <<'PY'
 import json, os, re, socket, sys
-def secs(text):
-    m = re.match(r"([0-9.]+)(ns|µs|us|ms|s)$", text)
-    return float(m.group(1)) * {"ns": 1e-9, "µs": 1e-6, "us": 1e-6, "ms": 1e-3, "s": 1}[m.group(2)]
+UNIT = {"ns": 1e-9, "µs": 1e-6, "us": 1e-6, "ms": 1e-3, "s": 1}
 samples, red = [], 0
-for line in open(sys.argv[1], encoding="utf-8"):
-    parts = line.split()
-    if len(parts) > 4 and parts[3] == "green:":
-        samples.append(round(secs(parts[4]) * 1000, 1))
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    # `MATRIX <harness> moved green: <Duration Debug> <receipt>`; anything else is a red cell.
+    m = re.search(r" moved green: ([0-9.]+)(ns|µs|us|ms|s)(?![A-Za-z])", line)
+    if m:
+        samples.append(round(float(m.group(1)) * UNIT[m.group(2)] * 1000, 1))
     else:
         red += 1
+        print("move: not a green move:", line[:200].rstrip(), file=sys.stderr)
 samples.sort()
 at = lambda p: samples[round((len(samples) - 1) * p)] if samples else None
 print("PUBLISHED-BENCH " + json.dumps({
