@@ -11,6 +11,9 @@ public struct StreamedBrowserPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
+    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown dimmed
+    /// under "Loading browser session…" until the first frame decodes, never once it is live.
+    var lastKnown: CGImage?
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
     @State private var raisedForField = false
@@ -21,10 +24,17 @@ public struct StreamedBrowserPage: View {
     /// What the page says when the Mac cannot stream browser tabs.
     public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
 
-    public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+    public init(model: StreamedBrowserModel, insets: EdgeInsets, lastKnown: CGImage? = nil,
+                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
         self.insets = insets
+        self.lastKnown = lastKnown
         self.reportScroll = reportScroll
+    }
+
+    /// Whether the page draws the last-known picture: only while connecting.
+    static func showsLastKnown(phase: StreamedBrowserModel.Phase, hasLastKnown: Bool) -> Bool {
+        phase == .connecting && hasLastKnown
     }
 
     public var body: some View {
@@ -44,6 +54,21 @@ public struct StreamedBrowserPage: View {
                     status(reason)
                 }
             } else if model.phase == .connecting {
+                if Self.showsLastKnown(phase: model.phase, hasLastKnown: lastKnown != nil), let lastKnown {
+                    GeometryReader { geo in
+                        Image(decorative: lastKnown, scale: 1).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width,
+                                   height: geo.size.width * CGFloat(lastKnown.height) / CGFloat(max(1, lastKnown.width)))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                            .opacity(0.55)
+                    }
+                    .background(Color(uiColor: .systemBackground))
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
                 status(String(localized: "Loading browser session…"))
             } else if let notice = model.notice {
                 refusal(notice)
