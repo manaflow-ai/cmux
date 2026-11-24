@@ -641,6 +641,33 @@ fi
 exit "$status"
 '''
 
+# cmux-next-guards.yml's security-holes job, which every feat-cmux-next pull request ran: 3,725 jobs and 8,327
+# runner-minutes a day, a median 85 s for about 30 s of work. It judged every change whatever it touched (gitleaks
+# reads any file a change adds), so its `inputs` are `**` and every change routes it, but a docs-only change
+# alone does not start the pipeline for it (scripts/ci/pr_router.py table_steps), as the workflow's docs-only path
+# filter started no run. The job's `if:` now
+# skips feat-cmux-next's pull requests; nothing requires the job, so no rollup counts its skip. The same commands,
+# with CMUX_STATIC_ANALYSIS_BLOCKING=1: the ratchet's own tests, zizmor and gitleaks judged on the merge commit
+# against its first parent (checked out at depth 2, as the job's was), and the two runner-size guards. The job ran
+# each with `!cancelled()`, so one failed command does not stop the others. The pinned, checksummed zizmor and
+# gitleaks binaries download into ~/.cache/static-analysis (a persistent runner keeps them).
+# 31 s on 2 CPUs through ci/run (a warm tool cache; the zizmor and gitleaks downloads add a few seconds cold).
+[step.security-holes]
+job = "linux"
+timeout = 300
+title = "Workflow security holes and secrets"
+about = "the ratchet's tests pass, the change adds no workflow security hole (zizmor) and no secret (gitleaks), and no job is pinned to one runner size"
+inputs = ["**"]
+run = '''
+export CMUX_STATIC_ANALYSIS_BLOCKING=1
+status=0
+python3 tests/test_static_analysis_ratchet.py || status=1
+python3 scripts/static-analysis/ratchet.py zizmor --base HEAD^1 --head HEAD || status=1
+python3 scripts/static-analysis/ratchet.py gitleaks --base HEAD^1 --head HEAD || status=1
+python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py || status=1
+exit "$status"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
