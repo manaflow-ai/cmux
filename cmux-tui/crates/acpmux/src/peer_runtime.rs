@@ -35,6 +35,8 @@ impl Peer {
             wireguard: std::sync::OnceLock::new(),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            hub_dialed_at: StdMutex::new(None),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
             link_socket: std::sync::OnceLock::new(),

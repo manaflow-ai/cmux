@@ -21,6 +21,10 @@ use tokio::time::Instant;
 
 /// How long one ask keeps the peer wanted.
 pub(super) const WANTED_FOR: Duration = Duration::from_secs(60);
+/// How far apart the peers that failed on one relay redial once it answers again: each waits a
+/// random part of this, so a machine with many peers on the relay stays under the peerburst
+/// spread (#53838: at most 6 dials in any 100 ms for 40 peers is 4 per 100 ms here).
+pub(super) const RELAY_BACK_SPREAD: Duration = Duration::from_secs(1);
 
 /// How long a restart (Close 1012) keeps it wanted: a loaded host's daemon can take a minute or
 /// more to listen again (huge-blue's updates, 2026-10-30).
@@ -236,6 +240,12 @@ impl Peer {
     /// this computer slept through ends at the wake, with the backoff started over: the delay
     /// ran on the monotonic clock, which stood still, so the attempt would otherwise come up to
     /// a minute after the wake, while the network that failed before the sleep is likely back.
+    /// Without the hub carrier no relay comes back.
+    #[cfg(not(feature = "hub-carrier"))]
+    async fn relay_back(&self) {
+        std::future::pending().await
+    }
+
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
         let started = Instant::now();
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
@@ -282,6 +292,17 @@ impl Peer {
                 () = self.network_changed() => {
                     tracing::info!(peer = %self.name, "this computer's network changed; reconnecting now");
                     return BackoffWait::Done;
+                }
+                // The relay this peer's hub dial failed on answers again (`hub_carrier_relay_up.rs`):
+                // one attempt now, the backoff not started over, as a network change is. Spread
+                // over `RELAY_BACK_SPREAD` so every peer on the relay does not redial in one burst.
+                () = self.relay_back() => {
+                    let spread = RELAY_BACK_SPREAD.mul_f64(crate::peer_link::jitter());
+                    tracing::info!(peer = %self.name, "the relay accepts again; reconnecting in {}ms", spread.as_millis());
+                    tokio::select! {
+                        () = tokio::time::sleep(spread) => return BackoffWait::Done,
+                        _ = self.stop_signal.notified() => return BackoffWait::Stopped,
+                    }
                 }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }

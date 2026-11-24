@@ -612,6 +612,9 @@ pub struct HubCarrier {
     serving_on: RwLock<Option<String>>,
     /// The direct path to machines on this machine's private network (`hub_carrier_direct.rs`).
     direct: direct::Direct,
+    /// The relays this carrier could not reach, watched until they answer again
+    /// (`hub_carrier_relay_up.rs`).
+    relay_up: relay_up::RelayUp,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -651,6 +654,7 @@ impl HubCarrier {
             homes: rehome::Homes::default(),
             serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
+            relay_up: relay_up::RelayUp::default(),
         })
     }
 
@@ -688,6 +692,7 @@ impl HubCarrier {
             homes: rehome::Homes::default(),
             serving_on: RwLock::new(None),
             direct: direct::Direct::default(),
+            relay_up: relay_up::RelayUp::default(),
         })
     }
 
@@ -749,6 +754,12 @@ impl HubCarrier {
     /// Reach peer `name` at the machine whose hub `daemonId` is `daemon`.
     pub fn set_route(&self, name: &str, daemon: &str) {
         self.routes.lock().unwrap_or_else(|e| e.into_inner()).insert(name.into(), daemon.into());
+    }
+
+    /// The relay-up edges this carrier saw: a peer that failed a dial waits on the next one
+    /// (`hub_carrier_relay_up.rs`).
+    pub(crate) fn relay_up(&self) -> &relay_up::RelayUp {
+        &self.relay_up
     }
 
     /// The daemon id peer `name` is reached at, when one was named.
@@ -1265,7 +1276,16 @@ impl HubCarrier {
                 routing: BTreeMap::new(),
             })
             .await
-            .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
+            .map_err(|e| {
+                let text = e.to_string();
+                // The relay did not take the connect at all (a refusal of the slot is the far
+                // machine's answer, not the relay's): watch it, so the peers that failed here
+                // redial once it answers again (`hub_carrier_relay_up.rs`).
+                if !relay_answered(&text) {
+                    self.relay_up.failed(relay, Arc::downgrade(&self.alive));
+                }
+                relay_refusal(text, self.timings.peer_join)
+            })?;
         stages.relay = step.elapsed();
         let step = Instant::now();
         let opened = tokio::time::timeout(
@@ -2067,10 +2087,20 @@ pub(crate) fn not_a_teammate_machine(daemon: &str) -> String {
 /// registered for the machine's slot, or its registration lease ran out) is the far carrier not
 /// serving ([`carrier_not_serving`]); any other refusal keeps its own text.
 pub(crate) fn relay_refusal(text: String, waited: Duration) -> String {
-    let offline = text.contains("slot-offline")
+    if slot_offline(&text) { carrier_not_serving(waited) } else { text }
+}
+
+/// Whether the relay's own refusal says the far machine's slot is not served.
+fn slot_offline(text: &str) -> bool {
+    text.contains("slot-offline")
         || text.contains("no daemon is registered")
-        || text.contains("registration lease has expired");
-    if offline { carrier_not_serving(waited) } else { text }
+        || text.contains("registration lease has expired")
+}
+
+/// Whether a connect error is the relay's answer about the slot or the ticket (it was up and
+/// spoke), not a relay that could not be reached.
+fn relay_answered(text: &str) -> bool {
+    slot_offline(text) || text.contains("unauthorized") || text.contains("forbidden")
 }
 
 /// The platform's tickets, by this machine's `cmm_` credential, through the mesh hub's client.
@@ -2419,6 +2449,9 @@ mod rehome;
 
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
+
+#[path = "hub_carrier_relay_up.rs"]
+pub(crate) mod relay_up;
 
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]

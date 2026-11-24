@@ -317,6 +317,10 @@ pub struct Peer {
     /// key), if any (`peer_hub.rs`).
     #[cfg(feature = "hub-carrier")]
     hub_carrier: std::sync::OnceLock<(crate::hub_carrier::HubCarrierSlot, Option<String>)>,
+    /// The carrier's relay-up generation the last hub dial went under, once one went
+    /// (`peer_hub.rs` `relay_back`).
+    #[cfg(feature = "hub-carrier")]
+    hub_dialed_at: StdMutex<Option<u64>>,
     /// The paired install the cmux link dials for this peer (`peer_carriers.rs`).
     link_host: std::sync::OnceLock<String>,
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
