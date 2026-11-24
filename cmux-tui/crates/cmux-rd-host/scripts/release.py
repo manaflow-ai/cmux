@@ -61,7 +61,7 @@ RELEASE_FEATURES = "openh264,link"
 OWN_CRATES = frozenset((
     "cmux-encode", "cmux-file-lock", "cmux-hub-host", "cmux-process", "cmux-rd-core",
     "cmux-rd-engine",
-    "cmux-rd-host", "cmux-rd-link", "cmux-rd-proto", "cmux-transport",
+    "cmux-rd-host", "cmux-rd-link", "cmux-rd-proto", "cmux-transport", "cmux-wg",
 ))
 NAME = "cmux-rd"
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?")

@@ -152,6 +152,7 @@ pub fn this_machine() -> Option<String> {
 /// (`CMUX_CLOUD_API_URL`, `CMUX_CLOUD_ACCESS_TOKEN`, `CMUX_CLOUD_TEAM`, as `acpmux fork-run`
 /// reads them). A build whose cmux-cloud-api has no `machine.fork` yet refuses at the fork, and
 /// the placement falls back with that refusal as its cause.
+#[cfg(unix)]
 pub struct CloudMachines {
     request: cmux_cloud_api::Request,
 }
@@ -161,6 +162,7 @@ pub const API_ENV: &str = "CMUX_CLOUD_API_URL";
 pub const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 pub const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
 
+#[cfg(unix)]
 impl CloudMachines {
     /// The backend from `env` (a lookup, `std::env::var` in the daemon), or which value is missing.
     pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
@@ -187,6 +189,7 @@ impl CloudMachines {
     }
 }
 
+#[cfg(unix)]
 impl Machines for CloudMachines {
     async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
         let mut request = self.request.clone();
@@ -229,15 +232,25 @@ impl SubRun for NoForkRunner {
 /// put on the reply, `None` when the plan is today's (the key off: nothing ran, nothing changes).
 pub async fn on_start(plan: &StartPlan, prompt: &str, checkout: &Path) -> Option<Outcome> {
     let StartPlan::Fork { machine } = plan else { return None };
-    let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
-        Ok(m) => Arc::new(m),
-        Err(detail) => {
-            let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
-            tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
-            return Some(out);
-        }
-    };
-    Some(place(true, Some(machine), machines, &NoForkRunner, prompt, checkout).await)
+    // cmux-cloud-api is a unix-only crate: elsewhere there is no fork backend to try.
+    #[cfg(not(unix))]
+    {
+        let _ = (machine, prompt, checkout);
+        let detail = "Cloud forks need a unix build of acpmux".to_owned();
+        Some(Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None })
+    }
+    #[cfg(unix)]
+    {
+        let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
+            Ok(m) => Arc::new(m),
+            Err(detail) => {
+                let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
+                tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
+                return Some(out);
+            }
+        };
+        Some(place(true, Some(machine), machines, &NoForkRunner, prompt, checkout).await)
+    }
 }
 
 /// Owns a fork from the moment it exists: [`ForkGuard::delete`] deletes it, and a guard dropped
