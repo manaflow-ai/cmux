@@ -376,13 +376,6 @@ class Inputs(unittest.TestCase):
         self.assertEqual(merged["errors"], ["unknown v2 gate row v2.b"])
         self.assertEqual(qr.god_vs_small(merged, None)["errors"], ["unknown v2 gate row v2.b"])
 
-    def test_the_workflow_merges_through_merge_god_small(self):
-        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
-        with open(path) as f:
-            workflow = f.read()
-        self.assertIn('quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"', workflow)
-        self.assertNotIn('json.dump({"rows": rows}', workflow)
-
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)

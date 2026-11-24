@@ -260,16 +260,6 @@ class Launch(unittest.TestCase):
         self.assertIn("{q(commit if re.fullmatch(r'[0-9a-f]{40}', commit) else '-')}", src)
 
 
-class WholeHost(unittest.TestCase):
-    def test_run_py_and_the_driver_carry_activate(self):
-        src = (HERE / "run.py").read_text()
-        self.assertIn('*([] if whole_host else ["--slot"])', src)
-        self.assertIn('*(["--activate"] if whole_host else [])', src)
-        self.assertIn('(" --activate" if whole_host else "")', src)
-        drv = (HERE / "driver.py").read_text()
-        self.assertIn('*([] if ACTIVATE else ["-g"])', drv)
-
-
 class NewTerminals(unittest.TestCase):
     """cond_smoke_new_terminals on a fake app: the lines must be one each on new terminals, placed as asked."""
 

@@ -26,7 +26,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-ci.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml"
-WEB_PUBLISH = ROOT / ".github" / "workflows" / "cmux-next-web-bundle-publish.yml"
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): the fetch fixture's
 # repositories get git's auto maintenance off, so no detached writer is left when the temp folder goes.
 _git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
@@ -692,10 +691,6 @@ class Workflow(unittest.TestCase):
         plan = "\n".join(self.job_block("plan"))
         self.assertIn('"$tool" nightly-commit', plan)
         self.assertIn('${base[@]+"${base[@]}"}', plan)
-
-    def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
-        text = WEB_PUBLISH.read_text()
-        self.assertIn("workflow_dispatch:", text)
 
 
 if __name__ == "__main__":

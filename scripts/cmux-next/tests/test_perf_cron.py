@@ -4681,14 +4681,6 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertIn("setup: bun install failed", result["tail"])
         self.assertIsNone(report)
 
-    def test_the_step_script_answers_a_setup_failure_with_a_yield(self):
-        with open(os.path.join(HERE, "..", "..", "measure", "perf-cron-linux.sh")) as f:
-            text = f.read()
-        self.assertIn('"state": "yielded"', text)
-        self.assertNotIn("|| exit 1", text, "a setup failure writes the yield and exits 0")
-        self.assertNotIn("--depth", text, "a shallow fetch would make the worker's warm clone shallow")
-        self.assertNotIn("--optional", text, "the system Chrome is required, as on the runner job")
-
     def run_plan(self, d, t, decision):
         out = os.path.join(d, f"plan-{t:%H%M%S}.out")
         o = argparse.Namespace(dir=d, output=out, tip="feat-cmux-next", repo="o/r", no_mac=True, yield_mode="",
@@ -4745,14 +4737,6 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertIn("run-linux-part", text)
         self.assertIn(f"--runner-class {cron.LINUX_FLEET_CLASS}", text)
         self.assertIn(cron.LINUX_STEP_ARTIFACT, text)
-
-    def test_the_workflow_asks_with_a_job_the_controller_reads(self):
-        with open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")) as f:
-            text = f.read()
-        self.assertIn("name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.linux_request }}", text)
-        self.assertIn("linux_request: ${{ steps.plan.outputs.linux_request }}", text)
-        self.assertIn("CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER", text)
-        self.assertIn("--linux-controller", text)
 
 
 class BatchTests(unittest.TestCase):

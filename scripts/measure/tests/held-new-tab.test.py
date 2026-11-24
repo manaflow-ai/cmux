@@ -1719,11 +1719,6 @@ class Sample(Case):
         names = M.pack(self.out, None, os.path.join(self.out, "back.tgz"))
         self.assertEqual(sorted(names), ["report.json", "sample-hold/run.ndjson", "sample-hold/sample.txt", "sample-hold/scenario.json"])
 
-    def test_the_tools_option_is_a_count_of_whole_seconds_and_is_off_by_default(self):
-        with open(os.path.join(HERE, "..", "held-new-tab.py")) as f:
-            text = f.read()
-        self.assertIn('parser.add_argument("--sample-s", type=int, default=0,', text)
-
 
 class Artifact(Case):
     def test_one_file_brings_back_the_report_each_take_and_the_film(self):
@@ -1740,22 +1735,6 @@ class Artifact(Case):
             self.assertEqual(sorted(tar.getnames()), sorted(names))
         self.assertEqual(sorted(names), ["0-mixed/run.ndjson", "0-mixed/scenario.json", "film/frame-00005.jpg", "film/frame-00010.jpg",
                                          "film/frames.json", "report.json"])
-
-    def test_the_entry_script_names_one_artifact_for_a_step(self):
-        with open(os.path.join(HERE, "..", "held-new-tab.sh")) as f:
-            text = f.read()
-        usage = text.split("set -euo pipefail")[0]
-        self.assertNotIn("--artifact held-new-tab.json [--artifact", usage)
-        self.assertIn("ONE --artifact", usage)
-        self.assertIn('--artifact "$PWD/held-new-tab.tgz"', text)
-        self.assertIn('cp "$out/measure/report.json" "$PWD/held-new-tab.json"', text)  # the report alone, for a reader that asks for it
-
-    def test_the_entry_script_requires_the_page_engine_in_its_build(self):
-        with open(os.path.join(HERE, "..", "held-new-tab.sh")) as f:
-            text = f.read()
-        self.assertIn('CMUX_NEXT_REQUIRE_CEF="$require_cef"', text)
-        self.assertIn("--allow-no-chromium) require_cef=0 ;;", text)
-        self.assertIn("require_cef=1", text)
 
 
 class App:

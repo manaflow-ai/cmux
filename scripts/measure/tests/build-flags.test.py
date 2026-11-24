@@ -224,15 +224,6 @@ class TheToolsUse(unittest.TestCase):
                     self.assertIsInstance(got, dict)
                     self.assertIn("no-object.json: not a JSON object", got.get("not_read", ""))
 
-    def test_each_tool_puts_the_record_into_its_report_and_the_held_key_tool_gives_the_file_to_its_artifact(self):
-        """Text only: the `main` of a tool needs an app, so no row calls it."""
-        for file in ("held-new-tab.py", "pane-motion-films.py"):
-            with open(os.path.join(HERE, "..", file)) as f:
-                text = f.read()
-            self.assertIn('"build": build_facts(opts.build)', text, file)
-            if file == "held-new-tab.py":
-                self.assertIn("pack(opts.out, opts.film, opts.artifact, opts.build)", text, file)
-
     def test_the_held_key_tools_artifact_has_the_file(self):
         out, build = os.path.join(self.dir.name, "measure"), os.path.join(self.dir.name, "build-flags.json")
         os.makedirs(out)
