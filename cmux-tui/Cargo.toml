@@ -100,6 +100,7 @@ members = [
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
     "crates/cmux-remote-protocol",
+    "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
@@ -185,6 +186,7 @@ members = [
     "crates/cmux-source-scan",
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
+    "crates/cmux-redact",
 ]
 default-members = [
     "crates/acpmux",
@@ -251,6 +253,7 @@ default-members = [
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
     "crates/cmux-remote-protocol",
+    "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
@@ -439,6 +442,7 @@ cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-felt = { path = "crates/cmux-felt" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-share-approval = { path = "crates/cmux-share-approval" }

@@ -4,6 +4,40 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    ConcurrencyOnLimit {
+        Queue = "queue",
+        Skip = "skip",
+    }
+}
+
+wire_enum! {
+    ConfirmLevel {
+        Strict = "strict",
+        DestructiveOnly = "destructive-only",
+        Off = "off",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Connection {
+    pub id: ConnectionId,
+    pub owner: TeamId,
+    pub created_by: UserId,
+    pub provider: IntegrationProvider,
+    pub account: Option<ConnectionAccount>,
+    pub scopes_requested: Vec<String>,
+    pub scopes_granted: Vec<String>,
+    pub status: ConnectionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    pub sharing: ConnectionSharing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ConnectionResources>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Concurrency {
     pub max: i64,
