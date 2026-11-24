@@ -1,0 +1,187 @@
+name: Hybrid start first run (staging, published NEXT DEV app, PR CLI)
+
+# One-off evidence run for cmux#52145 (the hybrid chat start): the published, signed NEXT DEV app signs in to
+# staging with the agent test account, and this pull request's macOS cmux-tui runs
+# `CMUX_HYBRID_START=1 cmux chat --on vm:new --prompt ...` against it three times, then one follow-up and one
+# CMUX_HYBRID_START=0 control (scripts/cmux-next/hybrid-start-first-run.py). Every machine it makes is killed.
+# It checks out the pull request's head, not the merge with the base (the base did not compile acpmux on its own
+# when this ran). Same-repo pull requests only.
+#
+# Accounts: the job runs in cmux-next-vm-image-dev and signs in with its CMUX_DOGFOOD_STACK_* pair, the staging
+# account run 45301264459 used. Run 45323515483 tried cmux-next-cloud-journey's CMUX_STAGING_STACK_* and found the
+# pair empty in this job. The Claude login is CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN where the environment has one,
+# else the repository's
+# CLAUDE_CODE_OAUTH_TOKEN. The repository's one is shared by claude.yml, cloud-chat-proof and every journey; run
+# 45301264459's control chat got "You've hit your weekly limit" from it. A one-word Claude preflight runs before the
+# build and prints the login's own words (its limit and reset); it never ends the job, because the machine, the
+# move and the timings need no model and are measured on every run.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/hybrid-start-first-run.py
+      - .github/workflows/hybrid-start-first-run.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hybrid-start-first-run-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 150
+    env:
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          submodules: false
+      # The hybrid start runs the chat on this Mac first, on a harness the app's acpmux finds on PATH (acpmux
+      # config/discover.rs): with no `claude` here it has none ("no harnesses configured", run 45276902076).
+      - name: Install Claude Code (the local harness)
+        run: |
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          command -v claude && claude --version
+      - name: Claude login preflight (the login this run passes)
+        env:
+          JOURNEY_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN }}
+          REPO_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          # The runner's shell has -e: without +e a failed claude ends the step before its words are printed.
+          set +e -uo pipefail
+          if [ -n "${JOURNEY_TOKEN:-}" ]; then source=CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN; token="$JOURNEY_TOKEN"
+          elif [ -n "${REPO_TOKEN:-}" ]; then source=CLAUDE_CODE_OAUTH_TOKEN; token="$REPO_TOKEN"
+          else echo "::warning::Claude preflight: no Claude login in this job's environment; the run goes on and measures everything but the answers"; exit 0; fi
+          unset JOURNEY_TOKEN REPO_TOKEN
+          echo "HFR_CLAUDE_TOKEN_SOURCE=$source" >> "$GITHUB_ENV"
+          dir="$(mktemp -d)"
+          started=$(date +%s)
+          echo "claude on this runner: $(command -v claude || echo 'not on PATH')"
+          answer="$(cd "$dir" && CLAUDE_CODE_OAUTH_TOKEN="$token" CLAUDE_CONFIG_DIR="$dir/home" \
+            perl -e 'alarm shift; exec @ARGV' 120 claude -p "Reply with the single word ok." --max-turns 1 2>&1)"; code=$?
+          rm -rf "$dir"
+          answer="$(printf '%s' "$answer" | tr '\n' ' ' | cut -c1-300)"
+          line="Claude preflight ($source): exit $code in $(( $(date +%s) - started )) s: $answer"
+          echo "$line"; echo "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ] || ! printf '%s' "$answer" | grep -qiw ok; then
+            # Not fatal: the machine, the move and the timings need no model, so they are measured on every run.
+            echo "::warning::Claude preflight: the login ($source) gave no answer (exit $code), so no chat in this run can reply; the run goes on: $answer"
+          fi
+      - name: Init ghostty submodules
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache
+        uses: ./.github/actions/zig-global-cache
+      - name: Fetch the ghostty-next Zig packages
+        uses: ./.github/actions/ghostty-zig-packages
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build this pull request's macOS cmux-tui
+        id: build
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          binary="${CARGO_TARGET_DIR:-$PWD/target}/debug/cmux-tui"
+          test -x "$binary"
+          echo "built in $(( $(date +%s) - start )) s at $(git rev-parse HEAD)"
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+      - name: Download the published NEXT DEV app
+        # The public release URL, not the REST API: run 45235451832 failed here on the installation's API rate limit.
+        # The bundle id and the signing team below are what gate the launch.
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/published"
+          mkdir -p "$dir"
+          curl -fsSL --retry 5 --retry-all-errors --max-time 600 -o "$dir/app.zip" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/cmux-next-dev/cmux-NEXT-DEV.zip"
+          sha="$(shasum -a 256 "$dir/app.zip" | cut -d' ' -f1)"
+          id=public-url
+          ditto -x -k "$dir/app.zip" "$dir"
+          app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          [ -n "$app" ] || { echo "::error::the zip holds no app"; exit 1; }
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          [ "$bundle" = com.cmuxterm.app.debug.next ] || { echo "::error::bundle $bundle"; exit 1; }
+          codesign --verify --deep --strict "$app"
+          team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          [ "$team" = 7WLXT3NR37 ] || { echo "::error::team '$team'"; exit 1; }
+          xattr -cr "$app"
+          echo "Published NEXT DEV asset $id sha256:$sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "HFR_APP=$app" >> "$GITHUB_ENV"
+      - name: Materialize the staging agent account and seed its sign-in
+        env:
+          # This environment's CMUX_DOGFOOD_STACK_* is production's; the staging journey account is CMUX_STAGING_STACK_*.
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
+            echo "::error::the staging agent Stack pair is missing from this job's environment"; exit 1
+          fi
+          out="$RUNNER_TEMP/hfr"
+          mkdir -p "$out" "$HOME/.secrets"
+          ( umask 077; printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD" ) > "$out/active.env"
+          chmod 600 "$out/active.env"
+          cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
+          echo "HFR_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
+          python3 -I scripts/cmux-next/dev-signin-token.py --seed
+      - name: Hybrid start, three runs, follow-up, control
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # The preflight's login: the journey's own first, as cloud-journey-prod.yml reads it.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          HFR_CLI: ${{ steps.build.outputs.path }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/hybrid-start-first-run.py --app "$HFR_APP" --cli "$HFR_CLI" \
+            --credentials-file "$HFR_CREDENTIALS" --out "$RUNNER_TEMP/hfr/out" || status=$?
+          cat "$RUNNER_TEMP/hfr/out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+          # A run that measured nothing (no app on the socket, not signed in, no hybrid start) is red.
+          exit "${status:-0}"
+      - name: Keep the evidence and the driver logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/hfr/out/driver-logs"
+          find "$HOME/Library" "$HOME/.local" "$HOME/.cmux" "$TMPDIR" -path '*hybrid-start/*.log' -type f 2>/dev/null \
+            -exec cp {} "$RUNNER_TEMP/hfr/out/driver-logs/" \; || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: hybrid-start-first-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hfr/out
+          if-no-files-found: warn
+          retention-days: 7
