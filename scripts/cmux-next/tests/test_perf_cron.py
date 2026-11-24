@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "web-ui-settled", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1274,6 +1274,16 @@ class WebUiTests(unittest.TestCase):
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-flat")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
         self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_settled_page_rows_have_their_own_part(self):
+        # NOW's settled_page_score_max read unknown while the suite's ownPart bench had no part to run it.
+        self.assertTrue(cron.is_linux_part("web-ui-settled"))
+        self.assertEqual(cron.part_for_row("webui.settled_page.score_max@linux"), "web-ui-settled")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-settled")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "settled-page"])
+        self.assertEqual(cwd, "/r/webviews")
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "settled-page",\s*file: "settled-page\.bench\.ts"')
 
     def test_the_power_user_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-power-user"))
@@ -4603,6 +4613,30 @@ class UnreadPartFirstTests(unittest.TestCase):
         self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "no newer commit has it: no change")
         cron.decide(state, at(1), None, None, self.supported, None, newest=self.OLD)
         self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "the newest commit lacks it too")
+
+    def test_an_unread_linux_part_gives_the_tip_in_flight_up_too(self):
+        # 2026-11-24: web-ui-orchestrator (cmux#54205) merged after tip b76703549055, 13 of 45 parts in 229 h; as a
+        # Linux part it never counted as unread, so it could not run until that tip ended.
+        linux = "web-ui-orchestrator"
+        self.assertTrue(cron.is_linux_part(linux))
+        supported = lambda sha: ALL if sha == self.NEW else [n for n in ALL if n != linux]
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, self.OLD, None, supported, None)
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if n not in ("wake", "power")]:
+            cron.record_part(cur, name, {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1}
+                                for n in ALL if n not in ("build", linux)}
+        self.assertEqual(cron.unread_parts(state), [linux])
+        cur["yield_hours"] = cron.SUPERSEDE_AFTER_HOURS
+        cur.pop("host_asked_since", None)
+        d = cron.decide(state, at(cron.SUPERSEDE_AFTER_HOURS + 1), None, None, supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
+        state["current"] = None
+        cron.decide(state, at(26), self.NEW, None, supported, None)
+        order = cron.part_order(state, state["current"]["parts_todo"], at(26))
+        self.assertEqual([p for p in order if cron.is_linux_part(p)][0], linux, "the unread Linux part runs first")
 
 class LinuxControllerRouteTests(unittest.TestCase):
     """The Linux parts go to the build controller first (Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"):
