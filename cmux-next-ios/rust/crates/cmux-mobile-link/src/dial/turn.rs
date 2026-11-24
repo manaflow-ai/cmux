@@ -17,9 +17,9 @@
 //! stream control and input still go first and stale video is dropped.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
@@ -31,6 +31,12 @@ use webrtc::util::Conn;
 use super::DialOptions;
 use crate::api::IceServer;
 use crate::class_queue::{ClassQueue, Queued, SendClass};
+
+static TRACE_START: OnceLock<Instant> = OnceLock::new();
+
+fn trace_ms() -> f64 {
+    TRACE_START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+}
 
 /// Bound on a UDP allocation; the dial goes on without one after this.
 const UDP_WAIT: Duration = Duration::from_millis(2000);
@@ -533,11 +539,28 @@ impl TurnCarrier {
                     if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
                         continue;
                     }
+                    let send_started = Instant::now();
+                    eprintln!(
+                        "TURN_SEND_START at_ms={:.1} target={to} len={} class={:?}",
+                        trace_ms(),
+                        datagram.len(),
+                        cmux_transport::classify(&datagram)
+                    );
                     match relay.send_to(&datagram, to).await {
                         Ok(_) => {
+                            eprintln!(
+                                "TURN_SEND_DONE at_ms={:.1} target={to} ok=1 elapsed_ms={:.1}",
+                                trace_ms(),
+                                send_started.elapsed().as_secs_f64() * 1000.0
+                            );
                             failed.remove(&to);
                         }
                         Err(error) => {
+                            eprintln!(
+                                "TURN_SEND_DONE at_ms={:.1} target={to} ok=0 elapsed_ms={elapsed:.1} error={error}",
+                                trace_ms(),
+                                elapsed = send_started.elapsed().as_secs_f64() * 1000.0
+                            );
                             tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
                             failed.insert(to, tokio::time::Instant::now());
                         }
@@ -582,6 +605,9 @@ impl TurnCarrier {
     pub fn send(&self, datagram: &[u8], to: SocketAddr, class: SendClass) {
         self.queue.push(Queued { datagram: Bytes::copy_from_slice(datagram), to }, class);
     }
+
+    /// Measurement compatibility hook.
+    pub fn permit(&self, _targets: &[SocketAddr]) {}
 
     /// Whether the allocation's stream to the server failed (never for UDP).
     pub fn is_dead(&self) -> bool {
