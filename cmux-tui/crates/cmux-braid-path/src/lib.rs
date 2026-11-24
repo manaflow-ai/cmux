@@ -13,8 +13,10 @@ pub mod last_good;
 pub mod path_set;
 pub mod probe;
 pub mod race;
+pub mod remembered;
 
 pub use last_good::{LastGood, Remembered};
 pub use path_set::{IdPolicy, Path, PathSet, PathSetError, PathStats, earliest};
 pub use probe::{DueProbes, PathWatch, ProbeConfig, WatchStep, silence_window};
 pub use race::{RacePolicy, Won, race, stagger_after};
+pub use remembered::{race_remembered, v6_first};

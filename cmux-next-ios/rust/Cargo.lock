@@ -611,6 +611,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-braid-carrier",
+ "cmux-braid-path",
  "cmux-build-space",
  "cmux-fault",
  "cmux-mobile-link",
