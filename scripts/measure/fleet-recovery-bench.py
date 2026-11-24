@@ -300,8 +300,11 @@ def main() -> int:
     spare = Machine(root, "spare", binary, None)
     owner = spare
     t_start = time.time()
-    result: dict = {"metric": METRIC, "n": a.n, "turns": a.turns, "budget_s": a.budget,
-                    "binary": str(binary), "version": None}
+    # `mode` says what died: two daemons on this one machine (the first baseline), not two VMs.
+    result: dict = {"schema": "fleet-recovery-bench.v1", "metric": METRIC, "mode": "local-two-daemons",
+                    "host": socket.gethostname().split(".")[0],
+                    "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "n": a.n, "turns": a.turns, "budget_s": a.budget, "binary": str(binary), "version": None}
     try:
         result["version"] = subprocess.run([str(binary), "--version"], capture_output=True, text=True).stdout.strip()
         host.write_config({})

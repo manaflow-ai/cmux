@@ -36,7 +36,7 @@ enum ComposeMetrics {
 
     static var pillPadding: CGFloat { 10 }
     /// The unselected pill's fill: #e9e9e9 light, #4f4f51 dark.
-    static let pillFill = UIColor { $0.userInterfaceStyle == .dark
+    static let pillFill = UIColor.resolving { $0.userInterfaceStyle == .dark
         ? UIColor(red: 0x4F / 255, green: 0x4F / 255, blue: 0x51 / 255, alpha: 1)
         : UIColor(red: 0xE9 / 255, green: 0xE9 / 255, blue: 0xE9 / 255, alpha: 1) }
 }

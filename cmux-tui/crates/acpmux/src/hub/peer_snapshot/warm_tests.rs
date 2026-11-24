@@ -31,7 +31,8 @@ fn a_round_reads_the_peers_open_chats_that_changed_last() {
         row("day-old", 9, WARM_WITHIN_MS + 1),
         row("newer", 6, 2_000),
     ];
-    let (asks, planned, later) = plan(PEER, &rows, &HashMap::new(), &HashMap::new(), (NOW_MS, now));
+    let (asks, planned, later) =
+        plan(PEER, false, &rows, &HashMap::new(), &HashMap::new(), (NOW_MS, now));
     // At most WARM_PER_PEER (2 in tests), newest change first; never a closed, stale, empty or
     // day-old one.
     assert_eq!(muxes(&asks), ["newest", "newer"]);
@@ -49,18 +50,45 @@ fn a_round_reads_the_peers_open_chats_that_changed_last() {
     assert_eq!(asks[0].generation, 42);
 }
 
+/// cmux#52931 recovery, `scripts/measure/fleet-recovery-bench.py --n 100`: a host this daemon keeps
+/// copies of had 100 chats, and only the 24 that changed last were ever planned, so 20 moved without
+/// their transcript. Its every open chat is planned; the cap bounds a round's reads, and the rest
+/// come in the next round, after the settle.
+#[test]
+fn a_kept_peers_every_chat_is_read_a_capped_round_at_a_time() {
+    let now = Instant::now();
+    let rows: Vec<Value> = (0..5).map(|i| row(&format!("c{i}"), 3, 1_000 * i)).collect();
+    let (asks, planned, later) =
+        plan(PEER, true, &rows, &HashMap::new(), &HashMap::new(), (NOW_MS, now));
+    assert_eq!(muxes(&asks), ["c0", "c1"], "WARM_PER_PEER (2 in tests) reads, newest change first");
+    assert_eq!(planned.len(), 5, "every open chat is planned");
+    assert_eq!(later, Some(now + WARM_SETTLE), "the rest are read in the next round");
+
+    let covers: HashMap<_, _> =
+        ["c0", "c1"].iter().map(|m| ((*m).to_owned(), (Some(42), 3))).collect();
+    let (asks, ..) = plan(PEER, true, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    assert_eq!(muxes(&asks), ["c2", "c3"], "a covered chat takes no read of the cap");
+
+    // A peer kept only because a client here opened a peer chat: its newest chats alone.
+    let (asks, planned, later) = plan(PEER, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    assert!(asks.is_empty());
+    assert_eq!(planned.len(), 2);
+    assert_eq!(later, None);
+}
+
 #[test]
 fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_another_session() {
     let now = Instant::now();
     let rows = [row("a", 500, 0), row("b", 900, 1)];
     let caught_up = HashMap::from([("a".to_owned(), (Some(42), 500))]);
-    let (asks, planned, _) = plan(PEER, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
+    let (asks, planned, _) =
+        plan(PEER, false, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
     assert!(asks.is_empty(), "a copy that covers the row's last seq is not read again");
     assert!(planned.contains("a"));
 
     let covers =
         HashMap::from([("a".to_owned(), (Some(42), 450)), ("b".to_owned(), (Some(42), 100))]);
-    let (asks, ..) = plan(PEER, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) = plan(PEER, false, &rows, &covers, &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(asks[0].params["afterSeq"], json!(450), "within a page: only what is new");
     assert!(asks[0].params.get("beforeSeq").is_none());
@@ -69,12 +97,12 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
     // Review of #28626 at 112a7bf: a copy past the row (a peer back on an older disk with the same
     // session) is read again from the newest page, which replaces it.
     let ahead = HashMap::from([("a".to_owned(), (Some(42), 520))]);
-    let (asks, ..) = plan(PEER, &rows[..1], &ahead, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) = plan(PEER, false, &rows[..1], &ahead, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST));
     assert!(asks[0].params.get("afterSeq").is_none());
 
     let recreated = HashMap::from([("a".to_owned(), (Some(41), 499))]);
-    let (asks, ..) = plan(PEER, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
+    let (asks, ..) = plan(PEER, false, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST), "a copy of the session before");
 }
 
@@ -83,16 +111,17 @@ fn a_chat_read_within_the_interval_waits_for_its_end_and_is_then_read() {
     let now = Instant::now();
     let rows = [row("a", 5, 0), row("b", 5, 1)];
     let read_at = HashMap::from([((PEER.to_owned(), "a".to_owned()), (42, now))]);
-    let (asks, planned, later) = plan(PEER, &rows, &HashMap::new(), &read_at, (NOW_MS, now));
+    let (asks, planned, later) = plan(PEER, false, &rows, &HashMap::new(), &read_at, (NOW_MS, now));
     assert_eq!(muxes(&asks), ["b"]);
     assert!(planned.contains("a"), "still planned, so its read time is kept");
     assert_eq!(later, Some(now + WARM_EVERY));
-    let (asks, _, later) = plan(PEER, &rows, &HashMap::new(), &read_at, (NOW_MS, now + WARM_EVERY));
+    let (asks, _, later) =
+        plan(PEER, false, &rows, &HashMap::new(), &read_at, (NOW_MS, now + WARM_EVERY));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(later, None);
     // Review of #28626 at 112a7bf: a read of the session before a recreation holds none back.
     let recreated = HashMap::from([((PEER.to_owned(), "a".to_owned()), (41, now))]);
-    let (asks, _, later) = plan(PEER, &rows, &HashMap::new(), &recreated, (NOW_MS, now));
+    let (asks, _, later) = plan(PEER, false, &rows, &HashMap::new(), &recreated, (NOW_MS, now));
     assert_eq!((muxes(&asks), later), (vec!["a", "b"], None));
 }
 
@@ -354,7 +383,8 @@ fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
                         None => return,
                     };
                     let reads = HashMap::new();
-                    let (asks, ..) = plan(name, rows, &covers, &reads, (now_ms(), Instant::now()));
+                    let (asks, ..) =
+                        plan(name, false, rows, &covers, &reads, (now_ms(), Instant::now()));
                     for ask in asks {
                         let from = match ask.params.get("afterSeq").and_then(Value::as_u64) {
                             Some(after) => after + 1,
@@ -500,7 +530,7 @@ fn peer_copies_follow_bench() {
             );
             let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
             let (asks, ..) =
-                plan(name, &rows, &covers, &HashMap::new(), (now_ms(), Instant::now()));
+                plan(name, false, &rows, &covers, &HashMap::new(), (now_ms(), Instant::now()));
             for ask in asks {
                 let after = ask.params.get("afterSeq").and_then(Value::as_u64);
                 let from = match after {
