@@ -396,6 +396,18 @@ manaflow-ai/cmux#13742 (comment 6534420678).
 
 - **What the phone names.** A port only. hostd connects to `127.0.0.1`, then
   `[::1]`; never a host, an interface or a path the phone chooses.
+- **Named hosts (2026-11-24, `localhost-hosts-v1`, RFD 0089).** The phone may
+  also name a host (`devbox:3000`, a tailnet name, a Cloud VM's private
+  address). The narrowest rule that serves this: hostd resolves the name on the
+  Mac and forwards only when every address is loopback, RFC 1918 / unique-local,
+  or `100.64.0.0/10` (tailnet); it connects to the addresses it checked, not a
+  second lookup. A public address (this Mac as an internet proxy), a link-local
+  one (cloud metadata) and an unresolvable name are refused. This is narrower
+  than the `browser` service, which loads any `http(s)` address. A per-workspace
+  list was not chosen: it would need Mac-side UI before a dev host works. Bytes
+  are not parsed, so a self-signed `https` server's TLS runs end to end; the
+  phone's web view must trust that certificate itself (a per-workspace trust
+  choice in the app, separate from this service).
 - **Who may.** A paired phone (the pairing gate, like `browser`), which is
   one of the account owner's own phones (above). The person on that phone
   already reaches every loopback port: the `browser` service loads any

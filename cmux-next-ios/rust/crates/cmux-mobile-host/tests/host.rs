@@ -429,6 +429,36 @@ async fn localhost_forward(link: &cmux_mobile_link::Link) {
     let mut channel =
         link.open("localhost", serde_json::json!({"host": "10.0.0.2", "port": "0"})).await.unwrap();
     assert_eq!(close_reason(&mut channel).await.0, "bad_request");
+
+    // A named private host (RFD 0089): the Mac resolves it and the bytes pass untouched,
+    // as a self-signed https server's TLS would. `127.0.0.2` is loopback-range, allowed.
+    let tls = tokio::net::TcpListener::bind("127.0.0.2:0").await;
+    if let Ok(tls) = tls {
+        let tls_port = tls.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut stream, _) = tls.accept().await.unwrap();
+            let mut hello = [0u8; 5];
+            tokio::io::AsyncReadExt::read_exact(&mut stream, &mut hello).await.unwrap();
+            // Echo the "ClientHello" bytes reversed: proves nothing parsed or rewrote them.
+            hello.reverse();
+            stream.write_all(&hello).await.unwrap();
+        });
+        let mut channel =
+            link.open("localhost", serde_json::json!({"host": "127.0.0.2", "port": tls_port})).await.unwrap();
+        channel.send(Bytes::from_static(&[0x16, 0x03, 0x01, 0x02, 0x00])).await.unwrap();
+        match channel.recv().await {
+            Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], &[0x00, 0x02, 0x01, 0x03, 0x16]),
+            other => panic!("the named host did not answer: {other:?}"),
+        }
+        channel.close("done", "").await;
+    }
+    // A public host is never forwarded: this Mac is not a proxy to the internet.
+    let mut channel =
+        link.open("localhost", serde_json::json!({"host": "8.8.8.8", "port": 443})).await.unwrap();
+    assert_eq!(close_reason(&mut channel).await.0, "forbidden");
+    let mut channel =
+        link.open("localhost", serde_json::json!({"host": "169.254.169.254", "port": 80})).await.unwrap();
+    assert_eq!(close_reason(&mut channel).await.0, "forbidden");
 }
 
 async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
@@ -459,6 +489,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "removal-v1",
             "file-preview-v1",
             "localhost-forward-v1",
+            "localhost-hosts-v1",
             "cloud-directory-v1",
             "cloud-acpmux-v1",
             "needs-you-v1",
