@@ -184,8 +184,9 @@ struct Run {
 }
 
 impl Run {
+    /// The absolute offset after the last byte kept. [`append`] never lets it pass `u64::MAX`.
     fn end(&self) -> u64 {
-        self.base + self.buffer.len() as u64
+        self.base.saturating_add(self.buffer.len() as u64)
     }
 
     fn finished(&self) -> bool {
@@ -348,7 +349,8 @@ impl ShellRuns {
         if state.waiting_reads >= MAX_WAITING_READS {
             return Err(Refusal::Busy);
         }
-        state.waiting_reads += 1;
+        // At most MAX_WAITING_READS (checked above).
+        state.waiting_reads = state.waiting_reads.saturating_add(1);
         Ok(ReadStart::Wait(WaitPermit { shared: self.shared.clone() }))
     }
 
@@ -360,7 +362,7 @@ impl ShellRuns {
         after: u64,
         wait: Duration,
     ) -> Result<Chunk, Refusal> {
-        let deadline = Instant::now() + wait.min(READ_WAIT);
+        let deadline = deadline_after(wait.min(READ_WAIT));
         let mut state = self.shared.state.lock().recover_poison();
         loop {
             let run = state.runs.get(id).ok_or(Refusal::UnknownRun)?;
@@ -368,7 +370,12 @@ impl ShellRuns {
             if run.has_news(after) || now >= deadline {
                 return Ok(chunk(run, after));
             }
-            state = self.shared.changed.wait_timeout(state, deadline - now).recover_poison().0;
+            state = self
+                .shared
+                .changed
+                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .recover_poison()
+                .0;
         }
     }
 
@@ -398,7 +405,7 @@ impl ShellRuns {
         let escalation =
             std::thread::Builder::new().name("shell-run-stop".into()).spawn(move || {
                 for signal in [libc::SIGTERM, libc::SIGKILL] {
-                    let deadline = Instant::now() + STOP_ESCALATION;
+                    let deadline = deadline_after(STOP_ESCALATION);
                     let mut state = shared.state.lock().recover_poison();
                     loop {
                         // Gone or ended: the group may no longer be this command's.
@@ -409,8 +416,11 @@ impl ShellRuns {
                         if now >= deadline {
                             break;
                         }
-                        state =
-                            shared.changed.wait_timeout(state, deadline - now).recover_poison().0;
+                        state = shared
+                            .changed
+                            .wait_timeout(state, deadline.saturating_duration_since(now))
+                            .recover_poison()
+                            .0;
                     }
                     signal_group(pgid, signal);
                 }
@@ -462,10 +472,17 @@ fn is_run_id(id: &str) -> bool {
 }
 
 fn signal_group(pgid: i32, signal: i32) {
-    if pgid > 1 {
-        // SAFETY: kill(2) takes plain integers; a negative pid names the process group.
-        unsafe { libc::kill(-pgid, signal) };
-    }
+    // Only a real group (above 1), whose negation always fits in i32; it names the group.
+    let Some(group) = pgid.checked_neg().filter(|_| pgid > 1) else { return };
+    // SAFETY: kill(2) takes plain integers; a negative pid names the process group.
+    unsafe { libc::kill(group, signal) };
+}
+
+/// `wait` from now. The waits here are a few seconds; an `Instant` that cannot take them is at
+/// the clock's end, where not waiting is the safe answer.
+fn deadline_after(wait: Duration) -> Instant {
+    let now = Instant::now();
+    now.checked_add(wait).unwrap_or(now)
 }
 
 /// Drops finished runs, oldest first, past the scope's and the daemon's caps. Running ones stay
@@ -516,7 +533,11 @@ fn read_output(shared: &Shared, id: &str, output: OwnedFd, wake: OwnedFd) {
         }
         match file.read(&mut bytes) {
             Ok(0) => break,
-            Ok(count) => append(shared, id, bytes.get(..count).unwrap_or_default()),
+            Ok(count) => {
+                if !append(shared, id, bytes.get(..count).unwrap_or_default()) {
+                    break;
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => break,
         }
@@ -529,18 +550,29 @@ fn read_output(shared: &Shared, id: &str, output: OwnedFd, wake: OwnedFd) {
     shared.changed.notify_all();
 }
 
-fn append(shared: &Shared, id: &str, bytes: &[u8]) {
+/// Keeps `bytes` of run `id`'s output; false when the run takes no more (its output offset would
+/// pass `u64::MAX`), so the reader stops and the output ends there.
+fn append(shared: &Shared, id: &str, bytes: &[u8]) -> bool {
     let mut state = shared.state.lock().recover_poison();
+    let mut more = true;
     if let Some(run) = state.runs.get_mut(id) {
-        run.buffer.extend(bytes);
-        if run.buffer.len() > MAX_BUFFER {
-            let drop = run.buffer.len() - MAX_BUFFER;
-            run.buffer.drain(..drop);
-            run.base += drop as u64;
+        // The offset after these bytes. No command writes 2^64 bytes (584 years at 1 GB/s), so
+        // this cannot happen; if it did, the output would end here instead of wrapping an offset.
+        if run.end().checked_add(bytes.len() as u64).is_some() {
+            run.buffer.extend(bytes);
+            if run.buffer.len() > MAX_BUFFER {
+                // Above MAX_BUFFER (checked), and base plus the buffer stays within u64 (above).
+                let drop = run.buffer.len().saturating_sub(MAX_BUFFER);
+                run.buffer.drain(..drop);
+                run.base = run.base.saturating_add(drop as u64);
+            }
+        } else {
+            more = false;
         }
     }
     drop(state);
     shared.changed.notify_all();
+    more
 }
 
 /// The shell exited: record it, then give its pipe [`DRAIN_AFTER_EXIT`] to close before the
@@ -550,7 +582,7 @@ fn finish(shared: &Shared, id: &str, exit: Exit) {
     let Some(run) = state.runs.get_mut(id) else { return };
     run.exit = Some(exit);
     shared.changed.notify_all();
-    let deadline = Instant::now() + DRAIN_AFTER_EXIT;
+    let deadline = deadline_after(DRAIN_AFTER_EXIT);
     loop {
         let Some(run) = state.runs.get_mut(id) else { return };
         if run.output_closed {
@@ -566,13 +598,18 @@ fn finish(shared: &Shared, id: &str, exit: Exit) {
             shared.changed.notify_all();
             return;
         }
-        state = shared.changed.wait_timeout(state, deadline - now).recover_poison().0;
+        state = shared
+            .changed
+            .wait_timeout(state, deadline.saturating_duration_since(now))
+            .recover_poison()
+            .0;
     }
 }
 
 fn chunk(run: &Run, after: u64) -> Chunk {
     let start = after.clamp(run.base, run.end());
-    let skip = usize::try_from(start - run.base).unwrap_or(usize::MAX);
+    // `start` is at least `run.base` (clamped above).
+    let skip = usize::try_from(start.saturating_sub(run.base)).unwrap_or(usize::MAX);
     let available = run.buffer.len().saturating_sub(skip);
     let mut bytes: Vec<u8> = run.buffer.iter().skip(skip).take(MAX_READ).copied().collect();
     let complete = run.finished() && bytes.len() == available;
@@ -580,7 +617,8 @@ fn chunk(run: &Run, after: u64) -> Chunk {
         bytes.truncate(utf8_complete(&bytes));
     }
     Chunk {
-        next: start + bytes.len() as u64,
+        // At most `run.end()`: `bytes` come from the buffer after `start`.
+        next: start.saturating_add(bytes.len() as u64),
         output: String::from_utf8_lossy(&bytes).into_owned(),
         truncated: after < run.base,
         exit: if complete { run.exit } else { None },
@@ -590,7 +628,11 @@ fn chunk(run: &Run, after: u64) -> Chunk {
 /// How many leading bytes of `bytes` end on a whole UTF-8 character.
 pub(crate) fn utf8_complete(bytes: &[u8]) -> usize {
     let count = bytes.len();
-    for (back, &byte) in bytes.iter().rev().take(4).enumerate() {
+    // The last character starts at the last byte (of the last four) that is not a continuation
+    // byte; it is whole when the bytes from there are at least its length.
+    for start in (count.saturating_sub(4)..count).rev() {
+        let Some(rest) = bytes.get(start..) else { break };
+        let Some(&byte) = rest.first() else { break };
         if byte & 0xC0 != 0x80 {
             let length = match byte {
                 0x00..=0x7F => 1,
@@ -599,7 +641,7 @@ pub(crate) fn utf8_complete(bytes: &[u8]) -> usize {
                 0xC0..=0xDF => 2,
                 _ => 1,
             };
-            return if back + 1 >= length { count } else { count - back - 1 };
+            return if rest.len() >= length { count } else { start };
         }
     }
     count
