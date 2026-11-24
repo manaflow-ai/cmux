@@ -2459,6 +2459,7 @@ class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
     generation: Union[str, MissingType] = field(default=MISSING)
+    next: Union[int, MissingType] = field(default=MISSING)
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
@@ -4152,6 +4153,7 @@ class ListWorkspaceGroupsRequest:
 @dataclass(frozen=True)
 class ListWorkspacesRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-workspaces/request'
+    after: Union[int, None, MissingType] = field(default=MISSING)
     known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
 
@@ -4620,6 +4622,12 @@ class PinWorkspaceRequest:
 @dataclass(frozen=True)
 class PingRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ping/request'
+    pass
+
+
+@dataclass(frozen=True)
+class ProcessCensusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/process-census/request'
     pass
 
 
@@ -5372,6 +5380,20 @@ class TerminalCommandContextRequest:
 class TerminalEventsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-events/request'
     after_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalFindRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-find/request'
+    surface: Id
+    query: str
+    before: Union[int, None, MissingType] = field(default=MISSING)
+    case_sensitive: Union[bool, MissingType] = field(default=MISSING)
+    epoch: Union[int, None, MissingType] = field(default=MISSING)
+    max_matches: Union[int, None, MissingType] = field(default=MISSING)
+    page_rows: Union[int, None, MissingType] = field(default=MISSING)
+    regex: Union[bool, MissingType] = field(default=MISSING)
+    whole_word: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -7235,6 +7257,7 @@ __all__ = [
     'PasteImageResult',
     'PinWorkspaceRequest',
     'PingRequest',
+    'ProcessCensusRequest',
     'ProcessInfoRequest',
     'PutBlobRequest',
     'PutFrontendProjectionRequest',
@@ -7325,6 +7348,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalCommandContextRequest',
     'TerminalEventsRequest',
+    'TerminalFindRequest',
     'TerminalHistoryRequest',
     'TerminalLastCommandRequest',
     'TerminalPortsRequest',

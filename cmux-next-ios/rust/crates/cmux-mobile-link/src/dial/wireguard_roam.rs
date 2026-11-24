@@ -839,10 +839,11 @@ async fn run_control(
                             path_epoch.send_modify(|epoch| *epoch += 1);
                         }
                         // Send at once, so the spray opens this side's NAT
-                        // toward the peer's new address.
+                        // toward the peer's new address (even while parked:
+                        // the peer that says it moved is awake).
                         let current = lock(&net).clone();
                         if let Some(net) = current {
-                            let _ = net.refresh().await;
+                            let _ = net.reach_moved_peer().await;
                         }
                     }
                     Ok(RoamMessage::Ack { generation: acked }) => {
@@ -895,6 +896,20 @@ pub fn rehome(client: &SignalingClient) -> usize {
 /// The marks of session `session_id`'s latest roam.
 pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
     live().into_iter().find(|s| s.session_id == session_id).and_then(|s| lock(&s.last_roam).clone())
+}
+
+/// The phone is back from the background with a parked link: move its
+/// session onto a fresh socket, as a network change would. iOS may have
+/// reclaimed the old socket while the app was suspended, and the carrier's
+/// NAT has likely dropped its mapping. The reassertion (a keepalive on a
+/// session under 120 s old, else one handshake initiation) goes out at once;
+/// the rest of the roam (STUN, a TURN allocation) fills in after.
+pub fn resume_session(session_id: &str) {
+    if let Some(session) = find(session_id, true) {
+        tokio::spawn(async move {
+            session.roam().await;
+        });
+    }
 }
 
 /// Test support: roam one side of one session (both sides of a test run in

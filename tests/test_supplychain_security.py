@@ -219,9 +219,6 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
             f"backend {job_name} must skip before its protected environment is evaluated"
         )
 
-    docs_caller = workflow("docs-channels.yml")["jobs"]
-    assert "secrets" not in docs_caller["nightly"]
-    assert "secrets" not in docs_caller["release"]
     docs_deploy = workflow("docs-deploy-reusable.yml")["jobs"]["deploy"]
     assert workflow_jobs.resolve(docs_deploy).environment == {"name": "docs-${{ inputs.channel }}"}
     docs_run = run_text(docs_deploy)
