@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -31,6 +31,10 @@ const NO_FOLDERS: FolderChoice[] = [];
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 
 /// The composer folder chip. Projects scroll above the actions, and Add project opens the source picker.
+/// A section heading under other rows (GitHub after this Mac's folders, a second Cloud machine) opens
+/// with a hairline across the list. GitHub's repositories are read as the chip shows (`onPrefetch`),
+/// not at the open, so the menu opens on them; while they still load, the GitHub group holds one
+/// Loading repositories… row, which the repositories replace with nothing moving (cmux#53226).
 export function FolderPopover({
   label,
   menu,
@@ -157,6 +161,13 @@ export function FolderPopover({
     () => new Map(matchingRepos(loadedRepos ?? [], typed).map((repo) => [GITHUB_REPO + repo.fullName, repo])),
     [loadedRepos, typed],
   );
+  // Connected, the repositories not read yet: one row holds the group's place until they are. Not while
+  // words are typed: it would match none of them, and listed first (Cloud) it would take Return's pick.
+  const githubLoading = showRepos && loadedRepos === undefined && !typed;
+  const githubValues = useMemo(
+    () => (githubLoading ? [GITHUB_LOADING] : [...githubRows.keys()]),
+    [githubLoading, githubRows],
+  );
   const cloudRows = useMemo(
     () =>
       new Map(
@@ -168,7 +179,7 @@ export function FolderPopover({
   );
   const sections = useMemo(() => {
     const headings = new Map<string, string>();
-    const firstRepo = githubRows.keys().next().value;
+    const firstRepo = githubValues[0];
     if (firstRepo) headings.set(firstRepo, t("cloudRepository.github"));
     let previousPeer: string | undefined;
     for (const [value, folder] of cloudRows) {
@@ -176,14 +187,16 @@ export function FolderPopover({
       previousPeer = folder.peer;
     }
     return headings;
-  }, [cloudRows, githubRows, t]);
+  }, [cloudRows, githubValues, t]);
   // Actions stay under the folders; the arrows reach them after the last folder.
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
   const pinned = sources ? [ACTION_ADD, ...(onNoProject ? [ACTION_NONE] : [])] : onBrowse ? [ACTION_BROWSE] : [];
   const listValues = cloud
-    ? [...githubRows.keys(), ...cloudRows.keys()]
-    : [...shown.keys(), ...(typedPath ? [typedPath] : []), ...githubRows.keys()];
+    ? [...githubValues, ...cloudRows.keys()]
+    : [...shown.keys(), ...(typedPath ? [typedPath] : []), ...githubValues];
+  // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
+  const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
   const actionCount = pinned.length + (!cloud ? (extra?.folders.length ?? 0) : 0);
   // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
@@ -211,6 +224,7 @@ export function FolderPopover({
       .filter((value) => value !== ACTION_WORKTREE && !shown.get(value)?.worktree)
       .map((value): FitLine => {
         if (value === ACTION_NONE) return { text: t("project.noFolder"), kind: "row" };
+        if (value === GITHUB_LOADING) return { text: t("composer.githubLoading"), kind: "row" };
         const repo = githubRows.get(value);
         if (repo) return { text: repo.fullName, kind: repo.private ? "lock" : "row" };
         const folder = cloudRows.get(value);
@@ -251,6 +265,7 @@ export function FolderPopover({
   };
   const press = usePopoverTrigger(open, setOpen);
   useLocationOpener(menu, () => setOpen(true));
+  usePrefetch(github?.onPrefetch);
   const shortcut = useLocationShortcut(menu);
   const close = () => {
     setOpen(false);
@@ -278,6 +293,8 @@ export function FolderPopover({
       github.onSearch(typed);
       return;
     }
+    // The repositories' placeholder picks nothing; the menu stays open for them.
+    if (value === GITHUB_LOADING) return;
     const cloudFolder = cloudRows.get(value);
     const repo = githubRows.get(value);
     close();
@@ -318,6 +335,23 @@ export function FolderPopover({
           <span className="acpmux-menu-label">{t("project.newWorktree")}</span>
         </span>
       );
+    if (value === GITHUB_LOADING)
+      return (
+        <span
+          className="acpmux-location-row"
+          data-github=""
+          data-github-loading=""
+          data-section={sections.get(value)}
+          data-divider={dividerOf(value)}
+        >
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <GitHubGlyph />
+          </span>
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("composer.githubLoading")}</span>
+          </span>
+        </span>
+      );
     const githubRepo = githubRows.get(value);
     const cloudFolder = cloudRows.get(value);
     if (githubRepo || cloudFolder) {
@@ -330,6 +364,7 @@ export function FolderPopover({
           // tooltip-allow: machine folders can share a name and their path can exceed the menu width.
           title={cloudFolder?.id}
           data-section={sections.get(value)}
+          data-divider={dividerOf(value)}
           data-github={githubRepo ? "" : undefined}
           data-current={checked ? "" : undefined}
         >
@@ -568,7 +603,11 @@ export function FolderPopover({
           inline
           // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
           // A heading changes a row's margin, not its box: the row is measured again when it changes.
-          virtualRows={{ estimate: 28, sizeKey: (value) => sections.get(value) ?? "" }}
+          // A heading with its hairline is taller than one without: either change measures it again.
+          virtualRows={{
+            estimate: 28,
+            sizeKey: (value) => (sections.get(value) ?? "") + (dividerOf(value) ?? "\u0000"),
+          }}
           // The empty line sits in the list's place, over the actions.
           listEnd={
             listValues.length === 0 ? (
@@ -637,6 +676,14 @@ const ACTION_BROWSE = ACTION + "browse";
 const ACTION_NONE = ACTION + "none";
 const ACTION_WORKTREE = ACTION + "worktree";
 const GITHUB_REPO = "\u0000github:repo:";
+const GITHUB_LOADING = "\u0000github:loading";
+
+/// Reads GitHub's status and repositories once the chip is shown, ahead of the menu's open.
+function usePrefetch(prefetch: (() => void) | undefined) {
+  useEffect(() => {
+    prefetch?.();
+  }, [prefetch]);
+}
 
 function CheckIcon() {
   return (
