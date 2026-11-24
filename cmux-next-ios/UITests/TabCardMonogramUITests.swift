@@ -14,7 +14,7 @@ final class TabCardMonogramUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
-                                "-cmuxMobile.settings.tabCardMonograms", "YES"]
+                                "-cmuxMobile.settings.tabCardMonograms", "<true/>"]  // a plist Bool, as @AppStorage reads it
         app.launch()
 
         let choose = app.scrollViews["setup.teams.choose"]
