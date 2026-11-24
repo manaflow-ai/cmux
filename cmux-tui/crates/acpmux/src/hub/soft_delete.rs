@@ -52,10 +52,6 @@ impl Deleted {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, SessionMeta>> {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
-
-    pub(crate) fn contains(&self, id: &str) -> bool {
-        self.lock().contains_key(id)
-    }
 }
 
 /// The row `_acpmux/deleted` lists for a deleted chat.

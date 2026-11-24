@@ -200,10 +200,10 @@ async fn a_restored_chat_whose_name_was_taken_comes_back_suffixed() {
     let hub = open(&root.0);
     let s = hub.resolve("first").unwrap();
     hub.soft_delete(&s, Default::default(), why()).await.unwrap();
-    // A new chat takes its name meanwhile.
-    named(&root.0, "second", "chat first", json!({}));
     hub.shutdown_all().await;
     drop(hub);
+    // A new chat takes its name meanwhile.
+    named(&root.0, "second", "chat first", json!({}));
     let hub = open(&root.0);
     assert_eq!(hub.resolve("second").unwrap().meta().name, "chat first");
     let restored = hub.undelete("first").unwrap();

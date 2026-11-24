@@ -1084,6 +1084,20 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/undelete",
+      "params": {
+        "$ref": "#/types/UndeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/deleted",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/side",
       "params": {
         "$ref": "#/types/SideParams"
@@ -2434,6 +2448,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_overload",
       "params": true,
       "result": true
     },
@@ -4271,6 +4291,7 @@
         "cancelFork": true,
         "cancelToken": true,
         "expectRevision": true,
+        "grace": true,
         "ifIdle": true,
         "purge": true,
         "sessionId": true
@@ -4423,6 +4444,15 @@
             "null"
           ]
         },
+        "heldUntil": {
+          "description": "When a `capacity` turn's continuation runs, while it waits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "promptId": {
           "type": [
             "string",
@@ -4437,7 +4467,7 @@
           ]
         },
         "status": {
-          "description": "`completed`, `failed` or `cancelled`.",
+          "description": "`completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a\ncapacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).",
           "type": [
             "string",
             "null"
@@ -9126,6 +9156,16 @@
         "sessionId",
         "on"
       ],
+      "type": "object"
+    },
+    "UndeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "UsageParams": {
