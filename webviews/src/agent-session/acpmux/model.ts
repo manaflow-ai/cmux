@@ -705,6 +705,9 @@ export type AcpmuxRow = {
   runOpen?: true;
   /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
   workedRuns?: AcpmuxActivity[];
+  /// A Worked for above the person's steer under a trimmed in-order arm (turnFoldSteered.experiment.ts
+  /// `trim-*`): `muted` draws it in the quieter color, `bare` says its time alone with no rule too.
+  workedQuiet?: "muted" | "bare";
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;

@@ -46,7 +46,7 @@ import { finishedTaskLook } from "./taskLine.experiment";
 import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { liveTurnClock } from "./liveTurnClock.experiment";
-import { turnFoldSteered } from "./turnFoldSteered.experiment";
+import { foldsArmInOrder, trimArm, turnFoldSteered } from "./turnFoldSteered.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
 import { bareWorkedTurns } from "./bareWorkedTurns.experiment";
 import { inboxCounts } from "./inboxNotice";
@@ -1179,6 +1179,15 @@ function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expan
   return "";
 }
 
+/// The ids of the footers `supersededFooters` puts over the person's steers in `turn` (the `trim-*`
+/// arms drop them). The footer of a turn a new prompt opened over is the turn's own, and stays.
+function steerFooterIds(turn: readonly AcpmuxRow[]): Set<string> {
+  const ids = new Set<string>();
+  for (const row of turn)
+    if (row.kind === "user" && continuesTurn(row) && isOwnSteer(row)) ids.add(`${SUPERSEDED}-${steerKey(row)}`);
+  return ids;
+}
+
 /// `rows` with each agent reply of a lone "." marked `answersPerson` when `user` is the person's own
 /// prompt, so it still draws (visibleMessage.ts): a reply to the person is theirs to see, however
 /// short (Leo, 2026-11-03, on hiding punctuation-only replies: "well there are cases (rare) that you
@@ -1339,9 +1348,13 @@ function shapedTurn(
     // The person's steer still on its way (the pane's own row, before acpmux's record) is held after the
     // body; its stretch's footer comes in the frame it is drawn, as for one acpmux recorded.
     const sending = live ? held.filter(sentSteer) : [];
-    const body = sinceAboveWorked(
-      supersededFooters(runs, sending.length ? [...turn, ...sending] : turn, endedByPerson, user.at, live),
-    );
+    const stretches = sending.length ? [...turn, ...sending] : turn;
+    const footed = supersededFooters(runs, stretches, endedByPerson, user.at, live);
+    // Trimmed (turnFoldSteered.experiment.ts `trim-*`), a steered turn has one footer, its own: the
+    // footers over the person's steers go, from the first frame or (`trim-at-end`) at the turn's end.
+    const trim = foldStyle.conclusion ? trimArm(steeredArm) : undefined;
+    const trimmed = trim && !(live && trim.liveFooters) ? steerFooterIds(stretches) : undefined;
+    const body = sinceAboveWorked(trimmed?.size ? footed.filter((row) => !trimmed.has(row.id)) : footed);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -1951,7 +1964,9 @@ function shapeTurn(
   if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
   // Each message that came in mid-turn ends a fold of its own (`inOrder`, foldSegments), so the work
   // after it folds below it and nothing draws above a message it came after.
-  const inOrder = style.conclusion && experimentArm(turnFoldSteered) === "in-order";
+  const inOrder = style.conclusion && foldsArmInOrder(experimentArm(turnFoldSteered));
+  // Trimmed (`trim-*`), a Worked for above the person's steer draws quieter than the turn's last one.
+  const trim = inOrder ? trimArm(experimentArm(turnFoldSteered)) : undefined;
   const segments = foldSegments(user, body, inOrder);
   const answer = segments.find((segment) => segment.takeaway)?.takeaway;
   const firstFinal = body.find(isFinalAnswer);
@@ -2021,8 +2036,11 @@ function shapeTurn(
   // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
   // separate turn and is never gathered by adjacency alone.
-  for (const segment of segments) {
+  for (const [segmentAt, segment] of segments.entries()) {
     const said = segment.takeaway;
+    // The person's own steer ends this stretch: a trimmed arm draws its Worked for quieter.
+    const nextAnchor = segments[segmentAt + 1]?.anchor;
+    const quiet = trim && nextAnchor && isOwnSteer(nextAnchor) ? trim.quiet : undefined;
     const first = segment.anchor === user;
     // The turn's last disclosure ends with it: its status is the turn's.
     const final = segment.until === undefined;
@@ -2153,6 +2171,7 @@ function shapeTurn(
         // "Worked for".
         ...(previous !== undefined && { previous }),
         ...(workedRuns.length && { workedRuns }),
+        ...(quiet && { workedQuiet: quiet }),
       };
       if (style.conclusion) shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
@@ -4156,7 +4175,7 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
 /// Whether a finished turn's folds split at each message that came in mid-turn
 /// (turnFoldSteered.experiment.ts `in-order`, foldSegments). A family with no turn fold draws every
 /// fold open, so its keys never matter.
-const foldsInOrder = () => experimentArm(turnFoldSteered) === "in-order";
+const foldsInOrder = () => foldsArmInOrder(experimentArm(turnFoldSteered));
 
 /// The rows a turn's fold anchored at `start` holds: from `from` up to `end` (exclusive), the next
 /// prompt that opens a turn, or, split in order, the next fold's start (`foldStarts`). Another agent's

@@ -75,7 +75,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   else {
     const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
-    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    // A bare line above a steer (`workedQuiet`) says its time alone.
+    const after = row.workedQuiet === "bare" ? "" : (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
   if (!work) return label;
@@ -104,7 +105,7 @@ export function WorkedFor({
   return (
     <button
       type="button"
-      className="cv-worked has-divider is-toggle"
+      className={`cv-worked is-toggle${row.workedQuiet === "bare" ? "" : " has-divider"}${row.workedQuiet ? ` is-pre-steer is-${row.workedQuiet}` : ""}`}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
