@@ -67,6 +67,7 @@ enum AgentPanePageHost {
         events.append(.display(view.model.display))
         events.append(.toolCards(view.model.toolCards))
         events.append(.computerUsePreview(view.model.computerUsePreview))
+        if let computerUse = view.model.computerUse { events.append(computerUse.event(for: view)) }
         events.append(view.model.tabRow.event)
         let nativeSessionInfo = view.drawsSessionInfo
         view.model.sessionInfo.announced = nativeSessionInfo

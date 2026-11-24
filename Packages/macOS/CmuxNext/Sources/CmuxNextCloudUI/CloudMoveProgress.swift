@@ -12,7 +12,8 @@ import CmuxNextWakeups
 @MainActor
 public final class CloudMoveProgress {
     public enum Direction: String, Encodable, Sendable { case move, bringBack }
-    public enum Stage: String, Encodable, Sendable { case machine, copy, agent, tab }
+    /// `folder`: Move to Cloud's check of the chat's folder before a machine is picked (Bring Back Local has none).
+    public enum Stage: String, Encodable, Sendable { case folder, machine, copy, agent, tab }
 
     /// What the app tells Rust (op `cloud_move_progress`).
     struct Facts: Encodable, Equatable {
