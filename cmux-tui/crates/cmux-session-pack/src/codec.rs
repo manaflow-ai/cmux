@@ -217,6 +217,9 @@ pub fn encode_segment(
             }
             None => {
                 head.extend_from_slice(b"!\n");
+                if crate::claude::starts_turn(line) {
+                    marks.push(first_line + i as u64);
+                }
                 (&b""[..], *line)
             }
         };
