@@ -233,7 +233,7 @@ if [[ "$EVENT_NAME" == pull_request ]]; then
   python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
     --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"
 fi
-# Why: docs/ci/cmux-next-workflow-notes.md#note-556
+# Why: docs/ci/cmux-next-workflow-notes.md#note-557
 # Leo, 2026-11-21: "help 100x ci speed ... while maintaining a partial semblance of checks. and we can infrequenrly
 # have fuller checks." A pull request into feat-cmux-next runs only the Linux fast tier here; every Mac job, the
 # cargo fast tier, web bundles and the tests and compiles they feed run in the feat-cmux-next push run (the batched
