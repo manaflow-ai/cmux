@@ -257,6 +257,36 @@ import UIKit
         #expect(host.follows, "the reader still follows the end")
     }
 
+    /// The main thread's time per chunk of a growing transcript (finished: below its top; running:
+    /// above its end), per row and at most; printed as CMUX_SUBAGENT_CHUNK (the chunk size is
+    /// picked from it) and bounded by a frame.
+    @Test(arguments: [false, true])
+    func eachChunkFitsAFrame(_ running: Bool) async {
+        let store = running ? Self.runningLongStore(2000) : Self.finishedLongStore()
+        let (host, window) = Self.openNow(store)
+        var times: [Double] = []
+        var weighed: [Int] = []
+        var chunks = host.chunks
+        var time = host.list.reloadTime
+        var rows = host.list.rowsWeighed
+        let deadline = Date().addingTimeInterval(20)
+        while !host.filled, Date() < deadline {
+            await Self.frame(window)
+            guard host.chunks != chunks else { continue }
+            chunks = host.chunks
+            let spent = host.list.reloadTime - time
+            times.append(Double(spent.components.attoseconds) / 1e15 + Double(spent.components.seconds) * 1000)
+            weighed.append(host.list.rowsWeighed - rows)
+            time = host.list.reloadTime
+            rows = host.list.rowsWeighed
+        }
+        let worst = times.max() ?? 0
+        let perRow = zip(times, weighed).map { $1 > 0 ? $0 / Double($1) : 0 }.max() ?? 0
+        print("CMUX_SUBAGENT_CHUNK running=\(running) chunk=\(SubagentRowWindow.chunk) chunks=\(times.count) worst_ms=\(String(format: "%.2f", worst)) worst_ms_per_row=\(String(format: "%.3f", perRow)) weighed=\(weighed)")
+        #expect(host.filled, "every chunk came in")
+        #expect(worst <= 16, "a chunk took \(String(format: "%.1f", worst)) ms on the main thread")
+    }
+
     // MARK: The Subagents list (#47189 r3: subagents-list-60)
 
     /// 60 subagents, one of them changing its action: the list evaluates that row, not all 60.
