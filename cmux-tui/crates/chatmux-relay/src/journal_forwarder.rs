@@ -396,7 +396,7 @@ async fn abort_and_join_tasks(tasks: HashMap<String, JoinHandle<()>>) {
 }
 
 fn build_http_client(timeout: Duration) -> Result<reqwest::Client, reqwest::Error> {
-    reqwest::Client::builder().timeout(timeout).build()
+    cmux_egress::client_builder("chatmux_relay::journal_forwarder").timeout(timeout).build()
 }
 
 #[cfg(unix)]
