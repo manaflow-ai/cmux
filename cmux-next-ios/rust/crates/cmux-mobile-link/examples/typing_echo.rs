@@ -24,6 +24,13 @@
 //! The CSV has `seq,sent_ms,echo_ms` (sent_ms from the start of typing;
 //! the tracing log's uptime timestamps share that origin to within a
 //! millisecond, so a spike's time can be matched to what the link logged).
+//! `--radio lte` plays the phone's LTE radio going idle after
+//! `--radio-tail-ms` (default 11576) with nothing on the air
+//! (`testing::RadioModel`); `--burst-every-s N --burst-keys K` types K keys
+//! at `--rate` every N seconds instead of without a pause, and the JSON's
+//! `first_key_ms` is the echo of each burst's first key;
+//! `--foreground-probe on` starts the phone's link with its foreground
+//! probe on, as the app does with a terminal on screen.
 //! Prints one JSON line: echo percentiles and the keys whose echo took more
 //! than the profile's RTT plus 50 ms.
 
@@ -34,8 +41,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::testing::{
-    FakeOptions, FakeSignaling, LinkProfile, TestTurn, set_link_profile, set_turn_answer_delay,
-    shape_by_profile, shaped_counts,
+    FakeOptions, FakeSignaling, LinkProfile, RadioModel, TestTurn, radio_wakes, set_link_profile,
+    set_radio_model, set_turn_answer_delay, shape_downlink, shape_uplink, shaped_counts,
 };
 use cmux_mobile_link::{ChannelEvent, DialOptions, Lane, LinkConfig, SignalingClient, TransportKind};
 use tokio::time::{Instant, sleep_until};
@@ -48,6 +55,11 @@ struct Args {
     csv: Option<String>,
     seed: u64,
     turn_answer_ms: Option<u64>,
+    radio: bool,
+    radio_tail_ms: u64,
+    burst_every_s: Option<f64>,
+    burst_keys: u64,
+    foreground_probe: bool,
 }
 
 fn args() -> Args {
@@ -59,6 +71,11 @@ fn args() -> Args {
         csv: None,
         seed: 0x7e57_2024,
         turn_answer_ms: None,
+        radio: false,
+        radio_tail_ms: 11_576,
+        burst_every_s: None,
+        burst_keys: 5,
+        foreground_probe: false,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -71,6 +88,11 @@ fn args() -> Args {
             "--csv" => parsed.csv = Some(value),
             "--seed" => parsed.seed = value.parse().unwrap_or(parsed.seed),
             "--turn-answer-ms" => parsed.turn_answer_ms = value.parse().ok(),
+            "--radio" => parsed.radio = value == "lte",
+            "--radio-tail-ms" => parsed.radio_tail_ms = value.parse().unwrap_or(parsed.radio_tail_ms),
+            "--burst-every-s" => parsed.burst_every_s = value.parse().ok(),
+            "--burst-keys" => parsed.burst_keys = value.parse().unwrap_or(5),
+            "--foreground-probe" => parsed.foreground_probe = value == "on",
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -116,6 +138,12 @@ async fn main() {
     let profile = LinkProfile::named(&args.profile);
     let threshold_us = (profile.rtt_ms + 50) * 1000;
     set_link_profile(Some(profile.clone()), args.seed);
+    if args.radio {
+        set_radio_model(Some(RadioModel {
+            tail: Duration::from_millis(args.radio_tail_ms),
+            ..RadioModel::lte()
+        }));
+    }
     // The TURN server is a round trip away, as a real one is: its answers to
     // the client's Allocate, Refresh, CreatePermission and ChannelBind wait
     // that long (the profile's RTT unless --turn-answer-ms says otherwise).
@@ -126,7 +154,7 @@ async fn main() {
         include_loopback: true,
         timeout: Duration::from_secs(40),
         turn_tls_roots: Some(turn.roots.clone()),
-        impair_inbound: Some(shape_by_profile),
+        impair_inbound: Some(shape_uplink),
         ..DialOptions::default()
     };
     match args.row.as_str() {
@@ -178,13 +206,14 @@ async fn main() {
             drop(connected);
         });
     }
+    options.impair_inbound = Some(shape_downlink);
+    let phone_config = LinkConfig { foreground_probe: args.foreground_probe, ..LinkConfig::default() };
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone =
         SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.expect("phone");
     let dial_start = us();
-    let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
-        .await
-        .expect("dial");
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, phone_config).await.expect("dial");
     let link = connected.link.clone();
     let (_echo_tx, mut echo_rx) = link.open("echo", serde_json::json!({})).await.expect("echo").split();
     let keys = link.open_on("keys", serde_json::json!({}), Lane::Input).await.expect("keys");
@@ -208,14 +237,29 @@ async fn main() {
     let end = Instant::now() + Duration::from_secs(args.seconds);
     let mut next = Instant::now();
     let mut seq = 0u64;
+    // The first key of each burst.
+    let mut firsts = std::collections::HashSet::new();
+    let mut burst_at = next;
+    let mut in_burst = 0u64;
     // A fixed rate, never catching up: a stalled send shows as a gap in
     // sent_ms, not as a burst.
     while next < end {
+        if in_burst == 0 {
+            firsts.insert(seq);
+        }
         if keys_tx.send(key(seq, us())).await.is_err() {
             break;
         }
         seq += 1;
         next += interval;
+        if let Some(every) = args.burst_every_s {
+            in_burst += 1;
+            if in_burst >= args.burst_keys {
+                in_burst = 0;
+                burst_at += Duration::from_secs_f64(every);
+                next = next.max(burst_at);
+            }
+        }
         let now = Instant::now();
         while next < now {
             next += interval;
@@ -242,13 +286,27 @@ async fn main() {
         .map(|row| format!("[{:.0},{:.0}]", row.1 as f64 / 1000.0, row.2 as f64 / 1000.0))
         .collect();
     let (delivered, dropped) = shaped_counts();
+    let mut first_sorted: Vec<u64> = rows
+        .iter()
+        .filter(|row| args.burst_every_s.is_some() && firsts.contains(&row.0))
+        .map(|row| row.2)
+        .collect();
+    first_sorted.sort_unstable();
+    let first_key = format!(
+        "{{\"n\":{},\"p50\":{:.1},\"p90\":{:.1},\"max\":{:.1}}}",
+        first_sorted.len(),
+        percentile(&first_sorted, 0.5),
+        percentile(&first_sorted, 0.9),
+        percentile(&first_sorted, 1.0)
+    );
+    let wakes = radio_wakes();
     let path = *connected.path.borrow();
     println!(
         "{{\"workload\":\"typing\",\"profile\":\"{}\",\"row\":\"{}\",\"seconds\":{},\"rate\":{},\
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -261,6 +319,9 @@ async fn main() {
         percentile(&sorted, 1.0),
         threshold_us / 1000,
         spikes.len(),
+        args.radio,
+        args.radio_tail_ms,
+        args.foreground_probe,
         spikes.join(","),
     );
     std::process::exit(0);

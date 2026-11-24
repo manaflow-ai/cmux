@@ -22,8 +22,13 @@ use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, 
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
+mod hub;
 mod shaped;
-pub use shaped::{LINK_PROFILES_JSON, LinkProfile, set_link_profile, shape_by_profile, shaped_counts};
+pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
+pub use shaped::{
+    Direction, LINK_PROFILES_JSON, LinkProfile, RadioModel, radio_wakes, set_link_profile, set_radio_model,
+    shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct FakeOptions {
