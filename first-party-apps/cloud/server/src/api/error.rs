@@ -49,6 +49,11 @@ pub mod codes {
     pub const MACHINE_BUSY: &str = "cmux.cloud.machine_busy";
     /// `cloud.size.grow_only`: a resize only grows.
     pub const SIZE_GROW_ONLY: &str = "cmux.cloud.size_grow_only";
+    /// `cloud.surge.unavailable`: the team's Cloud provider takes no surge
+    /// (not enabled for the team, or the provider has no burst path).
+    pub const SURGE_UNAVAILABLE: &str = "cmux.cloud.surge_unavailable";
+    /// `cloud.surge.capacity`: the provider has no room for the burst now.
+    pub const SURGE_CAPACITY: &str = "cmux.cloud.surge_capacity";
     /// `cloud.link.install_refused`: this install kind may not mint link
     /// tokens (only the cli, Mac and iOS installs may).
     pub const LINK_INSTALL_REFUSED: &str = "cmux.cloud.link_install_refused";
@@ -132,6 +137,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_paused", codes::NOT_PAUSED),
     ("cloud.machine.busy", codes::MACHINE_BUSY),
     ("cloud.size.grow_only", codes::SIZE_GROW_ONLY),
+    ("cloud.surge.unavailable", codes::SURGE_UNAVAILABLE),
+    ("cloud.surge.capacity", codes::SURGE_CAPACITY),
     ("cloud.link.install_refused", codes::LINK_INSTALL_REFUSED),
     ("approval.pending", codes::APPROVAL_PENDING),
     ("approval.denied", codes::APPROVAL_DENIED),

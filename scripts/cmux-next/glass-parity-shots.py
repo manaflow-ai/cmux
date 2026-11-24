@@ -55,6 +55,8 @@ A backdrop that moves is measured frame by frame at fixed offsets (`offset`): ea
 one after the other, so a capture mid-motion would compare two different frames of Liquid Glass's adaptive look.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -246,7 +248,9 @@ def measure_frames(appearance, scale):
 try:
     if not wait(lambda: os.path.exists(SOCKET) and not (rpc("debug.window_frame") or {}).get("error"), 180):
         sys.exit("the tagged app did not come up")
-    time.sleep(3)  # capture harness: the first window settles
+    # The first window settles: its frame and the app's surfaces stop changing.
+    wait_stable(lambda: (rpc("debug.window_frame"), rpc("debug.surfaces")), "the first window", timeout=20,
+                interval=0.2, reads=5, raise_on_timeout=False)
     for appearance in ("light", "dark"):
         rpc("debug.appearance", {"mode": appearance})
         time.sleep(1.0)  # capture harness: the theme repaints

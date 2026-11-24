@@ -44,9 +44,28 @@ export function hostRefusedTooLarge(error: unknown): boolean {
 /// gets the same reply), not another build's acpmux holding this app's socket (`restartOffered`:
 /// only Restart agent service clears it), not a refusal that waits on the person (an untrusted
 /// folder, acpmux missing). Such a failure is one quiet "Reconnecting…" (HostError.tsx), however
-/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff").
-export function hostSelfRetrying(error: unknown, restartOffered: boolean): boolean {
-  return hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered;
+/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff"), up to
+/// SELF_RETRY_SAID_MS of trouble (`troubleForMs`); past it the line says why, with Details and Retry.
+export function hostSelfRetrying(error: unknown, restartOffered: boolean, troubleForMs = 0): boolean {
+  return (
+    hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered && troubleForMs < SELF_RETRY_SAID_MS
+  );
+}
+
+/// How long the pane may get its chat back on its own, saying only "Reconnecting…", before it says
+/// why and offers Retry. A chat that never opens (an attach that never answers, a daemon that drops
+/// the pane right after every connect) spun "Reconnecting…" forever with nothing to read or press
+/// (Leo, 2026-11-23: "im getting an infinite Reconnecting... thing with claude-sr2-coord-old"). Two
+/// minutes, as a machine's link (hostLine.ts PEER_LINK_DEADLINE_MS): a restart, an update's handoff
+/// or a short drop ends well inside it, so the usual recovery still says nothing more.
+export const SELF_RETRY_SAID_MS = 120_000;
+
+/// When the pane's trouble began, after a connection was lost `upForMs` after it connected: a
+/// connection that stayed up CONNECTION_STABLE_MS ended the last trouble, so this one starts now; one
+/// lost sooner did not, so a daemon that drops the pane after every connect keeps its first start and
+/// the bound above still comes (each connect cleared `failingSince`, so that clock never got there).
+export function troubleSinceAfterLoss(since: number | undefined, upForMs: number, now: number): number {
+  return upForMs >= CONNECTION_STABLE_MS || since === undefined ? now : since;
 }
 
 /// How long a pane's handshakes may keep failing while the host is still recovering (an update's
@@ -191,15 +210,6 @@ export class AcpmuxRestartGate {
   }
 }
 
-/// How long a lost connection, or a restore the host reports, stays unsaid before the pane's quiet
-/// line shows. A recovery the person can do nothing about says nothing until it has lasted long
-/// enough to matter (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up").
-/// 10 s is the bound the app already waits out for the same daemon before it says anything (its
-/// startup deadline, its drop grace, the sidebar's "Connecting…" hold), and an update's handoff
-/// answered within it (#27283), so a daemon restart, a handoff or a short drop shows nothing on any
-/// open chat. At 1.5 s every open chat said "Reconnecting…" for each restart.
-export const RECONNECT_LINE_AFTER_MS = 10_000;
-
 /// What the host says while acpmux restores its chats after a start (`restoring`): how long it has
 /// waited so far, in milliseconds, as of `at` (this page's `Date.now()` when it heard it).
 export type HostRestoring = { waitedMs: number; at: number };
@@ -214,40 +224,34 @@ export function readHostRestoring(source: unknown, at: number): HostRestoring | 
   return { waitedMs: waited, at };
 }
 
-/// The quiet line the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
-/// fixes itself"): "Restoring sessions… m:ss" once the host says acpmux has been restoring its chats
-/// for RECONNECT_LINE_AFTER_MS, else "Reconnecting…" once a lost connection has been coming back that long. Past
-/// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
-/// HostUnavailableLine), so this says nothing then. A failure the pane already says (`failureShown`:
-/// a refusal said at once, such as another build's acpmux on the socket) is never covered by
-/// "Reconnecting…": the person needs its Restart now, not after the deadline. The restore line
-/// stays, since the host says it only while acpmux restores, and a refusal without it ends it.
+/// A refused handshake the host gave while it carries out a planned restart of acpmux
+/// (`details.handoff`: an update's handoff, a start that is under way, the build-home adoption). It
+/// ends when the restarted daemon answers, so the connection is not down for real and the pane says
+/// nothing for it. Any other failed attempt is the transport saying the link is down.
+export function hostPlannedRestart(error: unknown): boolean {
+  return (error as { details?: { handoff?: unknown } } | null)?.details?.handoff === true;
+}
+
+/// The quiet chip the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
+/// fixes itself"). It follows the connection's state, never a clock (Leo, 2026-11-22: "surely we can
+/// think of better fixes than random timing which can shift"): `linkDown` is set when an attempt to
+/// connect failed for real (App.tsx: a refusal that is not `hostPlannedRestart`, or one the host made
+/// while it restores) and cleared by the connect that follows. A dropped socket alone says nothing:
+/// its reconnect usually lands, and only its failure is a down link. While it is down the chip says
+/// "Restoring sessions… m:ss" when the host says acpmux restores its chats, else "Reconnecting…", for
+/// as long as it lasts, with no button (Leo, 2026-11-22, on the Restart agent service row: "this is
+/// unactionable"). A failure the pane already says (`failureShown`: a refusal said at once, such as
+/// another build's acpmux on the socket) is never covered by "Reconnecting…": the person needs its
+/// Restart now. The restore chip still shows over it, since the host says it only while acpmux restores.
 export function hostRecoveryLine(state: {
-  relinkingSince?: number;
+  linkDown?: boolean;
   restoring?: HostRestoring;
   failureShown?: boolean;
-  /// When the wait the waiting line counts began (HostWaitingLine `since`), if one runs. That line
-  /// takes over only once its own wait reaches the deadline, which starts at the first handshake after
-  /// the drop, a moment after `relinkingSince`: "Reconnecting…" stays until then, so no frame between
-  /// the two lines draws neither (the line went for a second at the 25 s mark and came back).
-  waitingSince?: number;
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
-  const { relinkingSince, restoring, failureShown, waitingSince, now } = state;
-  if (restoring) {
-    const waitedMs = restoring.waitedMs + Math.max(0, now - restoring.at);
-    // A restore is as quiet as a reconnect until it has lasted as long: the usual one ends sooner.
-    return waitedMs < RECONNECT_LINE_AFTER_MS ? undefined : { kind: "restoring", waitedMs };
-  }
-  if (relinkingSince === undefined || failureShown) return undefined;
-  const waited = now - relinkingSince;
-  if (waited < RECONNECT_LINE_AFTER_MS) return undefined;
-  // Only a wait that began while this line showed hands over from it: a handshake started after the
-  // deadline brings no "Reconnecting…" back.
-  const handsOver =
-    waitingSince !== undefined &&
-    waitingSince - relinkingSince < HOST_ERROR_DEADLINE_MS &&
-    now - waitingSince < HOST_ERROR_DEADLINE_MS;
-  if (waited >= HOST_ERROR_DEADLINE_MS && !handsOver) return undefined;
+  const { linkDown, restoring, failureShown, now } = state;
+  if (!linkDown) return undefined;
+  if (restoring) return { kind: "restoring", waitedMs: restoring.waitedMs + Math.max(0, now - restoring.at) };
+  if (failureShown) return undefined;
   return { kind: "reconnecting" };
 }

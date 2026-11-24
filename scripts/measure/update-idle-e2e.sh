@@ -30,7 +30,7 @@ main() {
   local work_dirs=()
   # The harness as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py and idle_e2e.py import it from their parent folder
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
   local base="" head rounds=1 idle=1 control=1 setting=on tag=uide arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"

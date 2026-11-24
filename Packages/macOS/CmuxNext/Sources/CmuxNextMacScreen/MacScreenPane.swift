@@ -36,8 +36,14 @@ public final class MacScreenPaneModel {
     public internal(set) var relayOnly = false
     /// Send System Shortcuts to the Remote Mac (the toolbar's Send Keys menu).
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
+    /// Set up cmux and Start cmux (the offline card's Start cmux on NAME).
+    public internal(set) var deviceSetup: MacScreenDeviceSetup?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// The agent that started this tab's view without a person's click; nil for a person's.
+    public internal(set) var startedBy: MacScreenStarter?
+    /// Holds the card's in-between states back (``MacScreenCardQuiet``); tests give it a manual clock.
+    @ObservationIgnored var quiet = MacScreenCardQuiet()
     /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
     var viewerLookOverride: MacScreenViewerLook?
     /// How the viewer is drawn: the fixed look, else the setting, read live. Reading it tracks the setting (an Observation
@@ -46,6 +52,16 @@ public final class MacScreenPaneModel {
         get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
         set { viewerLookOverride = newValue }
     }
+    /// A readout fixed for this pane (the gallery draws each); nil follows Debug Settings `macScreen.qualityReadout`.
+    var qualityReadoutOverride: MacScreenQualityReadout?
+    /// Where the stream's rate and quality show, read live like ``viewerLook``.
+    var qualityReadout: MacScreenQualityReadout { qualityReadoutOverride ?? MacScreenTunables.qualityReadout.value }
+    /// The gallery's bar variant; nil reads Debug Settings.
+    var toolbarBarOverride: MacScreenToolbarBar?
+    /// How the floating bar arranges its controls, read live like ``viewerLook``.
+    var toolbarBar: MacScreenToolbarBar { toolbarBarOverride ?? MacScreenTunables.toolbarBar.value }
+    /// The toolbar's Record button: this stream copied into an MP4 as it arrives.
+    public let recording = MacScreenRecording()
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -145,7 +161,9 @@ public final class MacScreenPane {
         session.onTransport = { [weak self] transport in self?.decode(transport) }
         view.presenter.onFrameSize = { [weak self, weak session] size in
             guard let self else { return }
-            view.video.setFramePixels(size)
+            // The decoded picture's size (it picks the video's filters); the video's pixel space
+            // is the stream's, set by the pane's layout from `geometry`.
+            view.video.setPicturePixels(size)
             session?.setStreamFrameSize(size)
             view.needsLayout = true
         }
@@ -157,7 +175,7 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
-            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
             handlers.keyboardChanged()
         }
         view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
@@ -194,6 +212,11 @@ public final class MacScreenPane {
             session.tap(shortcut.key, modifiers: shortcut.modifiers)
         }
         actions.focusScreen = { [weak self] in self?.focus() }
+        actions.toggleRecording = { [weak self] in
+            guard let self else { return }
+            model.recording.toggle(device: model.name)
+        }
+        actions.showRecording = { [weak self] in self?.model.recording.showInFinder() }
         observePhase(session)
     }
 
@@ -201,13 +224,15 @@ public final class MacScreenPane {
     private func decode(_ transport: RemoteRdStreamTransport) {
         decodeTask?.cancel()
         model.hasFrame = false
+        model.recording.attach(transport)
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            guard counter.tick(frame: frame.frame, releasedAtNanos: frame.releasedAtNanos,
+                                     decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
@@ -245,6 +270,10 @@ public final class MacScreenPane {
                     model.everConnected = true
                 } else {
                     model.hasFrame = false
+                }
+                switch session.phase {
+                case .ended, .failed: model.recording.stop()
+                default: break
                 }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
@@ -301,6 +330,7 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
+        model.recording.stop()
         decodeTask?.cancel()
         cursorTask?.cancel()
         visible = false
@@ -425,10 +455,16 @@ public final class MacScreenPaneView: NSView {
         return CGRect(x: 0, y: reserved, width: bounds.width, height: max(0, bounds.height - reserved))
     }
 
-    /// Where the streamed display sits (aspect fit), for the input surface.
+    /// Where the streamed display sits (aspect fit), for the input surface and the cursor: in
+    /// stream pixels (the welcome's size), so a smaller picture from the host's resolution
+    /// ladder (`video.scaled`) fills the same rect and input keeps its pixels. Before a
+    /// welcome size, the decoded picture's size.
     var geometry: RemoteViewGeometry? {
-        guard let size = model.session?.frameSize, size.width >= 1, size.height >= 1 else { return nil }
-        return RemoteViewGeometry(framePixels: size, bounds: capture.bounds, backingScale: window?.backingScaleFactor ?? 2, scaling: .fit)
+        guard let session = model.session else { return nil }
+        let geometry = RemoteViewGeometry(streamPixels: session.streamSize, picturePixels: session.frameSize, bounds: capture.bounds,
+                                          backingScale: window?.backingScaleFactor ?? 2, scaling: .fit)
+        guard geometry.framePixels.width >= 1, geometry.framePixels.height >= 1 else { return nil }
+        return geometry
     }
 
     public override func layout() {
@@ -441,6 +477,8 @@ public final class MacScreenPaneView: NSView {
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
         if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
         if let geometry {
+            // The video's pixel space (cursor overlay) is the stream's, as input's is.
+            if video.framePixels != geometry.framePixels { video.setFramePixels(geometry.framePixels) }
             video.frame = geometry.imageRect.offsetBy(dx: capture.frame.minX, dy: capture.frame.minY)
         } else {
             video.frame = .zero
@@ -475,7 +513,8 @@ public final class MacScreenPaneView: NSView {
     /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
     /// the picture is back; a released one still needs a click.
     func syncInputGate() {
-        let live = Self.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+        // The live card, not the held one: no input reaches a screen that is still coming up.
+        let live = Self.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
         input.controlMode = live
         input.acceptsPointer = live
         let captures = input.hasKeyboard
@@ -546,6 +585,7 @@ public final class MacScreenPaneView: NSView {
         withObservationTracking {
             _ = model.card
             _ = model.session?.isStalled
+            _ = model.session?.streamSize
             _ = model.gate
             _ = model.hasFrame
             _ = model.viewOnly

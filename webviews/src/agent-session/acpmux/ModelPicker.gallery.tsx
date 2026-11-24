@@ -9,11 +9,14 @@ import { topModelsFor } from "./topModels";
 import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
+import { type HarnessUpdates, HarnessUpdatesContext } from "./harnessUpdateList";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 import { MODEL_PICKER } from "./composerSelectors";
 
-/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
-type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
+/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context, and
+/// the outdated agent CLIs the menus' footer lists (harnessUpdateList.ts), which the pane hands the
+/// same way.
+type GalleryProps = ModelPickerProps & { update?: UpdateOffer; harnessUpdates?: HarnessUpdates };
 
 const update: UpdateOffer = {
   harness: "claude",
@@ -22,6 +25,12 @@ const update: UpdateOffer = {
   latest: "2.2.0",
   update: () => undefined,
   skip: () => undefined,
+};
+
+/// One outdated agent CLI, as Lawrence's menu had it (msg 48182, 2026-11-23): Claude Code and its Update.
+const oneHarnessUpdate: HarnessUpdates = {
+  rows: [{ harness: "claude", agent: "Claude Code", version: "2.1.4", latest: "2.2.0", update: () => undefined }],
+  updateAll: () => undefined,
 };
 
 const catalog: ModelPickerProps["catalog"] = [
@@ -594,12 +603,17 @@ export default componentEntry<GalleryProps>({
   ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
-    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
+    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, harnessUpdates, ...props }: GalleryProps) => (
       <UpdateOfferContext.Provider value={offer}>
-        <ModelPicker {...props} />
+        <HarnessUpdatesContext.Provider value={harnessUpdates}>
+          <ModelPicker {...props} />
+        </HarnessUpdatesContext.Provider>
       </UpdateOfferContext.Provider>
     )),
   variants: {
+    "reasoning-column": { props: { ...quick, reasoningMenu: "column", detail: "Medium" }, play: openPicker },
+    "separate-reasoning": { props: { ...quick, reasoningMenu: "separate", detail: "Medium" }, play: openPicker },
+    "model-only": { props: { ...curated, reasoningMenu: "column" }, play: openPicker },
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {
@@ -779,6 +793,10 @@ export default componentEntry<GalleryProps>({
     },
     // An agent CLI update on offer: a quiet footer below the columns.
     "quick-update-offer": { props: { ...quick, update }, play: openColumns },
+    // Harness updates available under the columns (Lawrence 2026-11-23, msg 48182: "spacing here is
+    // bad"): one menu row, its mark on the rows' inset, its Update as far from the divider, the
+    // bottom and the end as a row highlight is from the popup's edges.
+    "quick-harness-update": { props: { ...quick, harnessUpdates: oneHarnessUpdate }, play: openColumns },
     // The same footer on a started chat's menu, which has no rail.
     "started-chat-update-offer": {
       props: {
@@ -816,6 +834,9 @@ export default componentEntry<GalleryProps>({
         );
       },
     },
+    // A rail with more harnesses than fit: it scrolls by wheel or trackpad and draws no scrollbar
+    // (Lucas 2026-11-22: "remove this scrollbar when hovering over it").
+    "quick-menu-rail-overflow": { props: { ...quick, catalog: manyHarnesses }, play: openColumns },
     // Search, version A (ships): a search field heads the list and has the keyboard as the menu
     // opens, so the menu says it can search (Lawrence: "needs search").
     "quick-search-field": {
