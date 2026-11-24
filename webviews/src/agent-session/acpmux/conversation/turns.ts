@@ -89,6 +89,7 @@ import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
+import { githubConnectNeed } from "./githubConnect";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -231,7 +232,12 @@ const footerSays = (row: AcpmuxRow) =>
 /// a turn ended on a bare "Worked for", no Copy and no done mark). A footer that is empty never
 /// carries Retry: the prompt keeps it (`retryPlacement`).
 export const isEmptyFooter = (row: AcpmuxRow) =>
-  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !endsOnWork(row);
+  row.kind === "turnSummary" &&
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.githubConnect &&
+  !endsOnWork(row);
 
 /// The footer with the person's last prompt to send again (TurnRows.tsx TurnFooter's Retry): the
 /// chat's last turn, or the last one a prompt opened when every turn after it came from a notice
@@ -1282,15 +1288,20 @@ function shapedTurn(
   // turn goes on under that prompt, so it neither ends nor times the turn.
   // Nor does it before the steer's own record comes, while it is the turn's last summary: the turn
   // is about to go on, and would read "You stopped after" for that moment.
+  // The person's steer still on its way (the pane's own row, before acpmux's record) draws where he
+  // sent it, as acpmux's record of it will: what came in after the send draws under it, never over it
+  // (Leo, 2026-11-22: "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT THEN MY
+  // STEER WENT UNDER IT"). Held after the body, it sat under every row that came in before its record.
+  const sentHere = (row: AcpmuxRow) => live && sentSteer(row);
   const kept = source.filter(
     (row, at) =>
-      (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
+      (row.kind !== "user" || sentHere(row) || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
       !hidesContinuedSummary(source, at, last),
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
   const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
-  const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
+  const held = source.filter((row) => row.kind === "user" && !continuesTurn(row) && !sentHere(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
   const date = dated && visibleTurn ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
@@ -1347,12 +1358,9 @@ function shapedTurn(
     // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
     // up and under your current running tool call or whatever").
     const runs = foldBackgroundRuns(messaged, expanded);
-    // The person's steer still on its way (the pane's own row, before acpmux's record) is held after the
-    // body; its stretch's footer comes in the frame it is drawn, as for one acpmux recorded.
-    const sending = live ? held.filter(sentSteer) : [];
-    const body = sinceAboveWorked(
-      supersededFooters(runs, sending.length ? [...turn, ...sending] : turn, endedByPerson, user.at, live),
-    );
+    // The person's steer still on its way draws in its place in the body (`sentHere`); its stretch's
+    // footer comes in the frame it is drawn, as for one acpmux recorded.
+    const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live));
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -2308,6 +2316,9 @@ function shapeTurn(
   const work = live ? undefined : turnWork(body);
   const copyParts = turnCopyParts(body);
   const stoppedQuietly = isStopped(summary) && !turnCopySaid(copyParts);
+  // The chat's last turn, ended, whose GitHub call found no connection for this chat: its footer
+  // draws one Connect GitHub card (githubConnect.ts), gone once a prompt follows the turn.
+  const githubConnect = offers ? githubConnectNeed(body) : undefined;
   shaped.push({
     ...summary,
     folded,
@@ -2323,6 +2334,7 @@ function shapeTurn(
     ...(continuable && { continuable }),
     ...(failedAgain && { failedAgain: true as const }),
     ...(changedFiles && { changedFiles: true as const }),
+    ...(githubConnect && { githubConnect }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
