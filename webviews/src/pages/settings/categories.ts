@@ -50,6 +50,7 @@ export const CATEGORY_CARDS = [
   "keys",
   "mcpServers",
   "integrationsHub",
+  "automationsCloud",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

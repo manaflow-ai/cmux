@@ -94,6 +94,9 @@ import {
   type McpServersState,
   type HubRun,
   type HubState,
+  type AutocloudAction,
+  type AutocloudAnswer,
+  type AutocloudState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -887,6 +890,23 @@ export class SettingsStore {
   async runHub(run: HubRun): Promise<HubState | null> {
     await this.request("cmux.settings.hub.run", run);
     return this.hubState();
+  }
+
+  /** Settings > Automations (Cloud automations); null when the host has none. */
+  async autocloudState(): Promise<AutocloudState | null> {
+    const reply = await this.request("cmux.settings.autocloud.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Automations action: the CLI's answer (a preview, a run log, a saved automation and a new
+   * webhook's secret, once) and the card as it is after it. A refused call answers `{ok: false}`
+   * with the host's words. */
+  async runAutocloud(run: AutocloudAction): Promise<{ answer: AutocloudAnswer; state: AutocloudState | null }> {
+    const reply = await this.request("cmux.settings.autocloud.run", run);
+    const answer: AutocloudAnswer = reply.ok
+      ? (reply.value ?? { ok: false })
+      : { ok: false, error: { code: "host.refused", message: reply.error.message } };
+    return { answer, state: await this.autocloudState() };
   }
 
   /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the

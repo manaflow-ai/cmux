@@ -48,6 +48,7 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
+  AutocloudState,
   DoctorReport,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
@@ -83,6 +84,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
+  autocloud?: AutocloudState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
