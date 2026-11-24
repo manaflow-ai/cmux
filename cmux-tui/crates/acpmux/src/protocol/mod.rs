@@ -558,6 +558,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped(method::MUX_PLACE_CHAT, Request),
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
