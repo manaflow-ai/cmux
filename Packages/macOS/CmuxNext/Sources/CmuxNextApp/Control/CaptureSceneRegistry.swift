@@ -909,7 +909,7 @@ extension CaptureSceneRegistry {
     /// original sidebar has observed that window. All fixture IDs belong to this invocation.
     func renderSpacesSwitcher(_ params: [String: CmuxNextSettings.JSONValue], original: WindowController) async -> CmuxNextSettings.JSONValue {
         let daemon = services.machines.local
-        guard let connection = daemon.connection, connection.supportsProfiles else {
+        guard let connection = daemon.connection, await connection.supportsProfiles else {
             return .object(["error": .string("spaces-switcher requires a daemon with profiles")])
         }
         guard !services.spacesSwitcherLifecycleBusy else {
