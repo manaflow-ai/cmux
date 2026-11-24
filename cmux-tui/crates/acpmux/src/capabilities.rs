@@ -59,6 +59,78 @@ pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
 /// the source's digest of a prefix, and the client's progress reports.
 pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 
+/// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
+pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
+
+/// A move's receive here takes `composers.json`, each surface's unsent text and the queue's
+/// labels (`hub/composers.rs`), a guarded one too (`hub/transfer_guard.rs` `bundle_path_kind`).
+pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";
+
+/// A move's receive here takes `attachments/<sha256>`, the images the chat's prompts sent
+/// (`hub/prompt_images.rs`), a guarded one too.
+pub const TRANSFER_IMAGES: &str = "transfer-images-v1";
+
+/// The bundle files a chat runs without: each a capability and the first path component of the
+/// files it covers. A source makes them whatever its target is (it cannot know); the move's
+/// client, which reads the target's capabilities, leaves out each one the target does not list
+/// ([`leave_out_untaken`]). A guarded receive from before the file refuses the whole move for it
+/// (2026-11-24, a Move to Cloud onto an older machine image: `transfer.path: "composers.json" is
+/// not a file a guarded move takes`). A new optional bundle file gets its row here and its id in
+/// [`CAPABILITIES`] in the change that adds it; every other file stays required.
+pub const OPTIONAL_BUNDLE_FILES: &[(&str, &str)] =
+    &[(TRANSFER_COMPOSERS, "composers.json"), (TRANSFER_IMAGES, "attachments")];
+
+/// The capability a target lists when it takes the bundle file `path`, for an optional one
+/// ([`OPTIONAL_BUNDLE_FILES`]); `None` for a file every move carries.
+pub fn optional_bundle_file(path: &str) -> Option<&'static str> {
+    let first = path.split('/').next().unwrap_or(path);
+    OPTIONAL_BUNDLE_FILES.iter().find(|(_, f)| *f == first).map(|(capability, _)| *capability)
+}
+
+/// Removes from a move's `manifest.files` each optional bundle file whose capability `lists`
+/// says the target does not list, so that a target older than the file takes the chat without
+/// it; answers the paths it removed. Only the client that hands the manifest to the target calls
+/// it, with that target's own capabilities; then it pages only the files still listed.
+pub fn leave_out_untaken(
+    manifest: &mut serde_json::Value,
+    lists: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let Some(files) = manifest.get_mut("files").and_then(serde_json::Value::as_array_mut) else {
+        return Vec::new();
+    };
+    let mut left = Vec::new();
+    files.retain(|f| {
+        let path = f.get("path").and_then(serde_json::Value::as_str).unwrap_or("");
+        let keep = optional_bundle_file(path).is_none_or(&lists);
+        if !keep {
+            left.push(path.to_owned());
+        }
+        keep
+    });
+    left
+}
+
+/// The one line a move says when it left optional files out ([`leave_out_untaken`]).
+pub fn left_out_line(left: &[String]) -> Option<String> {
+    if left.is_empty() {
+        return None;
+    }
+    let what: Vec<&str> = OPTIONAL_BUNDLE_FILES
+        .iter()
+        .filter(|(c, _)| left.iter().any(|p| optional_bundle_file(p) == Some(*c)))
+        .map(|(c, _)| match *c {
+            TRANSFER_COMPOSERS => "unsent composer text",
+            TRANSFER_IMAGES => "prompt images",
+            other => other,
+        })
+        .collect();
+    Some(format!(
+        "the target's acpmux is older and does not take {} ({} file(s)); the chat moves without it",
+        what.join(" or "),
+        left.len()
+    ))
+}
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -150,6 +222,11 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
     },
+    // `session/new` with `_meta.acpmux.placeRedirect: 1`: a create this lane host has no room
+    // for starts on the peer the placement engine picks, answered with that peer's session and
+    // `_meta.acpmux.placedOn` (`hub/admission_redirect.rs`). Older daemons ignore the opt-in and
+    // start it here, warned; a client that sends none gets that from this one too.
+    Capability { id: crate::hub::admission_redirect::CAPABILITY, wire: &[method::SESSION_NEW] },
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
@@ -337,6 +414,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // Every running subagent of a chat and its latest ended ones, whatever a page of the chat
+    // holds (`hub/subagent_list.rs`): the Background tasks panel's list.
+    Capability { id: "subagent-list-v1", wire: &[method::MUX_SUBAGENT_LIST] },
     // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
     // past the newest page its log was seeded with (`hub/native_history.rs`).
     Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
@@ -431,6 +511,31 @@ pub const CAPABILITIES: &[Capability] = &[
             "_acpmux/transfer_write",
         ],
     },
+    // A move whose history follows the chat (`hub/transfer_history.rs`): `transfer_prepare
+    // {historyLater}` prepares only the chat's last turns, the chat runs on the target at once,
+    // and its earlier history is exported as a session pack (`transfer_history_export`, less the
+    // chunks the target says it has, `transfer_history_have`), staged, and taken into the live
+    // chat (`transfer_history`). A client asks for it only between two daemons that both list it.
+    Capability {
+        id: TRANSFER_HISTORY_LATER,
+        wire: &[
+            "_acpmux/transfer_history",
+            "_acpmux/transfer_history_export",
+            "_acpmux/transfer_history_have",
+            "_acpmux/transfer_prepare",
+            "_acpmux/transfer_stage_finish",
+        ],
+    },
+    // The optional bundle files a move's receive (and a guarded one's writes) take here
+    // ([`OPTIONAL_BUNDLE_FILES`]); a client leaves out of a move each one its target does not list.
+    Capability {
+        id: TRANSFER_COMPOSERS,
+        wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
+    },
+    Capability {
+        id: TRANSFER_IMAGES,
+        wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -506,6 +611,78 @@ mod tests {
             assert!(seen.insert(id), "{id} is listed twice");
         }
         assert_eq!(ids().first(), Some(&"acpmux-v1"), "the base comes first");
+    }
+
+    fn begin_manifest() -> Value {
+        json!({"files": [
+            {"path": "session.json", "size": 10},
+            {"path": "events/000001.ndjson", "size": 20},
+            {"path": "composers.json", "size": 2},
+            {"path": format!("attachments/{}", "ab".repeat(32)), "size": 3},
+            {"path": "native/claude-project/.claude/projects/p/s.jsonl", "size": 4},
+        ]})
+    }
+
+    fn paths(manifest: &Value) -> Vec<&str> {
+        manifest["files"].as_array().unwrap().iter().map(|f| f["path"].as_str().unwrap()).collect()
+    }
+
+    /// A target from before the optional files (it lists neither id) gets the chat without
+    /// them, every required file still listed, and the move says so in one line.
+    #[test]
+    fn an_older_target_gets_the_move_without_its_optional_files() {
+        let mut manifest = begin_manifest();
+        let left = leave_out_untaken(&mut manifest, |_| false);
+        assert_eq!(
+            left,
+            vec!["composers.json".to_owned(), format!("attachments/{}", "ab".repeat(32))]
+        );
+        assert_eq!(
+            paths(&manifest),
+            [
+                "session.json",
+                "events/000001.ndjson",
+                "native/claude-project/.claude/projects/p/s.jsonl"
+            ]
+        );
+        let line = left_out_line(&left).unwrap();
+        assert!(line.contains("unsent composer text") && line.contains("prompt images"), "{line}");
+    }
+
+    /// A current target lists both ids (this build does): the move carries every file.
+    #[test]
+    fn a_current_target_gets_every_file() {
+        let mut manifest = begin_manifest();
+        let here = ids();
+        let left = leave_out_untaken(&mut manifest, |c| here.contains(&c));
+        assert!(left.is_empty());
+        assert_eq!(left_out_line(&left), None);
+        assert_eq!(paths(&manifest), paths(&begin_manifest()));
+        for (capability, _) in OPTIONAL_BUNDLE_FILES {
+            assert!(here.contains(capability), "{capability} is not listed");
+        }
+    }
+
+    /// A target that lists only one id loses only the other's files.
+    #[test]
+    fn a_target_is_sent_each_optional_file_it_lists() {
+        let mut manifest = begin_manifest();
+        let left = leave_out_untaken(&mut manifest, |c| c == TRANSFER_COMPOSERS);
+        assert_eq!(left.len(), 1);
+        assert!(left[0].starts_with("attachments/"));
+        assert!(paths(&manifest).contains(&"composers.json"));
+    }
+
+    /// Only the listed optional files are ever left out: an unknown file stays in the manifest,
+    /// so a guarded target still refuses it (`hub/transfer_guard.rs`).
+    #[test]
+    fn an_unknown_file_is_never_left_out() {
+        assert_eq!(optional_bundle_file("harness/owner.sqlite"), None);
+        assert_eq!(optional_bundle_file("composers.json.bak"), None);
+        assert_eq!(optional_bundle_file("x/composers.json"), None);
+        let mut manifest = json!({"files": [{"path": "harness/owner.sqlite", "size": 1}]});
+        assert!(leave_out_untaken(&mut manifest, |_| false).is_empty());
+        assert_eq!(paths(&manifest), ["harness/owner.sqlite"]);
     }
 
     /// An id covers names the daemon has: a renamed or removed method breaks

@@ -4,6 +4,8 @@
 
 use super::*;
 
+#[path = "transfer_history.rs"]
+mod transfer_history;
 #[path = "transfer_live.rs"]
 mod transfer_live;
 

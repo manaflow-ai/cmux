@@ -51,6 +51,9 @@ JOB_INPUTS = (
     "scripts/ci/init-submodule.sh",
     "scripts/install-zig-ci.sh",
     "scripts/ci/fast_tier_cargo_route.py",
+    "scripts/ci/pool-warm-target.sh",
+    "scripts/ci/tests/pool-warm-target.test.sh",
+    "scripts/blacksmith-testbox-source-mtimes.py",
 )
 # What the script entries import or read outside their own folder (test_perf_completeness.py: the perf gate).
 SCRIPT_INPUTS = ("scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json", "scripts/perf-bench/")

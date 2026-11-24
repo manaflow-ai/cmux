@@ -25,18 +25,8 @@ extension HomeEngineStrings {
         default: String(localized: "home.engine.vault.signIn.other", defaultValue: "Cloud sign-in", table: "Home", bundle: .localizedModule)
         }
     }
-    static var vaultNote: String {
-        String(localized: "home.engine.vault.note",
-               defaultValue: "Kept in your Keychain. Chief and its agents use them by name; values never appear in chat. Add one with cmux cloud secret set NAME.",
-               table: "Home", bundle: .localizedModule)
-    }
     static var connectionsSection: String {
         String(localized: "home.engine.connections", defaultValue: "Connections", table: "Home", bundle: .localizedModule)
-    }
-    static var connectionsNote: String {
-        String(localized: "home.engine.connections.note",
-               defaultValue: "Chief reads and sends only through a connected account. It asks you before it sends an email or an invitation.",
-               table: "Home", bundle: .localizedModule)
     }
     static var connectionGmail: String { String(localized: "home.engine.connection.gmail", defaultValue: "Gmail", table: "Home", bundle: .localizedModule) }
     static var connectionCalendar: String {

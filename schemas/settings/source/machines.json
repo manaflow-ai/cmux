@@ -681,6 +681,28 @@
           ]
         },
         {
+          "key": "cloud.autoCloud",
+          "name": "autoCloud",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. Hidden until it ships; the plan gate still applies.",
+          "title": {
+            "key": "settings.cloud.autoCloud",
+            "text": "Auto Places Chats in Cloud"
+          },
+          "help": {
+            "key": "settings.cloud.autoCloud.help",
+            "text": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "page_hidden": "AutoCloud preview; cmux-next.json only until it ships",
+          "keywords": [
+            "cloud",
+            "auto",
+            "place",
+            "where"
+          ]
+        },
+        {
           "key": "cloud.agentMemory.follow",
           "name": "agentMemoryFollow",
           "title": {
@@ -1225,6 +1247,155 @@
           "swift_enum": {
             "name": "ScreenSharingProfile"
           }
+        }
+      ]
+    },
+    {
+      "name": "remoteDesktop",
+      "section": "general",
+      "group": {
+        "key": "settings.group.cmuxRemote",
+        "text": "cmux Remote"
+      },
+      "note": "The viewer's defaults for a new Screen Sharing session (remoteDesktop.*, plans/cmux-next/remote-desktop.md section 16). MacScreenPages seeds each session's toolbar picks from them, and the session's cmux.rd offer carries them (a=cmux-rd-max-width and -max-fps from the quality, -max-fps capped, -max-kbps); a toolbar pick still wins for its session.",
+      "rows": [
+        {
+          "key": "remoteDesktop.quality",
+          "note": "The quality a new Screen Sharing session starts at: Auto fits the stream to the pane, Sharp Text streams the host display's full size at up to 60 fps, Smooth Motion streams 1920 wide at the display's rate, Low Bandwidth streams 1280 wide at up to 60 fps (MacScreenRdDocument.wish).",
+          "title": {
+            "key": "settings.remoteDesktop.quality",
+            "text": "Screen Sharing Quality"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.quality.help",
+            "text": "The quality a new Screen Sharing session starts at. The session's toolbar can still change it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remoteDesktop.auto",
+                "text": "Auto"
+              },
+              "note": "Fits the stream to the pane."
+            },
+            {
+              "value": "sharpText",
+              "title": {
+                "key": "settings.remoteDesktop.quality.sharpText",
+                "text": "Sharp Text"
+              },
+              "note": "The host display's full size, up to 60 fps."
+            },
+            {
+              "value": "smoothMotion",
+              "title": {
+                "key": "settings.remoteDesktop.quality.smoothMotion",
+                "text": "Smooth Motion"
+              },
+              "note": "1920 wide at the display's frame rate."
+            },
+            {
+              "value": "lowBandwidth",
+              "title": {
+                "key": "settings.remoteDesktop.quality.lowBandwidth",
+                "text": "Low Bandwidth"
+              },
+              "note": "1280 wide, up to 60 fps."
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "mac screen",
+            "quality",
+            "resolution",
+            "sharp text",
+            "smooth motion",
+            "low bandwidth"
+          ],
+          "swift_enum": {
+            "name": "RemoteDesktopQuality"
+          }
+        },
+        {
+          "key": "remoteDesktop.maxFps",
+          "note": "A cap on the frame rate a Screen Sharing session asks for (a=cmux-rd-max-fps is the quality's rate, at most this). auto: no cap beyond the quality's (this Mac's display refresh).",
+          "title": {
+            "key": "settings.remoteDesktop.maxFps",
+            "text": "Screen Sharing Frame Rate Limit"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.maxFps.help",
+            "text": "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remoteDesktop.auto",
+                "text": "Auto"
+              }
+            }
+          ],
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "count",
+            "placeholder": 60
+          },
+          "default": "auto",
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "fps",
+            "frame rate",
+            "frames per second",
+            "refresh"
+          ]
+        },
+        {
+          "key": "remoteDesktop.maxBitrateMbps",
+          "note": "The bitrate a new Screen Sharing session may use, in Mbit/s (a=cmux-rd-max-kbps, times 1000). auto: the host's own cap. The toolbar's Customize > Bitrate starts at it.",
+          "title": {
+            "key": "settings.remoteDesktop.maxBitrateMbps",
+            "text": "Screen Sharing Bitrate Limit"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.maxBitrateMbps.help",
+            "text": "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remoteDesktop.auto",
+                "text": "Auto"
+              }
+            }
+          ],
+          "range": {
+            "min": 0.5,
+            "max": 80,
+            "step": 0.5,
+            "unit": "count",
+            "placeholder": 10
+          },
+          "default": "auto",
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "bitrate",
+            "bandwidth",
+            "mbps",
+            "megabits",
+            "data"
+          ]
         }
       ]
     },
