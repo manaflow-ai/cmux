@@ -158,8 +158,9 @@ impl State {
     }
 
     fn row_view(&self, row: &'static Row) -> RowView<'static> {
-        let customized = value_at(&self.effective.file_root, &row.path)
-            .is_some_and(|stored| Some(stored) != row.default.as_ref());
+        let customized = value_at(&self.effective.file_root, &row.path).is_some_and(|stored| {
+            Some(stored) != row.default.as_ref() || self.overrides_group_background(row, stored)
+        });
         RowView {
             row,
             value: effective_value(row, &self.effective.root, &self.domains),
