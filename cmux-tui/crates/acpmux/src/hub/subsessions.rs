@@ -526,7 +526,9 @@ impl Hub {
         // was in flight did not see the child: close it now, not orphaned
         // (and its worktree, dropped unkept, is removed).
         if parent.meta().status == SessionStatus::Closed {
-            let _ = self.kill(&child, false).await;
+            let why =
+                crate::close_why::CloseWhy::by("daemon", "its parent closed while it started");
+            let _ = self.kill_why(&child, false, why).await;
             return Err(RpcError::invalid_params(
                 "the session closed while its sub-session started",
             ));
@@ -624,6 +626,7 @@ impl Hub {
                     false,
                     Some(sub),
                     None,
+                    Default::default(),
                 ))
                 .await?;
             return self.started_reply(parent, pm, fork, &req, &cwd, short, depth, None).await;
@@ -672,7 +675,8 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         if !Self::race_active(parent, req.race_id.as_deref()) {
-            let _ = self.kill(&probe, false).await;
+            let why = crate::close_why::CloseWhy::by("daemon", "its race ended while it started");
+            let _ = self.kill_why(&probe, false, why).await;
             return Err(Self::race_cancelled());
         }
         let cm = probe.meta();
@@ -1053,6 +1057,18 @@ impl Hub {
         target: &Arc<Session>,
         close: bool,
     ) -> Result<Value, RpcError> {
+        let why = crate::close_why::CloseWhy::by("daemon", "a race or review it ran ended");
+        self.subsession_stop_why(target, close, why).await
+    }
+
+    /// `subsession_stop`, recording who closed each session and why (`close_why.rs`): the
+    /// target takes `why`; each session under it is recorded as closed with its ancestor.
+    pub async fn subsession_stop_why(
+        self: &Arc<Self>,
+        target: &Arc<Session>,
+        close: bool,
+        why: crate::close_why::CloseWhy,
+    ) -> Result<Value, RpcError> {
         if !close {
             // A start or message still waiting for a run slot is stopped too: it never runs.
             if self.waits_for_slot(&target.meta()) {
@@ -1079,7 +1095,15 @@ impl Hub {
             // A family prompt still queued would take a run slot later and open it again.
             self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
-                self.kill(s, false).await?;
+                let mut why = why.clone();
+                if s.id != target.id {
+                    why.reason = Some(format!(
+                        "closed with its ancestor {}: {}",
+                        target.id,
+                        why.reason.as_deref().unwrap_or("unrecorded")
+                    ));
+                }
+                self.kill_why(s, false, why).await?;
                 closed.push(Value::String(s.id.clone()));
             }
         }
