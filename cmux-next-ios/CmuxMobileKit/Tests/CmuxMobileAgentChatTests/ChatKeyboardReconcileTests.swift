@@ -60,7 +60,10 @@ import CmuxMobileSupport
         }
         controller.view.layoutIfNeeded()
         let dock = try #require(controller.view.subviews.compactMap { $0 as? PassthroughView }.first)
-        #expect(dock.frame.maxY < controller.view.bounds.maxY - 100, "the shown keyboard lifts the stale dock")
+        let after = controller.view.keyboardLayoutGuide.layoutFrame
+        let views = controller.view.subviews.map { "\(type(of: $0)) \($0.frame)" }.joined(separator: "; ")
+        #expect(dock.frame.maxY < controller.view.bounds.maxY - 100,
+                "the shown keyboard lifts the stale dock: dock \(dock.frame), guide \(after), shown \(shown), bounds \(controller.view.bounds), window=\(controller.view.window != nil), subviews: \(views)")
         #expect(tracker.isShown)
         // The controller is detached when the tracker learns the hide. Its
         // own keyboard observer cannot consume a notification it never got.
