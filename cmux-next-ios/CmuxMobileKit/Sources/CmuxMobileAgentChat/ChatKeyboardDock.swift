@@ -236,7 +236,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// its rows take the theme's light or dark style and the top fade its ground.
     func applyChatLook(_ look: CmuxMobileChatLook?) {
         loadViewIfNeeded()
-        let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
+        // A background policy other than Current draws the chat's ground behind the transcript.
+        let ownsGround = CmuxMobileBackgroundSetting.shared.policy == .current
+        let background: UIColor = look == nil && ownsGround ? .cmuxMobileBackground : .clear
         if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
@@ -262,7 +264,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
-        scrollView.backgroundColor = .cmuxMobileBackground
+        scrollView.backgroundColor = CmuxMobileBackgroundSetting.shared.policy == .current ? .cmuxMobileBackground : .clear
         scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the

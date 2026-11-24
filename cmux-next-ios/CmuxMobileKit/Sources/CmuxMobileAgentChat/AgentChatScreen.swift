@@ -429,7 +429,7 @@ public struct AgentChatScreen: View {
         // The transcript hosts the composer itself, docked to the keyboard
         // (ChatTranscriptController), instead of a SwiftUI safe-area inset.
         AgentChatTranscript(store: store, surface: surface, placement: .owned)
-            .background(CmuxMobileChatBackdrop())
+            .background(CmuxMobileGround(.chat) { CmuxMobileChatBackdrop() }.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
     }

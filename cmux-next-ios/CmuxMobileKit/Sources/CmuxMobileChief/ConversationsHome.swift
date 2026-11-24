@@ -442,7 +442,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(CmuxMobileBackdrop().ignoresSafeArea())
+        .background(CmuxMobileGround(.root) { CmuxMobileBackdrop() }.ignoresSafeArea())
         // Kept rows show while the Mac's list loads: say they are being updated, over the
         // list (no row moves when it goes), as the one-word connection chip (Leo, 2026-11-21:
         // "a symbol or short thing, not a sentence. stop layout shifting").

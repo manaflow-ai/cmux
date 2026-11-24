@@ -142,7 +142,7 @@ struct WorkspacesScreen: View {
                 // Two-pane: a workspace replaces the open one beside the list instead of stacking on it.
                 if layout.twoPane { shell.workspacesPath = [workspace] } else { shell.workspacesPath.append(workspace) }
             }
-            .background(theme.colors.bg.color.ignoresSafeArea())
+            .background(CmuxMobileGround(.root, legacy: theme.colors.bg.color).ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
     }
 

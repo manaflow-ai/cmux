@@ -67,7 +67,7 @@ struct TeamSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(CmuxMobileBackdrop().ignoresSafeArea())
+        .background(CmuxMobileGround(.root) { CmuxMobileBackdrop() }.ignoresSafeArea())
         .alert("Create team", isPresented: $creatingTeam) {
             TextField("Team name", text: $newTeamName)
                 // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).

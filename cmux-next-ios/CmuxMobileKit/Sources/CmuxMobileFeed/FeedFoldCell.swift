@@ -21,7 +21,7 @@ final class FeedFoldCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
-        backgroundColor = .cmuxMobileBackground
+        backgroundColor = CmuxMobileGroundRows.fill(.root, legacy: .cmuxMobileBackground)
         contentView.clipsToBounds = true
         contentView.addSubview(button)
         button.addAction(UIAction { [weak self] _ in self.map { $0.onToggle?($0.id) } }, for: .touchUpInside)
