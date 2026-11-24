@@ -100,6 +100,7 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+mod forward_wait;
 #[cfg(test)]
 mod title_log_tests;
 pub use fork::Retarget;
