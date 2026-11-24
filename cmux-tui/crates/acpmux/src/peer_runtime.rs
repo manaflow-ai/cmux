@@ -135,6 +135,7 @@ impl Peer {
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
             early_init: StdMutex::new(None),
+            early_refused: AtomicBool::new(false),
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),

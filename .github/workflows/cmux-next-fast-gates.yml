@@ -329,6 +329,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Only what the gates read: scripts/ci/fast-check-inputs.json's inputs for this job (the router skips the gates for
+      # a change outside them, and tests/test_cmux_next_fast_gates.py holds this list to that file), the top-level
+      # files, and scripts/ whole. Blobs come on demand (filter: blob:none) and only for these paths: the full tree
+      # was 930 MB, 6,708 runner minutes a day in this step.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -336,6 +340,29 @@ jobs:
           # A pull request's merge commit and both parents. A dispatch fetches
           # the PR head and the tip itself and deepens until they meet.
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/*/
+            /scripts/
+            /.github/
+            /Packages/
+            /cmux-tui/
+            /webviews/
+            /web/
+            /config/vite-plus/
+            /cmux-next-ios/
+            /schemas/
+            /release-notes/next/
+            /first-party-apps/
+            /Native/OptChat/
+            /plans/cmux-next/
+            /cmux.xcodeproj/project.pbxproj
+            /tests/workflow_jobs.py
+            /docs/mdm/
+            /backend/apps/api/
+            *.xcstrings
 
       - name: Merge with the base
         id: prepare
