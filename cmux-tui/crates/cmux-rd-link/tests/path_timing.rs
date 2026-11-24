@@ -98,10 +98,12 @@ fn established(events: &[(u64, EndpointEvent)]) -> Option<u64> {
         .find_map(|(at, e)| matches!(e, EndpointEvent::Link(Event::Established)).then_some(*at))
 }
 
-fn run(rtt_us: u64) -> Timing {
+fn run(rtt_us: u64, braid: bool) -> Timing {
     let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
     let mut viewer = Endpoint::new(Role::Initiator, b"s1", &v, h.public, 0).unwrap();
     let mut host = Endpoint::new(Role::Responder, b"s1", &h, v.public, 0).unwrap();
+    viewer.set_braid_paths(braid);
+    host.set_braid_paths(braid);
     viewer.add_path(Route::Udp(addr(HOST_WAN)), PathKind::DirectWan, 0);
     viewer.add_path(Route::Relay { relay: 0, peer: addr(HOST_WAN) }, PathKind::TurnRelay, 0);
     let mut wire = Wire { rtt_us, direct: true, in_flight: Vec::new() };
@@ -192,19 +194,26 @@ fn run(rtt_us: u64) -> Timing {
 #[test]
 fn path_choice_and_failover_under_50_and_150_ms_round_trips() {
     for rtt_ms in [50u64, 150] {
-        let t = run(rtt_ms * 1_000);
-        println!(
-            "path_timing rtt_ms={rtt_ms} viewer_nominate_ms={:.1} host_nominate_ms={:.1} \
-             sprayed={} gap_ms={:.1} on_time={}/60",
-            t.viewer_nominate_us as f64 / 1e3,
-            t.host_nominate_us as f64 / 1e3,
-            t.sprayed,
-            t.gap_us as f64 / 1e3,
-            t.on_time,
-        );
-        // Loose bounds that hold before and after B10: the session survives the
-        // drop on the relay and media keeps flowing.
-        assert!(t.on_time > 0, "{rtt_ms} ms: no frame on time after the drop: {t:?}");
-        assert!(t.gap_us < 3_000_000, "{rtt_ms} ms: media stalled: {t:?}");
+        for braid in [false, true] {
+            let t = run(rtt_ms * 1_000, braid);
+            println!(
+                "path_timing rtt_ms={rtt_ms} mode={} viewer_nominate_ms={:.1} \
+                 host_nominate_ms={:.1} sprayed={} gap_ms={:.1} on_time={}/60",
+                if braid { "after" } else { "before" },
+                t.viewer_nominate_us as f64 / 1e3,
+                t.host_nominate_us as f64 / 1e3,
+                t.sprayed,
+                t.gap_us as f64 / 1e3,
+                t.on_time,
+            );
+            // Both modes survive the drop on the relay and keep media flowing.
+            assert!(t.on_time > 0, "{rtt_ms} ms: no frame on time after the drop: {t:?}");
+            assert!(t.gap_us < 3_000_000, "{rtt_ms} ms: media stalled: {t:?}");
+            if braid {
+                // B10: a path is chosen at Established, not a probe round trip later.
+                assert!(t.viewer_nominate_us <= 2_000, "{rtt_ms} ms: {t:?}");
+                assert!(t.host_nominate_us <= 2_000, "{rtt_ms} ms: {t:?}");
+            }
+        }
     }
 }
