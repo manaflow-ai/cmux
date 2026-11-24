@@ -1,0 +1,151 @@
+// Tachyon: a modern terminal look, dark first. Two tones of graphite (the chrome and sidebar a step
+// lighter than the content), a vivid teal for the selected block, the active tab's underline, the
+// cursor and Send, a mauve for work in progress, and a terminal palette tuned to the same page.
+// Command output reads as cards: the prompt you sent is a teal-ringed block, tool calls are quiet
+// raised blocks. Everything in the chat is monospaced, the chrome in Roboto.
+{
+  "name": "Tachyon",
+  "description": "A modern terminal, dark: two-tone graphite, teal selected blocks, monospaced output as cards.",
+
+  // A neutral base the ghostty block below repaints whole: the page, ink, cursor, selection and all
+  // sixteen ANSI colors. The window, sidebar and pages follow it.
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the content graphite. foreground: the cool off-white of block text. selection: the
+  // teal at 22% over the page (a selected block's wash). accent: the selected block's teal ring.
+  "colors": { "background": "#1e2021", "foreground": "#e3e9ec", "selection": "#5c7b77", "accent": "#81dfcf" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #1e2021",
+    "foreground = #e3e9ec",
+    "cursor-color = #81dfcf",
+    "cursor-text = #1e2021",
+    "selection-background = #5c7b77",
+    "selection-foreground = #e3e9ec",
+    "palette = 0=#43474a",
+    "palette = 1=#e5787a",
+    "palette = 2=#7fd3a7",
+    "palette = 3=#e8c872",
+    "palette = 4=#6cb6eb",
+    "palette = 5=#c47fd5",
+    "palette = 6=#81dfcf",
+    "palette = 7=#e3e9ec",
+    "palette = 8=#83878a",
+    "palette = 9=#ff9a9c",
+    "palette = 10=#a6ecc6",
+    "palette = 11=#f5dc9a",
+    "palette = 12=#9ad0f5",
+    "palette = 13=#dea6ec",
+    "palette = 14=#a8f0e3",
+    "palette = 15=#ffffff"
+  ],
+  // The terminal face: JetBrains Mono at 13 pt, a modern terminal face with tall lowercase and
+  // clear zeros.
+  "terminal.fontFamily": "JetBrains Mono",
+  "terminal.fontSize": 13,
+
+  // Opaque fills, no wallpaper, no glass: a terminal is a solid slab.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: two tones (the top bar, tab strip and sidebar shaded apart from the content), hairline
+  // dividers, and the focused pane shown by its tab (a teal underline), not a ring.
+  "appearance.chromeStyle": "two-tone",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.titleAreaContrast": 1,
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "compact",
+  // Pending cmux#46780: square tabs with the active one underlined; block is the closest shape.
+  // "appearance.tabShape": "block",
+  // Pending cmux#46516: the selected sidebar row as a raised neutral card with a light edge, the
+  // accent kept for blocks, the cursor and Send.
+  // "appearance.selection": "neutral",
+
+  // Proportions, measured from the references at their 2x scale: a 36 pt top bar holding the
+  // session search, a 248 pt session sidebar, 34 pt rows, a 34 pt tab strip whose tabs share it
+  // evenly, 12 pt tab titles and 13 pt chrome, split panes that abut on a 1 pt divider.
+  "appearance.metrics.titlebarHeight": 36,
+  "appearance.metrics.sidebarWidth": 248,
+  "appearance.metrics.sidebarRowHeight": 34,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 34,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.tabMaxWidth": 320,
+  "appearance.metrics.tabMinActiveWidth": 160,
+  "appearance.metrics.tabMinInactiveWidth": 120,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  // The sidebar: the chrome graphite, a hairline at its edge, sections as plain lines.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#1d2124",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.style": "standard",
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "lines",
+
+  // The content in the darker graphite; the tab strip, browser bar and docks in the chrome tone.
+  "appearance.surfaces.agentPane.color": "#1e2021",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#1e2021",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#1d2124",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.browserChrome.color": "#1d2124",
+  "appearance.surfaces.browserChrome.opacity": 1,
+  "appearance.surfaces.docks.color": "#1d2124",
+  "appearance.surfaces.docks.opacity": 1,
+  "appearance.surfaces.editor.color": "#1e2021",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#1e2021",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#1e2021",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#3b3d3f",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Settings in the chrome tone (a modal over the terminal); pages in the content graphite.
+  "appearance.surfaces.settings.color": "#1d2124",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#1e2021",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#1e2021",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#1e2021",
+  "appearance.surfaces.home.opacity": 1,
+
+  // Status: a filling arc in mauve while an agent works (the in-progress pie), on tabs too.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.color": "#d7b7d2",
+  "appearance.statusIndicator.thickness": 2,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // The command search: opaque, no glass.
+  "browser.omnibar.glass": "off",
+
+  // Motion: fast and linear-out, a terminal never makes you wait for a transition.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.duration": 120,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant"
+
+  // Pending cmux#46861 (layout and proportions): a modern terminal: three-line session rows at 60 pt with a 6 pt inset and 4 pt gaps, 28 pt square-cornered toolbar buttons, a hairline under the top bar, a tall bottom input. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 60,
+  // "appearance.metrics.sidebarRowInset": 6,
+  // "appearance.metrics.sidebarRowPadding": 10,
+  // "appearance.metrics.sidebarRowGap": 4,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 4,
+  // "appearance.metrics.toolbarButtonCornerRadius": 4,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.12,
+  // "appearance.metrics.headerDivider": 1,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 48,
+  // "appearance.metrics.spacingScale": 0.9,
+}

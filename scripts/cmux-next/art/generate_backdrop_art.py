@@ -62,6 +62,11 @@ STATIC = {
         "ja": "ドレ", "ko": "도레", "zh-Hans": "多雷", "zh-Hant": "多雷",
         "bs": "Doré", "da": "Doré", "it": "Doré", "km": "ដូរេ", "nb": "Doré", "pl": "Doré", "pt-BR": "Doré", "ru": "Доре", "th": "โดเร", "tr": "Doré", "uk": "Доре", "vi": "Doré",
     },
+    "backdrop.collection.eastAsian": {
+        "en": "East Asian Painting", "ar": "الرسم الشرق آسيوي", "de": "Ostasiatische Malerei", "es": "Pintura de Asia oriental", "fr": "Peinture d'Asie de l'Est",
+        "ja": "東アジアの絵画", "ko": "동아시아 회화", "zh-Hans": "东亚绘画", "zh-Hant": "東亞繪畫",
+        "bs": "Istočnoazijsko slikarstvo", "da": "Østasiatisk maleri", "it": "Pittura dell'Asia orientale", "km": "គំនូរអាស៊ីបូព៌ា", "nb": "Østasiatisk maleri", "pl": "Malarstwo wschodnioazjatyckie", "pt-BR": "Pintura do Leste Asiático", "ru": "Живопись Восточной Азии", "th": "จิตรกรรมเอเชียตะวันออก", "tr": "Doğu Asya Resmi", "uk": "Живопис Східної Азії", "vi": "Hội họa Đông Á",
+    },
     "backdrop.collection.yours": {
         "en": "Your images", "ar": "صورك", "bs": "Vaše slike", "da": "Dine billeder", "de": "Deine Bilder", "es": "Tus imágenes",
         "fr": "Vos images", "it": "Le tue immagini", "ja": "自分の画像", "km": "រូបភាពរបស់អ្នក", "ko": "내 이미지", "nb": "Dine bilder",
@@ -98,7 +103,9 @@ def render_swift(works: list[dict]) -> str:
         "",
         "/// A public-domain artwork for the window backdrop (cx-t2x.7): well-known paintings and prints",
         "/// from Wikimedia Commons, each cleared as public domain in the US (the artist died 70+ years ago",
-        "/// and the work was published before 1931). Sources and licenses: art/manifest.json.",
+        "/// and the work was published before 1931), and the Frutiger Aero backdrops (`aero-*`), original works",
+        "/// drawn from a seed by cmux-tui/crates/cmux-backdrop-gen and dedicated to the public domain.",
+        "/// Sources and licenses: art/manifest.json.",
         "public nonisolated enum BackdropArt: String, CaseIterable, Sendable {",
     ]
     for work in works:
@@ -107,7 +114,7 @@ def render_swift(works: list[dict]) -> str:
     for work in works:
         key = f"backdrop.{work['id']}.title"
         lines.append(f"        case .{case_name(work['id'])}: String(localized: {swift_string(key)}, "
-                     f"defaultValue: {swift_string(work['title'])}, bundle: .module)")
+                     f"defaultValue: {swift_string(work['title'])}, bundle: .localizedModule)")
     lines += ["        }", "    }", "}", ""]
     return "\n".join(lines)
 

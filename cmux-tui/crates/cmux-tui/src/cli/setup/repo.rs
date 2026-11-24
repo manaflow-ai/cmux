@@ -45,8 +45,8 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 Setups stack like dotfiles: each one is a layer of its own, the newest on top. Its views go to
-~/.config/cmux/setups/setup-OWNER-NAME (the app local/setup-OWNER-NAME), never into your own
-~/.config/cmux/customize, and what you change after installing stays above it. Removing one takes off
+the folder setups/setup-OWNER-NAME beside your customize folder (the app local/setup-OWNER-NAME), never into
+your own customize folder, and what you change after installing stays above it. Removing one takes off
 only its layer: the other setups and your own changes stay as they are.
 --yes skips the question (needed with --json or without a terminal). Every verb takes --json.
 
@@ -440,7 +440,8 @@ impl Drop for Checkout {
 }
 
 /// `git` with no prompt, no hooks and no system config: the repo is data.
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+/// `config` (`-c` pairs) comes after cmux's own.
+fn git(dir: &Path, config: &[&str], args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -453,6 +454,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
             "-c",
             "protocol.https.allow=always",
         ])
+        .args(config)
         .args(args)
         .output()
         .map_err(|error| format!("git: {error}"))?;
@@ -463,8 +465,15 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 /// Fetches `reference` at its ref (the default branch when none) and checks
-/// out that one commit. Any git host: a shallow fetch of the commit.
+/// out that one commit. Any git host: a shallow fetch of the commit, and of
+/// a setup in a folder only that folder's files.
 fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
+    fetch_from(reference, &reference.clone_url(), &[])
+}
+
+/// [`fetch`] from `url`, with `config` on every git call (the tests' repo on
+/// disk needs the file protocol).
+fn fetch_from(reference: &Reference, url: &str, config: &[&str]) -> Result<Checkout, Failure> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_nanos());
@@ -472,15 +481,36 @@ fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
     std::fs::create_dir_all(&dir).map_err(|error| refused("setup.fetch", error.to_string()))?;
     let mut checkout = Checkout { dir, commit: String::new() };
     let wanted = reference.git_ref.as_deref().unwrap_or("HEAD");
-    let url = reference.clone_url();
-    let fetched = git(&checkout.dir, &["init", "-q"])
-        .and_then(|_| {
-            git(&checkout.dir, &["fetch", "-q", "--depth", "1", "--no-tags", &url, wanted])
+    let run = |args: &[&str]| git(&checkout.dir, config, args);
+    // A setup in a folder (a look in a monorepo) fetches the commit's trees
+    // with no file contents, then checks out only its folder: the checkout
+    // fetches that folder's files from `origin` in one batch. A host with no
+    // filter support sends the whole commit, as before.
+    let sparse = (!reference.path.is_empty()).then(|| format!("/{}/", reference.path));
+    let fetch_args: &[&str] = if sparse.is_some() {
+        &["fetch", "-q", "--depth", "1", "--filter=blob:none", "--no-tags", "origin", wanted]
+    } else {
+        &["fetch", "-q", "--depth", "1", "--no-tags", "origin", wanted]
+    };
+    let fetched = run(&["init", "-q"])
+        .and_then(|_| run(&["remote", "add", "origin", url]))
+        .and_then(|_| run(fetch_args))
+        .and_then(|_| match &sparse {
+            // The setting and pattern file every git with partial clone reads
+            // (`sparse-checkout set --no-cone` needs 2.35).
+            Some(folder) => run(&["config", "core.sparseCheckout", "true"]).and_then(|_| {
+                let info = checkout.dir.join(".git/info");
+                std::fs::create_dir_all(&info)
+                    .and_then(|()| {
+                        std::fs::write(info.join("sparse-checkout"), format!("{folder}\n"))
+                    })
+                    .map(|()| String::new())
+                    .map_err(|error| format!("sparse-checkout: {error}"))
+            }),
+            None => Ok(String::new()),
         })
-        .and_then(|_| {
-            git(&checkout.dir, &["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"])
-        })
-        .and_then(|_| git(&checkout.dir, &["rev-parse", "HEAD"]));
+        .and_then(|_| run(&["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"]))
+        .and_then(|_| run(&["rev-parse", "HEAD"]));
     match fetched {
         Ok(commit) if commit.len() == 40 => {
             checkout.commit = commit;
@@ -651,6 +681,26 @@ pub(super) fn card_text(card: &Value) -> String {
         }
         lines.push(line);
     }
+    // Written for another cmux: what it calls by an older name, and what
+    // this cmux leaves out (the rest installs).
+    for notice in setup["renamed"].as_array().into_iter().flatten() {
+        let from = notice["from"].as_str().unwrap_or_default();
+        lines.push(if notice["kind"] == json!("renamed_value") {
+            format!(
+                "  ({from}: {} is the older name of {})",
+                notice["old_value"], notice["new_value"]
+            )
+        } else {
+            format!("  ({from} is the older name of {})", notice["to"].as_str().unwrap_or_default())
+        });
+    }
+    for skipped in setup["skipped"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "  left out: setting {} ({})",
+            skipped["key"].as_str().unwrap_or_default(),
+            skipped["reason"].as_str().unwrap_or_default()
+        ));
+    }
     for file in setup["files"].as_array().into_iter().flatten() {
         let path = file["path"].as_str().unwrap_or_default();
         let what = match file["part"].as_str().unwrap_or_default() {
@@ -666,6 +716,13 @@ pub(super) fn card_text(card: &Value) -> String {
         };
         let replaces = if file["replaces"] == json!(true) { ", replaces yours" } else { "" };
         lines.push(format!("  file {path} ({what}{replaces})"));
+    }
+    for font in setup["fonts"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "  font {} ({}, copied into your fonts folder)",
+            font.as_str().unwrap_or_default(),
+            setup["font_license"].as_str().unwrap_or_default()
+        ));
     }
     for action in setup["actions"].as_array().into_iter().flatten() {
         let replaces = if action["replaces"] == json!(true) { " (replaces yours)" } else { "" };
@@ -818,16 +875,6 @@ fn parse_source(text: &str) -> Result<SetupSource, Failure> {
         ));
     }
     Ok(SetupSource::Folder { path: dir })
-}
-
-pub(super) fn install(
-    customize: &Customize,
-    apps: &dyn Apps,
-    output: OutputMode,
-    text: &str,
-    yes: bool,
-) -> Result<Value, Failure> {
-    install_as(customize, apps, output, text, yes, None)
 }
 
 /// Installs the repo or folder `text` names, as a layer of its own on top
@@ -1114,6 +1161,15 @@ fn human(value: &Value) -> String {
         if let Some(kept) = removed["kept_actions"].as_array().filter(|kept| !kept.is_empty()) {
             let names: Vec<_> = kept.iter().filter_map(Value::as_str).collect();
             line.push_str(&format!(" Kept the actions you changed since: {}.", names.join(", ")));
+        }
+        if let Some(shared) =
+            removed["shared_actions"].as_array().filter(|shared| !shared.is_empty())
+        {
+            let names: Vec<_> = shared.iter().filter_map(Value::as_str).collect();
+            line.push_str(&format!(
+                " Left the actions another installed setup also sets: {}.",
+                names.join(", ")
+            ));
         }
         return line;
     }

@@ -249,6 +249,8 @@ pub(super) struct Inner {
     pub providers: HashMap<String, u64>,
     pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
     pub next_provider_request: u64,
+    /// Granted `system_calendar.events.list` answers (`system_calendar.rs`).
+    pub system_calendar: super::system_calendar::Cache,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
@@ -273,6 +275,8 @@ pub(super) struct Inner {
     pub safe_mode: Option<crate::safe_mode_flag::Flag>,
     /// The crash loop record (`safe_mode.rs`).
     pub launches: super::safe_mode::Launches,
+    /// The safe mode bisect (`safe_mode_bisect.rs`), only while safe mode is on.
+    pub bisect: Option<super::safe_mode_bisect::Bisect>,
     /// Apps whose host failed (an init error, repeated crashes), with why;
     /// cleared when a host of theirs is ready again.
     pub failed: HashMap<String, String>,
@@ -301,6 +305,8 @@ pub(super) struct Inner {
     pub pages: super::page_calls::Pages,
     /// The widget layout and its replayed edits (`widgets.rs`).
     pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -342,6 +348,9 @@ pub struct Supervisor {
     /// `net.fetch {cache: "shared"}`: one cache per URL for every app
     /// (`http_cache.rs`, the `http.json` signal source).
     pub(super) http_cache: super::http_cache::HttpCache,
+    /// `cmux.watch` sources the daemon reads, one entry per (source, params) for every app
+    /// (`signals_cache.rs`, `supervisor_signals.rs`). Taken after `inner`, never before.
+    pub(super) signals: Mutex<super::supervisor_signals::Cache>,
     /// The App Store's Community source (`community.rs`), made on first use.
     pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
@@ -397,6 +406,8 @@ impl Supervisor {
         let safe_mode =
             super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
         let launches = super::safe_mode::load_launches(config.state_dir.as_deref());
+        let bisect =
+            safe_mode.as_ref().and(super::safe_mode_bisect::load(config.state_dir.as_deref()));
         let last_good = super::rollback::load(config.state_dir.as_deref());
         // Snapshot before startup seeds: an existing install must not change the
         // person's layout on upgrade, but a newly appearing customize app may.
@@ -478,6 +489,7 @@ impl Supervisor {
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
+                system_calendar: Default::default(),
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
                 servers: HashMap::new(),
@@ -488,6 +500,7 @@ impl Supervisor {
                 customize_reads_offered: None,
                 safe_mode,
                 launches,
+                bisect,
                 failed: HashMap::new(),
                 local_prints,
                 local_rejected_logged: HashMap::new(),
@@ -498,12 +511,14 @@ impl Supervisor {
                 ladders: HashMap::new(),
                 pages: Default::default(),
                 widgets: Default::default(),
+                signal_sources: Default::default(),
             }),
             config,
             router,
             fetcher,
             github: OnceLock::new(),
             http_cache: super::http_cache::HttpCache::default(),
+            signals: Mutex::default(),
             community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
@@ -550,6 +565,7 @@ impl Supervisor {
             inner.sinks.remove(&client);
             inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.external_disconnect_locked(&mut inner, client));
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
@@ -694,7 +710,9 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
+                self.remove_server_credential(app);
                 vec![]
             }
             Effect::StopHost(app) => {
@@ -706,6 +724,10 @@ impl Supervisor {
                 outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
                 outs
+            }
+            Effect::SettingsChanged(app) => {
+                Self::push_settings_locked(inner, app);
+                vec![]
             }
             Effect::GrantsChanged(app) => {
                 let mut outs = self.terminal_access_changed_locked(inner, app);

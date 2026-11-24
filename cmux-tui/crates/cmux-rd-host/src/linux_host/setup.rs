@@ -56,11 +56,15 @@ pub fn session_desktop(props: &str) -> Desktop {
 }
 
 /// The desktop from this process's environment, else from the user's logind sessions (each
-/// one's `show-session` text): Wayland wins over X11, which wins over none.
+/// one's `show-session` text): Wayland wins over X11, which wins over none. A `DISPLAY` naming
+/// `own_virtual`, the virtual display cmux runs here, is no desktop: the join puts it in the user
+/// environment so apps land on the shared screen, and reading it as one made the daemon's next
+/// `enable` install the desktop's host unit, which never starts without a graphical session.
 pub fn choose_desktop(
     session_type: Option<&str>,
     wayland_display: Option<&str>,
     display: Option<&str>,
+    own_virtual: Option<u32>,
     sessions: &[String],
 ) -> Desktop {
     fn set(v: Option<&str>) -> Option<&str> {
@@ -71,7 +75,8 @@ pub fn choose_desktop(
     {
         return Desktop::Wayland;
     }
-    if let Some(d) = set(display) {
+    let own = |d: &&str| own_virtual.is_some() && display_number(d) == own_virtual;
+    if let Some(d) = set(display).filter(|d| !own(d)) {
         return Desktop::X11(Some(d.to_owned()));
     }
     let found: Vec<Desktop> = sessions.iter().map(|s| session_desktop(s)).collect();
@@ -88,8 +93,22 @@ pub fn detect_desktop() -> Desktop {
         env("XDG_SESSION_TYPE").as_deref(),
         env("WAYLAND_DISPLAY").as_deref(),
         env("DISPLAY").as_deref(),
+        written_virtual_display(),
         &logind_sessions(),
     )
+}
+
+/// The number of a local X display name (`:N`, `:N.S`, `unix:N`); None for a `host:N` one.
+pub fn display_number(display: &str) -> Option<u32> {
+    let name = display.trim();
+    let rest = name.strip_prefix("unix").unwrap_or(name).strip_prefix(':')?;
+    rest.split('.').next()?.parse().ok()
+}
+
+/// The virtual display a written `cmux-screen-display.service` runs, whether or not the host is
+/// set up for it now ([`virtual_display`] needs the host's drop-in, which a misread join removed).
+fn written_virtual_display() -> Option<u32> {
+    display_of_unit(&std::fs::read_to_string(user_unit_dir().ok()?.join(DISPLAY_UNIT)).ok()?)
 }
 
 /// The `show-session` text of each of this user's logind sessions (empty without loginctl).
@@ -163,6 +182,9 @@ pub const HOST_UNIT: &str = "cmux-screen-host.service";
 const HOST_UNIT_TEXT: &str = include_str!("../../systemd/cmux-screen-host.service");
 
 /// `cmux-screen-display.service` for display `:display` run by `xvfb` (an absolute path).
+/// `-noreset`: the host's idle check ([`display_in_use`], every 30 s) is often the display's
+/// only client, and without it Xvfb resets the server each time that check disconnects and
+/// forks xkbcomp again on the next one, a new process in the unit's log every 30 s.
 pub fn display_unit(xvfb: &Path, display: u32) -> String {
     format!(
         "# cmux virtual display: written by `cmux-rd linux-host enable` on a machine with no\n\
@@ -172,7 +194,7 @@ pub fn display_unit(xvfb: &Path, display: u32) -> String {
          \n\
          [Service]\n\
          Type=simple\n\
-         ExecStart={} :{display} -screen 0 1920x1080x24 -nolisten tcp\n\
+         ExecStart={} :{display} -screen 0 1920x1080x24 -nolisten tcp -noreset\n\
          Restart=on-failure\n\
          RestartSec=2\n\
          \n\
@@ -181,6 +203,49 @@ pub fn display_unit(xvfb: &Path, display: u32) -> String {
         xvfb.display()
     )
 }
+
+/// The user unit of the desktop session on the virtual display: a window manager and a
+/// terminal, so a viewer sees a desktop to work in, never an empty root window that draws
+/// nothing (Leo, 2026-11-18: "i should be able to see into any connected mac or linux machine").
+pub const SESSION_UNIT: &str = "cmux-screen-session.service";
+/// The X class of the session's own terminal: [`display_in_use`] does not count it as an app.
+pub const SESSION_TERMINAL_CLASS: &str = "CmuxDesktop";
+
+/// `cmux-screen-session.service` for display `:display`: `wm` (an absolute path, e.g.
+/// openbox-session) and, when there is one, a terminal of class [`SESSION_TERMINAL_CLASS`]. It
+/// starts and stops with the display (`PartOf=`), so an idle display still stops.
+pub fn session_unit(wm: &Path, terminal: Option<&Path>, display: u32) -> String {
+    let terminal = terminal.map_or(String::new(), |t| {
+        format!(
+            "ExecStartPost=/bin/sh -c 'sleep 1; setsid {} -class {SESSION_TERMINAL_CLASS} -geometry 160x48+40+40 -e \"$${{SHELL:-/bin/bash}}\" -l >/dev/null 2>&1 &'\n",
+            t.display()
+        )
+    });
+    format!(
+        "# cmux desktop session: written by `cmux-rd linux-host enable` beside the virtual display,\n\
+         # so a viewer sees a window manager and a terminal (src/linux_host/setup.rs).\n\
+         [Unit]\n\
+         Description=cmux desktop session on :{display} (window manager and terminal)\n\
+         PartOf={DISPLAY_UNIT}\n\
+         After={DISPLAY_UNIT}\n\
+         \n\
+         [Service]\n\
+         Type=simple\n\
+         Environment=DISPLAY=:{display}\n\
+         ExecStartPre=/bin/sh -c 'for i in $$(seq 1 100); do [ -S /tmp/.X11-unix/X{display} ] && exit 0; sleep 0.1; done; exit 1'\n\
+         ExecStart={}\n\
+         {terminal}\
+         Restart=on-failure\n\
+         RestartSec=2\n\
+         \n\
+         [Install]\n\
+         WantedBy={DISPLAY_UNIT}\n",
+        wm.display()
+    )
+}
+
+/// The line `enable` prints when the machine has no window manager to put on the display.
+pub const NO_DESKTOP: &str = "no window manager here (install openbox and xterm): a viewer would see an empty screen until an app opens a window";
 
 /// The display a written `cmux-screen-display.service` runs, so `enable` run again keeps it.
 pub fn display_of_unit(text: &str) -> Option<u32> {
@@ -259,6 +324,12 @@ pub fn ensure_virtual_display(display: u32) -> Res<String> {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
+    // The desktop on it (a display started before the session unit existed has none yet).
+    if user_unit_dir().is_ok_and(|dir| dir.join(SESSION_UNIT).exists()) {
+        if let Err(e) = systemctl(&["start", SESSION_UNIT]) {
+            eprintln!("linux-host: the desktop session did not start: {e}");
+        }
+    }
     Ok(format!(":{display}"))
 }
 
@@ -267,14 +338,18 @@ pub fn stop_virtual_display() -> Res<()> {
     systemctl(&["stop", DISPLAY_UNIT])
 }
 
-/// Whether an app shows a window on the virtual display: the X server is asked for its root's
-/// mapped top-level windows (a virtual display runs no window manager, so an app's window is
-/// one). A display that does not answer counts as in use, so it is never stopped by mistake.
+/// Whether an app shows a window on the virtual display: the session's window manager's client
+/// list less the session's own terminal, else (no window manager) the root's mapped top-level
+/// windows, where an app's window is one. A display that does not answer counts as in use, so it is never stopped by mistake.
 pub fn display_in_use(display: u32) -> bool {
     use x11rb::connection::Connection as _;
     use x11rb::protocol::xproto::{ConnectionExt as _, MapState};
     let Ok((conn, screen)) = x11rb::connect(Some(&format!(":{display}"))) else { return true };
     let Some(root) = conn.setup().roots.get(screen).map(|s| s.root) else { return true };
+    // With the session's window manager: its client list, less the session's own terminal.
+    if let Some(clients) = net_client_list(&conn, root) {
+        return clients.iter().any(|&window| !is_session_terminal(&conn, window));
+    }
     let Some(tree) = conn.query_tree(root).ok().and_then(|c| c.reply().ok()) else { return true };
     tree.children.iter().any(|&window| {
         conn.get_window_attributes(window)
@@ -282,6 +357,38 @@ pub fn display_in_use(display: u32) -> bool {
             .and_then(|c| c.reply().ok())
             .is_none_or(|a| a.map_state == MapState::VIEWABLE)
     })
+}
+
+/// The window manager's `_NET_CLIENT_LIST` on `root`: None when no window manager keeps one.
+fn net_client_list(conn: &impl x11rb::connection::Connection, root: u32) -> Option<Vec<u32>> {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+    let atom = conn.intern_atom(true, b"_NET_CLIENT_LIST").ok()?.reply().ok()?.atom;
+    if atom == 0 {
+        return None;
+    }
+    let reply =
+        conn.get_property(false, root, atom, AtomEnum::WINDOW, 0, 4096).ok()?.reply().ok()?;
+    if reply.type_ == 0 {
+        return None;
+    }
+    // Collected into a local first: as the tail expression, the iterator's temporary outlives
+    // `reply` and the release build fails to compile (E0597).
+    let clients: Vec<u32> = reply.value32()?.collect();
+    Some(clients)
+}
+
+/// Whether `window`'s `WM_CLASS` names the session's terminal ([`SESSION_TERMINAL_CLASS`]).
+fn is_session_terminal(conn: &impl x11rb::connection::Connection, window: u32) -> bool {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+    conn.get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .is_some_and(|r| wm_class_is_session(&r.value))
+}
+
+/// `WM_CLASS` is two NUL-ended strings, instance then class.
+fn wm_class_is_session(value: &[u8]) -> bool {
+    value.split(|&b| b == 0).nth(1) == Some(SESSION_TERMINAL_CLASS.as_bytes())
 }
 
 /// `~/.config/systemd/user` (or under `XDG_CONFIG_HOME`).
@@ -346,6 +453,17 @@ pub fn set_up_virtual_display() -> Res<u32> {
             .ok_or("no free X display number from :99")?,
     };
     write_if_changed(&unit, &display_unit(&xvfb, display))?;
+    let session = dir.join(SESSION_UNIT);
+    match on_path("openbox-session").or_else(|| on_path("openbox")) {
+        Some(wm) => {
+            let terminal = on_path("xterm").or_else(|| on_path("x-terminal-emulator"));
+            write_if_changed(&session, &session_unit(&wm, terminal.as_deref(), display))?;
+        }
+        None => {
+            println!("{NO_DESKTOP}");
+            let _ = std::fs::remove_file(&session);
+        }
+    }
     write_if_changed(
         &dir.join(format!("{HOST_UNIT}.d")).join("virtual-display.conf"),
         &host_virtual_drop_in(display),
@@ -353,6 +471,10 @@ pub fn set_up_virtual_display() -> Res<u32> {
     systemctl(&["daemon-reload"])?;
     // An earlier join enabled it at boot; it now starts on demand. A running one keeps running.
     let _ = systemctl(&["disable", DISPLAY_UNIT]);
+    // The desktop comes up with the display, every time it starts.
+    if session.exists() {
+        systemctl(&["enable", SESSION_UNIT])?;
+    }
     Ok(display)
 }
 
@@ -371,7 +493,9 @@ pub fn stop_host() -> Res<()> {
         Ok(()) => Ok(()),
         Err(pid) => Err(format!(
             "the screen host is still running ({}{}); stop it with: {}",
-            pid.map_or("its pid is unknown".into(), |pid| format!("pid {pid}")),
+            pid.map_or("its pid is unknown: a host of an older build records none".into(), |pid| {
+                format!("pid {pid}")
+            }),
             stopped.err().map(|e| format!("; {e}")).unwrap_or_default(),
             pid.map_or(format!("systemctl --user kill --signal=KILL {HOST_UNIT}"), |pid| {
                 format!("kill -KILL {pid}")
@@ -384,9 +508,19 @@ pub fn stop_host() -> Res<()> {
 /// Installs the host's user unit (when missing or older) and starts it: with a desktop, as part
 /// of its graphical session; on a virtual display, from the user manager itself. Turns on
 /// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
+/// The host unit `install_host` writes: the headless one for a virtual display (no ties to
+/// `graphical-session.target`, which never starts there), else the desktop's.
+pub fn host_unit_text(virtual_display: bool) -> String {
+    if virtual_display {
+        headless_host_unit()
+    } else {
+        HOST_UNIT_TEXT.to_owned()
+    }
+}
+
 pub fn install_host(virtual_display: bool) -> Res<()> {
     let dir = user_unit_dir()?;
-    let text = if virtual_display { headless_host_unit() } else { HOST_UNIT_TEXT.to_owned() };
+    let text = host_unit_text(virtual_display);
     write_if_changed(&dir.join(HOST_UNIT), &text)?;
     systemctl(&["daemon-reload"])?;
     // Drops the links of the other unit's [Install], such as graphical-session.target's.
@@ -441,26 +575,71 @@ mod tests {
         let greeter = "Type=wayland\nClass=greeter\n".to_owned();
         // Over ssh: no WAYLAND_DISPLAY or DISPLAY, a tty session of its own.
         assert_eq!(
-            choose_desktop(Some("tty"), None, None, &[ssh.clone(), wayland.clone()]),
+            choose_desktop(Some("tty"), None, None, None, &[ssh.clone(), wayland.clone()]),
             Desktop::Wayland
         );
         assert_eq!(
-            choose_desktop(None, None, None, &[ssh.clone(), x11.clone()]),
+            choose_desktop(None, None, None, None, &[ssh.clone(), x11.clone()]),
             Desktop::X11(Some(":0".into()))
         );
-        assert_eq!(choose_desktop(None, None, None, &[x11, wayland]), Desktop::Wayland);
+        assert_eq!(choose_desktop(None, None, None, None, &[x11, wayland]), Desktop::Wayland);
         // The login screen is not this user's desktop.
-        assert_eq!(choose_desktop(None, None, None, &[ssh.clone(), greeter]), Desktop::None);
-        assert_eq!(choose_desktop(None, None, None, &[ssh]), Desktop::None);
-        assert_eq!(choose_desktop(None, None, None, &[]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, None, None, &[ssh.clone(), greeter]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, None, None, &[ssh]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, None, None, &[]), Desktop::None);
         // The environment of a session on the desktop wins.
-        assert_eq!(choose_desktop(Some("wayland"), None, None, &[]), Desktop::Wayland);
-        assert_eq!(choose_desktop(None, Some("wayland-0"), None, &[]), Desktop::Wayland);
+        assert_eq!(choose_desktop(Some("wayland"), None, None, None, &[]), Desktop::Wayland);
+        assert_eq!(choose_desktop(None, Some("wayland-0"), None, None, &[]), Desktop::Wayland);
         assert_eq!(
-            choose_desktop(Some("x11"), None, Some(":1"), &[]),
+            choose_desktop(Some("x11"), None, Some(":1"), None, &[]),
             Desktop::X11(Some(":1".into()))
         );
-        assert_eq!(choose_desktop(None, Some(""), Some(" "), &[]), Desktop::None);
+        assert_eq!(choose_desktop(None, Some(""), Some(" "), None, &[]), Desktop::None);
+    }
+
+    #[test]
+    fn the_virtual_display_cmux_runs_here_is_no_desktop() {
+        // The join's environment.d puts DISPLAY=:99 in the user manager; the daemon's next
+        // `enable` read it as an X11 desktop and installed a host unit that never started.
+        assert_eq!(choose_desktop(None, None, Some(":99"), Some(99), &[]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, Some(":99.0"), Some(99), &[]), Desktop::None);
+        // Another display is still the person's desktop, and so is :99 with no virtual display.
+        assert_eq!(
+            choose_desktop(None, None, Some(":0"), Some(99), &[]),
+            Desktop::X11(Some(":0".into()))
+        );
+        assert_eq!(
+            choose_desktop(None, None, Some(":99"), None, &[]),
+            Desktop::X11(Some(":99".into()))
+        );
+        // A logind desktop still wins over the virtual display.
+        let x11 = "Type=x11\nClass=user\nDisplay=:0\n".to_owned();
+        assert_eq!(
+            choose_desktop(None, None, Some(":99"), Some(99), &[x11]),
+            Desktop::X11(Some(":0".into()))
+        );
+    }
+
+    #[test]
+    fn a_headless_machine_with_its_virtual_display_in_display_gets_the_headless_unit() {
+        // set_up_for_join: `virtual_display = desktop == Desktop::None`, then install_host.
+        let desktop = choose_desktop(None, None, Some(":99"), Some(99), &[]);
+        let unit = host_unit_text(desktop == Desktop::None);
+        assert!(!unit.contains("graphical-session"), "{unit}");
+        assert!(unit.contains("\nWantedBy=default.target\n"), "{unit}");
+        // A person's desktop keeps the unit tied to its graphical session.
+        let desktop = choose_desktop(None, None, Some(":0"), Some(99), &[]);
+        assert!(host_unit_text(desktop == Desktop::None)
+            .contains("\nRequisite=graphical-session.target\n"));
+    }
+
+    #[test]
+    fn display_numbers_are_read_from_local_names_only() {
+        assert_eq!(display_number(":99"), Some(99));
+        assert_eq!(display_number(":1.0"), Some(1));
+        assert_eq!(display_number("unix:7"), Some(7));
+        assert_eq!(display_number("remote:3"), None);
+        assert_eq!(display_number(""), None);
     }
 
     #[test]
@@ -490,11 +669,38 @@ mod tests {
     }
 
     #[test]
+    fn the_session_unit_puts_a_desktop_on_the_display_and_stops_with_it() {
+        let unit = session_unit(
+            Path::new("/usr/bin/openbox-session"),
+            Some(Path::new("/usr/bin/xterm")),
+            99,
+        );
+        assert!(unit.contains("PartOf=cmux-screen-display.service\n"));
+        assert!(unit.contains("WantedBy=cmux-screen-display.service\n"));
+        assert!(unit.contains("Environment=DISPLAY=:99\n"));
+        assert!(unit.contains("ExecStart=/usr/bin/openbox-session\n"));
+        assert!(unit.contains("/usr/bin/xterm -class CmuxDesktop "));
+        // systemd turns $$ into $; a bare $( or ${VAR:-x} it would expand or refuse.
+        assert!(unit.contains("$$(seq 1 100)") && unit.contains("$${SHELL:-/bin/bash}"));
+        assert!(unit.contains("/tmp/.X11-unix/X99"));
+        let bare = session_unit(Path::new("/usr/bin/openbox"), None, 101);
+        assert!(!bare.contains("ExecStartPost"));
+    }
+
+    #[test]
+    fn only_the_session_terminal_reads_as_the_session() {
+        assert!(wm_class_is_session(b"xterm\0CmuxDesktop\0"));
+        assert!(!wm_class_is_session(b"xterm\0XTerm\0"));
+        assert!(!wm_class_is_session(b"CmuxDesktop\0"));
+        assert!(!wm_class_is_session(b""));
+    }
+
+    #[test]
     fn the_display_unit_round_trips_its_number_and_the_host_drop_in_points_at_it() {
         let unit = display_unit(Path::new("/usr/bin/Xvfb"), 101);
-        assert!(
-            unit.contains("ExecStart=/usr/bin/Xvfb :101 -screen 0 1920x1080x24 -nolisten tcp\n")
-        );
+        assert!(unit.contains(
+            "ExecStart=/usr/bin/Xvfb :101 -screen 0 1920x1080x24 -nolisten tcp -noreset\n"
+        ));
         assert!(unit.contains("WantedBy=default.target"));
         assert_eq!(display_of_unit(&unit), Some(101));
         assert_eq!(display_of_unit("[Service]\nExecStart=/usr/bin/Xvfb\n"), None);

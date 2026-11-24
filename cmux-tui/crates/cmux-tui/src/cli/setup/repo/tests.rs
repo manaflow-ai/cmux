@@ -12,9 +12,20 @@ use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
 use super::{
-    Apps, Checkout, Failure, Request, card_text, inert, install, install_as, order, parse, remove,
-    set_on, update,
+    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install_as, order, parse,
+    remove, set_on, update,
 };
+
+/// Installs `text` under its own id, as `cmux setup install TEXT` does.
+fn install(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    text: &str,
+    yes: bool,
+) -> Result<Value, Failure> {
+    install_as(customize, apps, output, text, yes, None)
+}
 
 fn words(text: &[&str]) -> Vec<String> {
     text.iter().map(|word| (*word).to_owned()).collect()
@@ -61,7 +72,7 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
 
 /// A repo on disk and an App Store that records what it was asked.
 struct World {
-    repo: std::path::PathBuf,
+    repo: PathBuf,
     commit: RefCell<String>,
     installed: RefCell<Vec<String>>,
     removed: RefCell<Vec<String>>,
@@ -503,4 +514,56 @@ fn two_folders_stack_as_layers_that_turn_off_reorder_and_remove_alone() {
         panic!()
     };
     assert_eq!(failure.code, "setup.id_taken");
+}
+
+/// `git` in `dir` for the test's own repo; its output.
+fn sh_git(dir: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+#[test]
+fn a_setup_in_a_folder_of_a_big_repo_fetches_only_that_folder() {
+    // A look in a monorepo (`github.com/manaflow-ai/cmux/examples/looks/studio`):
+    // the whole commit of cmux is 614 MB, the look's folder a few KB.
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    fs::create_dir_all(repo.join("looks/studio/themes")).unwrap();
+    fs::write(repo.join("looks/studio/cmux-setup.json"), SETUP).unwrap();
+    fs::write(repo.join("looks/studio/themes/sample-dusk.json"), "{}\n").unwrap();
+    fs::create_dir_all(repo.join("app")).unwrap();
+    fs::write(repo.join("app/big.bin"), vec![7u8; 1 << 20]).unwrap();
+    sh_git(&repo, &["init", "-q", "-b", "main"]);
+    sh_git(&repo, &["config", "uploadpack.allowFilter", "true"]);
+    sh_git(&repo, &["add", "."]);
+    sh_git(&repo, &["commit", "-q", "-m", "x"]);
+    let big = sh_git(&repo, &["rev-parse", "HEAD:app/big.bin"]);
+    let url = format!("file://{}", repo.display());
+
+    let reference = Reference::parse("github.com/a/b/looks/studio@main").unwrap();
+    let checkout = fetch_from(&reference, &url, &["-c", "protocol.file.allow=always"]).unwrap();
+
+    assert_eq!(checkout.commit, sh_git(&repo, &["rev-parse", "HEAD"]));
+    assert!(checkout.dir.join("looks/studio/cmux-setup.json").is_file());
+    assert!(checkout.dir.join("looks/studio/themes/sample-dusk.json").is_file());
+    assert!(!checkout.dir.join("app/big.bin").exists(), "a file outside the setup was checked out");
+    // `--missing=print` lists an object it lacks as `?ID` and fetches nothing.
+    let objects = sh_git(&checkout.dir, &["rev-list", "--objects", "--missing=print", "HEAD"]);
+    assert!(objects.lines().any(|line| line == format!("?{big}")), "{big} was fetched:\n{objects}");
+
+    // A setup at the repo's root still gets the whole commit.
+    let whole = fetch_from(
+        &Reference::parse("github.com/a/b@main").unwrap(),
+        &url,
+        &["-c", "protocol.file.allow=always"],
+    )
+    .unwrap();
+    assert!(whole.dir.join("app/big.bin").is_file());
 }

@@ -43,6 +43,21 @@ impl Home {
 
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"density\": \"compact\" },\n  \"actions\": { \"mine\": { \"type\": \"command\", \"command\": \"ls\" } }\n}\n";
 
+#[test]
+fn inactive_archive_profile_applies_seven_days() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/looks/claude-code/inactive-archive/cmux-setup.json");
+    let profile = customize.load_profile(file.to_str().unwrap()).unwrap();
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+    assert!(customize.apply(None, "cli", 2).unwrap().recorded);
+    let settings = home.settings();
+    assert_eq!(settings["agents"]["chats"]["archiveInactive"], "7d");
+    assert_eq!(settings["appearance"]["density"], "compact");
+}
+
 /// The sample setup (ext-in-git-notes/sample-setup): a theme, one action,
 /// one extension.
 fn sample_repo(root: &Path) -> PathBuf {
@@ -149,10 +164,69 @@ fn a_setup_that_sets_a_setting_only_the_person_may_set_is_refused_whole() {
     let home = Home::new();
     let repo = sample_repo(home.dir.path());
     let mut read = setup::read_dir(&repo).unwrap();
-    read.profile.settings.insert("not.a.setting".to_owned(), json!(1));
+    read.profile.settings.insert("updates.channel".to_owned(), json!("nightly"));
     assert!(home.customize().plan_setup(&read, "manaflow-ai", "0.0.0").is_err());
     assert!(home.customize().install_setup(&read, "setup", "cli", 10).is_err());
     assert!(!home.config("themes/sample-dusk.json").exists());
+}
+
+/// Leo (2026-11-18): "how will things go when this sort of stuff shifts and
+/// changes over time, like with the incoming updates". A setup written for
+/// another cmux: a renamed key installs under its new name, a removed key and
+/// a key this cmux does not have are left out and listed, and the rest
+/// installs (schemas/settings/retired-keys.json).
+#[test]
+fn a_setup_written_for_another_cmux_installs_what_this_one_has() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("sidebar.showCounts".to_owned(), json!(false));
+    read.profile.settings.insert("tabs.terminalFirst".to_owned(), json!(true));
+    read.profile.settings.insert("sidebar.fromANewerCmux".to_owned(), json!(3));
+    let customize = home.customize();
+    let plan = customize.plan_setup(&read, "manaflow-ai", "0.0.0").unwrap();
+    let keys: Vec<&str> = plan.settings.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(keys, ["appearance.themeFile", "sidebar.workspaceRow.tabCount"]);
+    assert_eq!(plan.renamed.len(), 1);
+    assert_eq!(plan.renamed[0].from, "sidebar.showCounts");
+    let skipped: Vec<&str> = plan.skipped.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(skipped, ["tabs.terminalFirst", "sidebar.fromANewerCmux"]);
+    assert!(plan.skipped[1].reason.contains("no setting by that name"), "{:?}", plan.skipped);
+    let card = serde_json::to_value(&plan).unwrap();
+    assert_eq!(card["skipped"][0]["key"], "tabs.terminalFirst");
+
+    customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    let settings = home.settings();
+    assert_eq!(settings["sidebar"]["workspaceRow"]["tabCount"], json!(false));
+    assert_eq!(settings["sidebar"].get("showCounts"), None);
+    assert_eq!(settings["sidebar"].get("fromANewerCmux"), None);
+    assert_eq!(settings.get("tabs"), None);
+    assert_eq!(settings["appearance"]["themeFile"], json!("sample-dusk"));
+}
+
+/// Lenient about names, never about values: a known key with a value it does
+/// not accept still refuses the whole setup, and nothing is written.
+#[test]
+fn a_bad_value_for_a_known_or_renamed_key_still_refuses_the_whole_setup() {
+    for (key, value) in
+        [("appearance.density", json!("enormous")), ("sidebar.showCounts", json!("lots"))]
+    {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE);
+        let repo = sample_repo(home.dir.path());
+        let mut read = setup::read_dir(&repo).unwrap();
+        read.profile.settings.insert("sidebar.fromANewerCmux".to_owned(), json!(3));
+        read.profile.settings.insert(key.to_owned(), value);
+        let customize = home.customize();
+        let Err(Error::Profile(why)) = customize.plan_setup(&read, "manaflow-ai", "0.0.0") else {
+            panic!("{key}")
+        };
+        assert!(why.contains("not one that setting accepts"), "{key}: {why}");
+        assert!(customize.install_setup(&read, "setup", "cli", 10).is_err());
+        assert_eq!(home.read("cmux-next.json").unwrap(), MINE, "{key}");
+        assert!(!home.config("themes/sample-dusk.json").exists(), "{key}");
+    }
 }
 
 #[test]
@@ -685,6 +759,229 @@ fn the_first_receipts_file_still_reads() {
     assert_eq!(setups[1].source, SetupSource::Folder { path: PathBuf::from("/tmp/try") });
     assert!(setups.iter().all(|receipt| receipt.on && receipt.layer.is_none()));
     assert!(home.customize().setup("github.com/leo/night").unwrap().is_some());
+}
+
+/// A setup that sets one action, `shared`, to run `command`.
+fn action_setup(root: &Path, id: &str, command: &str) -> setup::Setup {
+    let name = id.replace('/', "-");
+    let repo = root.join(format!("actions-{name}-{}", command.len()));
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{name}", "cmuxProfile": 1,
+               "actions": {{"shared": {{"type": "command", "command": "{command}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    setup::read_dir(&repo).unwrap()
+}
+
+fn install_action(home: &Home, customize: &Customize, id: &str, command: &str, at: u64) {
+    let read = action_setup(home.dir.path(), id, command);
+    let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+    let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+    let receipt =
+        Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+    customize.record_setup(receipt).unwrap();
+}
+
+fn remove_by_id(customize: &Customize, id: &str, at: u64) -> setup::Removed {
+    let receipt = customize.setup(id).unwrap().unwrap();
+    customize.remove_setup(&receipt, "cli", at).unwrap()
+}
+
+/// What the `shared` action runs now (`Null`: there is none).
+fn shared(home: &Home) -> Value {
+    home.settings()["actions"]["shared"]["command"].clone()
+}
+
+const MINE_SHARED: &str =
+    "{ \"actions\": { \"shared\": { \"type\": \"command\", \"command\": \"echo mine\" } } }\n";
+
+fn prior_of(customize: &Customize, id: &str) -> Option<Value> {
+    customize.setup(id).unwrap().unwrap().prior_actions["shared"].clone()
+}
+
+#[test]
+fn removing_one_of_two_setups_that_set_the_same_action_keeps_it_for_the_other() {
+    for first_off in ["leo/a", "leo/b"] {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE_SHARED);
+        let customize = home.customize();
+        install_action(&home, &customize, "leo/a", "echo same", 10);
+        install_action(&home, &customize, "leo/b", "echo same", 20);
+        let mine = Some(json!({ "type": "command", "command": "echo mine" }));
+        assert_eq!(prior_of(&customize, "leo/b"), mine, "both name what was there before them");
+
+        let removed = remove_by_id(&customize, first_off, 30);
+        assert_eq!(shared(&home), json!("echo same"), "{first_off} off: the other still sets it");
+        assert!(removed.actions.is_empty(), "{removed:?}");
+        assert_eq!(removed.shared_actions, ["shared"]);
+        let other = if first_off == "leo/a" { "leo/b" } else { "leo/a" };
+        let receipt = customize.setup(other).unwrap().unwrap();
+        assert_eq!(receipt.actions["shared"]["command"], json!("echo same"));
+        assert_eq!(receipt.prior_actions["shared"], mine, "its receipt still puts yours back");
+
+        let removed = remove_by_id(&customize, other, 40);
+        assert_eq!(removed.actions, ["shared"]);
+        assert_eq!(shared(&home), json!("echo mine"), "the last one off puts yours back");
+    }
+}
+
+#[test]
+fn two_setups_with_different_values_hand_the_action_down_by_order() {
+    for (first_off, left) in [("leo/b", "echo a"), ("leo/a", "echo b")] {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE_SHARED);
+        let customize = home.customize();
+        install_action(&home, &customize, "leo/a", "echo a", 10);
+        install_action(&home, &customize, "leo/b", "echo b", 20);
+        assert_eq!(shared(&home), json!("echo b"), "the top one wins");
+
+        let removed = remove_by_id(&customize, first_off, 30);
+        assert_eq!(shared(&home), json!(left), "{first_off} off");
+        assert_eq!(removed.shared_actions, ["shared"]);
+        let other = if first_off == "leo/a" { "leo/b" } else { "leo/a" };
+        remove_by_id(&customize, other, 40);
+        assert_eq!(shared(&home), json!("echo mine"));
+        assert!(customize.setups().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn an_action_no_one_had_comes_out_only_with_the_last_setup_that_sets_it() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo same", 10);
+    install_action(&home, &customize, "leo/b", "echo same", 20);
+    install_action(&home, &customize, "leo/c", "echo c", 30);
+    remove_by_id(&customize, "leo/c", 40);
+    assert_eq!(shared(&home), json!("echo same"));
+    remove_by_id(&customize, "leo/a", 50);
+    assert_eq!(shared(&home), json!("echo same"));
+    assert_eq!(prior_of(&customize, "leo/b"), None);
+    remove_by_id(&customize, "leo/b", 60);
+    assert_eq!(shared(&home), Value::Null);
+    assert_eq!(home.settings()["actions"]["mine"]["command"], json!("ls"));
+}
+
+#[test]
+fn an_action_you_changed_before_a_new_setup_comes_back_when_that_setup_goes() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo a", 10);
+    let text = home.read("cmux-next.json").unwrap().replace("\"echo a\"", "\"echo hand\"");
+    home.write("cmux-next.json", &text);
+    customize.apply(None, "cli", 15).unwrap();
+    install_action(&home, &customize, "leo/b", "echo b", 20);
+    assert!(
+        !customize.setup("leo/a").unwrap().unwrap().actions.contains_key("shared"),
+        "your change made it yours: leo/a no longer puts anything back"
+    );
+
+    let removed = remove_by_id(&customize, "leo/b", 30);
+    assert_eq!(removed.actions, ["shared"]);
+    assert_eq!(shared(&home), json!("echo hand"));
+    let removed = remove_by_id(&customize, "leo/a", 40);
+    assert!(removed.actions.is_empty() && removed.shared_actions.is_empty(), "{removed:?}");
+    assert_eq!(shared(&home), json!("echo hand"));
+}
+
+#[test]
+fn receipts_that_chain_their_priors_still_put_the_first_value_back() {
+    // The receipt file as the previous rule wrote it: each setup's prior is
+    // what was there when it installed (leo/b's is leo/a's value).
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo a", 10);
+    install_action(&home, &customize, "leo/b", "echo b", 20);
+    let path = home.dir.path().join("state/setups.json");
+    let mut file: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let rows = file["setups"].as_array_mut().unwrap();
+    let b = rows.iter_mut().find(|row| row["id"] == json!("leo/b")).unwrap();
+    b["prior_actions"]["shared"] = json!({ "type": "command", "command": "echo a" });
+    fs::write(&path, serde_json::to_string(&file).unwrap()).unwrap();
+
+    remove_by_id(&customize, "leo/a", 30);
+    assert_eq!(shared(&home), json!("echo b"));
+    assert_eq!(
+        prior_of(&customize, "leo/b"),
+        Some(json!({ "type": "command", "command": "echo mine" }))
+    );
+    remove_by_id(&customize, "leo/b", 40);
+    assert_eq!(shared(&home), json!("echo mine"));
+}
+
+#[test]
+fn an_update_whose_id_changed_leaves_one_receipt_in_the_old_place() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/below", "echo below", 5);
+    install_action(&home, &customize, "leo/old", "echo old", 10);
+    install_action(&home, &customize, "leo/top", "echo top", 15);
+    let old = customize.setup("leo/old").unwrap().unwrap();
+
+    let taken = action_setup(home.dir.path(), "leo/top", "echo taken");
+    let refused = customize.replace_setup(&old, &taken, "update", "cli", 20);
+    assert!(matches!(refused, Err(Error::Setup(_))), "{refused:?}");
+
+    let renamed = action_setup(home.dir.path(), "leo/renamed", "echo renamed");
+    let installed = customize.replace_setup(&old, &renamed, "update", "cli", 30).unwrap();
+    let reference = Reference::parse("github.com/leo/renamed").unwrap();
+    let receipt =
+        Receipt::new(&renamed, &installed, SetupSource::Repo { reference }, "d", Vec::new(), 30);
+    customize.record_setup(receipt).unwrap();
+    let ids: Vec<String> = customize.setups().unwrap().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["leo/top", "leo/renamed", "leo/below"]);
+}
+
+/// A choice a row renamed (`aliases`, `updates.notify`: `card` is now
+/// `badge`): a setup that sets the old value installs the new one.
+#[test]
+fn a_setup_with_an_old_choice_value_installs_the_new_one() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("updates.notify".to_owned(), json!("card"));
+    let customize = home.customize();
+    let plan = customize.plan_setup(&read, "manaflow-ai", "0.0.0").unwrap();
+    let notify = plan.settings.iter().find(|s| s.key == "updates.notify").unwrap();
+    assert_eq!(notify.value, json!("badge"));
+    assert_eq!(plan.renamed.len(), 1);
+    assert_eq!(plan.renamed[0].old_value, Some(json!("card")));
+    assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
+    customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    assert_eq!(home.settings()["updates"]["notify"], json!("badge"));
+}
+
+/// A setup (a look add-on) that picks the corner treatment installs it into
+/// cmux-next.json and removing it puts the default back (Leo, 2026-11-18: the
+/// gooey look "we have as a toggle maybe, and we can like do more stuff with
+/// that").
+#[test]
+fn a_setup_that_picks_the_corner_treatment_keeps_it() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("appearance.cornerFlush".to_owned(), json!("flush-goo"));
+    let customize = home.customize();
+    customize.plan_setup(&read, "manaflow-ai", "0.0.0").expect("a look setting plans");
+    let installed = customize.install_setup(&read, "setup corner", "cli", 10).unwrap();
+    let settings = home.settings();
+    assert_eq!(settings["appearance"]["cornerFlush"], json!("flush-goo"));
+    assert_eq!(settings["appearance"]["density"], json!("compact"), "your own keys stay");
+
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    assert_eq!(home.settings()["appearance"].get("cornerFlush"), None);
 }
 
 /// A New Tab look as its repo holds it (manaflow-ai/cmux-newtab-cards-look): views that draw the
