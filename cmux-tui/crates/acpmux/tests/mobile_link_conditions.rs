@@ -1728,6 +1728,7 @@ async fn chat_attach_under_link_conditions() {
             let tap = Instant::now();
             let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed_base + i);
             let std_tap = tap.into_std();
+            outbox.set_link(true, std_tap);
             outbox.push(&image_id, "photo", vec![image_id.clone()], false, std_tap, std_tap);
             outbox.push(&text_id, "after", vec![], false, std_tap, std_tap);
             let first = outbox.next_request(std::time::Instant::now()).map(|r| r.id);
