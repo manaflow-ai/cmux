@@ -1,8 +1,9 @@
 // The Task Manager page's pure rules: a column's order, the selection across samples, the PID
 // column's text and whether Kill Process is on. No DOM, no host.
 import type { SortKey, SortOrder, TaskManagerRow } from "./types";
+import { intl } from "../../ui/intl";
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const collator = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function compare(key: SortKey, a: TaskManagerRow, b: TaskManagerRow): number {
   switch (key) {
@@ -34,6 +35,27 @@ export function sortRows(rows: readonly TaskManagerRow[], order: SortOrder | nul
 /** A header click: the same column flips its direction, another column sorts ascending. */
 export function nextOrder(current: SortOrder | null, key: SortKey): SortOrder {
   return current?.key === key ? { key, ascending: !current.ascending } : { key, ascending: true };
+}
+
+const sameRow = (a: TaskManagerRow, b: TaskManagerRow) =>
+  a.host === b.host &&
+  a.pid === b.pid &&
+  a.task === b.task &&
+  a.name === b.name &&
+  a.cpu === b.cpu &&
+  a.cpuText === b.cpuText &&
+  a.memoryBytes === b.memoryBytes &&
+  a.memoryText === b.memoryText &&
+  a.refusal === b.refusal;
+
+/** A new sample's rows, each one the previous sample's object when nothing in it changed, so only
+ * the rows whose numbers moved draw again (a sample comes about once a second). */
+export function keptRows(previous: readonly TaskManagerRow[], next: readonly TaskManagerRow[]): TaskManagerRow[] {
+  const byId = new Map(previous.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const old = byId.get(row.id);
+    return old && sameRow(old, row) ? old : row;
+  });
 }
 
 /** The selection after a new sample: kept while its process is listed, else none. */

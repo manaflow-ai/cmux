@@ -108,6 +108,43 @@ export function regressionGate(harnesses: readonly string[], candidate: Record<s
   return { passed: harnesses.length > 0 && blocking.length === 0, blocking, warnings, results: cand.results };
 }
 
+/** The agent tools probe's browser checks: the cmux MCP's browser call, its page title and its screenshot. */
+export const BROWSER_CHECKS = ["mcp-cmux-calls", "browser-page-title", "browser-screenshot"] as const;
+
+export type CheckResult = { ok: boolean; detail: string };
+export type CheckNote = { check: string; detail: string };
+
+/**
+ * The same rule as regressionGate for probe checks judged on both images: a candidate failure blocks only when the
+ * live image passed that check; one already failing there is a warning naming it. With no live result for it (`null`,
+ * or the check absent), the failure blocks.
+ */
+export function checkRegressionGate(names: readonly string[], candidate: Record<string, CheckResult | undefined>, live: Record<string, CheckResult | undefined> | null) {
+  const blocking: CheckNote[] = [];
+  const warnings: CheckNote[] = [];
+  for (const name of names) {
+    const c = candidate[name];
+    if (!c || c.ok) continue;
+    const was = live?.[name];
+    if (!was) blocking.push({ check: name, detail: `${c.detail} (no live image result to compare: blocks)` });
+    else if (was.ok) blocking.push({ check: name, detail: `${c.detail} (passes on the live image: a regression)` });
+    else warnings.push({ check: name, detail: `${c.detail} (already failing on the live image: ${was.detail})` });
+  }
+  return { blocking, warnings };
+}
+
+/**
+ * A warning of either gate (already failing on the live image) is also filed: the agent tools probe appends one line per
+ * warning to this file in its out dir, the bake hands the lines on as its `live_failing` output, and the roll's report
+ * job comments them on the one open cloud-image-live-failing issue (or opens it), whether or not the roll promoted.
+ */
+export const LIVE_FAILING_FILE = "live-failing.md";
+
+/** The lines for LIVE_FAILING_FILE: one Markdown bullet per warning, naming its gate and check, on one line. */
+export function liveFailingLines(gate: string, notes: readonly { name: string; detail: string }[]): string[] {
+  return notes.map((n) => `- ${gate} **${n.name}**: ${n.detail.replace(/[\r\n]+/g, " ").slice(0, 400)}`);
+}
+
 const AUTO_ROLL = fileURLToPath(new URL("../../../images/cmux-vm/auto-roll.ts", import.meta.url));
 
 /** The live image: production's boot image (auto-roll.ts BOOT_ENTRY) in workers/cmux-vm/wrangler.jsonc at this checkout. */

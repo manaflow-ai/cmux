@@ -4,11 +4,14 @@
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
 // rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
-// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`); `ACPMUX_LIVE_BENCH_*`
+// size the live move bench (`transfer_live.rs`).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_UPDATE_FIXTURES",
     "LS_LATENCY_SESSIONS",
     "LS_LATENCY_RUNS",
+    "ACPMUX_LIVE_BENCH_PROMPTS",
+    "ACPMUX_LIVE_BENCH_RATE",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -58,10 +61,17 @@ mod lanes;
 mod log_retention;
 #[path = "hub_integration/mcp_connect.rs"]
 mod mcp_connect;
+#[path = "hub_integration/outbox_folder_missing.rs"]
+mod outbox_folder_missing;
+#[cfg(unix)]
+#[path = "hub_integration/paused_fs.rs"]
+mod paused_fs;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/person_hold.rs"]
+mod person_hold;
 #[path = "hub_integration/presence.rs"]
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
@@ -136,6 +146,8 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/task_list.rs"]
+mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
@@ -186,6 +198,13 @@ impl TestClient {
             }
         }
     }
+}
+
+/// `text` as another chat reads it when session `sender` sent it: the daemon writes its Sent-by
+/// line under it (`sent_by.rs`), and the receiver keeps it.
+pub(crate) fn signed(hub: &Hub, sender: &str, text: &str) -> String {
+    let who = acpmux::sent_by::of_session(hub, sender).expect("the sender's session");
+    format!("{text}\n\n{}", acpmux::sent_by::line(&who))
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -736,7 +755,9 @@ async fn kill_then_prompt_resumes_via_load() {
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
-    assert!(kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
+    // The load's replay of the chat is kept out of the log (`unread_records.rs`): a resume
+    // costs the log the same few bytes however long the chat.
+    assert!(!kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
     assert_eq!(hub.session_summary(&session)["turnCount"], 2);
     // The saved mode and options were re-asserted on the respawned agent.
     let replayed = hub
@@ -900,6 +921,22 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
     assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    let all = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions": true, "query": "quota broker", "limit": 2
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(all["incomplete"], json!([]));
+    assert_eq!(all["hits"].as_array().unwrap().len(), 2);
+    assert_eq!(all["hits"][0]["session"], "finder");
+    assert_eq!(all["hits"][0]["sessionId"], id);
+    assert!(all["hits"][0]["host"].as_str().is_some_and(|host| !host.is_empty()));
+    assert!(all["hits"][0]["turnTime"].as_str().is_some_and(|time| time.ends_with('Z')));
+    assert_eq!(all["hits"][0]["turnTime"], all["hits"][1]["turnTime"]);
     for params in
         [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
     {
@@ -1032,6 +1069,11 @@ async fn limit_error_stays_on_the_current_profile() {
     assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
     assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
+    // The limit holds the chat until its reset (`hub/rate_hold.rs`): the next prompt would queue
+    // behind the hold. Stop parks it; the person's next prompt goes on on the same profile.
+    let row = hub.session_summary(&session);
+    assert!(row["rateLimitedUntil"].as_u64().is_some(), "{row}");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -1040,7 +1082,11 @@ async fn limit_error_stays_on_the_current_profile() {
         .await
         .unwrap();
     assert_eq!(ok["stopReason"], "end_turn");
-    assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
+    // Stop parked the rate-limited chat; the person's prompt takes it back and carries the
+    // continuation's words (`rate_hold.rs`).
+    let preview = hub.session_summary(&session)["preview"].as_str().unwrap_or_default().to_owned();
+    assert!(preview.starts_with("echo: after"), "{preview}");
+    assert!(preview.contains("rate limit"), "{preview}");
 }
 
 #[tokio::test]
@@ -1735,6 +1781,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/session_pause.rs"]
+mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 
@@ -1753,6 +1801,8 @@ mod session_pull_requests;
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
 mod transfer_guard;
+#[path = "hub_integration/transfer_hub.rs"]
+mod transfer_hub;
 #[path = "hub_integration/watch.rs"]
 #[cfg(unix)]
 mod watch;

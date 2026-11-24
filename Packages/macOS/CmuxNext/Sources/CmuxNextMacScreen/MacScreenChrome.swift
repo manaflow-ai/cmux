@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
+import Observation
 
 /// A key combination for the Send Keys menu.
 struct MacScreenShortcut: Identifiable {
@@ -47,10 +49,17 @@ final class MacScreenChromeActions {
     var selectDisplay: (Int) -> Void = { _ in }
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}
+    /// Customize: the stream's bitrate cap in kbit/s (nil: Auto); a change starts a new session.
+    var setMaxKbps: (Int?) -> Void = { _ in }
+    /// Customize: show the cursor in the stream or not; a change starts a new session.
+    var toggleStreamCursor: () -> Void = {}
     var refresh: () -> Void = {}
     var fullScreen: () -> Void = {}
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }
     var focusScreen: () -> Void = {}
+    /// Record: start or stop copying the stream into an MP4.
+    var toggleRecording: () -> Void = {}
+    var showRecording: () -> Void = {}
     /// A device hub tab: ask the host for a session of this scope.
     var requestScope: (SessionScope) -> Void = { _ in }
     /// A device hub tab: stop waiting for the host.
@@ -85,19 +94,74 @@ final class MacScreenChromeHost {
     let actions = MacScreenChromeActions()
     let toolbar: MacScreenToolbarView
     let card: MacScreenCardView
-    private let model: MacScreenPaneModel
+    /// Look B's status strip, made the first time a look with ``MacScreenViewerStyle/statusStrip`` is shown.
+    var statusStrip: MacScreenStatusStrip?
+    /// The look's layer over the picture: the toolbar's auto-hide and the control edge (``MacScreenViewerStyle``).
+    let overlay: MacScreenViewerOverlay
+    let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
         self.model = model
         toolbar = MacScreenToolbarView(model: model, actions: actions)
         card = MacScreenCardView(model: model, actions: actions)
+        overlay = MacScreenViewerOverlay(model: model, toolbar: toolbar)
     }
 
-    var showsCard: Bool { model.card != nil }
+    var showsCard: Bool { model.card != nil && !(model.viewerLook.style.outageKeepsPicture && model.outageOverPicture) }
+
+    /// The button the keyboard lands on while a state shows: under look B's strip the strip's (the card is hidden there),
+    /// else the shown card's; nil while live.
+    var keyButton: MacScreenButton? {
+        if model.viewerLook.style.statusStrip { return model.card == nil ? nil : statusStrip?.bar.keyButton }
+        return showsCard ? card.keyButton : nil
+    }
+}
+
+/// Holds the card's in-between states back until they last (Leo, 2026-11-14: "i also want all our
+/// connectivity stuff to shut the f*** up and load faster"). Coming up (asking the hub, connecting,
+/// waiting for the first picture) says nothing for ``ScreenSession/connectNoticeDelay`` and Reconnecting
+/// for ``ScreenSession/reconnectNoticeDelay``: both the shared 10 s bound (`schemas/notice-timing`
+/// `connectionQuietMs`), over the last frame. A failure, an end, a refusal or a
+/// card waiting on a person shows at once with its action. One ``QuietHold`` per kind of stretch.
+@MainActor @Observable
+final class MacScreenCardQuiet {
+    /// Bumped when a hold ends: the card's observers read it and draw the card.
+    private(set) var revealed = 0
+    @ObservationIgnored private let comingUp: QuietHold
+    @ObservationIgnored private let reconnecting: QuietHold
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        comingUp = QuietHold(owner: "mac-screen-card-connect", delay: ScreenSession.connectNoticeDelay, clock: clock)
+        reconnecting = QuietHold(owner: "mac-screen-card-reconnect", delay: ScreenSession.reconnectNoticeDelay, clock: clock)
+    }
+
+    /// `card` as the screen shows it now: nil while its stretch is younger than its hold.
+    func shown(_ card: MacScreenCard?) -> MacScreenCard? {
+        _ = revealed
+        let isComingUp = card.map(Self.comesUp) ?? false
+        let isReconnecting = card == .connecting(reconnecting: true)
+        comingUp.update(isComingUp) { [weak self] in self?.revealed &+= 1 }
+        reconnecting.update(isReconnecting) { [weak self] in self?.revealed &+= 1 }
+        if isComingUp, comingUp.held { return nil }
+        if isReconnecting, reconnecting.held { return nil }
+        return card
+    }
+
+    /// A card of a link coming up that usually ends on its own within a second.
+    nonisolated static func comesUp(_ card: MacScreenCard) -> Bool {
+        switch card {
+        case .hubRequesting, .connecting(reconnecting: false), .waitingForPicture: true
+        default: false
+        }
+    }
 }
 
 extension MacScreenPaneModel {
-    var card: MacScreenCard? {
+    /// The card on screen: ``liveCard`` with its in-between states held back (``MacScreenCardQuiet``).
+    var card: MacScreenCard? { quiet.shown(liveCard) }
+
+    /// The card the session's state calls for now, held or not: the screen takes input only without one.
+    var liveCard: MacScreenCard? {
         switch gate {
         case .unsupported: return .unsupported
         case .open: break
@@ -135,20 +199,30 @@ extension MacScreenPaneModel {
         }
     }
 
-    /// Why the stream failed, as the failed card says it: a TURN relay that
-    /// refused the credentials or can't be reached, a relay-only path that
-    /// found no relay, else what to check on the other Mac.
+    /// Why the stream failed, as the failed card says it: the host's own reason when it gave
+    /// one (over the link or through the hub), a TURN relay that refused the credentials or
+    /// can't be reached, a relay-only path that found no relay, this Mac's link failure, a link
+    /// that came up but carried no picture, and only when nobody said anything, what to check on
+    /// the other Mac.
     var failedDetail: String {
         Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
                           hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false),
+                          cause: failureCause, linkConnected: session?.linkConnected ?? false,
                           timedOut: session?.timedOutStage)
     }
 
+    /// The session's cause, else the host's reason the hub carried (`failed: <reason>`).
+    var failureCause: MacScreenSession.FailureCause? {
+        session?.failureCause ?? hub?.hostFailure.map(MacScreenSession.FailureCause.host)
+    }
+
     static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
-                             hubOnline: Bool = true, timedOut: MacScreenConnectStage? = nil) -> String {
+                             hubOnline: Bool = true, cause: MacScreenSession.FailureCause? = nil,
+                             linkConnected: Bool = false, timedOut: MacScreenConnectStage? = nil) -> String {
         if hubTab, !hubOnline {
             return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
         }
+        if case let .host(reason)? = cause { return hostFailedText(reason, name: name) }
         // A connect that ran out of time says the stage it stopped at (no answer, no link, no picture).
         if let detail = timedOut?.timeoutDetail(name: name) { return detail }
         if errors.contains(where: \.refusedCredentials) {
@@ -158,7 +232,27 @@ extension MacScreenPaneModel {
             return L.t("macScreen.card.relayUnreachable", "The relay can’t be reached. Check its URL and that its port is open.")
         }
         if relayOnly { return L.t("macScreen.card.relayNone", "No relay could connect the two Macs. Check your relays in Settings › Devices.") }
+        if case let .link(reason)? = cause, !reason.isEmpty {
+            return String(format: L.t("macScreen.card.linkFailed", "The connection to %1$@ failed: %2$@"), name, reason)
+        }
+        if linkConnected {
+            // The link came up, so the other Mac was awake and online: say what was seen instead.
+            return String(format: L.t("macScreen.card.noPicture", "Connected to %@, but no picture arrived before the session closed."), name)
+        }
         return String(format: L.t("macScreen.card.failedHub", "Check that %@ is awake and online."), name)
+    }
+
+    /// The host's own reason, named for it (`reason` may be empty: it said only that it failed).
+    static func hostFailedText(_ reason: String, name: String) -> String {
+        reason.isEmpty
+            ? String(format: L.t("macScreen.card.hostFailedNoReason", "%@ couldn’t share its screen."), name)
+            : String(format: L.t("macScreen.card.hostFailed", "%1$@ couldn’t share its screen: %2$@"), name, reason)
+    }
+
+    /// The detail of a hub card that ended a session because it failed, when the host said why.
+    var hubFailureDetail: String? {
+        guard case let .host(reason)? = failureCause else { return nil }
+        return Self.hostFailedText(reason, name: name)
     }
 
     /// Whether the toolbar shows the stream's controls: only while a session streams.
@@ -174,7 +268,7 @@ extension MacScreenPaneModel {
     var canSendKeys: Bool { isLive && !viewOnly }
 
     /// A connected session's card: none while the picture flows, Reconnecting
-    /// as soon as the connection stalls (never a frozen picture), Waiting
+    /// once the connection stalls (shown past its hold, ``MacScreenCardQuiet``), Waiting
     /// until the first picture.
     static func connectedCard(hasFrame: Bool, stalled: Bool) -> MacScreenCard? {
         if stalled { return .connecting(reconnecting: true) }

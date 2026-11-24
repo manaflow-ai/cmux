@@ -262,3 +262,73 @@ async fn claude_reasoning_a_new_chat_attaches_with_its_effort_and_fast_options()
         .unwrap();
     }
 }
+
+/// The `mux` `config` records of chat `id`: each `session/set_config_option` acpmux sent.
+fn config_records(hub: &Arc<Hub>, id: &str) -> Vec<Value> {
+    hub.events(id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "config")
+        .map(|e| e.msg.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn claude_reasoning_a_new_chat_spawns_on_its_effort_and_sets_none_after_initialize() {
+    // A start effort set after `initialize` was one `apply_flag_settings` round trip (213-271 ms)
+    // before the chat took its first prompt: it goes on the command line instead.
+    let (hub, mut c) = claude_setup().await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude", "name": "spawned", "effort": "medium"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(config_records(&hub, &id), Vec::<Value>::new(), "no live effort switch at start");
+    let got = probe(&hub, &mut c, &id).await;
+    let argv: Vec<String> = serde_json::from_value(got["argv"].clone()).unwrap();
+    let at = argv.iter().position(|a| a == "--effort").unwrap_or_else(|| panic!("{argv:?}"));
+    assert_eq!(argv[at + 1], "medium", "{argv:?}");
+    assert_eq!(got["settings"], json!([]), "Claude Code got no flag settings: {got}");
+    let a = c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(option(&a["session"]["configOptions"], "effort")["currentValue"], "medium", "{a}");
+
+    // A later change still goes live, on the running process.
+    let options = set(&mut c, &id, "effort", "high").await;
+    assert_eq!(option(&options, "effort")["currentValue"], "high");
+    let got = probe(&hub, &mut c, &id).await;
+    assert_eq!(got["settings"], json!([{"effortLevel": "high", "ultracode": false}]), "{got}");
+
+    // A respawn runs the effort the chat runs now, not the one it started on.
+    let session = hub.resolve("spawned").unwrap();
+    hub.detach_child(&session).await;
+    let got = probe(&hub, &mut c, &id).await;
+    let argv: Vec<String> = serde_json::from_value(got["argv"].clone()).unwrap();
+    let at = argv.iter().position(|a| a == "--effort").unwrap_or_else(|| panic!("{argv:?}"));
+    assert_eq!(argv[at + 1], "high", "{argv:?}");
+}
+
+#[tokio::test]
+async fn claude_reasoning_a_start_effort_with_no_flag_is_still_set_live() {
+    // Ultracode has no command-line flag of its own, and "default" clears an effort the
+    // person's own settings set: both still go through `session/set_config_option`.
+    for (effort, settings) in [
+        ("ultracode", json!({"effortLevel": "xhigh", "ultracode": true})),
+        ("default", json!({"effortLevel": "auto", "ultracode": false})),
+    ] {
+        let (hub, mut c) = claude_setup().await;
+        let s = c
+            .request(
+                method::SESSION_NEW,
+                json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude", "name": effort, "effort": effort}}}),
+            )
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        assert_eq!(config_records(&hub, &id).len(), 1, "{effort}: set live once");
+        let got = probe(&hub, &mut c, &id).await;
+        assert_eq!(got["settings"].as_array().unwrap().last(), Some(&settings), "{effort}: {got}");
+    }
+}

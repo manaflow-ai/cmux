@@ -463,7 +463,28 @@ test("an image in the text that cannot be drawn says so, with Retry and Remove t
   expect(controls.attachments()).toEqual([]);
 });
 
-const LOADING: PendingAttachment = { id: "loading-zip", name: "build-logs.zip", image: false };
+const LOADING = { id: "loading-zip", name: "build-logs.zip", image: false, fileSize: 2048 } satisfies PendingAttachment;
+
+test("an inline file keeps its chip layout as the upload becomes ready", async () => {
+  const { controls } = await render({ text: `logs ${inlineToken(LOADING.id)} here`, pending: [LOADING] });
+  const tile = () => inlineChip(LOADING.id)?.querySelector(".acpmux-attachment-file");
+  const body = () => tile()?.querySelector(".acpmux-file-chip--removable");
+  await until(() => tile()?.getAttribute("aria-busy") === "true");
+  const metadata = () => [
+    body()?.querySelector(".acpmux-file-chip__name")?.textContent,
+    body()?.querySelector(".acpmux-file-chip__size")?.textContent,
+  ];
+  expect(metadata()).toEqual([LOADING.name, "2 kB"]);
+
+  await act(async () => {
+    controls.setPending([]);
+    controls.setAttachments([
+      { ...FILE, id: LOADING.id, name: LOADING.name, size: LOADING.fileSize, path: `/tmp/${LOADING.name}` },
+    ]);
+  });
+  expect(tile()?.getAttribute("aria-busy")).toBeNull();
+  expect(metadata()).toEqual([LOADING.name, "2 kB"]);
+});
 
 for (const revives of [true, false])
   test(`a loading chip's node deleted, then undone, ${revives ? "loads again in its place" : "leaves the text"}`, async () => {
@@ -483,8 +504,8 @@ for (const revives of [true, false])
     expect(calls).toEqual([`cancel ${LOADING.id}`, `revive ${LOADING.id}`]);
     if (revives) {
       expect(nodes()).toEqual([LOADING.id]);
-      await until(() => !!host.querySelector(".acpmux-md-inline-chip[data-state='loading']"));
-      expect(host.querySelector(".acpmux-md-inline-chip[data-state='loading']")).not.toBeNull();
+      await until(() => !!inlineChip(LOADING.id)?.querySelector("[aria-busy='true']"));
+      expect(inlineChip(LOADING.id)?.querySelector("[aria-busy='true']")).toBeTruthy();
     } else expect(nodes()).toEqual([]);
     expect(text()).toContain("logs");
   });

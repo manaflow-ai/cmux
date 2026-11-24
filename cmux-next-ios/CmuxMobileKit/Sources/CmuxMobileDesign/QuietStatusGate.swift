@@ -12,7 +12,7 @@ import Observation
 @Observable
 public final class QuietStatusGate {
     /// How long a connection is down before its line shows.
-    public static let threshold: Duration = .seconds(10)
+    public nonisolated static let threshold: Duration = .seconds(10)
 
     /// The line may show now (down for at least `delay`).
     public private(set) var isShown = false
@@ -26,21 +26,14 @@ public final class QuietStatusGate {
         self.clock = clock
     }
 
-    /// What is down (a Mac's id, say), or nil when nothing is. A different key
-    /// restarts the wait: one Mac's elapsed outage never carries over to the next
-    /// (switching between two Macs that both show kept rows waits the bound anew).
-    public func update(downFor key: String?) {
-        if key != downKey {
-            downKey = key
-            update(down: false)
-        }
-        if key != nil { update(down: true) }
-    }
-    @ObservationIgnored private var downKey: String?
-
     /// The connection is down (true) or back (false). Repeating `true` keeps
     /// the first instant: a reattach that retries does not restart the wait.
-    public func update(down: Bool) {
+    public func update(down: Bool) { update(down: down, alreadyDownFor: .zero) }
+
+    /// As ``update(down:)``, for a link that went down `alreadyDownFor` ago (a view that
+    /// appears mid-outage): it waits only what is left of `delay`, and shows at once
+    /// when the outage has already lasted that long.
+    public func update(down: Bool, alreadyDownFor: Duration) {
         guard down else {
             self.down = false
             pending?.cancel()
@@ -49,12 +42,12 @@ public final class QuietStatusGate {
             return
         }
         guard pending == nil, !isShown else { return }
+        let delay = delay - max(.zero, alreadyDownFor)
         if delay <= .zero {
             isShown = true
             return
         }
         self.down = true
-        let delay = delay
         let clock = clock
         // An intentional, bounded UI delay on the injected clock (not a sync wait).
         pending = Task { [weak self] in

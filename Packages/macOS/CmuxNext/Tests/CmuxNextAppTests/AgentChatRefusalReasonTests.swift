@@ -15,7 +15,8 @@ struct AgentChatRefusalReasonTests {
         "agentPane.toggleDisplaySettings", "agentPane.replayConversation", "agentPane.editInstructions",
         "agentPane.addProjectFiles", "agentPane.markUnread", "agentPane.moveToFloatingChat",
         "agentPane.continueAfterError", "agentPane.toggleMinimap", "agentPane.revealCwdInFinder",
-        "agentPane.openCwdInTerminal", "agentPane.createCheckpoint", "agentPane.setModel",
+        "agentPane.openCwdInTerminal", "agentPane.openCwdInEditor", "agentPane.openCwdInApp", "agentPane.copyCwdPath",
+        "agentPane.createCheckpoint", "agentPane.setModel",
     ]
 
     static func services() -> AppServices {
@@ -42,7 +43,7 @@ struct AgentChatRefusalReasonTests {
         }
         let reason = try #require(refusal, "\(id) ran with no chat")
         #expect(reason != MiscHandlerStrings.noAgentChat, "\(id) refused with Dictation's reason")
-        // With no pane at all, a tab action's "No pane is focused." is the honest reason too.
+        // With no pane at all, a tab action's no-pane reason ("Click a tab first, then try again.") is the honest one too.
         #expect(reason.contains(title) || reason == MiscHandlerStrings.noPane, "\(id): \"\(reason)\" does not name \(title)")
     }
 

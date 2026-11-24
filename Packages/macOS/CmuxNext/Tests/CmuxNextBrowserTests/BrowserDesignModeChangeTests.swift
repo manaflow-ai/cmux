@@ -25,12 +25,23 @@ import Testing
         ])
     }
 
-    @Test func aRemovedHighlightTakesItsCardOut() throws {
+    /// The picks after it are renumbered on the page, so each goes out again under its own id with
+    /// its new number: its chip is replaced, and the numbers in the chat match the pins.
+    @Test func aRemovedHighlightTakesItsCardOutAndRenumbersTheRest() throws {
         var cards = BrowserDesignModeCards()
         let added = cards.change(try Self.message(["#a", "#b"]), pageURL: Self.page).cards
         let change = cards.change(try Self.message(["#b"]), pageURL: Self.page)
-        #expect(change.cards.isEmpty)
         #expect(change.removed == [try #require(added.first?.id)])
+        #expect(change.cards.map(\.id) == [try #require(added.last?.id)])
+        #expect(change.cards.map(\.number) == [1])
+    }
+
+    @Test func removingTheLastHighlightSendsNothingElse() throws {
+        var cards = BrowserDesignModeCards()
+        let added = cards.change(try Self.message(["#a", "#b"]), pageURL: Self.page).cards
+        let change = cards.change(try Self.message(["#a"]), pageURL: Self.page)
+        #expect(change.cards.isEmpty)
+        #expect(change.removed == [try #require(added.last?.id)])
     }
 
     @Test func aStyleEditRidesOnTheSelectedCard() throws {

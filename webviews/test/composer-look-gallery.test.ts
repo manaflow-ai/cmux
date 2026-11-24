@@ -66,20 +66,17 @@ await requireBrowserLane("composer-look-gallery.test.ts", async () => {
     }
   });
 
-  test("a mounted Codex fixture preserves its draft when the reader picks Claude's dot", async () => {
+  test("a Codex gallery fixture renders its draft without a style switch", async () => {
     const page = await open("codex-send-accent-disc");
     try {
-      const dot = page.locator('.acpmux-look-dots .nt-style-option[data-style="claude"]');
-      await dot.hover();
-      await dot.click();
-      await page.waitForFunction(() => !document.querySelector('.acpmux-composer[data-composer-look="codex"]'));
+      expect(await page.locator(".acpmux-look-dots").count()).toBe(0);
       const looks = await page.evaluate(
         () => (window as unknown as { initialComposerLooks: string[] }).initialComposerLooks,
       );
-      expect(looks[0]).toBe("codex");
-      expect(looks.at(-1)).toBe("claude");
+      expect(looks.length).toBeGreaterThan(0);
+      expect(new Set(looks)).toEqual(new Set(["codex"]));
       expect(await page.locator(".acpmux-md-root").textContent()).toContain("Also cover the 503 path");
-      expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe("claude");
+      expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBeNull();
     } finally {
       await page.close();
     }

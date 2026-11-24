@@ -33,7 +33,8 @@ their scrollback and their input. `acpmux daemon restart` does the same for agen
 keep their conversation. On a Mac, the new build is the binary `verify-cmux-tui-hosted.sh` downloads
 to `cmux-tui/target/hosted/<commit>/` (above). A tagged app's session is `cmux-app-<tag>`. The app
 hands its session back to the daemon bundled in it on its next launch, unless that bundle carries
-your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`).
+your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`). To see a daemon change in the app,
+`cmux app try .` swaps it into a copy of the NIGHTLY with no app build.
 `scripts/cmux-next/daemon-swap-check.py --old A --new B` checks a swap between two builds end to end
 (HQ#7149 L7 runs it hourly against NIGHTLYs).
 
@@ -46,7 +47,8 @@ your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`).
 
 ## Blacksmith Testbox
 
-Blacksmith Testbox gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
+Build and test cmux-tui on the fleet first (`cmux-ci`, Linux lanes); the Testbox is overflow only.
+It gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
 and Zig builds: warm your own box before the build, and never compile cmux-tui on the Mac. The
 workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards live here. Team members
 with a cmuxterm-hq checkout can run `HQ_TOOLS=<hq checkout on main> ./scripts/blacksmith-testbox-demo.sh`

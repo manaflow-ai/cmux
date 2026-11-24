@@ -64,6 +64,11 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 CI_DIR = "scripts/ci"
+# Listed scripts anywhere below scripts/ are followed (their own folder first; scripts/ci/<sub>/ also
+# searches scripts/ci). #51590 made scripts/cmux-next/perf-budgets.py import its sibling state_wait.py;
+# cmux-next-perf-budgets.yml's report job listed only perf-budgets.py, so every perf cron report died
+# with ModuleNotFoundError for days while this test, then scoped to scripts/ci, read green.
+SCRIPTS_DIR = "scripts"
 OPTIONAL_HANDLERS = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
 
 
@@ -142,13 +147,13 @@ def checked_out(entries: list[str], paths: set[str], root: Path) -> frozenset[st
 
 
 def listed_ci_scripts(entries: list[str], root: Path) -> list[str]:
-    """scripts/ci/**.py files the entries name by exact path (leading slash allowed)."""
+    """scripts/**.py files the entries name by exact path (leading slash allowed)."""
     out = []
     for entry in entries:
         if entry.startswith("!"):
             continue
         rel = entry.lstrip("/")
-        if rel.startswith(CI_DIR + "/") and rel.endswith(".py") and not any(ch in rel for ch in "*?["):
+        if rel.startswith(SCRIPTS_DIR + "/") and rel.endswith(".py") and not any(ch in rel for ch in "*?["):
             if (root / rel).is_file():
                 out.append(rel)
     return out
@@ -232,7 +237,8 @@ def resolve(name: str, script: str, root: Path, level: int = 0) -> list[str]:
             return []
         base = "/".join(folders[: len(folders) - (level - 1)])
         return _resolve_under(base, parts, root)
-    search = [script_dir] if script_dir == CI_DIR else [script_dir, CI_DIR]
+    in_ci_subdir = script_dir.startswith(CI_DIR + "/")
+    search = [script_dir, CI_DIR] if in_ci_subdir else [script_dir]
     for base in search:
         files = _resolve_under(base, parts, root)
         if files:
@@ -547,6 +553,9 @@ class SparseCheckoutImportTests(unittest.TestCase):
             "scripts/ci/pkg/__init__.py": "from . import helper\n",
             "scripts/ci/pkg/helper.py": "from .deep import z\n",
             "scripts/ci/pkg/deep.py": "z = 1\n",
+            "scripts/cmux-next/budgets.py": "import sys\nsys.path.insert(0, '.')\nfrom state_wait import wait_until\n",
+            "scripts/cmux-next/state_wait.py": "def wait_until():\n    pass\n",
+            "scripts/cmux-next/deadline_http.py": "",
         }
         for rel, body in files.items():
             (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -634,6 +643,16 @@ class SparseCheckoutImportTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self._misses(self.block("scripts/ci/sub/", "scripts/ci/deadline_http.py")), [])
+
+    def test_fixture_script_outside_scripts_ci_resolves_its_own_folder(self) -> None:
+        # #51590's shape: a scripts/cmux-next script imports its sibling; scripts/ci is not searched.
+        self.assertEqual(
+            self._misses(self.block("scripts/cmux-next/budgets.py")),
+            ["w.yml run Check out: scripts/cmux-next/budgets.py imports scripts/cmux-next/state_wait.py, "
+             "not in its sparse checkout"],
+        )
+        self.assertEqual(
+            self._misses(self.block("scripts/cmux-next/budgets.py", "scripts/cmux-next/state_wait.py")), [])
 
     def test_fixture_exclusion_before_a_directory_include_still_excludes(self) -> None:
         # Git matches the file before its parent folders, so "!helper" beats the later "dir/".
