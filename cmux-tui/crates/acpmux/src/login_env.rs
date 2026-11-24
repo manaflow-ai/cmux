@@ -64,7 +64,8 @@ fn run_marker() -> String {
 }
 // Older caches could contain machine declarations imported through a shell hook;
 // version 3 caches lack the provider keys (`PROVIDER_KEYS`), so the shell runs once more.
-const CACHE_VERSION: u32 = 4;
+// version 4 caches lack AZURE_* (Foundry's Entra ID sign-in).
+const CACHE_VERSION: u32 = 5;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
@@ -1038,7 +1039,7 @@ const INTERNAL: [&str; 5] = [
 ];
 
 /// Whether a login variable is kept at all (memory and cache): allowed for
-/// some family (its Bedrock or Vertex condition aside), or read by the daemon.
+/// some family (its Bedrock, Vertex or Foundry condition aside), or read by the daemon.
 fn storable(key: &str, value: &str) -> bool {
     INTERNAL.contains(&key)
         || delivered(key)
@@ -1050,6 +1051,7 @@ fn storable(key: &str, value: &str) -> bool {
             "CLAUDE_",
             "DISABLE_",
             "AWS_",
+            "AZURE_",
             "GOOGLE_",
             "CLOUDSDK_",
             "GCLOUD_",
