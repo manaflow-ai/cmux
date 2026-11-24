@@ -244,7 +244,10 @@ async function launchChrome(): Promise<{
       // A page hidden past 5 min has its timers cut to one wake-up a minute. Rungs load over minutes, so with it on,
       // x100's early chats were throttled and x10's were not, and the ratio read the pages' age. Off, every rung
       // measures freshly hidden pages: the worst case, as a chat Leo just switched away from.
-      "--disable-features=IntensiveWakeUpThrottling",
+      // SpareRendererForSitePerProcess: Chrome keeps one warm renderer ready, which a new tab takes, so a rung's first
+      // tabs add no renderer of their own (x1 to x10 added 9 tabs and 7 renderers, x10 to x100 90 and 90) and the low
+      // PSS slope read 13.9 MB a tab against 16.4 at the top. Off, each tab's renderer starts with its tab.
+      "--disable-features=IntensiveWakeUpThrottling,SpareRendererForSitePerProcess",
       ...CHROME_ARGS,
       "about:blank",
     ],
@@ -381,6 +384,20 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     `SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")} | js heap ${heapMB("JSHeapUsedSize")}/${heapMB("JSHeapTotalSize")} MB`,
   );
   const script1 = await script();
+  // The whole-window CPU is the median of three windows (one 5 s window is a sample of one: the x1 window read 22 to
+  // 128 ms/s across runs of the same code): a cost that lasts shows in all three, a one-off burst in one.
+  const windows = [windowMsPerS];
+  for (let i = 1; i < 3; i += 1) {
+    const before = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+    const from = performance.now();
+    await focused.waitForTimeout(WINDOW_MS);
+    const after = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+    windows.push((((after - before) / ticksPerSecond) * 1000) / ((performance.now() - from) / 1000));
+  }
+  const medianWindow = [...windows].sort((a, b) => a - b)[1]!;
+  console.log(
+    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | median ${Math.round(medianWindow)}`,
+  );
   // Memory after a full collection: what the pages keep, not how far each heap has grown since its last GC (chats x100
   // read 4583 MB in one run and 5331 in the next, at the same pages).
   await Promise.all(
@@ -411,7 +428,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   console.log(`SIM-LADDER   pss split MB ${pssSplit(pids)}`);
   return {
     cpu_ms_per_s: Math.round(Math.min(...thirds)),
-    cpu_window_ms_per_s: Math.round(windowMsPerS),
+    cpu_window_ms_per_s: Math.round(medianWindow),
     heap_mb: Math.round(heaps.reduce((sum, bytes) => sum + bytes, 0) / 1048576),
     script_ms_per_s: Math.round(((script1 - script0) * 1000) / secs),
     pss_mb: Math.round(pids.reduce((sum, pid) => sum + pssMB(pid), 0)),
