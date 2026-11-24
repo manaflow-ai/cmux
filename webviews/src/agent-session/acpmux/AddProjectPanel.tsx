@@ -20,6 +20,8 @@ export type AddProjectPanelProps = {
   host?: ProjectDirectoryHost;
   localName?: string;
   peers?: string[];
+  /** A chat on another machine: the chooser opens in that machine's folders (`host` lists its disk), named here. */
+  machine?: string;
   /** Existing native folder chooser, used until a reviewed directory-list host operation exists. */
   onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   onPick(path: string): void;
@@ -31,14 +33,15 @@ export function AddProjectPanel({
   host = projectDirectoryHost,
   localName,
   peers = [],
+  machine,
   onBrowse,
   onPick,
   onClose,
 }: AddProjectPanelProps) {
   const t = useT();
-  const [step, setStep] = useState<Step>("environment");
+  const [step, setStep] = useState<Step>(machine ? "directory" : "environment");
   const [query, setQuery] = useState("");
-  const [requested, setRequested] = useState("~");
+  const [requested, setRequested] = useState(machine ? "" : "~");
   const [directory, setDirectory] = useState<ProjectDirectory>();
   const [loading, setLoading] = useState(false);
   const [browsing, setBrowsing] = useState(false);
@@ -162,7 +165,7 @@ export function AddProjectPanel({
       event.preventDefault();
       event.stopPropagation();
       add();
-    } else if (event.altKey && event.key === "ArrowLeft" && step !== "environment") {
+    } else if (event.altKey && event.key === "ArrowLeft" && step !== stepBack) {
       event.preventDefault();
       event.stopPropagation();
       back();
@@ -171,14 +174,15 @@ export function AddProjectPanel({
   const path = directory?.path ?? requested;
   const title =
     step === "environment" ? t("project.environment") : step === "source" ? t("project.add") : t("project.choose");
+  const stepBack = machine ? "directory" : "environment";
   return (
     <KeyboardScope handleKeyDown={command}>
       <div className="acpmux-add-project" data-add-project-step={step}>
         <div className="acpmux-add-project-heading">
-          <button type="button" onClick={back} disabled={step === "environment"} aria-label={t("project.back")}>
+          <button type="button" onClick={back} disabled={step === stepBack} aria-label={t("project.back")}>
             ←
           </button>
-          <strong>{title}</strong>
+          <strong>{machine ? `${title} · ${machine}` : title}</strong>
           <button type="button" onClick={onClose} aria-label={t("project.close")}>
             ×
           </button>
@@ -257,20 +261,22 @@ export function AddProjectPanel({
         <div className="acpmux-add-project-actions">
           {step === "directory" && (
             <>
-              <button
-                type="button"
-                disabled={!directory || loading || !!error || !host.reveal}
-                onClick={() => {
-                  if (directory && host.reveal) {
-                    setRevealError(undefined);
-                    void host.reveal(directory.path).catch((failure: unknown) => {
-                      setRevealError(failure instanceof Error ? failure.message : String(failure));
-                    });
-                  }
-                }}
-              >
-                {t("project.openFinder")}
-              </button>
+              {!machine && (
+                <button
+                  type="button"
+                  disabled={!directory || loading || !!error || !host.reveal}
+                  onClick={() => {
+                    if (directory && host.reveal) {
+                      setRevealError(undefined);
+                      void host.reveal(directory.path).catch((failure: unknown) => {
+                        setRevealError(failure instanceof Error ? failure.message : String(failure));
+                      });
+                    }
+                  }}
+                >
+                  {t("project.openFinder")}
+                </button>
+              )}
               <button
                 type="button"
                 className="acpmux-add-project-submit"

@@ -88,6 +88,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
+        capabilities.push(AGENT_SESSION_LIST_DIR_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);

@@ -219,6 +219,9 @@ public final class AgentPaneModel {
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
     /// there), never this Mac's (cx-k21v).
     @ObservationIgnored public var onListRemoteProjects: ((String?) async -> [String])?
+    /// One folder of the chat's own machine's disk (`machine.folder.list`): the daemon there lists it
+    /// (`agent-session-list-dir`). The reply is the daemon's listing, or `error` {code, message}.
+    @ObservationIgnored public var onListMachineFolder: ((String?, Bool, String?) async -> [String: Any])?
     /// The new chat folder picker's GitHub section (`github.status`, `github.connect`, `github.repos.list`);
     /// nil: the picker shows none.
     @ObservationIgnored public var gitHub: AgentPaneGitHub?
@@ -569,7 +572,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .listMachineFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
@@ -753,6 +756,11 @@ public final class AgentPaneModel {
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
+        case .listMachineFolder(let path, let files, let machine):
+            // A chat on another machine lists its own; a new chat here lists the machine its composer picked.
+            // This Mac's disk is the open panel's, never listed here.
+            guard remoteChat || machine != nil, let onListMachineFolder else { return Self.unsupported("machine.folder.list") }
+            return AgentPaneReply.success(await onListMachineFolder(path, files, machine))
         case .completeFolder where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never listed.
             return AgentPaneReply.success(["folders": [String]()])

@@ -33,6 +33,10 @@ use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 
 pub const AGENT_SESSION_FOLDERS_CAPABILITY: &str = "agent-session-folders-v1";
+/// `agent-session-list-dir` (a folder chooser over this machine's own disk).
+pub const AGENT_SESSION_LIST_DIR_CAPABILITY: &str = "agent-session-list-dir-v1";
+/// Entries one `agent-session-list-dir` answer lists.
+pub(crate) const MAX_LIST_DIR: usize = 500;
 
 /// The work folder under the home folder.
 pub(crate) const WORK_FOLDER: &str = "work";
@@ -63,6 +67,154 @@ pub(super) fn folders(
     let home = crate::platform::home_dir();
     let answer = answer(home.as_deref(), mux.on_cloud_host());
     ok(writer, id, answer)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ListDirParams {
+    /// An agent tab of this machine; none for a chat that starts here from another Mac's composer,
+    /// which has no tab here yet (the link's own checks still hold).
+    #[serde(default)]
+    surface: Option<SurfaceId>,
+    /// An absolute folder; none or empty starts at the work folder, else the home folder.
+    #[serde(default)]
+    path: Option<String>,
+    /// Files too (default: folders only), so a files view can reuse the verb.
+    #[serde(default)]
+    files: bool,
+    /// Hidden names too (default: skipped).
+    #[serde(default)]
+    hidden: bool,
+}
+
+/// `agent-session-list-dir {surface?, path?, files?, hidden?}`: the folders of one folder of this
+/// machine, for the app's folder chooser on another Mac (the same checks as `agent-session-folders`).
+/// Answers `{path, parent, home, work, entries: [{name, path, kind, repo}], truncated}`.
+pub(super) fn list_dir(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    params: ListDirParams,
+    writer: &MessageWriter,
+) -> bool {
+    if params.surface.is_some_and(|surface| !own_agent_tab(mux, surface)) {
+        return refuse(writer, id, Refusal::UnknownTab);
+    }
+    let home = crate::platform::home_dir();
+    match browse(home.as_deref(), params.path.as_deref(), params.files, params.hidden) {
+        Ok(answer) => ok(writer, id, answer),
+        // A folder that cannot be listed is the chooser's inline message, not a refused verb.
+        Err(error) => {
+            ok(writer, id, json!({"error": {"code": error.code(), "message": error.message()}}))
+        }
+    }
+}
+
+/// Why a folder could not be listed: the code the page shows and a sentence.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum BrowseError {
+    NotAbsolute,
+    NotFound,
+    NotAFolder,
+    Denied,
+    NoStart,
+}
+
+impl BrowseError {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::NotAbsolute => "list_dir.not_absolute",
+            Self::NotFound => "list_dir.not_found",
+            Self::NotAFolder => "list_dir.not_a_folder",
+            Self::Denied => "list_dir.denied",
+            Self::NoStart => "list_dir.no_start",
+        }
+    }
+    pub(crate) fn message(&self) -> &'static str {
+        match self {
+            Self::NotAbsolute => "Enter a full path starting with /",
+            Self::NotFound => "That folder does not exist on this machine",
+            Self::NotAFolder => "That is a file, not a folder",
+            Self::Denied => "This machine does not let cmux read that folder",
+            Self::NoStart => "This machine has no home folder to start from",
+        }
+    }
+}
+
+/// The entries of `path` (none or empty: the work folder under `home`, else `home`), canonical.
+/// Folders first, repositories first among them, then by name; symlinked folders are listed as
+/// folders (a person picks where a link goes), never followed past the canonical path.
+pub(crate) fn browse(
+    home: Option<&Path>,
+    path: Option<&str>,
+    files: bool,
+    hidden: bool,
+) -> Result<Value, BrowseError> {
+    let work = home.and_then(|home| work_folder(home, false));
+    let requested = path.map(str::trim).filter(|path| !path.is_empty());
+    let start = match requested {
+        Some(path) => {
+            let path = Path::new(path);
+            if !path.is_absolute() {
+                return Err(BrowseError::NotAbsolute);
+            }
+            path.to_path_buf()
+        }
+        None => work.clone().or_else(|| home.map(Path::to_path_buf)).ok_or(BrowseError::NoStart)?,
+    };
+    let dir = std::fs::canonicalize(&start).map_err(|error| match error.kind() {
+        std::io::ErrorKind::PermissionDenied => BrowseError::Denied,
+        _ => BrowseError::NotFound,
+    })?;
+    if !dir.is_dir() {
+        return Err(BrowseError::NotAFolder);
+    }
+    let read = std::fs::read_dir(&dir).map_err(|error| match error.kind() {
+        std::io::ErrorKind::PermissionDenied => BrowseError::Denied,
+        _ => BrowseError::NotFound,
+    })?;
+    let mut truncated = false;
+    let mut rows: Vec<(bool, bool, String, Value)> = Vec::new();
+    for (index, entry) in read.filter_map(Result::ok).enumerate() {
+        if index >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        if name.chars().any(char::is_control) || (!hidden && name.starts_with('.')) {
+            continue;
+        }
+        let entry_path = entry.path();
+        // A link counts as the folder it points at (metadata follows it); a broken one is a file.
+        let is_dir = std::fs::metadata(&entry_path).is_ok_and(|m| m.is_dir());
+        if !is_dir && !files {
+            continue;
+        }
+        let repo = is_dir && entry_path.join(".git").exists();
+        rows.push((
+            !is_dir,
+            !repo,
+            name.to_lowercase(),
+            json!({
+                "name": name,
+                "path": entry_path.to_string_lossy(),
+                "kind": if is_dir { "dir" } else { "file" },
+                "repo": repo,
+            }),
+        ));
+    }
+    rows.sort_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+    if rows.len() > MAX_LIST_DIR {
+        truncated = true;
+        rows.truncate(MAX_LIST_DIR);
+    }
+    Ok(json!({
+        "path": dir.to_string_lossy(),
+        "parent": dir.parent().map(|parent| parent.to_string_lossy().into_owned()),
+        "home": home.and_then(|home| std::fs::canonicalize(home).ok()).map(|home| home.to_string_lossy().into_owned()),
+        "work": work.map(|work| work.to_string_lossy().into_owned()),
+        "entries": rows.into_iter().map(|row| row.3).collect::<Vec<_>>(),
+        "truncated": truncated,
+    }))
 }
 
 /// The answer for `home` (none: no default, no folders). `make`: a missing

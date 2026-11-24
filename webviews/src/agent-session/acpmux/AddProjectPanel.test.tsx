@@ -126,3 +126,28 @@ test("closes Add Project when the native chooser is cancelled", async () => {
   await choose("Local folder");
   expect(closed).toBe(1);
 });
+
+test("a chat on another machine opens in that machine's folders and picks one", async () => {
+  const container = installDom();
+  const picked: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <AddProjectPanel
+        machine="lab-box"
+        host={{
+          list: async () => ({ path: "/home/dev", parent: null, home: "/home/dev", directories: ["/home/dev/api"] }),
+        }}
+        onPick={(path) => picked.push(path)}
+        onClose={() => {}}
+      />,
+    );
+  });
+  await act(async () => Promise.resolve());
+  expect(container.querySelector('[data-add-project-step="directory"]')).toBeTruthy();
+  expect(container.textContent).toContain("lab-box");
+  expect(container.textContent).toContain("api");
+  expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Open in Finder")).toBe(
+    false,
+  );
+});

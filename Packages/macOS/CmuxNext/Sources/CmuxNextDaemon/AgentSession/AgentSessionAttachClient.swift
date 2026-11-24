@@ -134,6 +134,8 @@ public actor AgentSessionAttachClient {
         var presence = false
         /// `agent-session-folders-v1`.
         var folders = false
+        /// `agent-session-list-dir-v1`.
+        var listDir = false
         /// `agent-session-settings-v1`.
         var settings = false
         /// `agent-session-login-v1`.
@@ -554,6 +556,21 @@ public actor AgentSessionAttachClient {
         return (work, (object["folders"] as? [String] ?? []).filter(absolute))
     }
 
+    /// One folder of that machine's disk (`agent-session-list-dir-v1`): its folders (and files when
+    /// `files`), for the folder chooser. A nil `path` starts at the machine's work folder, else its
+    /// home. `nil` when the daemon lacks the verb (the page keeps the typed path); a folder that
+    /// cannot be listed comes back as `error` (a code and a sentence), never thrown.
+    public func listDirectory(_ path: String?, files: Bool = false, hidden: Bool = false) async throws -> Data? {
+        guard mode == .attach else { return nil }
+        _ = try await liveTransport()
+        guard served.listDir else { return nil }
+        var params: [String: any Sendable] = [:]
+        if let path { params["path"] = path }
+        if files { params["files"] = true }
+        if hidden { params["hidden"] = true }
+        return try await call("agent-session-list-dir", params)
+    }
+
     /// Whether this daemon accepts an omitted cwd on `agent-session-start`.
     /// Older daemons require a folder and must keep the work-folder fallback.
     public func supportsNoCwd() async throws -> Bool {
@@ -836,7 +853,7 @@ public actor AgentSessionAttachClient {
             object[key] = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         }
         object["cmd"] = cmd
-        object["surface"] = surface
+        if surface != 0 { object["surface"] = surface } // 0: no tab (a folder listing for a chat that starts on this machine)
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
         let fields = try JSONSerialization.data(withJSONObject: object)
         let response: LineTransport.Response
@@ -959,6 +976,7 @@ public actor AgentSessionAttachClient {
                             side: identity.supports(DaemonCapability.agentSessionSide.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
+                            listDir: identity.supports(DaemonCapability.agentSessionListDir.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
                             loginMachine: identity.supports(DaemonCapability.agentSessionLoginMachine.rawValue),

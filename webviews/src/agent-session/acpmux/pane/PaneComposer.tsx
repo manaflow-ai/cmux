@@ -28,6 +28,7 @@ import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { chooseRemoteFolder, RemoteFolderChooser } from "../RemoteFolderChooser";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -620,6 +621,7 @@ export function drawPaneComposer({
     (readOnlySubagent || !reviewing) && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        <RemoteFolderChooser />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
         </Notice>
@@ -1480,6 +1482,7 @@ export function drawPaneComposer({
                   },
                 }
               : {})}
+            {...(freshChat && !quick ? { onBrowseMachine: chooseRemoteFolder } : {})}
             onBrowseProject={
               folderChoiceOffered
                 ? chooseWorkspaceFolder

@@ -81,3 +81,104 @@ fn a_cloud_chat_folder_is_private_and_stable() {
     assert!(chat_folder(&home, 43, false).is_none());
     let _ = std::fs::remove_dir_all(home);
 }
+
+#[test]
+fn list_dir_starts_at_the_work_folder_and_lists_repositories_first() {
+    let home = temp("listdir");
+    let work = home.join("work");
+    for dir in ["zeta", "Alpha", ".hidden", "repo/.git", "beta"] {
+        std::fs::create_dir_all(work.join(dir)).unwrap();
+    }
+    std::fs::write(work.join("notes.txt"), "x").unwrap();
+    let got = browse(Some(&home), None, false, false).unwrap();
+    assert_eq!(got["path"], json!(work.to_string_lossy()));
+    assert_eq!(got["parent"], json!(home.to_string_lossy()));
+    assert_eq!(got["home"], json!(home.to_string_lossy()));
+    assert_eq!(got["work"], json!(work.to_string_lossy()));
+    let names: Vec<&str> =
+        got["entries"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["repo", "Alpha", "beta", "zeta"]);
+    assert_eq!(got["entries"][0]["repo"], true);
+    assert_eq!(got["entries"][1]["repo"], false);
+    assert_eq!(got["entries"][0]["path"], json!(work.join("repo").to_string_lossy()));
+    assert_eq!(got["truncated"], false);
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
+fn list_dir_without_a_work_folder_starts_at_home_and_can_show_files_and_hidden() {
+    let home = temp("listhome");
+    std::fs::create_dir_all(home.join(".config")).unwrap();
+    std::fs::create_dir_all(home.join("src")).unwrap();
+    std::fs::write(home.join("a.txt"), "x").unwrap();
+    let got = browse(Some(&home), Some(""), true, true).unwrap();
+    assert_eq!(got["path"], json!(home.to_string_lossy()));
+    assert_eq!(got["work"], Value::Null);
+    let kinds: Vec<(String, String)> = got["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["name"].as_str().unwrap().into(), e["kind"].as_str().unwrap().into()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (".config".into(), "dir".into()),
+            ("src".into(), "dir".into()),
+            ("a.txt".into(), "file".into())
+        ]
+    );
+    let plain = browse(Some(&home), Some(&home.to_string_lossy()), false, false).unwrap();
+    assert_eq!(plain["entries"].as_array().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
+fn list_dir_names_why_a_folder_cannot_be_listed() {
+    let home = temp("listerr");
+    std::fs::write(home.join("file"), "x").unwrap();
+    let err = |path: &str| browse(Some(&home), Some(path), false, false).unwrap_err();
+    assert_eq!(err("work/api"), BrowseError::NotAbsolute);
+    assert_eq!(err("~/work"), BrowseError::NotAbsolute);
+    assert_eq!(err(&home.join("missing").to_string_lossy()), BrowseError::NotFound);
+    assert_eq!(err(&home.join("file").to_string_lossy()), BrowseError::NotAFolder);
+    assert_eq!(browse(None, None, false, false).unwrap_err(), BrowseError::NoStart);
+    assert_eq!(BrowseError::NotFound.code(), "list_dir.not_found");
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
+fn list_dir_parent_is_none_at_the_root_and_a_huge_folder_is_capped() {
+    let root = browse(None, Some("/"), false, false).unwrap();
+    assert_eq!(root["parent"], Value::Null);
+    let home = temp("listcap");
+    for i in 0..(MAX_LIST_DIR + 5) {
+        std::fs::create_dir(home.join(format!("d{i:04}"))).unwrap();
+    }
+    let got = browse(Some(&home), Some(&home.to_string_lossy()), false, false).unwrap();
+    assert_eq!(got["entries"].as_array().unwrap().len(), MAX_LIST_DIR);
+    assert_eq!(got["truncated"], true);
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[cfg(unix)]
+#[test]
+fn list_dir_lists_a_symlinked_folder_as_a_folder_with_its_own_path() {
+    let home = temp("listlink");
+    let elsewhere = temp("listlink-target");
+    std::os::unix::fs::symlink(&elsewhere, home.join("shortcut")).unwrap();
+    let got = browse(Some(&home), Some(&home.to_string_lossy()), false, false).unwrap();
+    assert_eq!(got["entries"][0]["kind"], "dir");
+    assert_eq!(got["entries"][0]["path"], json!(home.join("shortcut").to_string_lossy()));
+    let _ = std::fs::remove_dir_all(home);
+    let _ = std::fs::remove_dir_all(elsewhere);
+}
+
+#[test]
+fn list_dir_params_need_no_tab_for_a_chat_that_starts_here_from_another_mac() {
+    let none: ListDirParams = serde_json::from_value(json!({"path": "/srv"})).unwrap();
+    assert!(none.surface.is_none());
+    let some: ListDirParams = serde_json::from_value(json!({"surface": 3})).unwrap();
+    assert!(some.surface.is_some());
+    assert!(serde_json::from_value::<ListDirParams>(json!({"surface": 3, "bogus": 1})).is_err());
+}
