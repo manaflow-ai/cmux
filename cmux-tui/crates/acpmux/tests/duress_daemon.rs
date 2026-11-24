@@ -75,7 +75,9 @@
 //! `host150` (Leo's laptop, 2026-11-23: load 10 x cores, memory and swap pressure, 40 peers, a
 //! fork storm at about 40 processes a second) and `peerscale` (the baseline at 1, 10, 20 and 40
 //! peers) are named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
-//! count (default 2). Every leg's row also carries the presence gap, link drops, peer links,
+//! count (default 2). `cutall` and `cutallload` (every peer link cut at once at 1, 10, 20 and 40
+//! peers, quiet or under host150's load: `support/duress_cutall.rs`) are named on purpose too.
+//! Every leg's row also carries the presence gap, link drops, peer links,
 //! frames on the wire, peer notice gauges, spawns per second and a tool call's cost
 //! (`support/duress_host150.rs`).
 //!
@@ -279,6 +281,10 @@ impl Stress {
             "host150" => s.host150 = true,
             // peerscaleN: the baseline at N peers (`host150::peers_for`).
             l if l.starts_with("peerscale") => {}
+            // cutallloadN: every peer link cut at once under host150's load; cutallN: quiet
+            // (`support/duress_cutall.rs`).
+            l if l.starts_with(host150::cutall::LOAD_LEG) => s.host150 = true,
+            l if l.starts_with(host150::cutall::LEG) => {}
             // starved: the daemon pinned with its load, capped and far (`host150::starved`).
             "starved" => {}
             _ => unreachable!(),
@@ -1686,6 +1692,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     notes.append(&mut extras.notes);
     stress_json.extend(extras.stress.clone());
 
+    // The cut-all legs cut every peer link once the window runs (`support/duress_cutall.rs`).
+    let cutting = host150::cutall::n(name).is_some();
     // The kills: one harness and the external session's process.
     let harness_name = names.first().cloned();
     let harness_pid = harness_name.as_ref().and_then(|n| harness_in(&work.join(n)));
@@ -1704,7 +1712,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             .filter(|k| Some(*k) != harness_name.as_ref() && Some(*k) != external_key.as_ref())
             // A cut peer's rows reading disconnected is the truth, not a false dead: only the
             // local sessions are tracked while the peers are cut (peer keys are `peer/id`).
-            .filter(|k| !((stress.peercut || stress.bigchat) && k.contains('/')))
+            .filter(|k| !((stress.peercut || stress.bigchat || cutting) && k.contains('/')))
             .cloned()
             .collect(),
         harness: harness_pid.and(harness_name.clone()),
@@ -1725,6 +1733,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let window_open = host150::Window::open(&daemon.socket, daemon.pid(), &wire_now(), &daemon.log);
     let presence =
         host150::Presence::start(&daemon.socket, &peer_names, &cut_peers, daemon.pid(), until);
+    let cut_all = cutting.then(|| {
+        let handles = proxies
+            .iter()
+            .map(|p| host150::cutall::CutHandle { links: p.links.clone(), wire: p.wire.clone() })
+            .collect();
+        host150::cutall::CutAll::start(&daemon.socket, handles, peer_names.clone())
+    });
     let hub_requests_before = hub.requests.load(Ordering::SeqCst);
     let hub_paths_before = hub.paths.lock().unwrap().clone();
 
@@ -1899,6 +1914,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let _ = poller.join();
+    let cut_all = cut_all.map(host150::cutall::CutAll::join);
     let measures = host150::close(
         window_open,
         &extras,
@@ -2034,6 +2050,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let mut row = row;
     if let Value::Object(m) = &mut row {
         m.extend(measures);
+        if let Some(c) = cut_all {
+            m.insert("cutAll".into(), c);
+        }
     }
     row["summary"] = json!(summary(&row));
     let _ = external.kill();

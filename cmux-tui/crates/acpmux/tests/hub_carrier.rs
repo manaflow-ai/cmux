@@ -3176,3 +3176,197 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+// ---- Hub scale: N far machines over one carrier, one kept circuit each (ask ee32c80a2c). ----
+
+/// The platform's answers for one machine of many: its own slot, the keys it lets in, and the
+/// slot of each machine it may connect to.
+struct SlotTickets {
+    relay: String,
+    slot: String,
+    lets_in: Vec<String>,
+    slots: BTreeMap<String, String>,
+}
+
+#[async_trait::async_trait]
+impl Tickets for SlotTickets {
+    async fn register(&self) -> Result<CarrierAnswer, String> {
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": self.slot, "ticket": "open-register",
+            "expires_at": 0, "peers": self.lets_in,
+        }))
+        .unwrap())
+    }
+
+    async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        let slot = self.slots.get(peer).ok_or("machine.not_found")?;
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": slot, "ticket": "open-connect",
+            "expires_at": 0, "peer_key": peer,
+        }))
+        .unwrap())
+    }
+}
+
+/// One run of the hub path at `n` peers: A's peers `peerNN` each on its own far machine, whose
+/// only working route is A's one hub carrier (their URLs are dead). Once every link reads
+/// connected, the carrier is watched for four probe periods (the hub path's probes come every
+/// [`acpmux::peer_paths::PROBE_EVERY`]): the kept circuits open to each machine at most, the
+/// plain circuits A dialed (a probe on its own circuit would be one), and the streams riding.
+async fn hub_scale_run(n: usize) -> Value {
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        max_allocations_per_second_per_slot: 1_000,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let key_a = random_key();
+    let keys: Vec<[u8; 32]> = (0..n).map(|_| random_key()).collect();
+    let mut far = Vec::new();
+    let mut tokens = Vec::new();
+    let mut homes = Vec::new();
+    for (i, key) in keys.iter().enumerate() {
+        let home = tempfile::tempdir().unwrap();
+        let auth = PeerAuth::create(home.path()).unwrap();
+        tokens.push(
+            std::fs::read_to_string(acpmux::server::peer_auth::token_path(home.path())).unwrap(),
+        );
+        homes.push(home);
+        let b = hub();
+        let l = bind_ws("127.0.0.1:0").await.unwrap();
+        let b_ws = l.local_addr().unwrap();
+        let ws_auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+        tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws_auth));
+        let tickets = Arc::new(SlotTickets {
+            relay: route.clone(),
+            slot: format!("hubscale-slot-{i:02}"),
+            lets_in: vec![public(&key_a)],
+            slots: BTreeMap::new(),
+        });
+        let carrier = HubCarrier::new(tickets, *key, fast);
+        carrier.serve_kept_circuits(true);
+        let serving = carrier.serve(b_ws);
+        far.push((b, carrier, serving));
+    }
+    let slots: BTreeMap<String, String> = keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (public(k), format!("hubscale-slot-{i:02}")))
+        .collect();
+    let a = hub();
+    let carrier_a = HubCarrier::new(
+        Arc::new(SlotTickets {
+            relay: route.clone(),
+            slot: "hubscale-slot-a".into(),
+            lets_in: keys.iter().map(public).collect(),
+            slots,
+        }),
+        key_a,
+        fast,
+    );
+    a.hub_carrier.set(carrier_a.clone());
+    let names: Vec<String> = (0..n).map(|i| format!("peer{i:02}")).collect();
+    for (i, name) in names.iter().enumerate() {
+        carrier_a.set_route(name, &public(&keys[i]));
+    }
+    let started = std::time::Instant::now();
+    for (i, name) in names.iter().enumerate() {
+        let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        a.add_peer(
+            name,
+            &format!("ws://{dead}"),
+            Some("tok".into()),
+            Some(tokens[i].clone()),
+            false,
+        )
+        .await
+        .unwrap();
+    }
+    // Every link up: awaited on the peers' states, up to 90 s.
+    let connected =
+        |a: &Hub| a.peers().iter().filter(|p| p["state"].as_str() == Some("connected")).count();
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    while connected(&a) < n && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let connected_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let up = connected(&a);
+    let stats = carrier_a.stats();
+    let read = |c: &AtomicU64| c.load(Ordering::Relaxed);
+    let (plain0, kept0) = (read(&stats.dials), read(&stats.kept_circuits));
+    let mut most = vec![0usize; n];
+    let mut streams_most = vec![0usize; n];
+    // A window to see whether probes open circuits of their own; nothing can be awaited for an
+    // absence, so it is sampled at 4 Hz over four probe periods.
+    let watch = acpmux::peer_paths::PROBE_EVERY * 4;
+    let watch_end = std::time::Instant::now() + watch;
+    let mut min_connected = up;
+    while std::time::Instant::now() < watch_end {
+        for (i, key) in keys.iter().enumerate() {
+            let daemon = public(key);
+            most[i] = most[i].max(carrier_a.kept_circuits(&daemon));
+            streams_most[i] = streams_most[i].max(carrier_a.kept_streams(&daemon).unwrap_or(0));
+        }
+        min_connected = min_connected.min(connected(&a));
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let row = json!({
+        "peers": n,
+        "connected": up,
+        "connectedMs": connected_ms,
+        "minConnectedInWatch": min_connected,
+        "watchSecs": watch.as_secs(),
+        "hubCircuitsPerMachineMax": most.iter().max(),
+        "hubCircuitsPerMachineMin": most.iter().min(),
+        "machinesOverOneCircuit": most.iter().filter(|c| **c > 1).count(),
+        "streamsPerMachineMax": streams_most.iter().max(),
+        "keptCircuitsOpened": read(&stats.kept_circuits),
+        "keptCircuitsOpenedInWatch": read(&stats.kept_circuits) - kept0,
+        "plainCircuits": read(&stats.dials),
+        "plainCircuitsInWatch": read(&stats.dials) - plain0,
+        "keptStreamOpens": read(&stats.kept_opens),
+    });
+    println!("HUBSCALE {row}");
+    for (_, carrier, _) in &far {
+        let _ = carrier.cut_kept(&public(&key_a)).await;
+    }
+    drop(far);
+    drop(homes);
+    row
+}
+
+/// The hub path at 1, 10, 20 and 40 peers (`hubscale=1,10` after `--` picks counts; run on
+/// demand: `cargo test -p acpmux --features hub-carrier --test hub_carrier hub_carrier_peerscale
+/// -- --ignored --nocapture`). Each far machine gets one kept circuit, and the peer link and its
+/// hub probes ride it as streams: no plain circuit opens, at any count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "numbers on demand"]
+async fn hub_carrier_peerscale_one_circuit_per_machine() {
+    let _ = HERMETIC;
+    let counts: Vec<usize> = std::env::args()
+        .find_map(|a| a.strip_prefix("hubscale=").map(str::to_owned))
+        .map(|v| v.split(',').filter_map(|n| n.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![1, 10, 20, 40]);
+    let mut rows = Vec::new();
+    for n in counts {
+        rows.push(hub_scale_run(n).await);
+    }
+    for row in &rows {
+        let n = row["peers"].as_u64().unwrap();
+        assert_eq!(row["connected"].as_u64(), Some(n), "{row}");
+        assert_eq!(row["hubCircuitsPerMachineMax"].as_u64(), Some(1), "{row}");
+        assert_eq!(row["plainCircuits"].as_u64(), Some(0), "a circuit beside the kept one: {row}");
+    }
+}
