@@ -114,7 +114,7 @@ def css_block(data):
     lines.append("  --text-control--letter-spacing: var(--text-body--letter-spacing);")
     lines.append("  /* Reading content (transcript, markdown, the prompt): the user's agent pane font size. */")
     lines.append("  --text-content: var(--cv-font-size, 14px);")
-    lines.append("  --text-content--line-height: var(--cv-line-height, 22.75px);")
+    lines.append("  --text-content--line-height: var(--cv-line-height, 23px);")
     for weight in data["weights"]:
         lines.append("  --weight-%s: %s; /* %s */" % (weight["name"], weight["weight"], weight["for"]))
     lines += ["}", END]

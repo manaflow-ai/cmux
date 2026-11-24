@@ -43,16 +43,16 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "paragraph",
     between: "one paragraph's last line and the next paragraph's first line, centre to centre",
-    value: 34.75,
+    value: 35,
     tolerance: 1,
-    source: "our 22.75 line + grid inner gap 12; claude.ai 21 + 11.25, chatgpt.com 26 + 16",
+    source: "our 23 line + grid inner gap 12; claude.ai 21 + 11.25, chatgpt.com 26 + 16",
   },
   {
     id: "prose-to-footer",
     between: "a reply's last line centre and its footer's first icon glyph centre",
-    value: 35.375,
+    value: 35.5,
     tolerance: 1,
-    source: "11.375 + 8 to a 32 button + 16; claude.ai 8 to its button, chatgpt.com 5",
+    source: "11.5 + 8 to a 32 button + 16; claude.ai 8 to its button, chatgpt.com 5",
   },
   {
     id: "footer-to-next",
@@ -138,9 +138,9 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   {
     id: "body-line",
     between: "two wrapped lines of one paragraph, centre to centre",
-    value: 22.75,
+    value: 23,
     tolerance: 0.5,
-    source: "our 14 on 22.75 (holds); ChatGPT desktop, Codex desktop and chatgpt.com 24; Claude Code desktop ~15 on 20",
+    source: "our 14 on 23 (holds); ChatGPT desktop, Codex desktop and chatgpt.com 24; Claude Code desktop ~15 on 20",
   },
   {
     id: "footer-to-received",
@@ -374,10 +374,10 @@ export const FOOTER = {
 
 /** The person's prompt bubble (design/transcript-spacing.md, "Prompt bubble"). */
 export const BUBBLE = {
-  /** A one-line bubble's height, edge to edge, at the default reading size: its 22.75 line and the
+  /** A one-line bubble's height, edge to edge, at the default reading size: its 23 line and the
    * Codex block padding of 10 above and below (conversation.css --cv-bubble-pad-block, #42247), at
    * any reading size. chatgpt.com 44, claude.ai and Claude Code desktop 45. */
-  oneLine: 42.75,
+  oneLine: 43,
   /** chatgpt.com and claude.ai 16. */
   paddingInline: 16,
   /** claude.ai and Claude Code desktop 12 (ChatGPT's 22 superellipse is a pill; Leo: no capsule pills). */

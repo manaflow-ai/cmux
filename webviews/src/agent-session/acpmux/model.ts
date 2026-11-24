@@ -1748,7 +1748,7 @@ export type ConversationLayout = {
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
-/// system-ui on 22.75px lines and 12px code on 20px lines by default.
+/// system-ui on 23px lines and 12px code on 20px lines by default.
 /// While a reply or a prompt is measured, its own text (a transcript look's `reply.*` and
 /// `userMessage.font*`, chatDisplay.ts ChatMetrics `reply` and `prompt`; conversation.css rebinds the
 /// same font, size and line inside `.cv-reply` and `.cv-user__bubble`).

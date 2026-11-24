@@ -24,7 +24,7 @@ describe("chat display resolution", () => {
     expect(Object.values(chatDisplayVariables(display)).every((value) => value === null)).toBe(true);
     const metrics = chatMetrics(display);
     expect(metrics.measureFont).toBe("14px -apple-system, BlinkMacSystemFont, system-ui, sans-serif");
-    expect(metrics.lineHeight).toBe(22.75);
+    expect(metrics.lineHeight).toBe(23);
     expect(metrics.codeLineHeight).toBe(20);
     expect(metrics.inlineCodeSize).toBe(13);
     expect(metrics.blockCodeSize).toBe(12);
@@ -35,7 +35,7 @@ describe("chat display resolution", () => {
     for (const t of [0.8, 1, 1.2]) {
       const variables = chatDisplayVariables(custom, t);
       expect(variables["--cv-base-font-size"]).toBe("18px");
-      expect(variables["--cv-base-line-height"]).toBe(`${custom.fontSize * custom.lineHeight}px`);
+      expect(variables["--cv-base-line-height"]).toBe(`${Math.round(custom.fontSize * custom.lineHeight)}px`);
       const defaults = chatDisplayVariables(DEFAULT_CHAT_DISPLAY, t);
       expect(defaults["--cv-base-font-size"]).toBeNull();
       expect(defaults["--cv-base-line-height"]).toBeNull();

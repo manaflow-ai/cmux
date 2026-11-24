@@ -32,17 +32,17 @@ for (const [font, expected] of [
   [
     14,
     [
-      [65.5, FOLDED, 88.25],
-      [42.75, 247.5, 42.75],
-      [42.75, 133.75, 42.75],
+      [66, FOLDED, 89],
+      [43, 250, 43],
+      [43, 135, 43],
     ],
   ],
   [
     20,
     [
-      [85, FOLDED, 117.5],
-      [52.5, 345, 52.5],
-      [52.5, 182.5, 52.5],
+      [86, FOLDED, 119],
+      [53, 350, 53],
+      [53, 185, 53],
     ],
   ],
 ] as const) {
@@ -103,7 +103,7 @@ test("thematic breaks keep the same padding at different reading sizes", () => {
 
 test("a large reading font retains the bubble padding before measurement", () => {
   setChatDisplay({ "agentPane.display.font.size": 28 });
-  expect(height(prompt("Short"), 720)).toBeCloseTo(65.5, 5);
+  expect(height(prompt("Short"), 720)).toBeCloseTo(66, 5);
 });
 
 test("plain height follows width and font changes without stale placement", () => {

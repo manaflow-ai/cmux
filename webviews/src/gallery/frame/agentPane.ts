@@ -21,7 +21,7 @@ export function agentPaneFontCSS(font: string, size: number): string {
   const rules: string[] = [];
   if (font) rules.push(`--cv-font: ${font};`, `--agent-host-font-family: ${font};`);
   if (size) {
-    const lineHeight = Math.round(size * 1.625 * 100) / 100;
+    const lineHeight = Math.round(size * 1.625);
     rules.push(
       `--cv-font-size: ${size}px;`,
       `--cv-line-height: ${lineHeight}px;`,
