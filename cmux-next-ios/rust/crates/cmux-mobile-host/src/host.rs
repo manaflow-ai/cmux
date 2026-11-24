@@ -257,6 +257,9 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         None
     };
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // Phones beside this Mac link through its local hub with no Worker and
+    // no internet (local_link.rs); it outlives every Worker reconnect.
+    let _local_link = crate::local_link::start(&config, &services, &mailbox).await;
     // This Mac reaching the person's other machines through the same warm
     // socket (`link_socket.rs`); only with the app, which holds the identity key.
     let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
