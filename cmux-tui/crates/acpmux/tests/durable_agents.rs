@@ -64,6 +64,8 @@ mod stop_if_idle_unadopted;
 mod streaming_restart_gap;
 #[path = "durable_agents/take_over_dark_time.rs"]
 mod take_over_dark_time;
+#[path = "durable_agents/take_over_replaced_binary.rs"]
+mod take_over_replaced_binary;
 #[path = "durable_agents/take_over_under_load.rs"]
 mod take_over_under_load;
 #[path = "durable_agents/transfer_authority.rs"]

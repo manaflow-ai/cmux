@@ -1328,7 +1328,7 @@
               }
             }
           ],
-          "default": "folder",
+          "default": "auto",
           "keywords": [
             "sidebar",
             "group",
@@ -2558,7 +2558,7 @@
             "customize",
             "tokens"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2632,7 +2632,7 @@
             "agent",
             "browser"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2703,7 +2703,7 @@
             "claude",
             "codex"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true

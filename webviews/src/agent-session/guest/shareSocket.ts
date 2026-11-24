@@ -3,7 +3,7 @@
 // starts with a `snapshot`; records at or below the newest seq held are dropped, so a record the
 // snapshot already had, or one sent twice, folds once. A closed socket reconnects after a one-shot
 // backoff timer and gets a fresh snapshot; `end` and `kicked` stop it for good.
-import type { EventRecord } from "../acpmux/direct";
+import type { EventRecord } from "../acpmux/eventRecord";
 
 export type GuestChat = { title?: string; harness?: string; status?: string };
 export type GuestParticipant = { id: string; name: string; kind?: string; viewing?: boolean; typing?: boolean };

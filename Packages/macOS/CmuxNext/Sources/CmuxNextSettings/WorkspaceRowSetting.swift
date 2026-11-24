@@ -35,6 +35,12 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
         root + (kind.map { [$0.rawValue] } ?? []) + [orderKey]
     }
 
+    /// The All Workspaces order a kind's order key follows while it has no value (``parse(_:diagnostics:)``
+    /// keeps the base order for it); nil for any other path.
+    public static func inheritedOrderPath(for path: [String]) -> [String]? {
+        WorkspaceRowKind.allCases.contains { orderPath(kind: $0) == path } ? orderPath() : nil
+    }
+
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowPreferences {
         var shown = Set(WorkspaceRowElement.allCases.filter(Self.fallback))
         for element in WorkspaceRowElement.allCases {

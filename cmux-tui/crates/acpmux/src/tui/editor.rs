@@ -30,6 +30,10 @@ impl Editor {
     pub fn text(&self) -> String {
         self.chars.iter().collect()
     }
+    /// The text as chars, to compare without building a String.
+    pub fn chars(&self) -> &[char] {
+        &self.chars
+    }
     pub fn is_empty(&self) -> bool {
         self.chars.is_empty()
     }
