@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
+public import CmuxNextTabs
 
 /// The hover card's miniature of a workspace's splits (``SidebarPaneShape``), read from its shown screen's tree.
 extension SidebarMapping {
@@ -13,7 +14,7 @@ extension SidebarMapping {
         func pane(_ handle: PaneID) -> SidebarPaneShape {
             let model = screen.pane(handle)
             let tab = model.flatMap { $0.tabs.indices.contains($0.defaultTabIndex) ? $0.tabs[$0.defaultTabIndex] : $0.tabs.first }
-            return .pane(.init(kind: tab.map(kind), focused: handle == focused))
+            return .pane(.init(kind: tab.map(kind), focused: handle == focused, tab: tab?.id))
         }
         func shape(_ node: LayoutNode) -> SidebarPaneShape? {
             switch node {
@@ -39,6 +40,12 @@ extension SidebarMapping {
         }
         guard let made, made.paneCount > 1 else { return nil }
         return made
+    }
+
+    /// The pictures for the miniature's tiles: each tab's, from the hover cards' preview source.
+    @MainActor
+    public static func paneImages(from provider: any TabPreviewProvider) -> SidebarPaneImageSource {
+        { tab, size in await provider.previewImage(for: CmuxNextTabs.TabID(tab), maxPixelSize: size) }
     }
 
     /// The miniature's kind for a pane's front tab: its agent, its page or its terminal.

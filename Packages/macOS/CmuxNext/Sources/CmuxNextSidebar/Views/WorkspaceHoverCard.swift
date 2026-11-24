@@ -58,6 +58,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
     var timelineSource: SidebarTimelineSource?
+    /// A tab's picture for the split miniature's tiles (tab id, largest size in pixels); the App injects it.
+    var paneImageSource: SidebarPaneImageSource?
+    private var paneImageTask: Task<Void, Never>?
     /// How many moments a card reads: its stats count them all, its list shows `maxRows`.
     static let timelineReadLimit = 100
     /// The shown card's custom content and its workspace; released when the card hides or moves.
@@ -224,13 +227,31 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
-        body.configurePaneShape(workspace.paneShape)
+        body.configurePaneShape(workspace.paneShape, tabs: workspace.tabs)
+        loadPaneImages(for: body)
         return content
     }
 
     private func cardBody(_ body: WorkspaceHoverCardView, in list: SidebarListView) -> HoverCardBody {
         HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
                       cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
+    }
+
+    /// Pictures the miniature's tiles: each pane's front tab, asked of the App's preview source off the card's
+    /// open (a tile shows its title and state until its picture lands, and keeps them when the tab has none).
+    private func loadPaneImages(for body: WorkspaceHoverCardView) {
+        paneImageTask?.cancel()
+        guard let source = paneImageSource else { return }
+        let tabs = body.paneShape.tabIDs
+        guard !tabs.isEmpty else { return }
+        let side = WorkspacePaneShapeView.height * 2 * (body.window?.backingScaleFactor ?? 2)
+        paneImageTask = Task { [weak body] in
+            for tab in tabs {
+                let image = await source(tab, CGSize(width: side, height: side))
+                guard !Task.isCancelled, let body else { return }
+                body.paneShape.setImage(image, for: tab)
+            }
+        }
     }
 
     /// A group header's summary card (`GroupHoverCardSummary`): no sampling, no ticker.
@@ -282,6 +303,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func requestDetails(for ws: WorkspaceID) { detailsRequested = Self.targetID(ws) }
 
     func hoverCardDeactivated(_ id: HoverTargetID) {
+        paneImageTask?.cancel()
         if detailsRequested == id { detailsRequested = nil }
         resources.close()
         body?.resetResourceHistory()
@@ -881,10 +903,16 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
     /// Shows `shape`, the workspace's splits, under the title; nil hides the miniature.
-    func configurePaneShape(_ shape: SidebarPaneShape?) {
+    func configurePaneShape(_ shape: SidebarPaneShape?, tabs: [SidebarTab] = []) {
+        let captions = Dictionary(tabs.map { tab in
+            (tab.id.rawValue, WorkspacePaneShapeView.Caption(title: WorkspaceTabHoverCardLine.title(tab),
+                                                             state: WorkspaceTabHoverCardLine.stateWord(tab.state)))
+        }, uniquingKeysWith: { first, _ in first })
+        paneShape.captions = captions
         guard paneShape.shape != shape else { return }
         contentChanged()
         paneShape.shape = shape
+        paneShape.pruneImages(keeping: paneShape.tabIDs)
     }
 
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {

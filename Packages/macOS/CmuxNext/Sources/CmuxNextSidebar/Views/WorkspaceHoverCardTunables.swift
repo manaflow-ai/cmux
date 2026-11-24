@@ -5,7 +5,7 @@ public import CmuxNextDesign
 /// I feel like there's something that is kind of sort of redundant there ... do we even want to show the workspace
 /// title at all, to be honest? Because, like, if you're hovering over it, you already see the workspace title."
 public nonisolated enum WorkspaceHoverCardTitle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The name, unless the workspace's one tab already reads it (the default): the tab row is the name.
+    /// The name, unless one of the workspace's tabs already reads it (the default): that row is the name.
     case unlessRepeated
     /// The name above the tabs on every card (before 2026-11-09).
     case always
@@ -14,7 +14,7 @@ public nonisolated enum WorkspaceHoverCardTitle: String, Sendable, CaseIterable,
 
     public var tunableTitle: String {
         switch self {
-        case .unlessRepeated: "Unless its one tab repeats it"
+        case .unlessRepeated: "Unless a tab repeats it"
         case .always: "Always"
         case .withDetails: "Only with details"
         }
@@ -27,8 +27,10 @@ public nonisolated enum WorkspaceHoverCardTitle: String, Sendable, CaseIterable,
         case .always: return true
         case .withDetails: return false
         case .unlessRepeated:
-            guard tabTitles.count == 1, let only = tabTitles.first else { return true }
-            return Self.normalized(only) != Self.normalized(title)
+            // Any row that reads the name makes the header a second copy of it (Leo 2026-11-24, "this idk": a
+            // "Projects" header over a list that also had a "Projects" row).
+            let name = Self.normalized(title)
+            return !tabTitles.contains { Self.normalized($0) == name }
         }
     }
 
@@ -58,7 +60,7 @@ public nonisolated enum WorkspaceHoverCardLeaveStyle: String, Sendable, CaseIter
 nonisolated extension SidebarTunables {
     public static let workspaceHoverCardTitle = Tunable<WorkspaceHoverCardTitle>.choice(
         "sidebar.hoverCards.workspaceTitle", .sidebar, "Workspace hover card name",
-        help: "When the workspace hover card shows the workspace's name above its tabs: unless its one tab repeats it, always, or only with details.",
+        help: "When the workspace hover card shows the workspace's name above its tabs: unless one of its tabs repeats it, always, or only with details.",
         default: .unlessRepeated, code: "SidebarTunables.workspaceHoverCardTitle")
 
     public static let workspaceHoverCardLeave = Tunable<WorkspaceHoverCardLeaveStyle>.choice(

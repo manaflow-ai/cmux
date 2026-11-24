@@ -2828,3 +2828,13 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+
+## The hover card's tiles say something (2026-11-24)
+
+Leo, 2026-11-24 06:25Z, "this idk", on two hover cards: split-miniature tiles that were empty boxes with one icon, and a
+list with a "Projects" header over a "Projects" row. Target look: a split tile shows its front tab's picture (the App's
+preview source, as the tab's own card) filling the tile; with none yet, or none ever, it shows the tab's title and state
+word (and its kind mark when tall enough), never a bare glyph. The workspace name header is left out when any tab row
+reads it (`WorkspaceHoverCardTitle.unlessRepeated`, was only a lone tab). A tab card's picture frame with no picture
+captions its glyph with the tab's status line or place. The miniature is 88 pt tall (was 64).
+  Sidebar-Look: Leo, 2026-11-24: "this idk"
