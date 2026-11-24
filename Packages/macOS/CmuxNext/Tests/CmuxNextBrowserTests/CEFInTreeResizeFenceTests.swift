@@ -127,8 +127,6 @@ import Testing
         #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: false, refreshMs: 16.67) == 17)
         #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: false, refreshMs: 8.33) == 4)
         #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: false, refreshMs: 16.67) == 8)
-        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, liveResize: true, fullScreenTransition: false, refreshMs: 8.33) == 500)
-        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, liveResize: true, fullScreenTransition: true, refreshMs: 8.33) == nil)
     }
 }
 

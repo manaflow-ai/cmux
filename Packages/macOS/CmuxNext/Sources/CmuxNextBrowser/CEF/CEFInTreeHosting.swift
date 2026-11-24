@@ -295,7 +295,7 @@ final class CEFInTreeHosting {
     private var windowSizeAtLastResize: CGSize?
 
     /// The host view took a new size in this turn: the page's compositor resized in that layout, and the page joins the
-    /// window's resize fence for this turn with the wait ``fenceTimeoutMs(windowResized:liveResize:fullScreenTransition:refreshMs:)``
+    /// window's resize fence for this turn with the wait ``fenceTimeoutMs(windowResized:fullScreenTransition:refreshMs:)``
     /// gives, so the render server shows the window's commit with the page's first frame at the new size. The main thread
     /// waits for nothing; a miss shows the last frame, pinned top-left and clipped by the container.
     ///
@@ -314,7 +314,6 @@ final class CEFInTreeHosting {
         windowSizeAtLastResize = windowSize
         let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
         guard let wait = Self.fenceTimeoutMs(windowResized: windowResized || window.inLiveResize,
-                                             liveResize: window.inLiveResize,
                                              fullScreenTransition: Motion.isFullScreenTransitioning(window),
                                              refreshMs: refreshMs) else { return }
         let timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs : wait
@@ -323,29 +322,20 @@ final class CEFInTreeHosting {
         }
     }
 
-    /// The longest a live resize of the window holds its commit for a page's frame: Chrome's `kUIPaintTimeout`.
-    nonisolated static let liveResizeWaitMs: Int32 = 500
-
     /// How long a page resize holds the window's commit for the page's frame (``pageViewResized()``), in ms; nil holds
     /// nothing.
     /// - A full screen transition holds nothing: AppKit animates a snapshot, and Chrome's window waits for no frame in
     ///   it either (`ShouldWaitInPreCommit`, crbug.com/875707).
-    /// - A live resize of the window (its edge or corner dragged) waits up to ``liveResizeWaitMs``, Chrome's own
-    ///   `kUIPaintTimeout` for its window (`NativeWidgetNSWindowBridge::PreCommitTimeout`): a page whose frame at the new
-    ///   size takes longer than a display frame still shows with its window. With a one-frame wait every corner-drag
-    ///   fence missed on the other Mac (presented 0 of 60, a gutter in 132 of 467 frames).
-    /// - Another resize of the window itself (a zoom, a frame set by a script) waits up to one display frame (at least
-    ///   8 ms), as before: the window and the page take the new size in one frame.
+    /// - A resize of the window itself waits up to one display frame (at least 8 ms), as before: the window and the page
+    ///   take the new size in one frame.
     /// - A resize inside the window (a divider drag, a pane spring) waits at most half a display frame
     ///   (``CEFResizeSyncDeadline/frameShare``, the layer-hosted pages' cap): a page that draws in time shows with its
     ///   pane, and a slow one shows its last frame, pinned top-left and clipped, instead of making the window miss its
     ///   frame. Measured on the other Mac (c76917cb, 120 fps recorder): no wait, 189 of 504 divider-drag frames a frame
     ///   stale; the full wait, 10 of 503 at the same frame count, but the user's heavy page dropped to about 28 of 60
     ///   frames a second with it (defects.md 8).
-    nonisolated static func fenceTimeoutMs(windowResized: Bool, liveResize: Bool = false, fullScreenTransition: Bool,
-                                           refreshMs: Double) -> Int32? {
+    nonisolated static func fenceTimeoutMs(windowResized: Bool, fullScreenTransition: Bool, refreshMs: Double) -> Int32? {
         if fullScreenTransition { return nil }
-        if liveResize { return liveResizeWaitMs }
         if windowResized { return Int32(max(8, refreshMs.rounded(.up))) }
         return Int32(max(1, (refreshMs * CEFResizeSyncDeadline.frameShare).rounded(.down)))
     }
