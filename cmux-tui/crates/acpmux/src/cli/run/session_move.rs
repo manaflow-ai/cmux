@@ -764,6 +764,7 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
         from: None,
         slow_ok: false,
         from_snapshot: false,
+        as_harness: None,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
