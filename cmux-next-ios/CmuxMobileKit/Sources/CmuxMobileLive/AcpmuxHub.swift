@@ -837,27 +837,36 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
             let previous = promptChain
-            promptChain = Task { [weak self] in
+            let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }
+                defer { self.sendTasks[promptID] = nil }
                 let blocks: [JSONValue]
                 do {
-                    blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
+                    try Task.checkCancellation()
+                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub)
+                    try Task.checkCancellation()
                 } catch {
-                    self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
-                                             reason: AcpmuxSessionSource.message(error)))
+                    let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
+                    self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
                 }
                 await self.sendPrompt(HeldPrompt(text: text, attachments: attachments, promptID: promptID,
                                                  steer: steer, resend: resend, blocks: blocks, at: sentAt))
             }
+            promptChain = task
+            sendTasks[promptID] = task
+            return
+        }
+        if case .cancelSend(let promptID) = intent {
+            sendTasks[promptID]?.cancel()
             return
         }
         Task {
             do {
                 switch intent {
-                case .prompt:
-                    break // sent above
+                case .prompt, .cancelSend:
+                    break // handled above
                 case .retryFailedTurn:
                     _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
                 case .cancel:
@@ -945,6 +954,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The last message's send, which the next one waits for (``send(_:)``).
     private var promptChain: Task<Void, Never>?
+    /// Each message's send until it is written or held, by prompt id: Stop cancels its upload.
+    private var sendTasks: [String: Task<Void, Never>] = [:]
 
     /// Sends a prompt now, or after the ones held before it (the Mac gets them in order).
     /// Returns once it is written or held; its answer is awaited apart.
@@ -1087,14 +1098,32 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     ///   `resource` block with its text when it is UTF-8 text up to 256 KiB, or
     ///   a `resource_link` to the uploaded path (the agent reads it there).
     /// A failed upload throws, so nothing is sent without its attachments.
-    func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
-        try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory, macName: summary.macName)
+    /// Each upload's progress shows on the message (``AgentSessionEvent/promptUploading(promptID:_:)``);
+    /// an upload the link loses goes on over the next link, waiting up to ``uploadLinkWait`` for it.
+    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub) async throws -> [JSONValue] {
+        let reporter = UploadProgressReporter { [weak self] progress in self?.emit(.promptUploading(promptID: promptID, progress)) }
+        let wait = Self.uploadLinkWait
+        let nextLink: @Sendable () async -> (any MacLink)? = { [weak hub] in
+            await MainActor.run { hub }.flatMap { _ in nil as (any MacLink)? } ?? (await Self.readyLink(hub, within: wait))
+        }
+        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
+                                           macName: summary.macName, progress: { reporter.report($0) }, nextLink: nextLink)
+    }
+
+    /// How long an upload the link lost waits for the next link before the message comes back.
+    nonisolated static let uploadLinkWait: Duration = .seconds(120)
+
+    /// The hub's link once it is ready again, or nil after `within`.
+    static func readyLink(_ hub: AcpmuxHub?, within: Duration) async -> (any MacLink)? {
+        guard let hub, await hub.waitUntilReady(timeout: within, clock: ContinuousClock()) else { return nil }
+        return hub.macLink
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
-                             macName: String) async throws -> [JSONValue] {
+                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
+                             nextLink: (@Sendable () async -> (any MacLink)?)? = nil) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -1115,7 +1144,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
             guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+            let name = attachment.name
+            let options = LinkUpload.Options(nextLink: nextLink, progress: progress.map { report in
+                { @Sendable step in
+                    report(AgentUploadProgress(name: name, sent: step.sent, total: step.total,
+                                               phase: AgentUploadProgress.Phase(rawValue: step.phase.rawValue) ?? .sending,
+                                               attempt: step.attempt))
+                }
+            })
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link,
+                                                            macName: macName, options: options)
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {
@@ -1142,11 +1180,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
-    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String,
+                       options: LinkUpload.Options = LinkUpload.Options()) async throws -> String {
         do {
-            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link, options: options)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
+            var fresh = options
+            fresh.id = UUID().uuidString.lowercased()
+            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link, options: fresh)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
