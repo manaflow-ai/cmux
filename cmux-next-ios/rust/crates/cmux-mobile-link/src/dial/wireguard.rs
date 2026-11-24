@@ -1890,6 +1890,12 @@ impl Underlay for HybridUnderlay {
         if let Some(received) = self.pop_delayed(buffer) {
             return Poll::Ready(Ok(received));
         }
+        if self.assist.primary_streak >= multipath::PRIMARY_BURST {
+            self.assist.primary_streak = 0;
+            if let Some(received) = self.poll_secondary(cx, buffer) {
+                return Poll::Ready(Ok(received));
+            }
+        }
         loop {
             let mut read = ReadBuf::new(buffer);
             match self.socket.poll_recv_from(cx, &mut read) {
@@ -1909,6 +1915,7 @@ impl Underlay for HybridUnderlay {
                         continue;
                     }
                     self.last_udp_source = Some(source);
+                    self.assist.primary_streak += 1;
                     return Poll::Ready(Ok(Received { len, origin }));
                 }
                 // ICMP unreachable and friends: keep going on TURN.
@@ -1921,7 +1928,10 @@ impl Underlay for HybridUnderlay {
                     }
                     continue;
                 }
-                Poll::Pending => break,
+                Poll::Pending => {
+                    self.assist.primary_streak = 0;
+                    break;
+                }
             }
         }
         // A dark network is the primary one: the second socket's interface

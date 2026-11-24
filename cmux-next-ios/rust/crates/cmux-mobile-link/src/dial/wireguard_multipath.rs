@@ -229,7 +229,14 @@ pub(super) struct Assist {
     promoted: Option<Instant>,
     /// Copies sent on the second interface (telemetry and tests).
     pub(super) copies: u64,
+    /// Datagrams the primary socket returned in a row: past
+    /// [`PRIMARY_BURST`] the second socket is read first once, so a busy
+    /// Wi-Fi socket never starves the cell one.
+    pub(super) primary_streak: usize,
 }
+
+/// See [`Assist::primary_streak`].
+pub(super) const PRIMARY_BURST: usize = 16;
 
 impl HybridUnderlay {
     /// A path on the primary interface answers and the selector trusts it.
@@ -303,6 +310,15 @@ impl HybridUnderlay {
         tracing::debug!(metered = ?self.assist.peer_metered, "the peer's metered addresses");
         let learned = std::mem::take(&mut self.learned);
         self.learned = learned.into_iter().filter(|addr| !self.is_metered(*addr)).collect();
+        // A cellular route learned before the announcement arrived must not
+        // keep carrying bulk: demote it, and the selector picks again.
+        if self.direct.is_some_and(|route| {
+            route.carrier == Carrier::Udp && self.assist.peer_metered.contains(&route.addr)
+        }) {
+            self.direct = None;
+            self.pinned_until = None;
+            self.demote("the route's address is metered");
+        }
         if self.assist.metered_from.is_some_and(|(addr, _)| !self.is_metered(addr)) {
             self.assist.metered_from = None;
         }
@@ -392,7 +408,10 @@ impl HybridUnderlay {
             match secondary.socket.poll_recv_from(cx, &mut read) {
                 Poll::Ready(Ok(source)) => {
                     let len = read.filled().len();
-                    if secondary.stun_answer(&buffer[..len], source) || self.options.block_udp {
+                    if secondary.stun_answer(&buffer[..len], source)
+                        || self.options.block_udp
+                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
+                    {
                         continue;
                     }
                     // A copy that lost the race to the primary interface
@@ -564,6 +583,15 @@ mod tests {
     }
 
     fn underlay(peer_endpoints: &[String], socket: UdpSocket, peer_version: u32) -> HybridUnderlay {
+        underlay_with(peer_endpoints, socket, peer_version, &DialOptions::default())
+    }
+
+    fn underlay_with(
+        peer_endpoints: &[String],
+        socket: UdpSocket,
+        peer_version: u32,
+        options: &DialOptions,
+    ) -> HybridUnderlay {
         let (reach_out, _reaches) = mpsc::unbounded_channel();
         let (_control, control) = mpsc::unbounded_channel();
         HybridUnderlay::new(
@@ -579,7 +607,7 @@ mod tests {
                 route_to: Arc::new(watch::channel(None).0),
                 control,
             },
-            &DialOptions::default(),
+            options,
         )
     }
 
@@ -830,6 +858,75 @@ mod tests {
             drain(&cell, Duration::from_millis(150)).await.is_empty(),
             "no stream on cell while Wi-Fi lives"
         );
+    }
+
+    /// Review F1: a cellular route the Mac took before the phone's
+    /// `metered` announcement arrived stops being the route once it does.
+    #[tokio::test]
+    async fn a_route_that_turns_out_metered_is_demoted() {
+        let wifi = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let wifi_addr = wifi.local_addr().unwrap();
+        let cell = UdpSocket::bind("127.0.0.2:0").await.unwrap();
+        let cell_addr = cell.local_addr().unwrap();
+        let mut mac =
+            underlay(&[wifi_addr.to_string()], UdpSocket::bind("127.0.0.1:0").await.unwrap(), WG_VERSION);
+        mac.direct = Some(Route { carrier: Carrier::Udp, addr: cell_addr });
+        mac.apply(Control::PeerMetered(vec![wifi_addr.to_string()]));
+        assert_eq!(mac.direct, Some(Route { carrier: Carrier::Udp, addr: cell_addr }), "not metered: kept");
+        mac.apply(Control::PeerMetered(vec![cell_addr.to_string()]));
+        assert_eq!(mac.direct, None, "a metered route is no longer the route");
+    }
+
+    /// Review F2: `restrict_inbound_udp` holds on the second socket too.
+    #[tokio::test]
+    async fn the_second_socket_drops_strangers_when_inbound_is_restricted() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let stranger = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let options = DialOptions { restrict_inbound_udp: true, ..DialOptions::default() };
+        let mut underlay = underlay_with(
+            &[peer_addr.to_string()],
+            UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+            WG_VERSION,
+            &options,
+        );
+        let cell = attach(&mut underlay).await;
+        stranger.send_to(&data(120, 1), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        let got = std::future::poll_fn(|cx| Poll::Ready(underlay.poll_secondary(cx, &mut buffer))).await;
+        assert!(got.is_none(), "a datagram from an address never sent to is dropped");
+        underlay.sent_to.insert(peer_addr);
+        peer.send_to(&data(120, 2), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let got = std::future::poll_fn(|cx| Poll::Ready(underlay.poll_secondary(cx, &mut buffer))).await;
+        assert_eq!(got.map(|received| received.origin.addr), Some(Some(peer_addr)));
+    }
+
+    /// Review F3: a busy primary socket does not starve the second one.
+    #[tokio::test]
+    async fn a_busy_primary_socket_does_not_starve_the_second() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer_addr = peer.local_addr().unwrap();
+        let primary = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let primary_addr = primary.local_addr().unwrap();
+        let mut underlay = underlay(&[peer_addr.to_string()], primary, WG_VERSION);
+        let cell = attach(&mut underlay).await;
+        for tag in 0..64u8 {
+            peer.send_to(&data(120, tag), primary_addr).await.unwrap();
+        }
+        peer.send_to(&data(120, 0xEE), cell).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = [0u8; 2048];
+        let mut position = None;
+        for index in 0..(PRIMARY_BURST + 2) {
+            let received = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut buffer)).await.unwrap();
+            if received.origin.path == SECONDARY_PATH {
+                position = Some(index);
+                break;
+            }
+        }
+        assert!(position.is_some(), "the cell datagram waited behind more than {PRIMARY_BURST} Wi-Fi ones");
     }
 
     /// Old against new, both ways: a side without a second interface sends
