@@ -24,7 +24,8 @@ package nonisolated struct InternalPageID: RawRepresentable, Hashable, Sendable 
 }
 
 /// Ids of internal page tabs.
-package nonisolated enum LocalPageTab {
+package nonisolated struct LocalPageTab {
+    package nonisolated init() {}
     package static let prefix = "local-page:"
 
     package static func makeKey(_ page: InternalPageID) -> String {
