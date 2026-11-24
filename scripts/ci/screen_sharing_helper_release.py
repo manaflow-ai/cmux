@@ -12,7 +12,7 @@
                                                          F is a sound record (of KEY; of the bytes Z)
     screen_sharing_helper_release.py objects F ZIP       the R2 object keys and local files to upload, in order
 
-Why: the NIGHTLY runs screen sharing only from Contents/Library/<app name> Screen Sharing.app (the app and
+Why: the NIGHTLY runs screen sharing only from Contents/Library/<app name> Helper.app (the app and
 the daemon never fall back to `bin/cmux rd serve` once a helper is bundled), so a commit that changes the
 cmux-rd host is read back live only with its own helper. cmux-tui-team-signed.yml builds that helper
 (build-screen-sharing-helper.sh, keyed by the source of cmux-rd-host's crates), signs it as the NIGHTLY
@@ -57,7 +57,12 @@ APP_NAME = "cmux NIGHTLY"
 # here in the same PR, or not at all: a change re-asks every NIGHTLY user for Screen Recording.
 BUNDLE_ID = f"{APP_ID}.screen-sharing"
 TEAM = "7WLXT3NR37"
-HELPER_NAME = f"{APP_NAME} Screen Sharing.app"
+# The bundle bundle-screen-sharing-helper.sh makes (SUFFIX, "<app name> Helper.app", since 5167d1f0). A commit
+# from before the rename builds LEGACY_HELPER_NAME, and a zip published then holds it; check takes either, as
+# `cmux app try` (try_cmd/helper.rs SUFFIX and LEGACY_SUFFIX) and the app read either.
+HELPER_NAME = f"{APP_NAME} Helper.app"
+LEGACY_HELPER_NAME = f"{APP_NAME} Screen Sharing.app"
+HELPER_NAMES = (HELPER_NAME, LEGACY_HELPER_NAME)
 EXECUTABLE = "cmux-screen-sharing"
 SCHEMA = 1
 ZIP_MAX_BYTES = 128 * 1024 * 1024
@@ -126,8 +131,8 @@ def designated(helper: Path) -> str:
 
 def check_helper(helper: Path, team: str) -> str:
     """HELPER's designated requirement, once HELPER is the NIGHTLY's helper signed by TEAM."""
-    if helper.name != HELPER_NAME:
-        raise Refused(f"{helper.name} is not {HELPER_NAME}")
+    if helper.name not in HELPER_NAMES:
+        raise Refused(f"{helper.name} is not {HELPER_NAME} (or, built before the rename, {LEGACY_HELPER_NAME})")
     if not (helper / "Contents/MacOS" / EXECUTABLE).is_file():
         raise Refused(f"{helper} has no Contents/MacOS/{EXECUTABLE}")
     with open(helper / "Contents/Info.plist", "rb") as f:
