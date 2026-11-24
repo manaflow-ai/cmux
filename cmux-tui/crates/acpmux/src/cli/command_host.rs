@@ -396,6 +396,11 @@ pub enum VaultCmd {
     },
     /// Remove a kept key (`keep`) from this machine.
     Drop { name: String },
+    /// List every secret this user's processes and files can reach, by name and
+    /// path only (never a value), and exit 1 when anything but the owner's
+    /// harness login or this machine's own identity is reachable (exit 2: the
+    /// audit could not see everything). A Cloud chat's VM runs it after a move.
+    Audit,
 }
 
 #[derive(Subcommand)]
