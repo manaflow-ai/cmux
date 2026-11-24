@@ -337,7 +337,7 @@ impl Hub {
                 if let Ok(host) = std::fs::read_to_string(dir.join("to-host")) {
                     to.set("host", json!(host.trim()));
                 }
-                self.transfer_commit_with_epoch(session, transfer_id, to, Some(epoch))
+                self.transfer_commit_with_epoch(session, transfer_id, to, Some(epoch), None)
                     .await
                     .map(|_| ())
             }

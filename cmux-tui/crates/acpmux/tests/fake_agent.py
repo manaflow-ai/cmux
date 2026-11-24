@@ -109,6 +109,10 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fails with a capacity
+error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
+and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
+to <path>.seen, one JSON string per line, so a test sees what reached the model.
 FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
 (session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
 as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
@@ -122,6 +126,8 @@ import threading
 import time
 
 lock = threading.Lock()
+# FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
+capacity_storm = [0]
 cancelled = set()
 failed_once = set()
 # "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
@@ -590,6 +596,20 @@ def handle_prompt(rid, params):
         chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    cap_file = os.environ.get("FAKE_CAPACITY_FILE")
+    if cap_file:
+        with open(cap_file + ".seen", "a") as seen:
+            seen.write(json.dumps(text) + "\n")
+    if cap_file and os.path.exists(cap_file):
+        storm = [
+            "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)",
+            "API Error: 502 the gateway is at its call limit; retry",
+        ]
+        n = capacity_storm[0]
+        capacity_storm[0] += 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": storm[n % len(storm)]}})
         return
     # "/compact": a compaction, as Claude Code reports one (acpmux compacts a chat that outgrew
     # its context before it goes on, hub/auto_resume/compact_first.rs). FAKE_COMPACT=fail
