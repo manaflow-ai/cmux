@@ -317,6 +317,13 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
                 `down at ${event.clientX},${event.clientY} hit=${hit?.getAttribute("data-tick") ?? (event.target as Element)?.className} tick=${box ? `${Math.round(box.left)},${Math.round(box.top)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone"}`,
               );
             }
+            if (trace)
+              for (const kind of ["pointerup", "mouseup", "click"])
+                addEventListener(
+                  kind,
+                  () => ((window as any).__frames ??= []).push(`${kind} at ${Math.round(performance.now() - start)}ms`),
+                  { capture: true, once: true },
+                );
             let frames = 0;
             window.cmuxAfterPaint(() => {
               frames += 1;
