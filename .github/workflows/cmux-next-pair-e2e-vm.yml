@@ -187,7 +187,7 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts/ios-sim
-          tar -cf "$RUNNER_TEMP/offline-evidence.tar" offline-walkthrough.mp4 offline-ax.jsonl screens SUMMARY.md 2>/dev/null || true
+          tar -cf "$RUNNER_TEMP/offline-evidence.tar" offline-walkthrough.mp4 offline-ax.jsonl axe-raw-*.txt screens SUMMARY.md 2>/dev/null || true
           openssl smime -encrypt -aes256 -binary -in "$RUNNER_TEMP/offline-evidence.tar" -out "$RUNNER_TEMP/offline-evidence.tar.enc" -outform DER "$GITHUB_WORKSPACE/scripts/ci/offline-p0/cert.pem"
           ls -l "$RUNNER_TEMP/offline-evidence.tar.enc"
 

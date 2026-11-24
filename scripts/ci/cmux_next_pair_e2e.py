@@ -1337,9 +1337,33 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         ax_log.write(json.dumps(dict(t=round(time.monotonic() - t_start, 1), event=event, **kw)) + "\n")
         ax_log.flush()
 
+    ocr_swift = os.path.join(ROOT, "scripts/ci/offline-p0/ocr.swift")
+    ocr_pos = {}
+    raw_dumps = [0]
+
+    def ocr():
+        """The screen's words through Vision (the AXe tree came back empty in run 45328357908)."""
+        shot = os.path.join(a.out, ".ocr.png")
+        subprocess.run(simctl + ["io", a.udid, "screenshot", shot], capture_output=True)
+        try:
+            r = subprocess.run(["swift", ocr_swift, shot], capture_output=True, text=True, timeout=120)
+            items = json.loads(r.stdout or "[]")
+        except (ValueError, subprocess.TimeoutExpired, OSError):
+            items = []
+        ocr_pos.clear()
+        for it in items:
+            ocr_pos[it["t"]] = (it["x"], it["y"])
+        return [it["t"] for it in items]
+
     def snap():
+        if raw_dumps[0] < 3:  # the raw AXe output, to learn its shape
+            raw_dumps[0] += 1
+            raw = subprocess.run(["axe", "describe-ui", "--udid", a.udid], capture_output=True, text=True)
+            with open(os.path.join(a.out, f"axe-raw-{raw_dumps[0]}.txt"), "w") as f:
+                f.write((raw.stdout or "")[:200000] + "\n--stderr--\n" + (raw.stderr or "")[:4000])
         nodes = ax_nodes(a.udid)
-        return nodes, ax_text(nodes), {i for i, _, _, _ in nodes if i}
+        texts = sorted(set(ax_text(nodes)) | set(ocr()))
+        return nodes, texts, {i for i, _, _, _ in nodes if i} | {("mac.recovery.retry" if t == "Retry" else "ocr:" + t) for t in texts}
 
     def show(label, pred, timeout, every=3.0, shot_name=None):
         """Poll the phone until pred(texts, ids) holds; screenshot the first hit. (hit?, seconds, texts)"""
@@ -1357,6 +1381,15 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
                     phone_shot(shot_name + "-timeout")
                 return False, time.monotonic() - t0, last
             time.sleep(every)
+
+    def ocr_tap(word):
+        """Tap the OCR'd word (screenshot pixels / 3 = points on the 3x iPhone 17 Pro)."""
+        pos = ocr_pos.get(word)
+        if not pos:
+            return False
+        subprocess.run(["axe", "tap", "--udid", a.udid, "-x", f"{pos[0] / 3:.1f}", "-y", f"{pos[1] / 3:.1f}", "--tap-style", "simulator"],
+                       capture_output=True, timeout=25)
+        return True
 
     def has(texts, *needles):
         return any(all(n in t for n in needles) for t in texts)
@@ -1395,7 +1428,7 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             signal_all(frozen, 19)  # SIGSTOP
             slow, t_slow, tx_slow = show(tag + "slow", lambda t, i: has(t, "isn't responding") or has(t, "is offline"), 120,
                                          shot_name=tag + "1a-asleep-first-state")
-            ok1, t_off, tx_off = show(tag + "offline", lambda t, i: has(t, "is offline"), 300, shot_name=tag + "1b-asleep-offline")
+            ok1, t_off, tx_off = show(tag + "offline", lambda t, i: has(t, "is offline"), 150, shot_name=tag + "1b-asleep-offline")
             seen = has(tx_off, "ago") or has(tx_off, "ast seen")
             results[(size_name, "1")] = (ok1 and seen, f"first state after {t_slow:.0f} s; offline after {t_off:.0f} s; last-seen {'shown' if seen else 'NOT shown'}; texts {[t for t in tx_off if 'offline' in t or 'ago' in t or 'seen' in t][:4]}")
             note(f"- offline[{size_name}] step 1: {'PASS' if results[(size_name, '1')][0] else 'FAIL'} {results[(size_name, '1')][1]}")
@@ -1418,7 +1451,7 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
                     app.kill()
             log("quit", exit=app.poll())
             ok2, t2, tx2 = show(tag + "quit", lambda t, i: has(t, "isn't responding") or has(t, "isn't answering") or has(t, "is offline")
-                                or has(t, "didn't answer"), 300, shot_name=tag + "2-quit")
+                                or has(t, "didn't answer"), 150, shot_name=tag + "2-quit")
             exact = has(tx2, "isn't responding") or has(tx2, "isn't answering")
             seen2 = has(tx2, "ago") or has(tx2, "ast seen") or has(tx2, "heard")
             results[(size_name, "2")] = (ok2 and exact and seen2, f"first named state after {t2:.0f} s; wording {[t for t in tx2 if 'respond' in t or 'answer' in t or 'offline' in t][:3]}; last-seen {'shown' if seen2 else 'NOT shown'}")
@@ -1428,7 +1461,7 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             while time.monotonic() - t3 < 60:
                 nodes, texts, ids = snap()
                 if not tapped and "mac.recovery.retry" in ids:
-                    tapped = ax_tap(a.udid, "mac.recovery.retry")
+                    tapped = ax_tap(a.udid, "mac.recovery.retry") or ocr_tap("Retry")
                     log("retry-tap", tapped=tapped)
                     phone_shot(tag + "3a-retry-tapped")
                 step_texts = tuple(sorted(l for _, l, _, _ in nodes if l and ("in progress" in l or l.endswith(", done") or l.endswith(", failed") or "not started" in l)))
