@@ -945,6 +945,17 @@ async fn new_on_peer(
             "credentials start an agent on this machine only, never on a peer",
         ));
     }
+    // A machine only the mesh hub reaches starts it through the hub's start control
+    // (`mesh_control_send.rs`), as `acpmux session start --machine` does, so a placed
+    // `new` lands there instead of being refused as no peer.
+    if hub.peer_by_name(peer_name).is_none()
+        && conn.origin == Origin::Local
+        && hub.mesh.get().is_some()
+        && hub.mesh_book_has_host(peer_name)
+        && !super::trust_gate::gated(conn.origin, params)
+    {
+        return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
+    }
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
@@ -1455,6 +1466,10 @@ async fn dispatch_request_with_identity(
                 method::MUX_CALLERS,
                 method::MUX_FELT_SNAPSHOT,
             ];
+            let capabilities = crate::capabilities::ids_for_connection(matches!(
+                conn.transport,
+                Transport::LocalStream { .. }
+            ));
             #[allow(unused_mut)]
             let mut reply = json!({
                 "protocolVersion": 1,
@@ -1465,7 +1480,7 @@ async fn dispatch_request_with_identity(
                     "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": capabilities,
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -1492,7 +1507,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -1697,7 +1712,11 @@ async fn dispatch_request_with_identity(
                 }
                 // The VM provisioning exec (root) gives an unsigned daemon its key
                 // (`daemon/provision.rs`); an agent, the daemon's own user, never can.
-                (false, _) if conn.provisioner => return hub.person.provision(key),
+                (false, _)
+                    if matches!(conn.transport, Transport::LocalStream { provisioner: true }) =>
+                {
+                    return hub.person.provision(key);
+                }
                 (false, _) => false,
             };
             hub.person.enroll(key, verified)
@@ -4254,17 +4273,20 @@ async fn dispatch_request_with_identity(
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
+            let key = session_key(&params).map_err(|_| match other {
+                method::MUX_SUBAGENT_STOP | method::MUX_STEER_WITHDRAW | method::MUX_STEP_NOW => {
+                    RpcError::invalid_params("sessionId is required")
+                }
+                _ => RpcError::method_not_found(other),
+            })?;
+            if !super::remote_guard::forwards(conn.origin, other) {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));
             }
-            if let Ok(key) = session_key(&params) {
-                let s = hub.resolve(key)?;
-                crate::hub::person::harness_forward_check(conn.is_person(), other)?;
-                return heap(|| hub.forward(&s, other, params)).await;
-            }
-            Err(RpcError::method_not_found(other))
+            let s = hub.resolve(key)?;
+            crate::hub::person::harness_forward_check(conn.is_person(), other)?;
+            heap(|| hub.forward(&s, other, params)).await
         }
     }
 }
@@ -4649,6 +4671,8 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in: a client that does not ask hears every peer row's `session_changed`, as before.
     let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
+    // The features it reads (`client_features.rs`); none listed: a client from before the list.
+    conn.client_features.note(params);
     // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);

@@ -29,7 +29,7 @@ final class TabContentCache {
         didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key); phonePictures?.stopFavicon(tab: key) } } } // a page that left takes its Switch to Tab row
     }
     let openTabFeed = OmniboxOpenTabFeed() // the omnibar engines' open-tab indexes, kept as pages open, navigate and close
-    var phonePictures: PhoneTabPictures? // browser tabs' thumbnails and favicons for the phones' tab overview; nil: none
+    var phonePictures: PhoneTabPictures? { didSet { phonePictures?.held = (keys: { [weak self] in self.map { Array($0.browsers.keys) } ?? [] }, picture: { [weak self] key in await self?.previewImage(for: key, maxPixelSize: CGSize(width: 576, height: 4096)) }) } } // browser tabs' thumbnails and favicons for the phones' tab overview (and each page's held picture for a phone that pairs); nil: none
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
@@ -77,6 +77,7 @@ final class TabContentCache {
     var onSuggestionEngineCreated: ((OmniboxSuggestionEngine, BrowserProfileID) -> Void)? // bookmark feed, settings
     var onRevealTab: ((String) -> Void)? // a Switch to Tab row was chosen
     var omniboxConfiguration = OmniboxConfiguration() // browser.searchEngine, browser.omnibar.*
+    let localEcho = TerminalLocalEchoPreference() // terminal.predictiveLocalEcho, every terminal follows it
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
     /// A profile's omnibar history was created or dropped (`HistoryService`).
