@@ -1739,6 +1739,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Whether remote connections may use a Tailscale carrier changes network egress, so only the person enables it.",
+      "keys": [
+        "transport.tailnetCarrier"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
