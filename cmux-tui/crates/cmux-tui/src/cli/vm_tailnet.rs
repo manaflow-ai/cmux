@@ -30,13 +30,13 @@ Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a
   --key-stdin          read it from stdin instead
   --oauth              the key is an OAuth client secret (tskey-client-…); needs --tag
   --login-server URL   your Headscale (or other) server; default Tailscale's
-  --allow-http         allow a plain http:// login server (the key crosses unencrypted)
   --hostname NAME      device name and MagicDNS label
   --tag TAG            an ACL tag your policy gives this key (repeatable)
   --ssh                turn on Tailscale SSH (who may use it is your ACL)
   --ephemeral          leave the tailnet when the VM goes offline
   --serve PORT[:HTTPS] show localhost:PORT on the tailnet over HTTPS (default 443)
   --funnel PORT[:HTTPS] the same, public on the internet through Funnel
+  --allow-http         let --login-server be plain http:// (the key crosses unencrypted)
   --switch             join even if the VM is on another tailnet (adds a profile)
   --timeout SECONDS    how long to wait for the join (default 180)
 ";
@@ -204,11 +204,14 @@ pub(super) fn join(
         match cmux_tailnet_join::read_answer(&answer.stdout) {
             Progress::Running => continue,
             Progress::Ended(Outcome::Joined(node)) => {
-                let mut value = serde_json::to_value(&node).unwrap_or(Value::Null);
-                value["elapsedMs"] =
-                    json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
-                value["notes"] = json!(checked.notes());
-                return Ok(value);
+                return Ok(json!({
+                    "dnsName": node.dns_name,
+                    "ips": node.ips,
+                    "tags": node.tags,
+                    "online": node.online,
+                    "elapsedMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "notes": checked.notes(),
+                }));
             }
             Progress::Ended(Outcome::OtherTailnet { control_url }) => {
                 return Err(format!(
@@ -319,7 +322,7 @@ pub(super) fn run(
                     let mut record = read_record(env);
                     record.insert(
                         vm_id.clone(),
-                        node["dnsName"].as_str().unwrap_or_default().to_owned(),
+                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned(),
                     );
                     write_record(env, &record);
                     if json_output {
@@ -327,14 +330,18 @@ pub(super) fn run(
                     } else {
                         println!(
                             "Joined {vm_id} to your tailnet as {}.",
-                            node["dnsName"].as_str().unwrap_or("?")
+                            node.get("dnsName").and_then(Value::as_str).unwrap_or("?")
                         );
-                        if let Some(ips) = node["ips"].as_array() {
+                        if let Some(ips) = node.get("ips").and_then(Value::as_array) {
                             let ips: Vec<&str> = ips.iter().filter_map(Value::as_str).collect();
                             println!("Addresses: {}", ips.join(", "));
                         }
-                        for note in
-                            node["notes"].as_array().into_iter().flatten().filter_map(Value::as_str)
+                        for note in node
+                            .get("notes")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
                         {
                             println!("Note: {note}");
                         }
@@ -368,6 +375,29 @@ pub(super) fn run(
 }
 
 /// Before `cmux vm rm VM`: leave the tailnet when this machine joined it. Never stops the delete.
+/// The VM a `fork VM` or `snapshot create VM` copies, if the words are one.
+pub(super) fn cloned_vm(rest: &[String]) -> Option<&str> {
+    let id = match rest {
+        [verb, id, ..] if verb == "fork" => id,
+        [verb, sub, id, ..] if verb == "snapshot" && sub == "create" => id,
+        _ => return None,
+    };
+    (!id.starts_with('-')).then_some(id.as_str())
+}
+
+/// A copy of a VM on the user's tailnet carries its node key (`tailscaled.state`): the copy
+/// would come up as the same node and the two would fight. Refuse until the VM has left.
+pub(super) fn refuse_clone_of_joined(
+    vm_id: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    joined_here(env, vm_id).then(|| {
+        format!(
+            "cmux: {vm_id} is on your tailnet; a copy would carry its node key and come up as the same node. Run `cmux vm tailnet leave {vm_id}` first, copy it, then join each again."
+        )
+    })
+}
+
 pub(super) fn leave_before_delete(vm_id: &str, env: &dyn Fn(&str) -> Option<String>) {
     if !joined_here(env, vm_id) {
         return;
@@ -375,7 +405,7 @@ pub(super) fn leave_before_delete(vm_id: &str, env: &dyn Fn(&str) -> Option<Stri
     match with_guest(vm_id, env, leave) {
         Ok(()) => eprintln!("cmux: {vm_id} left your tailnet"),
         Err(error) => {
-            eprintln!("cmux: {vm_id} could not leave your tailnet ({error}); deleting it anyway")
+            eprintln!("cmux: {vm_id} could not leave your tailnet ({error}); deleting it anyway");
         }
     }
     let mut record = read_record(env);

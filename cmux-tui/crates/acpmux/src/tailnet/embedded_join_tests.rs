@@ -253,3 +253,41 @@ async fn leave_clears_the_identity_and_the_join() {
     assert!(controller.join_profile().is_none());
     assert!(!has_saved_login(&dir));
 }
+
+/// Live join against a throwaway Headscale (never a real tailnet): `testing/live-embedded-join.sh`
+/// in cmux-tailnet-join runs this inside the harness's docker network. The key is read from the
+/// file `CMUX_LIVE_KEY_FILE`; the node stays up `CMUX_LIVE_HOLD_S` seconds so the harness client
+/// can see and ping it, then leaves.
+#[tokio::test]
+#[ignore = "needs a throwaway headscale; run by testing/live-embedded-join.sh"]
+async fn live_join_against_a_throwaway_headscale() {
+    let key = std::fs::read_to_string(std::env::var("CMUX_LIVE_KEY_FILE").unwrap()).unwrap();
+    let server = std::env::var("CMUX_LIVE_SERVER").unwrap();
+    let hold: u64 =
+        std::env::var("CMUX_LIVE_HOLD_S").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+    let temporary = private_tempdir();
+    let dir = temporary.path().join("tailnet");
+    let controller = Controller::new(&dir, "fallback");
+    let mut p = params(key.trim());
+    p.control_url = Some(server);
+    p.allow_http = true;
+    p.hostname = Some("cmux-embedded-live".into());
+    let snapshot = controller.join(p.plan().unwrap()).await.unwrap();
+    println!(
+        "LIVE joined: state={} dns={:?} ips={:?}",
+        snapshot.state, snapshot.dns_name, snapshot.ips
+    );
+    assert_eq!(snapshot.state, "running");
+    assert!(!contains(&all_bytes(&dir), key.trim()), "the key reached the state folder");
+    // A second join without switch is refused while signed in.
+    let mut again = params(key.trim());
+    again.control_url = Some("https://other.example.com".into());
+    let refusal = controller.join(again.plan().unwrap()).await.unwrap_err();
+    println!("LIVE second join refused: {refusal}");
+    println!("LIVE READY");
+    tokio::time::sleep(std::time::Duration::from_secs(hold)).await;
+    let left = controller.logout().await.unwrap();
+    println!("LIVE left: state={}", left.state);
+    assert!(!dir.join("tailscaled.state").exists() && !dir.join(PROFILE_FILE).exists());
+    controller.shutdown().await.unwrap();
+}
