@@ -2165,6 +2165,17 @@ async fn serve_connection_from(
             }
         };
         match msg {
+            // Which of this connection's requests still run (`in_flight.rs` `states`): answered
+            // here, in order with the requests read before it, and never queued for a slot, so a
+            // client whose slots are all taken by slow requests still gets its proof. Only this
+            // connection's own requests, like a `$/cancel_request`: any client may ask.
+            Message::Request { id, method: m, .. } if m == method::MUX_REQUEST_STATE => {
+                let (running, answered) = conn.in_flight.states();
+                conn.send_replying(
+                    &Message::ok(id, json!({"running": running, "answered": answered})),
+                    Some(&m),
+                );
+            }
             Message::Request { id, method: m, mut params } => {
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
