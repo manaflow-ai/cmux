@@ -109,11 +109,20 @@ package final class DesktopNotifier: NSObject {
     /// Authorization as the center last reported it ("authorized", "denied", ...);
     /// "automation" when this launch never asks.
     package private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
-    private var center: UNUserNotificationCenter?
+    /// The system center's calls, run off the main thread (`NotificationCenterQueue`); made once.
+    private var center: NotificationCenterQueue?
+    /// The center a test gives in place of the system one, else nil.
+    private let backend: (any NotificationCenterBackend)?
     /// Whether this launch asked for authorization (a banner or `notifications.request`).
     private var askedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
     private static let postedLimit = 32
+
+    /// `backend`: a test's center in place of the system one (nil: the system center, when this launch uses it).
+    package init(backend: (any NotificationCenterBackend)? = nil) {
+        self.backend = backend
+        super.init()
+    }
 
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
@@ -154,7 +163,7 @@ package final class DesktopNotifier: NSObject {
         content.userInfo = info
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
-        center.add(request) { error in
+        center.post(request) { error in
             guard let error else { return }
             logger.error("banner failed: \(String(describing: error), privacy: .public)")
             if let attachmentFile { try? FileManager.default.removeItem(at: attachmentFile) }
@@ -177,30 +186,26 @@ package final class DesktopNotifier: NSObject {
     /// Whether banner `id` is in Notification Center (an automation launch has none).
     package func isDelivered(_ id: String) async -> Bool {
         guard let center = configuredCenter() else { return posted.contains { $0.id == id } }
-        return await withCheckedContinuation { continuation in
-            center.getDeliveredNotifications { delivered in continuation.resume(returning: delivered.contains { $0.request.identifier == id }) }
-        }
+        return await center.bannerIDs().delivered.contains(id)
     }
 
-    /// Removes banners whose notifications were read or ended, shown or still queued.
+    /// Removes banners whose notifications were read or ended, shown or still queued. Returns at once: the
+    /// removal waits on `usernoted` off the main thread (https://github.com/manaflow-ai/cmux/issues/47009).
     package func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }
-        for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
+        center.withdraw(ids)
+    }
+
+    /// Returns once every center call made before it has run (tests).
+    package func centerCallsDrained() async {
+        await center?.drained()
     }
 
     /// Finds attention requests retained across launches, without asking for notification permission.
     package func attentionBannerIDs() async -> [String] {
         guard let center = configuredCenter() else { return [] }
-        return await withCheckedContinuation { continuation in
-            center.getDeliveredNotifications { delivered in
-                let deliveredIDs = delivered.map(\.request.identifier)
-                center.getPendingNotificationRequests { pending in
-                    continuation.resume(returning: (deliveredIDs + pending.map(\.identifier)).filter {
-                        $0.hasPrefix(AttentionBannerLifecycle.attentionBannerPrefix)
-                    })
-                }
-            }
-        }
+        let (delivered, pending) = await center.bannerIDs()
+        return (delivered + pending).filter { $0.hasPrefix(AttentionBannerLifecycle.attentionBannerPrefix) }
     }
 
     /// The banner click path, also used by `debug.notifications` (click).
@@ -242,12 +247,12 @@ package final class DesktopNotifier: NSObject {
     }
 
     /// The center for a banner: the first one asks for authorization.
-    private func resolvedCenter() -> UNUserNotificationCenter? {
+    private func resolvedCenter() -> NotificationCenterQueue? {
         guard let center = configuredCenter() else { return nil }
         // Asked once; a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
         if !askedAuthorization, Self.asksPermission {
             askedAuthorization = true
-            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
+            center.askAuthorization([.alert, .sound, .badge]) { [weak self] granted in
                 Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
             }
         }
@@ -255,22 +260,29 @@ package final class DesktopNotifier: NSObject {
     }
 
     /// The system center with this app's delegate and banner categories, made once; nil when
-    /// this launch never uses it (an automation launch, or not the main app bundle).
-    private func configuredCenter() -> UNUserNotificationCenter? {
+    /// this launch never uses it (an automation launch, or not the main app bundle). Only the delegate is set
+    /// here: it is a local property the center needs before launch returns. Every daemon-backed call goes
+    /// through the queue.
+    private func configuredCenter() -> NotificationCenterQueue? {
         if let center { return center }
-        guard Self.usesSystemCenter, Self.isMainAppBundle(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL) else {
-            return nil
+        let center: NotificationCenterQueue
+        if let backend {
+            center = NotificationCenterQueue(backend: backend)
+        } else {
+            guard Self.usesSystemCenter, Self.isMainAppBundle(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL) else {
+                return nil
+            }
+            let system = UNUserNotificationCenter.current()
+            system.delegate = self
+            center = NotificationCenterQueue(backend: SystemNotificationCenter())
         }
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
         if Self.startsWithoutDeliveredBanners {
             // An automation launch starts from empty state, so its notification ids count from 1 again: a banner a
             // previous launch left in Notification Center under the same id would turn the next post into a silent
             // update. Only this launch's own notifications are removed (they are all stale).
-            center.removeAllDeliveredNotifications()
-            center.removeAllPendingNotificationRequests()
+            center.withdrawAll()
         }
-        center.setNotificationCategories(Set([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
+        center.install(categories: Set([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
                                               IPhonePairNotices.notificationCategory()] + AgentApprovalBanners.notificationCategories()))
         self.center = center
         return center

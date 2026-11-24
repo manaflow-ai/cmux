@@ -43,7 +43,8 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
     /// The person's answer to a request (for the banners' own record).
     let onAnswer: @Sendable (Bool) -> Void
 
-    package func status() async -> NotificationPermission {
+    /// `@concurrent`: the settings read waits on `usernoted`, never on the caller's (main) actor (#47009).
+    @concurrent package func status() async -> NotificationPermission {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         let authorization = switch settings.authorizationStatus {
         case .notDetermined: "not_determined"
@@ -63,7 +64,7 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
                                       badge: settings.badgeSetting == .enabled, bundleID: bundleID)
     }
 
-    package func request() async throws -> NotificationPermission {
+    @concurrent package func request() async throws -> NotificationPermission {
         let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         onAnswer(granted)
         return await status()
