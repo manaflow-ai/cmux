@@ -935,6 +935,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
         Command::DaemonStats { by, since, top } => {
             crate::cli::daemon_stats::run(by, &since, top, json_out).await
         }
