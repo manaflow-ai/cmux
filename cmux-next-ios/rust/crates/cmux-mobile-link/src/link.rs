@@ -24,7 +24,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use crate::classes::{Delivery, Sequencer};
+use crate::classes::{Delivery, ScreenState, Sequencer};
 use crate::frame::{Frame, FrameCodec, FrameType};
 
 /// Events queued per channel before the link reader waits for the owner.
@@ -249,6 +249,9 @@ pub struct LivenessDatagrams {
     /// The peer listed [`crate::classes::CLASSES_LANE`]: input and state
     /// channels send their messages as datagrams too (`crate::classes`).
     pub classes: bool,
+    /// The peer also listed [`crate::classes::SCREEN_LANE`]: a
+    /// [`Delivery::Screen`] channel sends screen datagrams.
+    pub screen: bool,
 }
 
 fn liveness_datagram(kind: u8, nonce: u64, attempt: u8) -> Vec<u8> {
@@ -554,12 +557,16 @@ struct Route {
     /// Puts numbered messages (stream chunks and datagrams) back in order
     /// for a channel opened with a [`Delivery`].
     sequencer: Option<Arc<tokio::sync::Mutex<Sequencer>>>,
+    /// A [`Delivery::Screen`] channel's acknowledgement and copy state,
+    /// shared with its sender.
+    screen: Option<Arc<ScreenState>>,
 }
 
 impl Route {
     fn new(inbox: Inbox, closed: &Arc<AtomicBool>, delivery: Option<Delivery>) -> Self {
         let sequencer = delivery.map(|delivery| Arc::new(tokio::sync::Mutex::new(Sequencer::new(delivery))));
-        Self { inbox, closed: Arc::clone(closed), sequencer }
+        let screen = (delivery == Some(Delivery::Screen)).then(|| Arc::new(ScreenState::new()));
+        Self { inbox, closed: Arc::clone(closed), sequencer, screen }
     }
 }
 
@@ -721,6 +728,8 @@ struct Inner {
     datagram_pings: AtomicBool,
     /// The peer takes class datagrams (`crate::classes`).
     classes: AtomicBool,
+    /// The peer takes screen datagrams and acknowledges them.
+    screen: AtomicBool,
     /// Messages delivered from a class datagram ahead of their stream copy.
     datagram_wins: AtomicU64,
     /// The phone app is in the foreground with a surface on screen
@@ -813,15 +822,32 @@ impl Inner {
             && self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).is_some()
     }
 
+    fn screen(&self) -> bool {
+        self.screen.load(Ordering::Relaxed) && self.classes()
+    }
+
     /// Queue class datagrams to the peer, best effort: a full queue drops them.
     fn send_class_datagrams(&self, datagrams: Vec<Vec<u8>>) {
+        self.send_datagram_copies(datagrams, crate::classes::COPIES);
+    }
+
+    fn send_datagram_copies(&self, datagrams: Vec<Vec<u8>>, copies: usize) {
         let Some(sender) = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
             return;
         };
-        for _ in 0..crate::classes::COPIES {
+        for _ in 0..copies {
             for datagram in &datagrams {
                 let _ = sender.try_send(datagram.clone());
             }
+        }
+    }
+
+    /// Tell the peer the newest screen message delivered on `channel`.
+    fn acknowledge_screen(&self, channel: u32, delivered: &[Bytes]) {
+        let seq = delivered.last().and_then(|message| message.get(..8)).and_then(|seq| seq.try_into().ok());
+        if let Some(seq) = seq {
+            let ack = crate::classes::screen_ack(channel, u64::from_be_bytes(seq));
+            self.send_datagram_copies(vec![ack], crate::classes::COPIES);
         }
     }
 
@@ -1026,6 +1052,7 @@ impl Link {
             datagrams: Mutex::new(None),
             datagram_pings: AtomicBool::new(false),
             classes: AtomicBool::new(false),
+            screen: AtomicBool::new(false),
             datagram_wins: AtomicU64::new(0),
             foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
@@ -1122,7 +1149,7 @@ impl Link {
     /// peer is listening, else on the first datagram it sends; in-stream
     /// pings are still answered. A second attach is ignored.
     pub fn attach_liveness_datagrams(&self, lane: LivenessDatagrams) {
-        let LivenessDatagrams { outgoing, incoming, peer_listening, classes } = lane;
+        let LivenessDatagrams { outgoing, incoming, peer_listening, classes, screen } = lane;
         {
             let mut datagrams = self.inner.datagrams.lock().unwrap_or_else(PoisonError::into_inner);
             if self.is_closed() || datagrams.is_some() {
@@ -1134,6 +1161,7 @@ impl Link {
             self.inner.datagram_pings.store(true, Ordering::Relaxed);
         }
         self.inner.classes.store(classes, Ordering::Relaxed);
+        self.inner.screen.store(screen && classes, Ordering::Relaxed);
         let reader = tokio::spawn(read_datagrams(Arc::clone(&self.inner), incoming));
         self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(reader);
         tracing::debug!(role = ?self.inner.role, peer_listening, classes, "liveness datagrams attached");
@@ -1143,6 +1171,13 @@ impl Link {
     /// too (the peer listed [`crate::classes::CLASSES_LANE`]).
     pub fn class_datagrams(&self) -> bool {
         self.inner.classes()
+    }
+
+    /// Whether [`Delivery::Screen`] channels send screen datagrams (the peer
+    /// listed [`crate::classes::SCREEN_LANE`] as well). When not, the app
+    /// sends its screen updates as plain stream messages.
+    pub fn screen_datagrams(&self) -> bool {
+        self.inner.screen()
     }
 
     /// Messages this side took from a class datagram ahead of their stream
@@ -1303,6 +1338,17 @@ impl Link {
         self.open_with(service, args, Lane::Bulk, Some(Delivery::Latest)).await
     }
 
+    /// A main-stream channel for terminal screen updates: when both peers
+    /// listed [`crate::classes::SCREEN_LANE`], its messages go as screen
+    /// datagrams (the screen class, acknowledged, see
+    /// [`ChannelSender::send_screen`]) and come out as [`Delivery::Screen`]
+    /// messages ([`crate::classes::screen_message`]). Otherwise it is a plain
+    /// stream channel ([`Channel::screen_class`] is false): the app sends and
+    /// reads its updates as before.
+    pub async fn open_screen(&self, service: &str, args: serde_json::Value) -> Result<Channel, LinkError> {
+        self.open_with(service, args, Lane::Bulk, Some(Delivery::Screen)).await
+    }
+
     /// [`Link::open_on`] with its messages also sent as datagrams and
     /// delivered as `delivery` says, when the peer takes class datagrams.
     pub async fn open_with(
@@ -1312,7 +1358,10 @@ impl Link {
         lane: Lane,
         delivery: Option<Delivery>,
     ) -> Result<Channel, LinkError> {
-        let delivery = delivery.filter(|_| self.inner.classes());
+        let delivery = delivery.filter(|delivery| match delivery {
+            Delivery::Screen => self.inner.screen(),
+            _ => self.inner.classes(),
+        });
         let stream = match lane {
             Lane::Bulk => MAIN,
             Lane::Input => {
@@ -1331,14 +1380,16 @@ impl Link {
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
         let inbox = Inbox::new(tx, &self.inner, stream, id);
-        self.inner.lock_channels().insert(id, Route::new(inbox, &closed, delivery));
+        let route = Route::new(inbox, &closed, delivery);
+        let screen = route.screen.clone();
+        self.inner.lock_channels().insert(id, route);
         let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane, delivery })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
             self.inner.lock_channels().remove(&id);
             return Err(error);
         }
-        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed, delivery))
+        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed, delivery, screen))
     }
 
     /// The next channel the peer opened, or `None` once the link is closed.
@@ -1967,6 +2018,17 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
 /// first one says the peer listens, so this side's pings switch over.
 async fn read_datagrams(inner: Arc<Inner>, mut incoming: mpsc::Receiver<Vec<u8>>) {
     while let Some(datagram) = incoming.recv().await {
+        if let Some((channel, seq)) = crate::classes::parse_screen_ack(&datagram) {
+            if inner.closed_reason().is_some() {
+                return;
+            }
+            inner.received();
+            let screen = inner.lock_channels().get(&channel).and_then(|route| route.screen.clone());
+            if let Some(screen) = screen {
+                screen.acknowledge(seq);
+            }
+            continue;
+        }
         if let Some(fragment) = crate::classes::parse_datagram(&datagram) {
             if inner.closed_reason().is_some() {
                 return;
@@ -1974,15 +2036,20 @@ async fn read_datagrams(inner: Arc<Inner>, mut incoming: mpsc::Receiver<Vec<u8>>
             inner.received();
             inner.received_traffic();
             let channel = fragment.channel;
-            let route = inner
-                .lock_channels()
-                .get(&channel)
-                .and_then(|route| route.sequencer.clone().map(|sequencer| (route.inbox.clone(), sequencer)));
-            let Some((inbox, sequencer)) = route else { continue };
+            let route = inner.lock_channels().get(&channel).and_then(|route| {
+                route
+                    .sequencer
+                    .clone()
+                    .map(|sequencer| (route.inbox.clone(), sequencer, route.screen.is_some()))
+            });
+            let Some((inbox, sequencer, screen)) = route else { continue };
             let mut sequencer = sequencer.lock().await;
             let delivered = sequencer.fragment(fragment);
             if !delivered.is_empty() {
                 inner.datagram_wins.fetch_add(1, Ordering::Relaxed);
+                if screen {
+                    inner.acknowledge_screen(channel, &delivered);
+                }
                 // Errors (an overflow close) go on the main stream.
                 deliver(&inner, MAIN, channel, &inbox, delivered).await;
             }
@@ -2101,10 +2168,23 @@ async fn read_loop<R>(
                 // Replies are sent as datagrams too only when this side
                 // also has the peer's word that it takes them.
                 let delivery = request.delivery;
-                inner.lock_channels().insert(frame.channel, Route::new(inbox, &closed, delivery));
+                // A screen delivery from a peer this side did not agree it with
+                // gets the stream path only.
+                let delivery = delivery.filter(|delivery| *delivery != Delivery::Screen || inner.screen());
+                let route = Route::new(inbox, &closed, delivery);
+                let screen = route.screen.clone();
+                inner.lock_channels().insert(frame.channel, route);
                 let mirror = delivery.filter(|_| inner.classes());
-                let channel =
-                    Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed, mirror);
+                let channel = Channel::new(
+                    frame.channel,
+                    stream,
+                    class,
+                    Arc::clone(&inner),
+                    rx,
+                    closed,
+                    mirror,
+                    screen,
+                );
                 let accepted = IncomingChannel {
                     service: request.service,
                     args: request.args,
@@ -2147,8 +2227,8 @@ async fn read_loop<R>(
                 let route = inner
                     .lock_channels()
                     .get(&channel)
-                    .map(|route| (route.inbox.clone(), route.sequencer.clone()));
-                let Some((inbox, sequencer)) = route else { continue };
+                    .map(|route| (route.inbox.clone(), route.sequencer.clone(), route.screen.is_some()));
+                let Some((inbox, sequencer, screen)) = route else { continue };
                 let Some((seq, last, chunk)) = crate::classes::parse_sequenced(frame.payload) else {
                     break "read failed: short sequenced frame".to_owned();
                 };
@@ -2156,6 +2236,9 @@ async fn read_loop<R>(
                     Some(sequencer) => {
                         let mut sequencer = sequencer.lock().await;
                         let delivered = sequencer.stream_chunk(seq, last, chunk);
+                        if screen {
+                            inner.acknowledge_screen(channel, &delivered);
+                        }
                         deliver(&inner, stream, channel, &inbox, delivered).await
                     }
                     // A channel opened without a delivery: take the chunks as they come.
@@ -2260,6 +2343,8 @@ pub struct ChannelSender {
     /// (`crate::classes`).
     mirror: bool,
     next_seq: AtomicU64,
+    /// Present on a [`Delivery::Screen`] channel.
+    screen: Option<Arc<ScreenState>>,
 }
 
 impl ChannelSender {
@@ -2296,6 +2381,49 @@ impl ChannelSender {
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
     ) -> Result<(), LinkError> {
+        self.send_numbered(data, mark).await.map(|_| ())
+    }
+
+    /// Whether this channel sends screen datagrams ([`Delivery::Screen`] and
+    /// the peer agreed [`crate::classes::SCREEN_LANE`]).
+    pub fn screen_class(&self) -> bool {
+        self.screen.is_some() && self.mirror
+    }
+
+    /// The newest message number the peer acknowledged: a screen message
+    /// may be built as a diff against it. `None` until one is acknowledged.
+    pub fn screen_base(&self) -> Option<u64> {
+        self.screen.as_ref().and_then(|screen| screen.base())
+    }
+
+    /// Say whether this channel's surface is on screen and being read (the
+    /// `visible` and `attending` flags): an attended surface sends each
+    /// screen datagram twice, a visible one once, a hidden one none (its
+    /// updates reach the peer on the stream).
+    pub fn set_surface_state(&self, visible: bool, attending: bool) {
+        if let Some(screen) = &self.screen {
+            screen.set_surface(visible, attending);
+        }
+    }
+
+    /// Send screen message `payload`, built against message `base` (from
+    /// [`screen_base`](Self::screen_base); `None` for a whole state). Returns
+    /// the message's number. On a channel without screen datagrams this is
+    /// a plain stream send with number 0.
+    pub async fn send_screen(&self, base: Option<u64>, payload: &[u8]) -> Result<u64, LinkError> {
+        if !self.screen_class() {
+            self.send(Bytes::copy_from_slice(payload)).await?;
+            return Ok(0);
+        }
+        let message = crate::classes::screen_wire(base.unwrap_or(crate::classes::NO_BASE), payload);
+        Ok(self.send_numbered(message, None).await?.unwrap_or(0))
+    }
+
+    async fn send_numbered(
+        &self,
+        data: Bytes,
+        mark: Option<crate::frame::FlushMark>,
+    ) -> Result<Option<u64>, LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
@@ -2305,7 +2433,14 @@ impl ChannelSender {
             && !self.inner.writes_held.load(Ordering::Acquire)
         {
             // Ahead of the stream copy, which may wait for room.
-            self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data));
+            match &self.screen {
+                Some(screen) => {
+                    let copies = screen.copies();
+                    self.inner
+                        .send_datagram_copies(crate::classes::screen_datagrams(self.id, seq, &data), copies);
+                }
+                None => self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data)),
+            }
         }
         let mut rest = data;
         let mut mark = mark;
@@ -2342,7 +2477,7 @@ impl ChannelSender {
                 Pushed::ChannelClosed => return Err(LinkError::ChannelClosed),
             }
         }
-        Ok(())
+        Ok(seq)
     }
 
     /// Close the channel with `code` and `reason`. Idempotent. The close
@@ -2423,6 +2558,7 @@ impl Channel {
         rx: mpsc::Receiver<ChannelEvent>,
         closed: Arc<AtomicBool>,
         mirror: Option<Delivery>,
+        screen: Option<Arc<ScreenState>>,
     ) -> Self {
         Self {
             sender: ChannelSender {
@@ -2434,6 +2570,7 @@ impl Channel {
                 meter: None,
                 mirror: mirror.is_some(),
                 next_seq: AtomicU64::new(0),
+                screen,
             },
             receiver: ChannelReceiver { rx, done: false, meter: None },
         }
@@ -2441,6 +2578,11 @@ impl Channel {
 
     pub fn id(&self) -> u32 {
         self.sender.id
+    }
+
+    /// Whether this channel sends screen datagrams ([`ChannelSender::screen_class`]).
+    pub fn screen_class(&self) -> bool {
+        self.sender.screen_class()
     }
 
     pub fn lane(&self) -> Lane {
@@ -3615,12 +3757,14 @@ mod tests {
                 incoming: phone_in,
                 peer_listening: mac_listening,
                 classes: false,
+                screen: false,
             },
             LivenessDatagrams {
                 outgoing: mac_out,
                 incoming: mac_in,
                 peer_listening: phone_listening,
                 classes: false,
+                screen: false,
             },
         )
     }
@@ -3677,6 +3821,122 @@ mod tests {
         );
         assert!(tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err());
         assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
+    }
+
+    /// Screen messages cross a dark stream as screen datagrams, newest wins,
+    /// the receiver's acknowledgements give the sender its base, and the
+    /// stream copies that follow are dropped as duplicates.
+    #[tokio::test(start_paused = true)]
+    async fn screen_datagrams_cross_a_dark_stream_and_are_acknowledged() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..phone_lane });
+        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..mac_lane });
+        assert!(phone.screen_datagrams() && mac.screen_datagrams());
+        let server = tokio::spawn({
+            let mac = mac.clone();
+            async move { mac.accept().await.expect("screen").channel }
+        });
+        let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+        assert!(screen.screen_class());
+        let mac_screen = server.await.unwrap();
+        let (mac_tx, _mac_rx) = mac_screen.split();
+        assert!(mac_tx.screen_class());
+        assert_eq!(mac_tx.screen_base(), None);
+        dark.send_replace(true);
+        let mut last = 0;
+        for state in 0u8..3 {
+            last = mac_tx.send_screen(mac_tx.screen_base(), &vec![state; 2000]).await.unwrap();
+        }
+        let mut newest = None;
+        while let Ok(Some(ChannelEvent::Data(bytes))) =
+            tokio::time::timeout(Duration::from_millis(100), screen.recv()).await
+        {
+            let message = crate::classes::screen_message(&bytes).expect("a screen message");
+            assert_eq!(message.base, None, "nothing was acknowledged yet");
+            assert!(newest.is_none_or(|seen| message.seq > seen), "older state after a newer one");
+            newest = Some(message.seq);
+            assert_eq!(message.payload.len(), 2000);
+        }
+        assert_eq!(newest, Some(last), "the newest state arrived while dark");
+        // The phone's acknowledgement crossed back as a datagram.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(mac_tx.screen_base(), Some(last));
+        // The next message is a diff against it.
+        mac_tx.send_screen(mac_tx.screen_base(), b"diff").await.unwrap();
+        let Ok(Some(ChannelEvent::Data(bytes))) =
+            tokio::time::timeout(Duration::from_millis(100), screen.recv()).await
+        else {
+            panic!("no diff arrived")
+        };
+        let message = crate::classes::screen_message(&bytes).unwrap();
+        assert_eq!((message.base, &message.payload[..]), (Some(last), &b"diff"[..]));
+        dark.send_replace(false);
+        assert!(phone.ping().await.is_ok());
+        assert!(tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err());
+        // A hidden surface sends no datagrams: its update waits for the stream.
+        mac_tx.set_surface_state(false, false);
+        dark.send_replace(true);
+        mac_tx.send_screen(None, b"hidden").await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(100), screen.recv()).await.is_err());
+        dark.send_replace(false);
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_millis(500), screen.recv()).await,
+            Ok(Some(ChannelEvent::Data(_)))
+        ));
+    }
+
+    /// Each side's flags are what negotiation agreed (both listed the lane),
+    /// so an older peer (no `classes-screen-v1`, or no classes at all) leaves
+    /// both false. It never sees the `screen` delivery: the channel is a plain stream channel on
+    /// both sides and screen sends go as ordinary stream messages.
+    #[tokio::test]
+    async fn open_screen_negotiates_down_to_the_stream_path() {
+        for (phone_classes, phone_screen, mac_classes, mac_screen) in
+            [(true, false, true, false), (false, false, false, false)]
+        {
+            let (phone, mac) = pair();
+            let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+            phone.attach_liveness_datagrams(LivenessDatagrams {
+                classes: phone_classes,
+                screen: phone_screen,
+                ..phone_lane
+            });
+            mac.attach_liveness_datagrams(LivenessDatagrams {
+                classes: mac_classes,
+                screen: mac_screen,
+                ..mac_lane
+            });
+            let server = tokio::spawn({
+                let mac = mac.clone();
+                async move { mac.accept().await.expect("screen") }
+            });
+            let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+            let accepted = server.await.unwrap();
+            assert!(!screen.screen_class());
+            assert!(!accepted.channel.screen_class());
+            let (tx, _rx) = accepted.channel.split();
+            assert_eq!(tx.send_screen(None, b"plain").await.unwrap(), 0);
+            match screen.recv().await {
+                Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], b"plain"),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+
+    /// `screen` datagrams do not parse as class messages of another kind,
+    /// and acknowledgements round trip.
+    #[test]
+    fn screen_ack_and_kind_round_trip() {
+        let ack = crate::classes::screen_ack(7, 99);
+        assert_eq!(crate::classes::parse_screen_ack(&ack), Some((7, 99)));
+        assert!(crate::classes::parse_datagram(&ack).is_none());
+        let datagrams = crate::classes::screen_datagrams(3, 1, &[9; 10]);
+        assert_eq!(
+            crate::classes::parse_datagram(&datagrams[0]).unwrap().kind,
+            crate::classes::DATAGRAM_SCREEN
+        );
+        assert!(crate::classes::parse_screen_ack(&datagrams[0]).is_none());
     }
 
     /// The Mac's stream stalls after one byte (its writes never finish):
@@ -3815,8 +4075,15 @@ mod tests {
                 incoming: phone_in,
                 peer_listening: true,
                 classes: false,
+                screen: false,
             },
-            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true, classes: false },
+            LivenessDatagrams {
+                outgoing: mac_out,
+                incoming: mac_in,
+                peer_listening: true,
+                classes: false,
+                screen: false,
+            },
         )
     }
 
