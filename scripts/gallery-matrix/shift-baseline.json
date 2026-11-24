@@ -209,8 +209,6 @@
     "agent-pane.chat-inspector#chrome-title": 0,
     "agent-pane.chat-inspector#cloud-empty": 0,
     "agent-pane.chat-inspector#context-breakdown": 0.02594,
-    "agent-pane.chat-inspector#context-breakdown-hues": 0.02594,
-    "agent-pane.chat-inspector#context-breakdown-mono": 0.02594,
     "agent-pane.chat-inspector#context-compact-working": 0,
     "agent-pane.chat-inspector#context-connectors-open": 0,
     "agent-pane.chat-inspector#environment-branch-chip": 0,
