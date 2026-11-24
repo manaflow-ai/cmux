@@ -1112,8 +1112,6 @@ function TranscriptView({
   const workingRef = useRef(working);
   workingRef.current = working;
   const transcriptMounted = useRef(true);
-  /// The offset, scroll lead and follow state the last commit drew with (set in its layout effect).
-  const drewScroll = useRef<{ top: number; delta: number; following: boolean } | undefined>(undefined);
   /// The offset and follow state the last commit drew at (written as it lays out).
   const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
@@ -1173,18 +1171,6 @@ function TranscriptView({
     if (drew && Math.abs(frame.top - drew.top) <= 0.5 && drew.following === followingRef.current) return;
     // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
     acpmuxPerf.render("transcript:scroll-flush");
-    // The last commit already drew this offset, lead and follow state (a followed view's commit
-    // places it at the new end before the scroll event that reports it): a render now would draw
-    // the same rows in the same place. Committed anyway, each followed tool call's start or end
-    // rendered the whole transcript a second time.
-    const drew = drewScroll.current;
-    if (
-      drew !== undefined &&
-      drew.top === scrollRef.current.top &&
-      drew.delta === scrollRef.current.delta &&
-      drew.following === followingRef.current
-    )
-      return;
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
         setScroll(scrollRef.current);
@@ -3976,11 +3962,6 @@ function TranscriptView({
     drewFollowedEnd.current = followedEnd ? height : undefined;
   });
   const renderFollowing = sessionSwitched || followingRef.current;
-  const drewTop = renderScroll.top;
-  const drewDelta = unplacedScroll.delta;
-  useLayoutEffect(() => {
-    drewScroll.current = sessionSwitched ? undefined : { top: drewTop, delta: drewDelta, following };
-  });
   // What this commit draws at, for the scroll pacer (`pacedScroll`).
   useLayoutEffect(() => {
     drewScroll.current = { top: renderScroll.top, following: renderFollowing };
