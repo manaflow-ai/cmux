@@ -344,8 +344,9 @@ impl Link {
 
     /// The app's cold chat open (cmux-next-ios `AcpmuxHub+EarlyAttach.swift`): `initialize`, the
     /// first watch page and the chat's first attach written together, the attach's sudo-card
-    /// kinds in `alsoKinds`. A daemon that serves those kinds but does not fold `alsoKinds` gets
-    /// the attach again with them, as the app does. Returns the link and the used attach's reply.
+    /// kinds in `alsoKinds`. A daemon that serves those kinds but does not fold `alsoKinds` keeps
+    /// its page and gets a re-attach from the page's end plus a sudo-card read, as the app does.
+    /// Returns the link, when the page could be drawn, and the page's reply.
     async fn open_attached(
         addr: std::net::SocketAddr,
         token: &str,
@@ -384,7 +385,27 @@ impl Link {
         let (at, reply) = got.nth(1).ok_or("no attach answer")?;
         let has = |id: &str| link.capabilities.iter().any(|c| c == id);
         if has(ELEVATION_CAPABILITY) && !has(ALSO_KINDS_CAPABILITY) {
-            let (at, reply) = link.attach(session, None, deadline).await?;
+            // The page is kept (`readPages`): attach again from its end with every kind, which
+            // widens the stream and reads only what came after, and read the sudo-card records
+            // since its start, both in one round trip.
+            let last = reply["lastSeq"].as_u64().unwrap_or(0);
+            let first = rows(&reply).first().copied().unwrap_or(1);
+            let widen = link
+                .post(
+                    "_acpmux/attach",
+                    json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": link.kinds(),
+                           "eventStream": true, "afterSeq": last, "omitTimeBreakdown": true}),
+                )
+                .await?;
+            let cards = link
+                .post(
+                    "_acpmux/events",
+                    json!({"sessionId": session, "afterSeq": first.saturating_sub(1),
+                           "limit": PAGE_SIZE, "kinds": ELEVATION_KINDS}),
+                )
+                .await?;
+            let got = link.answers(&[widen, cards], deadline).await?;
+            let at = got.iter().map(|(at, _)| *at).max().unwrap_or(at);
             return Ok((link, at, reply));
         }
         Ok((link, at, reply))
