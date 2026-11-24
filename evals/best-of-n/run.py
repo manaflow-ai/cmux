@@ -39,7 +39,9 @@ TASKS = HERE / "tasks"
 # Task sets: `tasks` (small, saturated for current models), `tasks_hard` (aimed at single ~0.3-0.5, but single 0.85
 # for haiku) and `tasks_real` (real cmux bug fixes ported to Python: the buggy code, its bug report and the spec;
 # saturated too: haiku solved 36 of 36 at effort low, results/ holds the runs) and `tasks_report` (the same nine fixes
-# with only the bug report a user would file: no spec, the buggy code, hidden tests limited to what the report implies).
+# with only the bug report a user would file: no spec, the buggy code, hidden tests limited to what the report implies;
+# haiku x4 at effort low, two runs of 9: single 0.75 and 0.78, pick 0.78 and 0.89, pass@4 0.89, gain +0.03 and +0.11,
+# pooled +0.07 over 18 races).
 SETS = ("tasks", "tasks_hard", "tasks_real", "tasks_report")
 REPORT_SETS = ("tasks_report",)
 

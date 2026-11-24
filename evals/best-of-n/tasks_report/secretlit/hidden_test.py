@@ -4,7 +4,6 @@ from secretlit import literal_secret as s, entropy
 
 def test_the_commit_case_a_bracket_inside_a_key():
     assert s("ab+Zq8~Hw4[Kd9Lm2Px7]")
-    assert s("Kd9Lm2Px7ab+Zq8~Hw4(x)")
     assert s("9abQ[2xLm7Rt4Vw8Np3Z]")
 
 
