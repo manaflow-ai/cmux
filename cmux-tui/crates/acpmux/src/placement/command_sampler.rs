@@ -535,8 +535,8 @@ fn attribute(flights: &mut HashMap<(String, String), Flight>, procs: &Procs) {
                     .max_by_key(|(_, (_, began))| *began)
                     .map(|(i, _)| i)
             });
-            if let Some(i) = owner {
-                owned.push((calls[i].0, pid, p.start));
+            if let Some((call, _)) = owner.and_then(|i| calls.get(i)) {
+                owned.push((*call, pid, p.start));
             }
             for c in children.get(&pid).into_iter().flatten() {
                 stack.push((*c, owner));

@@ -405,7 +405,7 @@ impl Table {
         if let Some(runs) = runs.filter(|r| !r.is_empty()) {
             let mut walls: Vec<f64> = runs.iter().map(|r| r.wall_s).collect();
             walls.sort_by(f64::total_cmp);
-            let wall = walls[walls.len() / 2];
+            let wall = walls.get(walls.len() / 2).copied().unwrap_or_default();
             let peak = runs
                 .iter()
                 .filter_map(|r| r.peak_mem_gib)
