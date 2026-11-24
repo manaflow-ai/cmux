@@ -460,25 +460,32 @@ fn own_named(mut params: Value, session: &str) -> Value {
     params
 }
 
-/// How other agents (Claude or Codex, here or on a peer) reach session `id`: its name, handle,
-/// machine, the `host/name` address the send tool and `cmux agent send` take, and its link.
-/// None when the daemon cannot resolve it (`_acpmux/resolve`).
-async fn reach(daemon: &Arc<Client>, id: &str) -> Option<Value> {
-    let reply = daemon
-        .request(method::MUX_RESOLVE, json!({"query": id, "sessionId": id, "exactSessionId": true}))
-        .await
-        .ok()?;
-    let s = reply["matches"].as_array()?.first()?;
-    let name = s["name"].as_str().filter(|n| !n.is_empty())?;
-    let host = s["host"].as_str().filter(|h| !h.is_empty());
+/// How other agents (Claude or Codex, here or on a peer) reach the session `info` describes:
+/// its name, handle, machine, the `host/name` address the send tool and `cmux agent send` take,
+/// and its agent link (`agent_link.rs`). Read from the info record itself, so it costs no
+/// further request. None for a record with no name.
+fn reach(info: &Value) -> Option<Value> {
+    let text = |k: &str| info[k].as_str().map(str::trim).filter(|v| !v.is_empty());
+    let name = text("name")?;
+    let host = text("machine");
     let address = host.map_or_else(|| name.to_owned(), |h| format!("{h}/{name}"));
+    let link = text("harness").zip(text("agentSessionId")).and_then(|(harness, session)| {
+        crate::agent_link::AgentLink {
+            harness: harness.to_owned(),
+            session: session.to_owned(),
+            host: host.map(str::to_owned),
+            name: Some(name.to_owned()),
+            ..Default::default()
+        }
+        .web_url()
+    });
     Some(json!({
         "name": name,
-        "handle": s["handle"],
+        "handle": text("handle"),
         "host": host,
-        "harness": s["harness"],
+        "harness": text("harness"),
         "address": address,
-        "link": s["link"],
+        "link": link,
     }))
 }
 
@@ -577,7 +584,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
             match daemon.request(method::MUX_INFO, json!({"sessionId": id})).await {
                 Ok(mut r) => {
                     let mut text = serde_json::to_string_pretty(&r).unwrap_or_default();
-                    if let Some(reach) = reach(daemon, &id).await {
+                    if let Some(reach) = reach(&r) {
                         text = format!("{}\n\n{text}", reach_text(&reach));
                         if r.is_object() {
                             r["reach"] = reach;
