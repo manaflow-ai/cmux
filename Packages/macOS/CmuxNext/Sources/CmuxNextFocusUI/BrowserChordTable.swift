@@ -14,7 +14,8 @@ public import CmuxNextActions
 /// Back. Chords cmux itself binds (Cmd-D split, Cmd-T new tab, Cmd-W close,
 /// Cmd-1..9 tab select) are resolved by the registry before this table is
 /// consulted, so cmux keeps them.
-public enum BrowserChordTable {
+public struct BrowserChordTable {
+    public init() {}
     private static let left = Shortcut.leftArrowKey
     private static let right = Shortcut.rightArrowKey
     private static let pageUp = FunctionKeyCharacter.string(NSPageUpFunctionKey)
