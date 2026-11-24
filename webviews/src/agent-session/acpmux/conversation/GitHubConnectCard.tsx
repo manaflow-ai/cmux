@@ -101,7 +101,11 @@ function storePhase(phaseKey: string, setPhase: (next: GitHubConnectPhase) => vo
 }
 
 /// Sends Continue once: a card already continuing does nothing.
-function continueOnce(phaseKey: string, setPhase: (next: GitHubConnectPhase) => void, offer: GitHubConnectOffer | undefined) {
+function continueOnce(
+  phaseKey: string,
+  setPhase: (next: GitHubConnectPhase) => void,
+  offer: GitHubConnectOffer | undefined,
+) {
   if (!offer || cardPhase(phaseKey).kind === "continuing") return;
   storePhase(phaseKey, setPhase, { kind: "continuing" });
   void offer.continue();
