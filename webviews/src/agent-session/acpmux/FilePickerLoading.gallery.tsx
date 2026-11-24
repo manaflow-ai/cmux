@@ -53,7 +53,7 @@ function FilePickerLoadingFixture({ surface, state, many }: Props) {
           <div style={{ position: "absolute", insetInline: "var(--ds-space-4)", top: "70%" }}>
             <MentionMenu
               state={mentionState}
-              items={mentionItems({ query: "example", files, sessions: [] })}
+              items={mentionItems({ query: "example", files })}
               active={state === "loaded" ? 0 : -1}
               onHover={() => {}}
               onPick={() => {}}
