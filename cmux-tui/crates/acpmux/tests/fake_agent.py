@@ -119,6 +119,8 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_UPSTREAM_URL=<url>: every prompt is a model call to a fake Anthropic upstream at <url> (the
+529-storm chaos test's, tests/hub_integration/auto_resume_529_chaos.rs); see `upstream_turn`.
 FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fails with a capacity
 error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
 and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
@@ -595,6 +597,64 @@ def answer_review_threads(text):
         )
 
 
+def upstream_priority():
+    """The X-Subrouter-Priority this process's requests carry, as Claude Code sends it: the line
+    in ANTHROPIC_CUSTOM_HEADERS, else the SUBROUTER_PRIORITY acpmux put in its env."""
+    for line in os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "").splitlines():
+        name, _, value = line.partition(":")
+        if name.strip().lower() == "x-subrouter-priority":
+            return value.strip()
+    return os.environ.get("SUBROUTER_PRIORITY", "")
+
+
+def upstream_turn(rid, sid, text):
+    """FAKE_UPSTREAM_URL=<url>: every prompt is one Anthropic-shaped model call (POST
+    <url>/v1/messages), as Claude Code makes one: the session's model (FAKE_PICKER's), its
+    X-Subrouter-Priority, and X-Fake-Session=<ACPMUX_SESSION_ID or pid>. A 200 completes the turn;
+    a 529 (or any error) is retried FAKE_UPSTREAM_RETRIES times inside the turn, as Claude Code
+    retries an overload itself, waiting the answer's Retry-After (seconds, fractions allowed) or
+    FAKE_UPSTREAM_BACKOFF_MS doubling; then the turn fails as Claude Code's does, "API Error: 529
+    <body>"."""
+    import urllib.request, urllib.error
+    url = os.environ["FAKE_UPSTREAM_URL"].rstrip("/") + "/v1/messages"
+    model = PICKER_MODELS.get(sid, "default")
+    who = os.environ.get("ACPMUX_SESSION_ID") or str(os.getpid())
+    body = json.dumps({"model": model, "max_tokens": 16,
+                       "messages": [{"role": "user", "content": text[:200]}]}).encode()
+    headers = {"content-type": "application/json", "anthropic-version": "2023-06-01",
+               "x-subrouter-priority": upstream_priority(), "x-fake-session": who}
+    retries = int(os.environ.get("FAKE_UPSTREAM_RETRIES", "0") or 0)
+    backoff = int(os.environ.get("FAKE_UPSTREAM_BACKOFF_MS", "50") or 50) / 1000
+    status, reply = 0, ""
+    for attempt in range(retries + 1):
+        if sid in cancelled:
+            cancelled.discard(sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        wait = backoff * (2 ** attempt)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                status, reply = resp.status, resp.read().decode()
+        except urllib.error.HTTPError as e:
+            status, reply = e.code, e.read().decode()
+            after = e.headers.get("retry-after")
+            try:
+                wait = max(wait, float(after)) if after else wait
+            except ValueError:
+                pass
+        except Exception as e:  # the upstream gone: a transport error, as Claude Code says one
+            status, reply = 0, f"Connection error. {e}"
+        if status == 200:
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+            return
+        if attempt < retries:
+            time.sleep(wait)
+    message = f"API Error: {status} {reply}" if status else f"API Error: {reply}"
+    send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     # Model a harness that scopes an interrupt to the prompt it is processing.
@@ -643,6 +703,8 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    if os.environ.get("FAKE_UPSTREAM_URL"):
+        return upstream_turn(rid, sid, text)
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
     if cap_file:
         with open(cap_file + ".seen", "a") as seen:
