@@ -19,8 +19,13 @@ impl Peer {
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
+        let scope = cmux_scope::Scope::new("acpmux peer");
+        let notices = crate::peer_notice_outbox::NoticeOutbox::new(
+            notices,
+            scope.child("acpmux peer notices"),
+        );
         Arc::new(Self {
-            scope: cmux_scope::Scope::new("acpmux peer"),
+            scope,
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),

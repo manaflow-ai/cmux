@@ -105,6 +105,12 @@ export type Subagent = {
   /// work of its own in the background, and reads Idle, not Running (summary/SubagentStatusList.tsx
   /// ``subagentStatus``). Leo, 2026-11-02, on rows running for two hours: "but what's going on with these?"
   quietSince?: number;
+  /// Its start came before what this fold read: it was first met through its progress or its end
+  /// (a page, a lag's re-read or a reconnect that began after its spawn). It draws no "started
+  /// working" line (runningTray.ts `startedLine`): it did not start there. Leo, 2026-11-22, on a
+  /// row of eleven empty name pills that flickered in and out over a running turn: "ENTIRE THING
+  /// FUCKING BLANKED AND FUCKING SHIFTED".
+  startUnseen?: true;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
