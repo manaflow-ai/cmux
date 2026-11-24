@@ -1955,10 +1955,17 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done {
   grid-column: 1;
   grid-row: 1;
+  /* A button sizes to its words; the line fills its track, so the title and reason halves split
+     at one x on every row (cmux#52916). */
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
 }
 .cv-subagent-done-row[data-look="grid"] .cv-subagent-failed__text {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* The words fill the line beside the mark, not their own width, or the halves move per row. */
+  flex: 1 1 0;
 }
 .cv-subagent-done-row[data-look="grid"] > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
   grid-column: 2;
