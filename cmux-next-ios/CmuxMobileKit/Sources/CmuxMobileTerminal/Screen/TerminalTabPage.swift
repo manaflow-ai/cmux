@@ -116,10 +116,23 @@ public struct TerminalTabPage: View {
             // Only a page on screen, settled and taking input sizes the Mac's
             // terminal; the grid, a swipe away, another tab or leaving the
             // workspace release it (PROTOCOL.md, "Terminal size claims").
-            .onAppear { host.pageAppeared(pageID, interactive: isInteractive) }
-            .onChange(of: isInteractive) { _, interactive in host.pageSettled(pageID, interactive: interactive) }
-            .onDisappear { host.pageDisappeared(pageID) }
-            .ignoresSafeArea()
+            .onAppear {
+                host.pageAppeared(pageID, interactive: isInteractive)
+                TerminalPageOrientation.shared.page(pageID, shows: isInteractive)
+            }
+            .onChange(of: isInteractive) { _, interactive in
+                host.pageSettled(pageID, interactive: interactive)
+                // Settled, the page turns with the phone; zoomed out, the grid is portrait.
+                TerminalPageOrientation.shared.page(pageID, shows: interactive)
+            }
+            .onDisappear {
+                host.pageDisappeared(pageID)
+                TerminalPageOrientation.shared.page(pageID, shows: false)
+            }
+            // Full bleed top and bottom (the page's own insets place the rows);
+            // sideways, the grid keeps clear of the Dynamic Island and the
+            // corners (no side insets in portrait). The black fills them.
+            .ignoresSafeArea(.all, edges: .vertical)
             .background(Color.black)
             // Not attached: the page as last seen on this phone, as it was (a
             // warm surface keeps its own rows, live and scrollable, under

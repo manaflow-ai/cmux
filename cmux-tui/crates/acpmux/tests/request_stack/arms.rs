@@ -120,6 +120,20 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "the local socket is refused: only a peer asks for this machine's state",
             ),
         ),
+        (
+            method::MUX_MACHINE_FILES_CALL,
+            Any(
+                json!({"machine": "nowhere", "action": "fs.read", "params": {"path": "/tmp/x"}}),
+                "the hub's book lists no signed-in machine of that name (unknown_machine)",
+            ),
+        ),
+        (
+            method::MUX_KEYS_MINT,
+            Any(
+                json!({"machine": "nowhere", "kind": "cloudflare-r2", "bucket": "bucket", "access": "ro"}),
+                "the hub has no peer of that name (unknown_machine)",
+            ),
+        ),
         (method::SESSION_NEW, Run(json!({"cwd": "$CWD", "mcpServers": []}))),
         (method::SESSION_LOAD, Run(json!({"sessionId": "$S"}))),
         (method::SESSION_RESUME, Run(json!({"sessionId": "$S"}))),

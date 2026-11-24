@@ -266,7 +266,12 @@ closed with 4001 `moved`.
     reach their TURN server over TCP or TLS (label `turn-tls`). `version`
     is the WireGuard protocol version: absent (0) from older peers, `2`
     from peers that never send relay frames and confirm routes with an
-    in-tunnel `reach` message (below). A roam's endpoint announcement
+    in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
+    sender can join the session's WebSocket relay ("WebSocket relay"
+    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
+    has no other path: no plain UDP and no TURN allocation, so the peer
+    joins at once too); absent from older peers, which never join, and
+    then neither does this side. A roam's endpoint announcement
     (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
@@ -276,6 +281,10 @@ closed with 4001 `moved`.
     receive anything from the new address yet (a NAT that filters by
     address). The receiver applies the newer generation of either copy.
     Older peers ignore it (an unknown kind).
+  - `wg-relay` `{}` (0.17.0): the sender joined the session's WebSocket
+    relay because nothing it sent reached the peer otherwise; the peer
+    joins too. Sent only to a peer whose `wg-init` / `wg-resp` carried
+    `relay`.
   - `bye` `{reason}`
 - Relay frames (retired in API 0.9.0). Binary frames
   `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]` used to
@@ -287,13 +296,16 @@ closed with 4001 `moved`.
   dial only on an error for that dial's session or one without
   `sessionId`). A frame shorter than 16 bytes is dropped silently. The
   hub keeps presence and signaling (introductions); it carries no
-  data. A WireGuard path without UDP is TURN over TLS (below).
+  data. A WireGuard path without UDP is TURN over TLS (below), and past
+  that the session's own WebSocket relay (0.17.0, "WebSocket relay"), a
+  separate object per session reached on its own route, never this socket.
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
   dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
 - WireGuard paths, in order: plain UDP (direct, hole-punched), then TURN
-  over UDP, then TURN over TLS on 443. When `/v1/ice` lists a TURN server
+  over UDP, then TURN over TLS on 443, then (0.17.0) cmux's WebSocket
+  relay on the service's own host ("WebSocket relay"). When `/v1/ice` lists a TURN server
   the dialer allocates a TURN relay and adds the relayed address to its
   `endpoints`. It tries `turn:...?transport=udp` first; when that gets no
   allocation it uses `turns:...:443?transport=tcp` (any other `turns:` URL,
@@ -478,6 +490,91 @@ A Worker older than the frame answers it `{"type":"error","code":"bad_request",
 answer, within 30 s of a stat it sent, as the refusal of the stat: it never
 reaches a dial, and that socket sends no more stats.
 
+## WebSocket relay (API 0.17.0)
+
+The last way a WireGuard link reaches its peer, for a network that lets out
+only cmux's own hosts (an allowlist without the TURN host), or only real
+HTTP inside TLS (an inspecting proxy that drops TURN's stream): WireGuard
+datagrams in WebSocket binary messages, `wss://` on 443, on the host the
+app already signs in and signals through. Design, cost and why the old
+relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/phone-link-https-relay.md).
+
+- **Join:** `GET /v1/relay/:sessionId?deviceId=<id>`, a plain HTTP/1.1
+  `Upgrade: websocket` with `Authorization: Bearer <Stack token>` (or the
+  `bearer.` subprotocol entry, as for signaling) and the build space
+  header of a dev build. The Worker selects `cmux-relay.v1` when offered.
+  It admits only a device the caller's own hub bound to that session at its
+  first admitted signal (the session's initiator or responder, while the
+  session lives: 24 h, or until `bye` or the device's removal), in the
+  caller's build space: anyone else gets `403 not_in_session`, a session no
+  signal opened too. `503 relay_off` when the Worker's `LINK_RELAY_MODE` is
+  `off` (the kill switch); an older Worker answers `404`.
+- **Where:** one `LinkRelay` Durable Object per session, named by the owner
+  key, build space and session id (never a client value), created with the
+  joiner's `locationHint` like a hub. Hibernating sockets, no storage, one
+  socket per device (a newer join closes the older with 4000 `replaced`).
+- **Frames:** the overlay relay frame of `cmux_transport::relay_frame`
+  (`[u8 1][u8 kind][16-byte peer][payload ≤ 16 KiB]`, the shared golden
+  vectors), kind `datagrams` only: one or more `[u16 length][datagram]`
+  records, as many ready datagrams as fit in one message. The relay sends
+  each frame to the other party's socket with `peer` set to the sender's
+  device id (the UUID's 16 bytes) and never reads the payload. Malformed
+  frames, other kinds and frames past the per-socket limit (1500 frames and
+  8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
+  at most every 5 s.
+- **Text frames, relay → client:** `{"type":"joined","peer":bool}` (the
+  other party's socket is joined), then `{"type":"peer","online":bool}` when
+  it joins or leaves, or at most every 5 s while frames find it absent. A
+  client's `ping` is answered `pong` without waking the object.
+- **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
+  only when both sides offered `relay`. At once when either has no other
+  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  after its tunnel started or after it roamed (TURN over TLS is already
+  open by then: the dial races it from the start), when the phone's link
+  heard nothing for 16 s in the foreground, when its relay socket dies while
+  the session needs it, or when the peer asks (`wg-relay`). A side that
+  joins on its own asks the peer; one that heard the peer while its join
+  ran drops the unused socket. A failed join is retried after 1, 3, 10 and
+  30 s; `403`, `404` and `503` are not.
+- **On the tunnel:** the relay is one more carrier, a path of the path
+  selector like each TURN route, ranked below every direct path and, by
+  round trip, below a TURN path that answers. Until the peer confirms a
+  route, datagrams also go through the relay; route confirmation stays the
+  in-tunnel `reach` (`via: "relay"`, `from` the relay's placeholder
+  `0.0.0.0:443`), so the relay can never confirm a route itself. The path
+  is `https-relay` (`link_stat`, `phone_up`, `phone_path`).
+- **Leaving:** a side lets its relay socket go once another route has been
+  its confirmed one for 60 s. Plain UDP and TURN keep being probed while the
+  session rides the relay, so a roam to a network that allows them moves the
+  link off it. A side that still needs the relay (its route is the relay, or
+  nothing came from the peer for 5 s) and hears the peer left it
+  (`{"type":"peer","online":false}`) asks it back with `wg-relay` after 5 s,
+  then at most every 10 s. A session that joins again within 5 minutes of
+  leaving keeps the relay from then on.
+- Debug "Relay via cmux (HTTPS) only" (and simulator
+  `SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1`): no plain UDP, no TURN
+  allocation, the relay at once, never left; without the relay the dial
+  fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
+  `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
+
+### When no path works
+
+A WireGuard dial records what each way did: plain UDP (`blocked`: no STUN
+answer; `off`: a debug mode), TURN (`none_offered`, `no_allocation`, with
+the TURN host) and the relay (`unavailable`, `peer_cannot`, `refused` with
+the HTTP status, `off`, `tls_rejected` with the TLS error, `unreachable`,
+`timeout`, `no_token`, `peer_absent`). When nothing from the Mac ever
+authenticated and the relay failed too (or the Mac's build has none), the
+dial ends with that record instead of waiting out its timeout: at once when
+the relay was the only way, else 8 s after the tunnel started at the latest.
+The FFI error is `Refused { code: "network_blocked", message: <the record
+as JSON> }`. The app shows one sentence the person can act on (another
+network, the Mac's update, or what IT must allow) with the hosts named, and
+retries on its own; it never shows "connecting" without a bound for it
+(`scripts/cmux-next/check-connection-notices.py`). What IT must allow:
+[network requirements](../web/data/next-docs/pages.ts) (cmux.com
+`/docs/nightly/next/network-requirements`).
+
 ## Link (inside either transport)
 
 A link is one reliable ordered byte stream, the main stream (WebRTC: data
@@ -494,6 +591,7 @@ most 16 KiB (readers still accept 256 KiB from older peers).
 | 1 `data` | raw bytes |
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
+| 5 `deflated data` | parked writes only, negotiated below. Original payload length (u32 BE) and one raw DEFLATE stream |
 
 A channel whose owner does not read it may hold the link reader for at
 most 3 s; then that channel is closed `overflow` on both sides and the rest
@@ -517,6 +615,49 @@ sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
 and the app's heartbeat probes a link with no traffic (only pings and pongs)
 on its 2.5 s foreground or 10 s background beat. No interval is longer than
 before.
+
+### Parked link (added 2026-11-16; backward compatible)
+
+When the app leaves the screen with a live WireGuard link, the phone asks
+the Mac to hold the link while iOS suspends it, so returning skips the
+full dial. It opens the service `_link.park` with `{"hold_ms": N}`. A Mac
+that knows parking answers `close` with code `parked` (a control frame) and
+holds for N ms, at most 10 minutes. An older Mac answers `unknown_service`,
+and the phone redials on return as before. While parked:
+
+- Neither side sends a link keepalive or closes the link for silence.
+- The tunnel is held (`cmux-wg` `WgNet::hold`): no TCP keepalive probe,
+  each link connection waits for the hold plus 30 s instead of its user
+  timeout, and no WireGuard keepalive (persistent or passive) goes out. The
+  Mac sends a suspended phone nothing at all.
+- The Mac writes only control frames. Channel data waits in each channel's
+  queue (up to its 256 KiB, then its writer waits, as on a slow link).
+- The app's heartbeat, foreground and presence probes are suspended: a
+  ping ends the park.
+
+A phone that can read type 5 adds `"encoding":"deflate-v1"` to its
+park request. For that park the Mac can encode each held data frame
+independently if it shrinks. Its original length (at most 16 KiB) counts
+towards the same queue limit. The phone restores each frame in channel
+order, including its original boundary. Other frames use their usual
+encoding. A Mac that predates the encoding ignores the argument, and a
+phone that omits it receives ordinary data.
+
+The park ends on the Mac at the phone's first ping, channel data or new
+channel (other than `_link.park`): a phone that sends a request (a
+notification action run in the background) is awake and waits for the
+answer. The phone parks no link a call is using, and a request it runs in
+the background resumes its link for the request, then parks it again. On
+the phone the park ends at the first frame from the Mac after `resume`. On return within the hold
+(less a 30 s margin, on the clock that runs while the device sleeps), the
+phone moves the tunnel onto a fresh socket, as for a network change, and
+probes once with a 1.5 s timeout. The first explicit probe starts on the
+ordered stream even when liveness datagrams are available, so its ping
+follows the park request and releases queued output on the Mac. The Mac
+queues its pong before releasing the writers. If the probe fails, the phone redials. If
+the hold passes with nothing heard, the Mac closes the link (`park
+expired`). A WebRTC link is never parked: ICE consent ends a silent data
+channel after 30 s whatever the link does.
 
 ### Lanes (added with the input lane; backward compatible)
 
@@ -1255,8 +1396,9 @@ session"); "WebRTC only" is the earlier behavior unchanged: the link and
 browser video share one peer connection.
 
 Debug builds add Settings → Developer → "Relay only (simulate distant
-network)" and "Block UDP". Both are phone-side dial policies with no wire
-change, and changing either redials.
+network)", "Block UDP" and "Relay via cmux (HTTPS) only" ("WebSocket
+relay"). Each is a phone-side dial policy with no wire change, and changing
+one redials.
 
 - Relay only: WebRTC gathers only TURN relay candidates (path `turn`), and
   WireGuard never sends plain UDP: it offers only its TURN relayed address
@@ -1276,9 +1418,9 @@ change, and changing either redials.
   media session).
 
 The phone's link line names the path: "WireGuard direct", "WireGuard relay
-(TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's
-TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path as
-`direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
+(TURN)", "WireGuard relay (TURN over TLS)", "WireGuard relay (cmux, HTTPS)"
+(and the same for WebRTC's TURN). cmux-mobile-host reports the path as
+`direct`, `turn`, `turn-tls`, `https-relay` or `none` (`phone_up`, `phone_path`).
 
 ## Terminal size claims
 

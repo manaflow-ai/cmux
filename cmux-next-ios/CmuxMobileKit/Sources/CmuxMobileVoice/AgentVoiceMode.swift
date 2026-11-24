@@ -123,6 +123,12 @@ public final class AgentVoiceMode {
     /// The agent the bar names.
     public var agentName: String? { session?.agentName }
 
+    /// The Mac whose link the running voice mode uses; nil when off or ended.
+    public var macID: String? {
+        guard let session, !session.hasEnded else { return nil }
+        return source?.voiceMacID
+    }
+
     private static func scriptedLink() -> (any VoiceCallLink)? {
         #if DEBUG
         return ScriptedAgentVoiceLink.requested()
