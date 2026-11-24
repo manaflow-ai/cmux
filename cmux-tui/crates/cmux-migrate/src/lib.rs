@@ -22,6 +22,7 @@
 //! Pure where it can be: readers take a root folder (a home, a checkout) and read files; nothing
 //! here talks to the network or the Cloud API. The CLI and the app run the steps.
 
+pub mod apply;
 pub mod ledger;
 pub mod machine_toml;
 pub mod plan;
