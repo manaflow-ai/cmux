@@ -113,12 +113,16 @@ concurrency:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CREATE_DMG_VERSION: 8.0.0
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 jobs:
   decide:
     permissions:
+      # actions: read lets the 08:47 catch-up see another run already building this commit.
+      actions: read
       contents: write
       attestations: write
       id-token: write
@@ -129,7 +133,7 @@ jobs:
     # authorize paid overflow.
     # There is no preceding picker; bounded overflow needs controller admission.
     # The nightly slot refuses RC/dogfood refs; keep their existing route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -154,7 +158,28 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+    env:
+      # A nightly delivery job waits through one whole hourly API reset (3600s + 300s) rather
+      # than lose the night's build; then it fails loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "3900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       # The build-input check below classifies changed paths with the same
       # router CI uses, which reads the Xcode project and the package graph.
       # Only the paths are needed, so one revision of history is enough.
@@ -179,6 +204,7 @@ jobs:
           PUSH_MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_PUSH_MIN_INTERVAL_HOURS || '2' }}
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
@@ -308,7 +334,41 @@ jobs:
             }
 
             const alreadyPublished = !buildOnly && !forceBuild && (isMainRef || isRcRef) && publishedSha === headSha;
+            // Leo, 2026-11-21 00:51Z: "1 2 3 4 5 go ahead and do whatever pause" (item 5, duplicate
+            // nightlies). The 08:47 UTC catch-up schedule does not start a second app build of a main
+            // commit while another push or scheduled run of the same commit has a build-nightly-app job
+            // queued, running or done: that run publishes it. Nothing is cancelled; this run only builds
+            // nothing. Force, manual dispatch and the six-hour cache warmup are unaffected. Any lookup
+            // failure builds.
+            let duplicateOfRun = null;
+            if (
+              context.eventName === 'schedule' &&
+              context.payload?.schedule !== '17 */6 * * *' &&
+              isMainRef && !forceBuild && !buildOnly && !seedOnly
+            ) {
+              try {
+                for (const status of ['in_progress', 'queued', 'waiting', 'pending']) {
+                  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                    owner, repo, workflow_id: 'nightly.yml', head_sha: headSha, status, per_page: 100,
+                  });
+                  for (const run of runs) {
+                    if (run.id === context.runId || run.head_branch !== 'main' ||
+                        !['push', 'schedule'].includes(run.event)) continue;
+                    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                      owner, repo, run_id: run.id, per_page: 100,
+                    });
+                    const building = jobs.find((job) => /^build-nightly-app/.test(job.name) &&
+                      (job.status !== 'completed' || job.conclusion === 'success'));
+                    if (building) { duplicateOfRun = run; break; }
+                  }
+                  if (duplicateOfRun) break;
+                }
+              } catch (error) {
+                core.warning(`Could not look for a duplicate nightly run; building: ${error.message}`);
+              }
+            }
             let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            if (duplicateOfRun) shouldBuild = false;
             // The six-hour schedule only warms caches downstream, and keeps
             // its eligibility outputs as they are so that routing still works.
             // It is named here because the build-input check below leaves it
@@ -421,6 +481,9 @@ jobs:
               decisionReason =
                 `Skipping this build: nothing that reaches the app changed since ${nightlySha.slice(0, 7)} ` +
                 `(${buildInputReason}). Use force=true in Run workflow to build this commit anyway.`;
+            } else if (duplicateOfRun) {
+              decisionReason =
+                `Skipping this build: run ${duplicateOfRun.id} (${duplicateOfRun.event}, ${duplicateOfRun.status}) is already building ${headSha}.`;
             } else if (alreadyPublished) {
               decisionReason =
                 `Skipping this build: ${channelIdentity.releaseTag} release metadata already records the exact ` +
@@ -460,6 +523,7 @@ jobs:
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
                 [{data: 'release body published commit', header: true}, publishedSha ?? '(missing)'],
                 [{data: 'reason', header: true}, decisionReason],
+                [{data: 'duplicate of run', header: true}, duplicateOfRun ? String(duplicateOfRun.id) : '(none)'],
                 [{data: 'force build', header: true}, String(forceBuild)],
                 [{data: 'push minimum commit age (hours)', header: true}, Number.isFinite(minIntervalHours) && minIntervalHours > 0 ? String(minIntervalHours) : '(disabled)'],
                 [{data: 'published commit age (hours)', header: true}, publishedCommitAgeHours === null ? '(not checked)' : publishedCommitAgeHours.toFixed(2)],
@@ -504,9 +568,9 @@ jobs:
     # A literal Blacksmith label that no variable can move: main's guards keep a job holding the release App key
     # on an ephemeral Blacksmith VM (signing-keychain rule, fork runner routing, no self-hosted or GitHub-hosted
     # runner). Moving it to the trusted signing Mac (#46978) needs those guards changed first.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # One header-directed quota-reset wait (at most 65m), then the guard/move.
-    timeout-minutes: 75
+    timeout-minutes: 90
     permissions:
       contents: read
       actions: read
@@ -520,7 +584,28 @@ jobs:
       sha: ${{ steps.decide.outputs.sha }}
       dry_run: ${{ steps.decide.outputs.dry_run }}
       scan_failed: ${{ steps.decide.outputs.scan_failed }}
+    env:
+      # A nightly delivery job waits through one whole hourly API reset (3600s + 300s) rather
+      # than lose the night's build; then it fails loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "3900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -565,11 +650,15 @@ jobs:
         env:
           REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          # The other budget: GITHUB_TOKEN when the route App reads, so a dry route App costs no wait
+          # while the job token has reads left (gh_budget_wait.cjs `spare`).
+          SPARE_READ_TOKEN: ${{ steps.read-token.outputs.token && github.token || '' }}
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
         with:
           github-token: ${{ steps.read-token.outputs.token || github.token }}
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             github.hook.wrap('request', guard.quotaResetRetry({ core }));
@@ -623,9 +712,13 @@ jobs:
           DECISION: ${{ steps.decide.outputs.decision }}
         with:
           script: |
+            // GITHUB_TOKEN reads here; the release App's own budget is the spare (run 45112291910 waited 737 s on one read).
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: getOctokit(process.env.APP_TOKEN) });
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
+            // This token has its own client; the read client's hook does not cover it.
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
   # Legacy approval waiter retained for contract compatibility; validated moves
@@ -654,7 +747,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -681,8 +774,8 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 70
     permissions:
       contents: read
       actions: read
@@ -692,7 +785,28 @@ jobs:
     concurrency:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
+    env:
+      # A nightly delivery job waits through one whole hourly API reset (3600s + 300s) rather
+      # than lose the night's build; then it fails loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "3900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -712,6 +826,7 @@ jobs:
           EXPECTED_CURRENT: ${{ needs.promote-nightly-next.outputs.current }}
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
@@ -759,9 +874,12 @@ jobs:
           DECISION: ${{ steps.ack.outputs.decision }}
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
+            // This token has its own client; the read client's hook does not cover it.
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
   probe-nightly-tag-permission:
@@ -1262,6 +1380,8 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          # 6 vCPU first, as runs-on's literal fallback (#39585): blacksmith-12vcpu-macos-26 is the starved overflow.
+          FIRST: 6vcpu
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
@@ -1305,7 +1425,7 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -2913,7 +3033,7 @@ jobs:
     # Apple accepts every exact DMG. This job remains only for private branch
     # artifacts, where no Apple ticket or release publication is involved.
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -3274,7 +3394,27 @@ jobs:
     permissions:
       contents: read
       issues: write
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Checkout the failure incident script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3296,6 +3436,7 @@ jobs:
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
         with:
           script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const { owner, repo } = context.repo;
             const channel = process.env.CHANNEL;
             const appName = process.env.CHANNEL_APP_NAME;

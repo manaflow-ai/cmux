@@ -17,7 +17,7 @@ Each alert then says why from the fleet gates' own reading (carriers()): full
 (every carrier runs a job or is held for units or load: capacity) or offline
 (carriers down with no hold: an outage), since GitHub shows both as offline.
 
-Every glaeda-* label is in scope, and the owned Linux label (FLEET_LINUX).
+Every glaeda-* label is in scope, and the owned Linux labels (FLEET_LINUX_LABELS).
 Nothing in the tree says which runner label
 a merge-blocking job asks for (cmux-next's build-fleet compile takes
 vars.CI_COMPILE_CHECK_GATEWAY), so the alert covers the whole fleet.
@@ -70,6 +70,14 @@ FLEET_PREFIX = "glaeda-"
 # The owned Linux label: ephemeral runners a reconciler boots per queued job. When that reconciler cannot
 # boot one, a job waits here as silently as on a held glaeda label (run 43807536777: 13 h, 2026-11-16).
 FLEET_LINUX = "cmux-fleet-linux-x64"
+# The persistent Linux pool: its runners carry both cmux-linux and FLEET_LINUX, and same-repository
+# jobs name cmux-linux, so a pool that stops listening starves that label too.
+PERSISTENT_LINUX = "cmux-linux"
+FLEET_LINUX_LABELS = frozenset({FLEET_LINUX, PERSISTENT_LINUX})
+# Every persistent pool runner registers both FLEET_LINUX_LABELS (cmuxterm-hq runner_pool.py POOL_LABELS), so a job
+# running on either label proves a listener for the other (pool_served()). Without that, a pool busy with cmux-linux
+# jobs read cmux-fleet-linux-x64's queue as starved, and the reverse (router-review F1 on #47956).
+POOL_SHARED_LABELS = FLEET_LINUX_LABELS
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
 # A run stuck this long on a starved label gets its rescue started (rescue_plan()).
@@ -82,8 +90,10 @@ RESCUE_REPEAT = dt.timedelta(minutes=210)
 # dispatch for one of their runs would cancel that watch (perhaps between its cancel and its re-run, leaving a nightly
 # cancelled), so the alert never starts one for them. cmux-next.yml is listed there for `completed` only, whose group
 # has its own suffix. A test keeps this equal to the workflow's SOURCE_WORKFLOW_PATHS less cmux-next.yml.
-REQUEST_WATCHED_PATHS = frozenset({".github/workflows/ios-screenshots.yml", ".github/workflows/nightly.yml",
-                                   ".github/workflows/cmux-next-dev-daily.yml"})
+REQUEST_WATCHED_PATHS = frozenset({".github/workflows/ios-screenshots.yml", ".github/workflows/cmux-next-dev-daily.yml"})
+# Sources the rescue workflow's sweeper watches instead (nightly.yml since #49606: owned_pool_rescue.GitHub.nightly_runs());
+# the sweeper already rescues them, so the alert starts no second watch for them either.
+SWEEPER_WATCHED_PATHS = frozenset({".github/workflows/nightly.yml"})
 RESCUE_RUNS_PER_SWEEP = 6
 RESCUE_WORKFLOW = "ci-owned-pool-rescue.yml"
 # The runs whose rescue this alert started, and when, in the issue body: <!-- starved-rescue: RUN@ISO ... -->.
@@ -104,7 +114,7 @@ def parse_time(value: str | None) -> dt.datetime | None:
 def fleet_key(job: Mapping[str, Any]) -> str:
     """The fleet labels a job asked for, joined; "" when it asked for none."""
     return "+".join(sorted({str(label) for label in job.get("labels") or ()
-                            if str(label).startswith(FLEET_PREFIX) or str(label) == FLEET_LINUX}))
+                            if str(label).startswith(FLEET_PREFIX) or str(label) in FLEET_LINUX_LABELS}))
 
 
 def _served(job: Mapping[str, Any], now: dt.datetime, after: dt.timedelta) -> bool:
@@ -127,6 +137,12 @@ def run_of(job: Mapping[str, Any]) -> tuple[int, int] | None:
 def stuck(job: Mapping[str, Any]) -> bool:
     """Queued with no runner."""
     return job.get("status") == "queued" and not job.get("runner_name")
+
+
+def pool_served(labels: frozenset[str]) -> frozenset[str]:
+    """The labels a runner that took a job on `labels` carries: a persistent pool runner carries every
+    POOL_SHARED_LABELS label, so a job on one of them is service for all of them."""
+    return labels | POOL_SHARED_LABELS if labels & POOL_SHARED_LABELS else labels
 
 
 def _covered(labels: frozenset[str], served: Iterable[frozenset[str]]) -> bool:
@@ -176,7 +192,7 @@ def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int
         for job in jobs:
             key = fleet_key(job)
             if key and not stuck(job) and _served(job, now, after):
-                served.add(frozenset(key.split("+")))
+                served.add(pool_served(frozenset(key.split("+"))))
 
     def unserved_key(key: str) -> bool:
         return not _covered(frozenset(key.split("+")), served)
@@ -224,7 +240,7 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
         for job, at in sorted(ready, key=lambda entry: entry[1]):
             got = run_of(job)
             if (got and got[1] == 1 and list(got) not in rescuable and now - at >= RESCUE_AFTER
-                    and path_of.get(got[0]) not in REQUEST_WATCHED_PATHS):
+                    and path_of.get(got[0]) not in REQUEST_WATCHED_PATHS | SWEEPER_WATCHED_PATHS):
                 rescuable.append(list(got))
         found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(entries),
                       "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or ""),
@@ -332,7 +348,10 @@ def rescued_runs(body: object) -> dict[int, dt.datetime]:
 def rescue_plan(entry: Mapping[str, Any], rescued: Mapping[int, dt.datetime], now: dt.datetime,
                 room: int = RESCUE_RUNS_PER_SWEEP) -> list[tuple[int, int]]:
     """The (run, attempt) pairs to start a rescue for: the entry's runs stuck past RESCUE_AFTER (starved()), oldest
-    first, each at most once per RESCUE_REPEAT, `room` at most."""
+    first, each at most once per RESCUE_REPEAT, `room` at most. None for the persistent pool's label: a job there
+    names it literally, so the rescue cannot move it, and it would only spend the sweep's rescue slots."""
+    if entry.get("label") == PERSISTENT_LINUX:
+        return []
     plan: list[tuple[int, int]] = []
     for pair in entry.get("runs") or ():
         if len(plan) >= room:
