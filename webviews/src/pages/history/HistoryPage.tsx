@@ -193,7 +193,7 @@ export function HistoryPage({
             <button
               type="button"
               className={`history-menu-button history-range${snap.range === "all" ? "" : " selected"}`}
-              disabled={snap.connection === "disconnected"}
+              // A range or a search typed while the link is down is kept; the reconnect's read uses it.
               onClick={(event) => headerMenu(event, rangeItems())}
             >
               {t(RangeLabel[snap.range])}
@@ -224,7 +224,7 @@ export function HistoryPage({
           placeholder={t("page.search")}
           aria-label={t("page.search")}
           value={snap.text}
-          disabled={snap.connection === "disconnected"}
+          // Stays live while the link comes back (Leo, 2026-11-24 11:57Z): the reconnect reads what was typed.
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}

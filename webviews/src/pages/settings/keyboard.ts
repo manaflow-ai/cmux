@@ -133,7 +133,10 @@ export function runPageCommand(doc: Document, command: PageCommand, actions: Key
   else if (command === "reset") {
     const active = doc.activeElement;
     if (!active || isTextField(active)) return;
-    const key = active.closest(rowSelector)?.getAttribute("data-row-key");
+    // An editor that holds several keys (the Row Layout tabs) names the one its focus edits.
+    const key =
+      active.closest("[data-reset-key]")?.getAttribute("data-reset-key") ??
+      active.closest(rowSelector)?.getAttribute("data-row-key");
     if (key) actions.reset(key);
   }
 }

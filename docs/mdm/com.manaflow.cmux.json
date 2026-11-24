@@ -6537,6 +6537,12 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "terminal.predictiveLocalEcho" : {
+      "default" : true,
+      "description" : "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted.",
+      "title" : "Predictive Local Echo",
+      "type" : "boolean"
+    },
     "terminal.term" : {
       "default" : "xterm-256color",
       "description" : "xterm-ghostty needs Ghostty's terminfo on every host you ssh to.",

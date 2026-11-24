@@ -459,7 +459,7 @@ pub(super) fn fetch(url: &str, etag: Option<&str>) -> Fetched {
             return Fetched::Failed(format!("could not start a network runtime: {error}"));
         }
     };
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::cli::app::web_pieces")
         .timeout(FETCH_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux-web-pieces/", env!("CARGO_PKG_VERSION")))
