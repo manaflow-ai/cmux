@@ -791,8 +791,13 @@ fleet_start_sim; fleet_finish_sim; fleet_submit_mac; echo "JOB=$MAC_JOB"; echo "
         # was delivered within 10m0s" while the controller timed out. Nothing about the build was wrong, so the
         # hand-off sends one new step (a new key) by itself; a second miss is reported as the sign-in delivery.
         # A status read that fails too (the controller timing out) still sends the new step under a new key.
-        for second_ok, status_ok in ((True, True), (False, True), (True, False)):
-            with self.subTest(second_ok=second_ok, status_ok=status_ok), tempfile.TemporaryDirectory() as temp:
+        # Step df827ca8f4eb26596c17942e (2026-11-24) restarted with the controller and then read "sign-in: the
+        # controller no longer lists this run as the step's (409 Conflict)": the same lost delivery, other words.
+        timeout_line = "sign-in: no session was delivered within 10m0s; the submitter\\'s cmux-ci must follow the step to deliver it"
+        conflict_line = "sign-in: the controller no longer lists this run as the step\\'s (409 Conflict)"
+        for second_ok, status_ok, line in ((True, True, timeout_line), (False, True, timeout_line), (True, False, timeout_line),
+                                           (True, True, conflict_line), (False, False, conflict_line)):
+            with self.subTest(second_ok=second_ok, status_ok=status_ok, line=line[:30]), tempfile.TemporaryDirectory() as temp:
                 ci = Path(temp) / 'cmux-ci'
                 status = 'echo \'{"id": "x", "state": "failed"}\'; exit 0' if status_ok else 'echo "cmux-ci: cannot reach the build controller" >&2; exit 69'
                 ci.write_text('#!/bin/sh\n'
@@ -801,7 +806,7 @@ fleet_start_sim; fleet_finish_sim; fleet_submit_mac; echo "JOB=$MAC_JOB"; echo "
                               f'n=$(wc -l < "{temp}/args" | tr -d " ")\n'
                               'echo "cmux-ci: step 00000000000000000000000$n (simulator, key k)" >&2\n'
                               f'if [ "$n" = 1 ] || [ "{0 if second_ok else 1}" = 1 ]; then\n'
-                              '  echo "sign-in: no session was delivered within 10m0s; the submitter\'s cmux-ci must follow the step to deliver it"\n'
+                              f'  echo "{line}"\n'
                               '  echo "ci-step k exited 1"; exit 1\nfi\nexit 0\n')
                 ci.chmod(0o755)
                 r = bash(f'''source "{REVIEW}"; SLUG={TAG} TAG={TAG} SHA={SHA} STATE="{temp}" CMUX_CI="{ci}"
