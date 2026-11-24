@@ -203777,6 +203777,30 @@
         }
       }
     },
+    "settings.cloud.autoCloud": {
+      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto place a chat on a Cloud machine when this Mac has no room.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Places Chats in Cloud"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoCloud.help": {
+      "comment": "Help for the Auto Places Chats in Cloud toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          }
+        }
+      }
+    },
     "settings.cloud.agentMemory.follow": {
       "comment": "Settings > Machines: toggle that carries the person's agent memory files to their Cloud machines.",
       "extractionState": "manual",
