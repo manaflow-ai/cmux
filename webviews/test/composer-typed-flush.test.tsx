@@ -133,13 +133,14 @@ const settle = () =>
 
 const prompt = () => host.querySelector('[role="combobox"]')?.textContent ?? "";
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
-const page = () =>
-  dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> };
 
 const editor = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 
 /// The key's own task: what is saved right after the key, before any timer runs.
-const typeKey = (text: string) => act(() => void markdownField().insertTyped(text));
+const typeKey = (text: string) =>
+  act(() => {
+    markdownField().insertTyped(text);
+  });
 const draftOf = (session: string) => readPersistedDraft(session);
 
 test("a typed key saves nothing in its own task; the draft is saved just after", async () => {
