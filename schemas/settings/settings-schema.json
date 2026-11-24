@@ -335,7 +335,8 @@
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim",
-              "appearance.wallpaperTint"
+              "appearance.wallpaperTint",
+              "appearance.terminalCellBackgrounds"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -553,7 +554,10 @@
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
               "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
+              "sidebar.workspaceRow.secondLineOrder",
+              "sidebar.workspaceRow.lines",
+              "sidebar.workspaceRow.linesByKind",
+              "sidebar.workspaceRow.linesByAgent"
             ],
             "title" : {
               "key" : "settings.group.workspaceRows",
@@ -825,7 +829,8 @@
             "key" : "terminal.3",
             "rows" : [
               "newTerminal.opensWorkspace",
-              "app.warnBeforeClosingTab"
+              "app.warnBeforeClosingTab",
+              "terminal.predictiveLocalEcho"
             ],
             "title" : {
               "key" : "settings.pageGroup.terminalBehavior",
@@ -1346,6 +1351,8 @@
               "agents.chats.sessionRecap",
               "agents.chats.coldArchive",
               "agents.chats.coldArchiveAfterDays",
+              "agents.chats.coldSegments",
+              "agents.chats.coldSegmentsLevel",
               "agents.chats.archiveInactive",
               "chat.on"
             ],
@@ -1907,6 +1914,7 @@
             "key" : "settings.group.mobile",
             "rows" : [
               "mobile.allowIPhoneConnections",
+              "mobile.autoApprovePhones",
               "mobile.terminalSizing"
             ],
             "title" : {
@@ -4921,7 +4929,7 @@
       },
       "help" : {
         "key" : "settings.tabs.newTabApp.help",
-        "text" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+        "text" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabApp",
@@ -4958,7 +4966,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.tabs.newTabApp.summary",
-        "text" : "An extension's New Tab page"
+        "text" : "An extension over the New Tab composer"
       },
       "surfaces" : {
         "cli" : {
@@ -6148,7 +6156,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the command palette (Pin or Unpin Tab Bar Button…)",
           "row" : null
         },
         "socket" : {
@@ -10935,7 +10943,7 @@
       },
       "help" : {
         "key" : "settings.updates.installWhenIdle.help",
-        "text" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+        "text" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.installWhenIdle",
@@ -12503,23 +12511,7 @@
         "org.keepassxc.KeePassXC",
         "1password",
         "bitwarden",
-        "com.apple.systempreferences",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "org.alacritty",
-        "dev.warp.*",
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "org.gnome.Terminal",
-        "org.gnome.Ptyxis",
-        "org.kde.konsole",
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.*"
+        "com.apple.systempreferences"
       ],
       "default_label" : null,
       "group" : {
@@ -18704,7 +18696,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.mobile",
@@ -18712,7 +18704,7 @@
       },
       "help" : {
         "key" : "settings.mobile.allowIPhoneConnections.help",
-        "text" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account."
+        "text" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once."
       },
       "kept_on_reset_all" : false,
       "key" : "mobile.allowIPhoneConnections",
@@ -18826,6 +18818,143 @@
       "title" : {
         "key" : "settings.mobile.allowIPhoneConnections",
         "text" : "Allow iPhone Connections"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.autoApprovePhones.help",
+        "text" : "A new phone signed in to your account connects without asking you first. Other accounts never connect."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.autoApprovePhones",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "approve",
+        "allow",
+        "pair",
+        "automatic"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "autoApprovePhones"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : {
+        "key" : "settings.mobile.autoApprovePhones.summary",
+        "text" : "New phones on your account connect without asking"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:mobile.autoApprovePhones"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.mobile.autoApprovePhones",
+        "text" : "Approve Phone Requests Automatically"
       },
       "validation" : "portable"
     },
@@ -23507,6 +23636,290 @@
       "title" : {
         "key" : "settings.palette.aliases",
         "text" : "Command Aliases"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.coldSegments.help",
+        "text" : "Compresses the older parts of long chats. Run cmux chats warm to undo."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.coldSegments",
+      "keywords" : [
+        "agents",
+        "chats",
+        "history",
+        "cold",
+        "compress",
+        "segments",
+        "disk",
+        "storage",
+        "zstd"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "coldSegments"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.coldSegments"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.coldSegments",
+        "text" : "Compress Long Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        19,
+        10
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 3,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.coldSegmentsLevel.help",
+        "text" : "Higher levels use less disk and take longer to compress."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.coldSegmentsLevel",
+      "keywords" : [
+        "agents",
+        "chats",
+        "history",
+        "compress",
+        "level",
+        "zstd",
+        "disk"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "coldSegmentsLevel"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 19,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -17,
+        37,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.coldSegmentsLevel"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.coldSegmentsLevel",
+        "text" : "Long Chat Compression Level"
       },
       "validation" : "portable"
     },
@@ -37257,6 +37670,179 @@
       "title" : {
         "key" : "settings.appearance.wallpaperTint",
         "text" : "Tint with Desktop Wallpaper"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "opaque",
+        "window",
+        "tint",
+        "tintWindow"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.opaque",
+            "text" : "Opaque"
+          },
+          "value" : "opaque"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.window",
+            "text" : "Window Opacity"
+          },
+          "value" : "window"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.tint",
+            "text" : "Tint"
+          },
+          "value" : "tint"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalCellBackgrounds.tintWindow",
+            "text" : "Tint at Window Opacity"
+          },
+          "value" : "tintWindow"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "opaque",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.terminalCellBackgrounds.help",
+        "text" : "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.terminalCellBackgrounds",
+      "keywords" : [
+        "terminal",
+        "cell",
+        "background",
+        "transparent",
+        "translucent",
+        "opacity",
+        "wallpaper",
+        "tui",
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "terminalCellBackgrounds"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.terminalCellBackgrounds"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.terminalCellBackgrounds",
+        "text" : "Terminal Cell Backgrounds"
       },
       "validation" : "portable"
     },
@@ -60629,6 +61215,143 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalTyping",
+        "text" : "Typing"
+      },
+      "help" : {
+        "key" : "settings.terminal.predictiveLocalEcho.help",
+        "text" : "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.predictiveLocalEcho",
+      "keywords" : [
+        "predictive",
+        "echo",
+        "local echo",
+        "latency",
+        "lag",
+        "ssh",
+        "remote",
+        "typing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "predictiveLocalEcho"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "terminal",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:terminal.predictiveLocalEcho"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.terminal.predictiveLocalEcho",
+        "text" : "Predictive Local Echo"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : "userOnly",
@@ -72884,7 +73607,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "folder",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -82367,7 +83090,7 @@
         "tokens"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -82470,7 +83193,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
@@ -82565,7 +83288,7 @@
         "browser"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -82679,7 +83402,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {
@@ -82769,7 +83492,7 @@
         "codex"
       ],
       "kind" : "json",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceRow",
@@ -82881,7 +83604,7 @@
           "operations" : [
 
           ],
-          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "reason" : "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "row" : null
         },
         "socket" : {

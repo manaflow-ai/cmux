@@ -47,13 +47,46 @@ import Testing
         await sync.bind(nil, macID: "mac")
     }
 
+    /// The setup list carries `known` on the last daemon's word: its reply holds the tree's
+    /// revision, so the check after the list is drawn is answered `unchanged` (one whole tree
+    /// per connection, not two).
+    @Test func theSetupListHoldsTheRevision() async throws {
+        let channel = KnownDaemonChannel(workspaces: 1_000, advertisesKnown: true)
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone", sendsKnown: true)
+        await sync.bind(prepared, macID: "mac")
+        _ = try await sync.listNow()
+        #expect(sync.tree?.workspaces.count == 1_000)
+        #expect(channel.wholeReplies == 1, "the check after setup read the whole tree again")
+        #expect(channel.unchangedReplies >= 1)
+        #expect(channel.knownSent.first?.isEmpty == true)
+        #expect(channel.knownSent.last?["tree_revision"] as? String == channel.treeRevision)
+        await sync.bind(nil, macID: "mac")
+    }
+
+    /// A Mac that refuses the setup list's `known` (the last Mac took it, this older one does
+    /// not) still shows its list: listed again without it, and never sent it after.
+    @Test func aRefusedSetupKnownListsAgainWithout() async throws {
+        let channel = KnownDaemonChannel(workspaces: 3, advertisesKnown: false)
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone", sendsKnown: true)
+        await sync.bind(prepared, macID: "mac")
+        #expect(sync.tree?.workspaces.count == 3)
+        #expect(sync.lastError == nil)
+        _ = try await sync.listNow()
+        #expect(channel.refusedKnown == 1)
+        await sync.bind(nil, macID: "mac")
+    }
+
     /// A daemon that does not advertise the capability gets no `known` (its Mac
     /// lane refuses a field it does not know), and every list is the whole tree.
     @Test func anOlderDaemonNeverGetsKnown() async throws {
         let channel = KnownDaemonChannel(workspaces: 3, advertisesKnown: false)
         defer { channel.finish() }
         let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
-        await sync.bind(channel, macID: "mac")
+        await sync.bind(await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone", sendsKnown: false), macID: "mac")
         let lists = channel.wholeReplies
         _ = try await sync.listNow()
         _ = try await sync.listNow()

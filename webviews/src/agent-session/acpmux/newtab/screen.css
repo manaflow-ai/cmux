@@ -18,9 +18,9 @@
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
-.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 30) * 1lh + 2 * var(--nt-input-pad-block)),60vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;--acpmux-field-grows:down;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))),50vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 .nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
 .nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
 .nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
@@ -561,17 +561,28 @@
 }
 /* The right column: the model's text ends where Send's ink ends. Send's glyph stands the composer's
    inset plus half the control's spare room in from the box, and the ↑ path's ink stops 3.225 of its
-   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The model's button
-   still ends on the box's edge (the row spans the box, test/composer-side-inset.test.ts) and takes
-   that distance as its end padding, in a row with room for it: at the composer's narrow steps the
-   row keeps every pixel for its labels (at 320 px a 12 px pad pushed the mode chip off the icon
-   column). */
+   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The row spans the box
+   (test/composer-side-inset.test.ts); the model chip takes that distance as its button's end padding
+   and its wrapper's, in a row with room for it: at the composer's narrow steps the row keeps every pixel for
+   its labels (at 320 px a 12 px pad pushed the mode chip off the icon column). */
+/* The model's pill is as wide after its text as before its mark's ink (Lucas 2026-11-23: the end padding
+   was 20.6 px against 8). The rest of that distance is padding on the chip's wrapper, outside the pill:
+   the hover wash stays the button's, and the row's fit (composerRowFit.ts) counts the wrapper's box. */
+.nt-foot .acpmux-composer-foot .acpmux-model {
+  --nt-model-pad: 8px;
+}
+.nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  padding-inline: var(--nt-model-pad);
+}
 @container composer (min-width: 421px) {
-  .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+  .nt-foot .acpmux-composer-foot .acpmux-model {
     --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
-    padding-inline-end: calc(
-      var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
-        var(--nt-send-ink-bearing)
+    padding-inline-end: max(
+      0px,
+      calc(
+        var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
+          var(--nt-send-ink-bearing) - var(--nt-model-pad)
+      )
     );
   }
 }
@@ -623,6 +634,12 @@
    that gap beside the controls, never over them. */
 .nt-input[data-split] > .nt-field-slot {
   margin-inline-end: calc(-1 * min(var(--cmux-scroller-size, 8px), var(--acpmux-composer-lead-gap)));
+}
+/* + stands on the last line too, beside the mic and Send: the field's padding is symmetric, so a one-line
+   box keeps + exactly where its first line put it. */
+.nt-input[data-split] .nt-split-plus {
+  align-self: end;
+  margin: 0 0 var(--nt-input-pad-block);
 }
 /* Fixed top padding keeps the first line, placeholder and shell glyph still when text wraps. */
 .nt-input[data-split] .nt-field {
@@ -822,7 +839,7 @@
 /* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
    Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
    changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
-   all look the same to me"). pad, the bare text above, has no rule here; tiles (below) ships.
+   all look the same to me"). pad, the bare text above, has no rule here and ships (Lucas 2026-11-23).
    - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
      --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
      steps back out by the inset, so its glyphs stay on the column. */
@@ -875,7 +892,7 @@
    the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
    the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
    project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
-   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a system settings
+   - tiles: line glyphs in the chip's own ink on soft square tiles, as a system settings
      sidebar; the names stay.
    - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
      the machine and the shield sit on neutral tiles, + on a round one; the project's name in the
@@ -1370,11 +1387,12 @@
   --nt-glow-divider: 50%;
 }
 /* A light page has less dark around the glow to carry it: a little more color, the same reach. */
-:root.light .nt-cards[data-glow] {
-  --nt-glow-mix: 16%;
+/* `data-theme` is what the app sets on the root (shared/theme.ts); it has no `light` class. */
+:root[data-theme="light"] .nt-cards[data-glow] {
+  --nt-glow-mix: 28%;
 }
-:root.light .nt-cards[data-glow="vivid"] {
-  --nt-glow-mix: 30%;
+:root[data-theme="light"] .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 52%;
 }
 .nt-cards[data-glow] .nt-card {
   position: relative;

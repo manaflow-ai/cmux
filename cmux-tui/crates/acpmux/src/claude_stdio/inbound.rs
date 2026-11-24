@@ -155,7 +155,8 @@ impl Translator {
                                 .insert(parent.unwrap_or("").to_owned(), id.to_owned());
                         }
                         if parent.is_none() {
-                            self.call_started(ev.pointer("/message/usage"));
+                            let model = ev.pointer("/message/model").and_then(Value::as_str);
+                            self.call_started(ev.pointer("/message/usage"), model).await;
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -429,7 +430,15 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // Claude Code words every move through Ctrl-B as the person's; one
+                        // acpmux made itself (`hub/auto_background.rs`) is not.
+                        let text = match self.background_shells.lock().await.get(tool) {
+                            Some(s) if !s.asked && !s.launched => relabel_auto_background(&text),
+                            _ => text,
+                        };
                         self.foreground_done(tool).await;
+                        // A clean result is what a later identical call is stubbed from (dedupe.rs).
+                        self.dedupe_result(tool, is_err, &text).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -525,7 +534,7 @@ impl Translator {
                 }
             }
             "control_request" => {
-                let req = line.get("request").cloned().unwrap_or(Value::Null);
+                let req = line.get("request").unwrap_or(&Value::Null);
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("").to_owned();
                 match req.get("subtype").and_then(Value::as_str) {
                     Some("can_use_tool") => {
@@ -557,7 +566,7 @@ impl Translator {
                             "kind": tool_kind(name),
                             "status": "pending",
                             "rawInput": input,
-                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(req)}}
                         });
                         with_edit(&mut call, name, &input);
                         out.push(Message::request(
@@ -571,13 +580,20 @@ impl Translator {
                         ));
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
-                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, req).await),
                     // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
                     Some("hook_callback")
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(policy_gate::GATE_CALLBACK) =>
                     {
-                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                        out.extend(self.gate_hook(&sid, &rid, req).await);
+                    }
+                    // Harness magic: a call whose answer is in the context already (dedupe.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dedupe::DEDUPE_CALLBACK) =>
+                    {
+                        self.dedupe_hook(&rid, &req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
@@ -774,7 +790,7 @@ impl Translator {
                         if self.context_from_compaction.load(Ordering::SeqCst) {
                             usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
                         }
-                        out.push(upd(prompt_cache::with_expiry(usage, self.cache.expires_at())));
+                        out.push(upd(self.cache.resend(usage)));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code
@@ -907,6 +923,8 @@ impl Translator {
                         })));
                     }
                 }
+                // The turn's dedupe counts, on its result while the feature is on.
+                let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -932,7 +950,11 @@ impl Translator {
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
                     }
-                    Ok(json!({"stopReason": stop, "_meta": {"claude": claude}}))
+                    let mut meta = json!({"claude": claude});
+                    if let Some(dedupe) = dedupe_counts {
+                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                    }
+                    Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
                 // No prompt waits: the carried turn's prompt still to come takes it.
                 if waiting.is_empty() {
@@ -965,6 +987,8 @@ impl Translator {
                 self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
+                // What was read before is in the summary at most (dedupe.rs).
+                self.dedupe.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
@@ -1318,4 +1342,45 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
         .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
         .map_or(rest.len(), |(i, _)| i);
     rest.get(..end)?.parse().ok()
+}
+
+/// Claude Code's own one-line description of a `can_use_tool` ask, unless it is only the head of
+/// acpmux's subagent mark line: for a subagent's Bash call with no description of its own (a
+/// safety check's ask), Claude Code describes it by the command's first line, which is
+/// `export ACPMUX_CALLER_SUBAGENT=...` (`bg_hook::subagent_mark`). Leo, 2026-11-23, on a card
+/// that read so: "this is \"ok\" but could be improved".
+fn ask_description(req: &Value) -> Option<&str> {
+    req.get("description")
+        .and_then(Value::as_str)
+        .filter(|d| !crate::bg_hook::starts_with_subagent_mark(d))
+}
+
+/// Claude Code's result for a shell it moved to the background says "manually backgrounded by
+/// user" whenever the move came through Ctrl-B's request, which acpmux also sends on its own
+/// (`hub/auto_background.rs`). For a move the person did not ask for, the chat says it was moved.
+pub(super) fn relabel_auto_background(text: &str) -> String {
+    match text.strip_prefix("Command was manually backgrounded by user with ID: ") {
+        Some(rest) => match rest.split_once(". Output") {
+            Some((id, tail)) => {
+                format!("Command was moved to the background (ID: {id}). Output{tail}")
+            }
+            None => format!("Command was moved to the background (ID: {rest})"),
+        },
+        None => text.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod relabel_tests {
+    use super::relabel_auto_background;
+
+    #[test]
+    fn an_automatic_move_is_not_called_manual() {
+        let said = "Command was manually backgrounded by user with ID: b1. Output is being written to: /t/b1.output.";
+        assert_eq!(
+            relabel_auto_background(said),
+            "Command was moved to the background (ID: b1). Output is being written to: /t/b1.output."
+        );
+        assert_eq!(relabel_auto_background("ok"), "ok");
+    }
 }

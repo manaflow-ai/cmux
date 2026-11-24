@@ -284,6 +284,8 @@ pub enum SignalingError {
 /// whole timeout.
 pub const KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 pub const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+/// How long the WebSocket upgrade may take before the attempt fails and the caller retries.
+pub const CONNECT_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 /// A socket that heard nothing for this long missed the pong to its last keepalive: one
 /// [`KEEPALIVE_INTERVAL`] plus room for a slow network's round trip. A live socket always hears
 /// within it; one that did not was half open through a suspension or a sleep, or its path died.
@@ -346,6 +348,9 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
+    /// sessions never move onto a Worker socket, nor a Worker's onto it.
+    local: std::sync::atomic::AtomicBool,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -442,7 +447,19 @@ impl SignalingClient {
                     .map_err(|_| SignalingError::BadUrl("build space is not a header value".into()))?,
             );
         }
-        let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(connect_error)?;
+        // Opened on the liveness thread (`liveness.rs`), so its reads, writes and keepalive run
+        // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
+        // would otherwise hold the reconnect, and the Mac stays offline, with no end.
+        let connecting = crate::liveness::spawn(async move {
+            match tokio::time::timeout(CONNECT_WAIT, tokio_tungstenite::connect_async(request)).await {
+                Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
+                Err(_) => Err(SignalingError::Connect(format!(
+                    "no answer to the upgrade within {}s",
+                    CONNECT_WAIT.as_secs()
+                ))),
+            }
+        });
+        let socket = connecting.await.map_err(|e| SignalingError::Connect(e.to_string()))??;
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
@@ -461,11 +478,12 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            local: std::sync::atomic::AtomicBool::new(false),
         });
         let pinger = Arc::clone(&out);
-        tokio::spawn(async move { out.write_out(sink).await });
+        crate::liveness::spawn(async move { out.write_out(sink).await });
         let reader_shared = Arc::clone(&shared);
-        tokio::spawn(async move {
+        crate::liveness::spawn(async move {
             let shared = reader_shared;
             let mut keepalive = next_keepalive(tokio::time::Instant::now());
             let mut last_inbound = tokio::time::Instant::now();
@@ -473,15 +491,20 @@ impl SignalingClient {
                 let next = tokio::select! {
                     next = source.next() => next,
                     () = tokio::time::sleep_until(keepalive) => {
-                        keepalive = next_keepalive(tokio::time::Instant::now());
-                        if last_inbound.elapsed() >= KEEPALIVE_TIMEOUT {
+                        let now = tokio::time::Instant::now();
+                        // A tick this late means this process did not run (a starved or swapping
+                        // host), not that the service went quiet: what it sent meanwhile is still
+                        // unread. The stall is not counted as silence.
+                        let late = now.saturating_duration_since(keepalive);
+                        keepalive = next_keepalive(now);
+                        if last_inbound.elapsed().saturating_sub(late) >= KEEPALIVE_TIMEOUT {
                             pinger.close();
                             break "signaling keepalive timed out".to_owned();
                         }
                         for signal in keepalive_signals() {
                             let is_app_ping = matches!(&signal, Signal::Text(text) if text == APP_PING);
                             let is_ping = signal == Signal::Ping;
-                            if pinger.push_signal(signal).is_ok() {
+                            if pinger.push_keepalive(signal).is_ok() {
                                 if is_app_ping {
                                     shared.pings_unanswered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 } else if is_ping {
@@ -547,6 +570,19 @@ impl SignalingClient {
 
     pub fn device_id(&self) -> &str {
         &self.shared.device_id
+    }
+
+    /// Connect to a Mac's local hub (`local_hub.rs`) at `ws://host:port`:
+    /// no Worker, no account token (`token` is the hub's own).
+    pub async fn connect_local(base_url: &str, token: &str, device_id: &str) -> Result<Self, SignalingError> {
+        let client = Self::connect_in(base_url, token, crate::local::LOCAL_TEAM, device_id, None).await?;
+        client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(client)
+    }
+
+    /// Whether this socket runs to a Mac's local hub rather than the Worker.
+    pub fn is_local(&self) -> bool {
+        self.shared.local.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether `other` is a handle of this same socket.
@@ -814,6 +850,7 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            local: std::sync::atomic::AtomicBool::new(false),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),

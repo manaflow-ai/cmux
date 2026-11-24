@@ -66,6 +66,10 @@ pub(crate) struct RemoteClientMessages {
     pub help_invalid_options: &'static str,
     pub ssh_destination_required: &'static str,
     pub ssh_destination_invalid: &'static str,
+    pub ssh_carrier_and_ssh: &'static str,
+    pub ssh_carrier_needs_machine: &'static str,
+    pub ssh_carrier_falls_back: &'static str,
+    pub(super) ssh_carrier_refused: &'static str,
     pub forward_workspace_required: &'static str,
     pub forward_port_required: &'static str,
     pub dial_tcp_port_required: &'static str,
@@ -126,6 +130,14 @@ impl RemoteClientMessages {
             _ => self.machine_refused,
         };
         template.replace("{message}", message).replace("{reason}", reason)
+    }
+
+    /// `cmux ssh HOST`'s carrier refusal, one line: `host`, acpmux's `reason` and `error`.
+    pub(crate) fn ssh_carrier_refused(&self, host: &str, reason: &str, error: &str) -> String {
+        self.ssh_carrier_refused
+            .replace("{host}", host)
+            .replace("{error}", error)
+            .replace("{reason}", reason)
     }
 
     pub(crate) fn exec_output_truncated(&self, reason: &str) -> String {
@@ -364,6 +376,13 @@ and tries again, within a redial budget; it never exits on its own.
 "#,
     ssh_help: r#"USAGE: cmux remote ssh [USER@]HOST[:PORT] [OPTIONS]
 
+When HOST is the bare name of one of your machines that this machine's hub
+lists (`acpmux machine ls`), and no other option is given, cmux attaches to that
+machine's cmux session over your hub carrier: no sshd, no keys, nothing to
+install there. When the carrier refuses, cmux prints why and uses system ssh.
+  --carrier  the hub carrier only; a refusal ends here
+  --ssh      system ssh only, skipping the carrier
+
 Direct SSH uses one carrier by default. Pass --lanes auto or isolated to opt in
 to multiple carriers. The remote binary is probed and, unless --no-install is
 set, installed into the user account when missing or incompatible.
@@ -496,6 +515,10 @@ for up to two relay fallbacks
     help_invalid_options: "help cannot be combined with invalid connect options",
     ssh_destination_required: "ssh expects the destination before options",
     ssh_destination_invalid: "invalid SSH destination",
+    ssh_carrier_and_ssh: "ssh takes --carrier or --ssh, not both",
+    ssh_carrier_needs_machine: "--carrier reaches one of your machines by its bare name (as `acpmux machine ls` lists it), with no user@, :port or other option",
+    ssh_carrier_falls_back: "trying system ssh (pass --carrier to stop here, --ssh to skip the carrier)",
+    ssh_carrier_refused: "the hub carrier did not reach {host}: {error} ({reason})",
     forward_workspace_required: "forward needs --workspace-root on the daemon",
     forward_port_required: "forward needs --port",
     dial_tcp_port_required: "dial-tcp needs --port",
@@ -651,6 +674,13 @@ ID とセッション:
 "#,
     ssh_help: r#"使用方法: cmux remote ssh [ユーザー@]ホスト[:ポート] [オプション]
 
+ホストがこのマシンのハブに表示される自分のマシンの名前 (`acpmux machine ls`) だけで、
+他のオプションがない場合、cmux はハブの搬送路でそのマシンの cmux セッションに
+接続します。sshd、鍵、インストールは不要です。搬送路が拒否した場合は理由を表示し、
+システムの ssh を使います。
+  --carrier  ハブの搬送路のみ。拒否されたらそこで終了します
+  --ssh      システムの ssh のみ。搬送路を使いません
+
 直接 SSH は既定で 1 本の搬送接続を使用します。複数接続を使うには
 --lanes auto または isolated を指定します。リモートバイナリを確認し、
 --no-install がなければ未導入または非互換時にユーザー領域へインストールします。
@@ -780,6 +810,10 @@ ID とセッション:
     help_invalid_options: "ヘルプと無効な connect オプションは同時に指定できません",
     ssh_destination_required: "ssh の接続先をオプションより前に指定してください",
     ssh_destination_invalid: "SSH の接続先が無効です",
+    ssh_carrier_and_ssh: "ssh には --carrier と --ssh のどちらか一方だけを指定してください",
+    ssh_carrier_needs_machine: "--carrier は自分のマシンに名前だけ (`acpmux machine ls` に表示される名前) で接続します。ユーザー@、:ポート、その他のオプションは付けられません",
+    ssh_carrier_falls_back: "システムの ssh を試します (ここで止めるには --carrier、搬送路を飛ばすには --ssh)",
+    ssh_carrier_refused: "ハブの搬送路で {host} に接続できませんでした: {error} ({reason})",
     forward_workspace_required: "forward にはデーモン上の --workspace-root が必要です",
     forward_port_required: "forward には --port が必要です",
     dial_tcp_port_required: "dial-tcp には --port が必要です",

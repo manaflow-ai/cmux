@@ -30,6 +30,11 @@ jobs:
     name: lane
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
     uses: ./.github/workflows/billing.yml
+    # Nightlies stay on our own Macs (Lawrence, 2026-10-30): ios-billing takes
+    # an owned glaeda-ios-sim mini (ios_runner_pool.py `runner: owned`), never
+    # the Blacksmith default; only a person's re-run moves to Blacksmith.
+    with:
+      runner: owned
     permissions:
       contents: read
       # billing.yml's billing job reads the queue janitor's pool snapshot (an artifact).

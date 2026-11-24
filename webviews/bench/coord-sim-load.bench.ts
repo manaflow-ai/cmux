@@ -327,7 +327,7 @@ try {
     requestAnimationFrame(tick);
   });
   const urlFor = (id: string) =>
-    `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${id}`;
+    `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${id}`;
 
   // Attach: one reader per chat, while all of them stream.
   const pages: Page[] = [];

@@ -297,7 +297,11 @@ pub(super) fn shq(text: &str) -> String {
 /// The guest program that starts `session` with the person's model connection as its launch
 /// credential: `session/new` on the machine's acpmux socket with `_meta.acpmux.credentials`
 /// (cloud-journey.ts `launchCredentialStartProgram`). The value is in the heredoc, on stdin, never
-/// on a command line.
+/// on a command line. It looks for the socket where that program does: `ACPMUX_SOCKET`, the cmux
+/// daemon's acpmux home (`~/.cmux/acpmux`), then acpmux's own default home, where a machine's
+/// `acpmux.service` listens (cmux-host `cloud/role.rs` `acpmux_home`). Without the last the start
+/// answered "no acpmux socket" on staging machines the TypeScript journey started agents on
+/// (backend runs 45306859441, 45310842160, 45312889044).
 pub(super) fn launch_credential_program(
     session: &str,
     harness: &str,
@@ -309,13 +313,16 @@ pub(super) fn launch_credential_program(
         "_meta": { "acpmux": { "name": session, "harness": harness, "credentials": { "env": { name: value } } } },
     });
     let params = serde_json::to_string(&params.to_string()).unwrap_or_default();
+    // acpmux's own home under the machine user's home, from acpmux's resolver, not a literal.
+    let own = acpmux::config::default_home_in(std::path::Path::new(""));
+    let own = own.to_string_lossy();
     format!(
         r#"python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys
 params = json.loads({params})
 params['cwd'] = os.environ.get('HOME') or '/home/cmux'
 home = params['cwd']
-paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock') if p]
+paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/{own}/acpmux.sock') if p]
 def call(f, s, i, method, p):
     s.sendall((json.dumps({{'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}}) + '\n').encode())
     while True:
@@ -591,7 +598,7 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         Duration::from_secs(120),
     )
     .map_err(|e| e.to_string())?;
-    let exec_client = reqwest::Client::builder()
+    let exec_client = cmux_egress::client_builder("cmux_tui::cli::cloud_journey")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(ua)
@@ -612,6 +619,8 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         },
         image: None,
         from_snapshot: None,
+        origin: None,
+        ttl_seconds: None,
     };
     let mut created = None;
     for attempt in 0..3 {

@@ -449,7 +449,8 @@
       "reason": "keep: a read for scripts and agents (a participant's picture); the app shows the same state on screen"
     },
     {
-      "verb": "avatar set"
+      "verb": "avatar set",
+      "palette": "home.setMyAvatar"
     },
     {
       "verb": "billing checkout",
@@ -588,7 +589,8 @@
       "reason": "keep: runs the Chief as an ACP agent on stdin/stdout for the agent chat's Chief harness"
     },
     {
-      "verb": "chief adopt"
+      "verb": "chief adopt",
+      "palette": "agentPane.adoptAsChief"
     },
     {
       "verb": "chief delete",
@@ -1999,10 +2001,12 @@
       "reason": "keep: a read for scripts and agents (output bytes); the app shows the same state on screen"
     },
     {
-      "verb": "terminal pin-tail off"
+      "verb": "terminal pin-tail off",
+      "palette": "terminal.pinTail"
     },
     {
-      "verb": "terminal pin-tail on"
+      "verb": "terminal pin-tail on",
+      "palette": "terminal.pinTail"
     },
     {
       "verb": "terminal process show",
