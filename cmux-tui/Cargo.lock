@@ -2277,6 +2277,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",

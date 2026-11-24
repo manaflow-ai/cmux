@@ -217,6 +217,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-host-budget"
 version = "0.1.0"
 dependencies = [
@@ -268,6 +275,7 @@ version = "0.1.0"
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",
