@@ -1110,6 +1110,10 @@ fn mount(
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
+    // RFD 0065 piece 8: record this start's first reads and replay the last start's list.
+    // `CMUX_PROJECTION_REPLAY=0` keeps the folder read-ahead alone, as before.
+    let replay = std::env::var_os("CMUX_PROJECTION_REPLAY").is_none_or(|value| value != "0");
+    let overlay = if replay { overlay.with_replay("start") } else { overlay };
     let overlay = Arc::new(overlay);
     let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
@@ -1120,6 +1124,14 @@ fn mount(
         let pinned = overlay.clone();
         let _ = std::thread::Builder::new().name("projection-pins".into()).spawn(move || {
             let _ = pinned.hydrate_pins();
+        });
+    }
+    // The last start's access list is fetched in the background, so its files are local before
+    // the agent asks (it stops at the first batch the Mac is away for).
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-replay".into()).spawn(move || {
+            let _ = replaying.replay_prefetch();
         });
     }
     let projected = Arc::new(Projected {

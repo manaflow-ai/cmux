@@ -156,3 +156,53 @@ fn a_mac_that_packs_its_answers_is_read_the_same() {
     assert_eq!(batch[1].as_deref().unwrap(), Text.whole(4).bytes.as_slice());
     assert!(link.ping());
 }
+
+/// Entry 1's answer waits for entry 2 to be asked: one answered at a time, it would wait it out.
+struct Waits {
+    asked_two: Mutex<bool>,
+    two: Condvar,
+}
+
+impl Source for Waits {
+    fn read(&self, entry: u32, _offset: u64, _len: u32) -> Part {
+        if entry == 2 {
+            *self.asked_two.lock().unwrap() = true;
+            self.two.notify_all();
+            return Part::ok(b"two".to_vec());
+        }
+        let asked = self.asked_two.lock().unwrap();
+        let (asked, _) =
+            self.two.wait_timeout_while(asked, Duration::from_secs(5), |asked| !*asked).unwrap();
+        if *asked { Part::ok(b"one".to_vec()) } else { Part::status(wire::FAILED) }
+    }
+
+    fn whole(&self, entry: u32) -> Part {
+        self.read(entry, 0, 3)
+    }
+}
+
+#[test]
+fn the_mac_answers_asks_at_once_so_a_slow_one_holds_up_no_other() {
+    let link = Arc::new(Link::new(Duration::from_millis(500)));
+    let (machine, mac) = UnixStream::pair().unwrap();
+    let served = link.clone();
+    let writer = machine.try_clone().unwrap();
+    std::thread::spawn(move || served.serve(machine, writer));
+    let source = Arc::new(Waits { asked_two: Mutex::new(false), two: Condvar::new() });
+    std::thread::spawn(move || {
+        let writer = mac.try_clone().unwrap();
+        let _ = answer_asks(mac, writer, source.as_ref());
+    });
+    while !link.attached() {
+        std::thread::yield_now();
+    }
+    let start = Instant::now();
+    let one = {
+        let link = link.clone();
+        std::thread::spawn(move || link.read(1, 0, 3))
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(link.batch(&[2])[0].as_deref().unwrap(), b"two");
+    assert_eq!(one.join().unwrap().unwrap(), b"one");
+    assert!(start.elapsed() < Duration::from_secs(4));
+}
