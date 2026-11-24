@@ -253,6 +253,8 @@ export type PaneComposerDeps = {
   hatHandle: TrayHandleSide;
   hatPillArm: HatPillPlace;
   statusCardOpen: boolean;
+  /// The changes pill over the composer (session-info/EnvironmentCard.tsx ChangesPill), null when off.
+  changesPillNode: React.JSX.Element | null;
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
@@ -500,6 +502,7 @@ export function drawPaneComposer({
   hatPillArm,
   statusCardOpen,
   setStatusCardOpen,
+  changesPillNode,
   openImage,
   cloudStarting,
   composerDrawn,
@@ -948,6 +951,8 @@ export function drawPaneComposer({
         {goalAtFoot && goalNode}
         {approvedPlanAtFoot && approvedPlanNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
+        {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
+        {changesPillNode}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
