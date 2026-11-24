@@ -75,8 +75,11 @@ where
 
 /// Resolve `host` (a name, or an IP literal, with or without brackets) and connect to `port`:
 /// [`race`] over the addresses IPv6 first, families interleaved, Nagle off.
+/// The egress gate checks `host` first (docs/privacy.md, Egress gate).
 pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     let bare = host.trim_start_matches('[').trim_end_matches(']');
+    cmux_egress::check(bare, "acpmux::happy_dial::connect_tcp")
+        .map_err(|refused| io::Error::new(io::ErrorKind::PermissionDenied, refused))?;
     let addresses: Vec<SocketAddr> = tokio::net::lookup_host((bare, port)).await?.collect();
     if addresses.is_empty() {
         return Err(io::Error::new(
@@ -147,10 +150,11 @@ impl reqwest::dns::Resolve for V6FirstResolver {
     }
 }
 
-/// `reqwest::Client::builder()` with [`V6FirstResolver`]: every HTTP client the daemon builds
-/// starts here, so each leads with IPv6 where the host has it and hedges IPv4 after 300 ms.
+/// `reqwest::Client::builder()` with [`V6FirstResolver`] behind the egress gate: every HTTP
+/// client the daemon builds starts here, so each passes docs/privacy.md's host list
+/// (`cmux_egress`) and then leads with IPv6 where the host has it, hedging IPv4 after 300 ms.
 pub fn http_client() -> reqwest::ClientBuilder {
-    reqwest::Client::builder().dns_resolver(V6FirstResolver::default())
+    cmux_egress::client_builder_with("acpmux::happy_dial::http_client", V6FirstResolver::default())
 }
 
 #[cfg(test)]
