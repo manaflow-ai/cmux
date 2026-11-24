@@ -129,6 +129,8 @@ pub mod webrtc_child;
 mod view;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod wg_carrier;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
@@ -349,9 +351,11 @@ pub fn run_cli(args: &[String]) -> i32 {
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
-        "serve" => serve::run(&opts),
+        // Versioned aliases prove the worker supports signed carrier selection.
+        // Old app callers keep their original commands and legacy setup format.
+        "serve" | "serve-v2" => serve::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
-        "connect" => connect::run(),
+        "connect" | "connect-v2" => connect::run(),
         "permissions" => permissions::run(),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
