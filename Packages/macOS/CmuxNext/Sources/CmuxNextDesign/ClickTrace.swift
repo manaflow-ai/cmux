@@ -126,9 +126,22 @@ public final class ClickTrace {
         guard Self.isPress(event.type) else { return }
         if let open, open.timestamp == event.timestamp, open.timestamp != 0 { return }
         let screen = window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
-        append(Entry(seq: 0, at: Self.stamp(now()), button: Self.button(event.type), x: Int(screen.x.rounded()),
-                     y: Int(screen.y.rounded()), window: Self.name(window), windowNumber: window?.windowNumber ?? -1),
+        append(Entry(seq: 0, at: Self.stamp(now()), button: Self.button(event.type), x: Self.point(screen.x),
+                     y: Self.point(screen.y), window: Self.name(window), windowNumber: window?.windowNumber ?? -1),
                timestamp: event.timestamp)
+    }
+
+    /// A press coordinate as a whole screen point, never a trap. `Int(_:)` traps on NaN, an infinity or a value past
+    /// Int's range, and a posted or synthesized press can carry one: Nightly 4518008579501 and every Nightly after it
+    /// died with SIGTRAP in `press` 3 s after its first window on each onboarding walk (cmuxterm-hq
+    /// onboarding_golden_path_probe gone_why), when CuaDriver pressed Meet Chief's buttons. A point that is not a
+    /// finite number records as 0; one past the range records as the nearest bound.
+    nonisolated static func point(_ value: CGFloat) -> Int {
+        guard value.isFinite else { return 0 }
+        let rounded = value.rounded()
+        if rounded >= CGFloat(Int.max) { return Int.max }
+        if rounded <= CGFloat(Int.min) { return Int.min }
+        return Int(rounded)
     }
 
     /// The overlay panel took a press that the window server gave to `source` (`WindowOverlayHost.takeEventFromBelow`).
