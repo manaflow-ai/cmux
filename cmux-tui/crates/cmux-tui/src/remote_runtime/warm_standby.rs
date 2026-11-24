@@ -57,6 +57,11 @@ pub(crate) const HOLD_MARGIN: Duration = Duration::from_secs(5);
 pub(crate) fn trusted_for(lease: Option<Duration>) -> Duration {
     lease.map_or(MAX_AGE, |lease| lease.saturating_sub(HOLD_MARGIN).max(MAX_AGE))
 }
+
+/// When the keeper replaces a standby trusted for `max_age`: [`REFRESH`] for one with no hold.
+fn refresh_at(max_age: Duration) -> Duration {
+    if max_age <= MAX_AGE { REFRESH } else { max_age.saturating_sub(REFRESH_LEAD) }
+}
 /// A standby that closed sooner than this after it was armed counts as a failed arm (backoff),
 /// so a far end that closes every standby at once is not redialed in a loop.
 pub(crate) const MIN_LIFE: Duration = Duration::from_secs(1);
@@ -141,9 +146,9 @@ impl<T> WarmStandby<T> {
     /// one held closed).
     fn refresh_in(&self, alive: impl Fn(&T) -> bool) -> Option<Duration> {
         let slot = self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        slot.as_ref().filter(|held| alive(&held.group)).map(|held| {
-            held.max_age.saturating_sub(REFRESH_LEAD).saturating_sub(held.armed_at.elapsed())
-        })
+        slot.as_ref()
+            .filter(|held| alive(&held.group))
+            .map(|held| refresh_at(held.max_age).saturating_sub(held.armed_at.elapsed()))
     }
 
     /// The held standby's route, for logs and tests.
