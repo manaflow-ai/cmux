@@ -1371,8 +1371,33 @@ def tree_pids(root_pid, mac_app):
             if (pp in pids or c.startswith(mac_app)) and p not in pids:
                 pids.add(p)
                 grew = True
+    # The Mac's own helpers that do not descend from the app (a daemon launchd or the cmux CLI started for it:
+    # run 45485672729 kept answering the phone's pings through a SIGSTOP of the app's tree, and kept the
+    # service's presence through the network cut). This VM is throwaway and runs one Mac: every cmux
+    # process of this user counts, except the phone (a simulator process) and this script.
+    me = os.getuid()
+    own = subprocess.run(["ps", "-U", str(me), "-o", "pid=,comm="], capture_output=True, text=True).stdout
+    for line in own.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        p, c = int(parts[0]), parts[1]
+        low = c.lower()
+        if "cmux" in low and "cmuxmobile" not in low and "coresimulator" not in low and "/simulator" not in low \
+                and "python" not in low and not low.endswith(("cmux_next_pair_e2e.py", "cmux-next-ios-sim.sh")):
+            pids.add(p)
     pids.discard(os.getpid())
     return sorted(pids)
+
+
+def describe_pids(pids):
+    """pid, state and command of each pid (state T = stopped), for the evidence."""
+    if not pids:
+        return []
+    out = subprocess.run(["ps", "-o", "pid=,stat=,comm=", "-p", ",".join(map(str, pids))],
+                         capture_output=True, text=True).stdout
+    return [" ".join(l.split(None, 2)[:2] + [os.path.basename(l.split(None, 2)[2])]) for l in out.splitlines()
+            if len(l.split(None, 2)) == 3]
 
 
 class NetCut:
@@ -1647,8 +1672,11 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         return any(all(n in t for n in needles) for t in texts)
 
     def sig(texts):
-        """The screen's words without clocks: what must be the same after the Mac is back."""
-        return {t for t in texts if not re.fullmatch(r"\d{1,2}:\d{2}", t)}
+        """What must be the same after the Mac is back: its workspace rows ("workspace-N, ..."), the sessions
+        step 4 is about. Toolbar words such as "Search" drop out of an AXe read at the largest text size
+        (run 45485672729), so they are not compared. A screen with no workspace row keeps every word but clocks."""
+        rows = {t.split(",")[0] for t in texts if re.match(r"workspace-\d+", t)}
+        return rows or {t for t in texts if not re.fullmatch(r"\d{1,2}:\d{2}", t)}
 
     def verdict(size_name, key, ok, why, texts=(), baseline=True):
         """Record a step: PASS only with a non-empty baseline and a non-empty read; else ERROR (empty) or FAIL."""
@@ -1752,6 +1780,7 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             try:
                 nports = cut.start()
                 cut_err = ""
+                note(f"  - cut processes: {describe_pids(tree_pids(app.pid, a.mac_app))[:20]}")
             except Exception as error:  # noqa: BLE001  no sudo/pfctl: the step errors, it does not pass
                 nports, cut_err = 0, f"{type(error).__name__}: {str(error)[:200]}"
                 log("netcut-failed", error=cut_err)
@@ -1765,8 +1794,11 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             back_with_rows(size_name, "4a", tag + "4a-network-back", base_rows, base_ok)
             # 1b. the Mac frozen: sockets stay open, nothing answers.
             frozen = tree_pids(app.pid, a.mac_app)
-            log("freeze", pids=len(frozen))
             signal_all(frozen, 19)  # SIGSTOP
+            time.sleep(0.5)
+            frozen_desc = describe_pids(frozen)
+            log("freeze", pids=len(frozen), procs=frozen_desc)
+            note(f"  - frozen ({len(frozen)}): {frozen_desc[:20]}")
             ok1b, t_1b, tx_1b = show(tag + "frozen", lambda t, i: has(t, "isn't responding"), 180, shot_name=tag + "1b-frozen")
             signal_all(frozen, 18)  # SIGCONT
             verdict(size_name, "1b", ok1b, f"isn't responding after {t_1b:.0f} s; texts {[t for t in tx_1b if 'respond' in t][:3]}",
