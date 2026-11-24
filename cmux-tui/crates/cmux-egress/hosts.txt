@@ -1,6 +1,7 @@
 # docs/privacy.md's `connects` hosts: what the egress gate lets through. Generated: python3 tests/test_egress_gate.py --write
 *.*.wdev.cmux.dev
 *.atlassian.net
+*.r2.cloudflarestorage.com
 accounts.google.com
 api-staging.chatmux.dev
 api.*.wdev.cmux.dev
