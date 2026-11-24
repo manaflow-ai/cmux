@@ -1,7 +1,7 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
-import { integrationAppHandoff, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
+import { integrationAppHandoff, integrationAppHandoffResponse, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
 import { completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
@@ -16,9 +16,16 @@ import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTe
  */
 export const Route = createFileRoute("/integrations/callback")({
   validateSearch: callbackSearch,
+  // The provider's redirect is a full page load: the server answers an app handoff with a 302 before the router runs.
+  server: {
+    handlers: {
+      GET: ({ request, next }) => integrationAppHandoffResponse(request.url) ?? next(),
+    },
+  },
+  // Reached in the browser only (a client navigation here): the router refuses to redirect to an app scheme.
   beforeLoad: ({ search }) => {
     const handoff = integrationAppHandoff(search)
-    if (handoff) throw redirect({ href: handoff, reloadDocument: true })
+    if (handoff && typeof window !== "undefined") window.location.replace(handoff)
   },
   component: Callback
 })

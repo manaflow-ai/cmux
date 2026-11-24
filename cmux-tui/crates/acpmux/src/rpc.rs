@@ -599,6 +599,9 @@ pub mod method {
     pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
     /// Whether Computer Use is on here (asked by a peer for its machine list).
     pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
+    /// One file or command action on another of the person's machines, from this machine's
+    /// own socket only (`server/machine_files_relay.rs`).
+    pub const MUX_MACHINE_FILES_CALL: &str = "_acpmux/machine_files_call";
     /// A scoped key minted by another of the person's machines, which keeps the provider's
     /// bootstrap token (`server/keys_relay.rs`).
     pub const MUX_KEYS_MINT: &str = "_acpmux/keys_mint";
@@ -970,7 +973,7 @@ pub mod method {
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
     pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
     /// Compact closed chats' event logs (`hub/retention.rs`): `{dryRun?, archive?,
-    /// olderThanDays?, only?}` -> the pass's report.
+    /// olderThanDays?, only?, unreadOnly?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.
