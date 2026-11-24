@@ -167,12 +167,26 @@ fn replay(trace: &Trace, profile: &Profile, seed: u64, row: &mut Row) {
     engine.observed_output(&trace.preamble, us(1_000_000));
     engine.presented_frame(us(1_000_000));
     let mut shown_at: Vec<Option<u64>> = vec![None; count];
+    let debug = std::env::var_os("ECHO_SIM_DEBUG").is_some();
+    let mut log: Vec<String> = Vec::new();
     for &(time, _, event) in &events {
         let before = speculative(&engine);
         let mut confirmed = 0;
         match event {
             Event::Key(key) => {
-                *row.status.entry(status_name(engine.status(us(time)))).or_default() += 1;
+                let status = engine.status(us(time));
+                if debug && key > 2 && status != Status::Predicting {
+                    eprintln!(
+                        "{} key {key} at {:.0} ms: {}; glyphs {:?}; last {:?}",
+                        profile.name,
+                        time as f64 / 1000.0,
+                        status_name(status),
+                        engine.glyphs(),
+                        log.iter().rev().take(4).collect::<Vec<_>>()
+                    );
+                }
+                log.push(format!("key {key} {:.0}", time as f64 / 1000.0));
+                *row.status.entry(status_name(status)).or_default() += 1;
                 let (bytes, _) = &trace.keys[key];
                 if engine.sent(bytes, us(time)) {
                     let newest = engine.glyphs().last().copied();
@@ -186,6 +200,11 @@ fn replay(trace: &Trace, profile: &Profile, seed: u64, row: &mut Row) {
                 }
             }
             Event::Echo(key) => {
+                log.push(format!(
+                    "echo {key} {:.0} {:?}",
+                    time as f64 / 1000.0,
+                    String::from_utf8_lossy(&trace.keys[key].1)
+                ));
                 let after = {
                     engine.observed_output(&trace.keys[key].1, us(time));
                     speculative(&engine)
@@ -204,8 +223,16 @@ fn replay(trace: &Trace, profile: &Profile, seed: u64, row: &mut Row) {
     engine.tick(us(end));
     row.left_over += speculative(&engine);
     let frame_ms = FRAME_US as f64 / 1000.0;
+    // A program that coalesces keys (an agent TUI's render throttle) paints a
+    // key with the next echo that carries anything.
+    let mut painted_by = echo_at.clone();
+    for key in (0..count).rev() {
+        if trace.keys[key].1.is_empty() && key + 1 < count {
+            painted_by[key] = painted_by[key + 1];
+        }
+    }
     for key in 0..count {
-        let painted = shown_at[key].map_or(echo_at[key], |shown| shown.min(echo_at[key]));
+        let painted = shown_at[key].map_or(painted_by[key], |shown| shown.min(painted_by[key]));
         row.paint_ms.push((painted - typed_at[key]) as f64 / 1000.0 + frame_ms);
         row.predicted += usize::from(shown_at[key].is_some());
     }
