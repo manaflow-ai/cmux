@@ -626,10 +626,11 @@ pub(super) async fn end_stale(
     for key in sessions {
         let ended = match resolve_id(&src, key).await {
             Ok(id) => {
-                let mut ask = json!({"sessionId": id});
-                if take_back {
-                    ask["takeBack"] = json!(true);
-                }
+                let ask = if take_back {
+                    json!({"sessionId": id, "takeBack": true})
+                } else {
+                    json!({"sessionId": id})
+                };
                 src.request("_acpmux/transfer_end_stale", ask).await
             }
             Err(e) => Err(e),
