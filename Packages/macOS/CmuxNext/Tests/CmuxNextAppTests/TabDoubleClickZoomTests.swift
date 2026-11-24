@@ -182,7 +182,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
         #expect(toolbar.view.buttons.isEmpty, "the indicator is the pane's, not a toolbar button")
         #expect(!toolbar.view.zoomButton.isHidden)
-        #expect(toolbar.view.intrinsicContentSize.width == TitlebarBandButton.side + PaneToolbarView.trailingGap, "Exit Zoom's slot only")
+        #expect(toolbar.view.intrinsicContentSize.width == Metrics.tabBarControlSide + PaneToolbarView.trailingGap, "Exit Zoom's slot only")
     }
 
     /// A chat selected in a zoomed pane keeps the same room, with or without pins: selecting it moves no tab.
