@@ -1,4 +1,5 @@
-//! `cmux safe-mode on|off|status [--json] [--state-dir DIR]` and
+//! `cmux safe-mode on|off|status [--json] [--state-dir DIR]`,
+//! `cmux safe-mode bisect start|good|bad|reset|status [--json]` and
 //! `cmux apps rollback <app> [--json]` (docs/cmux-next/extensions/
 //! safe-mode.md).
 //!
@@ -20,7 +21,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
-const USAGE: &str = "usage: cmux safe-mode on|off|status [--json] [--state-dir DIR]\n\n  Safe mode turns every extension off (third-party, local and customize apps, and the\n  bundled apps that run scripts), so a broken extension cannot break cmux.\n  on:     turn it on now; cmux shows its own views in place of every extension.\n  off:    leave it. While cmux runs, only you can do this, in cmux (Leave Safe Mode).\n          With cmux quit, this removes the flag so the next start is normal.\n  status: whether it is on, why, and which extensions a crash loop held off.\n  With no cmux running, on and off write the flag in the state folder\n  (--state-dir, else CMUX_TUI_STATE_DIR, else the default) for the next start.\n\n  cmux apps rollback <app> puts back the last version of a local app that worked.";
+const USAGE: &str = "usage: cmux safe-mode on|off|status [--json] [--state-dir DIR]\n       cmux safe-mode bisect start|good|bad|reset|status [--json]\n\n  Safe mode turns every extension off (third-party, local and customize apps, and the\n  bundled apps that run scripts), so a broken extension cannot break cmux.\n  on:     turn it on now; cmux shows its own views in place of every extension.\n  off:    leave it. While cmux runs, only you can do this, in cmux (Leave Safe Mode).\n          With cmux quit, this removes the flag so the next start is normal.\n  status: whether it is on, why, and which extensions a crash loop held off.\n  With no cmux running, on and off write the flag in the state folder\n  (--state-dir, else CMUX_TUI_STATE_DIR, else the default) for the next start.\n  bisect: find the extension that breaks cmux. start runs half of them; use cmux, then\n          say good (nothing broke) or bad (it broke) until one is named. reset ends it.\n\n  cmux apps rollback <app> puts back the last version of a local app that worked.";
 
 const ROLLBACK_USAGE: &str = "usage: cmux apps rollback <app> [--json]\n\n  Rollback is confirmed by you, in cmux (Roll Back on the app). This asks cmux\n  and prints its answer; an agent's call is refused.\n  It puts back the last version of a local or customize app that loaded and drew.\n  The files it replaces are kept, so nothing is lost.";
 
@@ -29,12 +30,18 @@ pub(super) enum Request {
     On,
     Off,
     Status,
-    Rollback { app: String },
+    Rollback {
+        app: String,
+    },
+    /// `start`, `good`, `bad`, `reset` or `status`.
+    Bisect {
+        step: String,
+    },
 }
 
 /// What the daemon said, or that none answered.
 #[derive(Debug)]
-enum Answer {
+pub(super) enum Answer {
     Ok(Value),
     Refused { code: String, message: String },
     NoDaemon(String),
@@ -54,6 +61,15 @@ pub(super) fn parse(
         return Some(match rest {
             [app] if !app.starts_with('-') => Ok((Request::Rollback { app: app.clone() }, None)),
             _ => Err(ROLLBACK_USAGE.to_string()),
+        });
+    }
+    if verb == "bisect" {
+        return Some(match rest {
+            [] => Ok((Request::Bisect { step: "status".into() }, None)),
+            [step] if matches!(step.as_str(), "start" | "good" | "bad" | "reset" | "status") => {
+                Ok((Request::Bisect { step: step.clone() }, None))
+            }
+            _ => Err(USAGE.to_string()),
         });
     }
     let request = match verb.as_str() {
@@ -117,7 +133,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 }
 
 /// One request on a fresh connection to the session daemon.
-fn ask(global: &GlobalArgs, frame: Value) -> Answer {
+pub(super) fn ask(global: &GlobalArgs, frame: Value) -> Answer {
     let socket = match super::wire::resolve_socket_with_origin(global) {
         Ok((socket, _)) => socket,
         Err(error) => return Answer::NoDaemon(error.to_string()),
@@ -193,6 +209,9 @@ fn run(global: &GlobalArgs, request: &Request, state_dir: Option<&Path>) -> i32 
             }
         };
     }
+    if let Request::Bisect { step } = request {
+        return bisect(global, step, json_out);
+    }
     let (op, args) = match request {
         Request::On => ("safe_mode.set", json!({"on": true})),
         Request::Off => ("safe_mode.set", json!({"on": false})),
@@ -237,6 +256,60 @@ fn run(global: &GlobalArgs, request: &Request, state_dir: Option<&Path>) -> i32 
         print(human(&state, request, via.is_object()));
     }
     0
+}
+
+/// `cmux safe-mode bisect STEP`: the daemon holds the bisect (cmux-tui-core
+/// apps/safe_mode_bisect.rs); with no daemon there is none.
+fn bisect(global: &GlobalArgs, step: &str, json_out: bool) -> i32 {
+    let frame = json!({"id": "cmux-safe-mode-bisect-1", "cmd": "apps-safe-mode", "op": "safe_mode.bisect", "args": {"step": step}});
+    match ask(global, frame) {
+        Answer::Ok(state) => {
+            if global.output != OutputMode::Quiet {
+                let text = if json_out { state.to_string() } else { bisect_human(&state) };
+                println!("{}", text.trim_end());
+            }
+            0
+        }
+        Answer::Refused { code, message } => {
+            eprintln!("cmux: {code}: {message}");
+            1
+        }
+        Answer::NoDaemon(why) => {
+            eprintln!("cmux: a bisect needs cmux running in safe mode ({why})");
+            1
+        }
+    }
+}
+
+pub(super) fn bisect_human(state: &Value) -> String {
+    let names = |key: &str| -> String {
+        let list: Vec<&str> = state
+            .pointer(&format!("/bisect/{key}"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        if list.is_empty() { "none".into() } else { list.join(", ") }
+    };
+    let Some(bisect) = state.get("bisect") else {
+        return if state.get("on") == Some(&Value::Bool(true)) {
+            "No bisect is running. Start one with `cmux safe-mode bisect start`.".into()
+        } else {
+            "Safe mode is off, so no bisect is running.".into()
+        };
+    };
+    if let Some(found) = bisect.get("found").and_then(Value::as_str) {
+        return format!(
+            "Found it: {found} breaks cmux. Roll it back in cmux (Roll Back) or remove it in the App Store, then run `cmux safe-mode bisect reset`."
+        );
+    }
+    let left = bisect.get("suspects").and_then(Value::as_array).map_or(0, Vec::len);
+    format!(
+        "Bisect: {left} extensions left to check.\nRunning now: {}.\nStill off: {}.\nUse cmux. If it breaks, run `cmux safe-mode bisect bad`; if not, `cmux safe-mode bisect good`.",
+        names("running"),
+        names("held"),
+    )
 }
 
 /// No daemon: the flag file is the state.
