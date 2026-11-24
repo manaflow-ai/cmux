@@ -2850,6 +2850,15 @@ body {
   height: 1px;
   background: var(--cv-rule);
 }
+/* A Worked for above the person's steer under a trimmed in-order arm (turnFoldSteered.experiment.ts
+   `trim-*`, `workedQuiet`): the quieter color, so the turn's last Worked for reads as its summary.
+   `bare` also says its time alone with no rule (TurnRows.tsx). */
+.cv-worked.is-pre-steer {
+  color: color-mix(in srgb, var(--cv-fg) 42%, transparent);
+}
+.cv-worked.is-pre-steer.is-bare {
+  color: color-mix(in srgb, var(--cv-fg) 34%, transparent);
+}
 .cv-worked__chevron {
   margin-top: 0;
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
