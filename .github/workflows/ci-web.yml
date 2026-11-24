@@ -935,14 +935,32 @@ jobs:
         id: merge-driver
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 tests/test_install_git_hooks.py
+        run: |
+          # These two test the repo's hooks, merge drivers and formatter, not a webview: a pull request that changes
+          # none of their inputs (scripts/, tests/, hook settings, .gitattributes, webviews' top-level config and this
+          # file) cannot change their result. A push and the post-merge batch run them every time.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          python3 tests/test_install_git_hooks.py
 
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
         id: post-edit-format
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 tests/test_format_post_edit.py
+        run: |
+          # These two test the repo's hooks, merge drivers and formatter, not a webview: a pull request that changes
+          # none of their inputs (scripts/, tests/, hook settings, .gitattributes, webviews' top-level config and this
+          # file) cannot change their result. A push and the post-merge batch run them every time.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          python3 tests/test_format_post_edit.py
 
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
@@ -989,6 +1007,13 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" --skip typecheck || status=1
+          # The warn-only checks below never fail a pull request into feat-cmux-next: they cost about 2.5 of shard 1's 19
+          # minutes (1,660 shard 1 jobs a day) to print warnings. A feat-cmux-next push and the post-merge batch still
+          # run them. Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period."
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "warn-only webviews checks run on the base's pushes, not on a pull request"
+            exit "$status"
+          fi
           for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:compiler-bails; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
