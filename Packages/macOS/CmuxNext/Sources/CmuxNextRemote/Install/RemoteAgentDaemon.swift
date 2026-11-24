@@ -257,15 +257,16 @@ public actor RemoteApprovalPreparations {
         }
     }
 
-    /// A start's preparation in two parts, owned as ``owned(_:_:)``: `early` (nil: none) runs beside `connect`, which, when
-    /// it throws, cancels and awaits it first; then `body` runs beside `early`'s answer or, when that was false, `later`.
-    @MainActor public static func owned<T>(early: (@MainActor @Sendable () async -> Bool)?, connect: @MainActor () async throws -> Void,
-                                           later: @escaping @MainActor @Sendable () async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
-        let ahead = early.map { early in Task { await early() } } // task-owner: awaited (or cancelled, then awaited) on every exit
+    /// A start's preparation in two parts, owned as ``owned(_:_:)``: with `early`, `prepare(true)` runs beside `connect`
+    /// (which, when it throws, cancels and awaits it first); then `body` runs beside that answer or, when it was false (or
+    /// there was no early one), `prepare(false)`.
+    @MainActor public static func owned<T>(early: Bool, connect: @MainActor () async throws -> Void,
+                                           prepare: @escaping @MainActor @Sendable (_ early: Bool) async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
+        let ahead: Task<Bool, Never>? = early ? Task { await prepare(true) } : nil // task-owner: awaited (or cancelled, then awaited) on every exit
         do { try await connect() } catch { ahead?.cancel(); _ = await ahead?.value; throw error }
         return try await owned({
             if let ahead, await withTaskCancellationHandler(operation: { await ahead.value }, onCancel: { ahead.cancel() }) { return true }
-            return await later()
+            return await prepare(false)
         }, body)
     }
 }

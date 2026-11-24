@@ -216,11 +216,12 @@ struct CloudApprovalsPrepareTests {
     @MainActor @Test func aFailedConnectCancelsAndAwaitsTheEarlyPrep() async {
         let prep = Prep(), later = Counter()
         await #expect(throws: LoginFailed.self) {
-            try await RemoteApprovalPreparations.owned(early: {
+            try await RemoteApprovalPreparations.owned(early: true, connect: { await Task.yield(); throw LoginFailed() }, prepare: { early in
+                guard early else { await later.increment(); return true }
                 try? await Task.sleep(for: .seconds(30))
                 await prep.end(cancelled: Task.isCancelled)
                 return false
-            }, connect: { await Task.yield(); throw LoginFailed() }, later: { await later.increment(); return true }) { 7 }
+            }) { 7 }
         }
         #expect(await prep.ended)
         #expect(await prep.cancelled)
@@ -230,14 +231,15 @@ struct CloudApprovalsPrepareTests {
     /// The early prep's yes stands; its no (or no early prep) runs the later one beside the body.
     @MainActor @Test(arguments: [true, false]) func theLaterPrepRunsOnlyWhenTheEarlyOneSaidNo(earlyAnswer: Bool) async throws {
         let later = Counter(), order = Counter()
-        let value = try await RemoteApprovalPreparations.owned(early: { await order.increment(); return earlyAnswer },
-                                                               connect: { await Task.yield() },
-                                                               later: { await later.increment(); return true }) { 7 }
+        let value = try await RemoteApprovalPreparations.owned(early: true, connect: { await Task.yield() }, prepare: { early in
+            if early { await order.increment(); return earlyAnswer }
+            await later.increment(); return true
+        }) { 7 }
         #expect(value == 7)
         #expect(await order.read() == 1)
         #expect(await later.read() == (earlyAnswer ? 0 : 1))
         let none = Counter()
-        _ = try await RemoteApprovalPreparations.owned(early: nil, connect: {}, later: { await none.increment(); return true }) { 0 }
+        _ = try await RemoteApprovalPreparations.owned(early: false, connect: {}, prepare: { early in #expect(!early); await none.increment(); return true }) { 0 }
         #expect(await none.read() == 1)
     }
 }
