@@ -35,8 +35,12 @@ impl Hub {
             }
             self.kill(&old, true).await?;
         }
-        // Not `live`: its queue stays empty, so nothing runs when the import publishes it.
-        let session = self.import_into(bundle, None, false, None, false, false, None).await?;
+        // Not `live`: its queue stays empty, so nothing runs when the import publishes it. The
+        // copy is the chat: its agent's own files replace any that are here (`the_chat`), and
+        // so does cmux-harness's journal (`replace_durable`), which a chat that ran here
+        // before left behind.
+        let plain = (false, None, true, false, None);
+        let session = self.import_placing(bundle, None, plain, true).await?;
         // Held as a chat still arriving while its open turn is settled and its queue comes
         // back, so no new prompt runs ahead of the continuation.
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =

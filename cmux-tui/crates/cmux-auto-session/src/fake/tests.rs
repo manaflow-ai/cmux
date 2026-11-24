@@ -139,6 +139,7 @@ fn manifest(tar: &[String], last_seq: u64) -> Manifest {
         queue: Vec::new(),
         draft: String::new(),
         open_turn: None,
+        native: Vec::new(),
     }
 }
 
