@@ -39,6 +39,18 @@ impl Config {
             };
             return Ok(());
         }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "direct_port" | "directport"
+        ) {
+            self.direct_port = match value.trim().to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                port => Some(port.parse::<u16>().ok().filter(|p| *p != 0).ok_or_else(|| {
+                    anyhow::anyhow!("direct_port must be a TCP port (1-65535) or none")
+                })?),
+            };
+            return Ok(());
+        }
         // The Labs WireGuard transport. It needs `wireguardStatic` (the start check refuses it
         // without); the hub carrier does not need it (`hub_carrier.rs`: the node key alone).
         if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {

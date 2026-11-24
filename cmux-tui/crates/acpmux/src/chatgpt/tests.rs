@@ -498,10 +498,14 @@ async fn a_cancelled_sign_in_closes_its_listener() {
     assert_eq!(status, Status::Cancelled);
     let redirect = query(&begun.url)["redirect_uri"].clone();
     let port = reqwest::Url::parse(&redirect).unwrap().port().unwrap();
-    assert!(
-        tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_err(),
-        "the listener is closed"
-    );
+    // A child another test spawns holds a copy of the dropped listener between its fork and
+    // exec, so a connect can still land for that moment: the listener is closed once a connect
+    // is refused, within a bound no fork-to-exec window reaches.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+        assert!(std::time::Instant::now() < deadline, "the listener is closed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 #[test]
