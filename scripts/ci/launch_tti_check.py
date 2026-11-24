@@ -103,6 +103,9 @@ PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_ke
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
               PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT)
+# What the app's terminal key hold read of the process's first key-down (CreationInputCoordinator+FirstKey.swift,
+# hq#22681): `terminal.first_key.terminal_awaited` held it for the restored terminal; any other names why it did not.
+FIRST_KEY_PREFIX = "terminal.first_key."
 
 
 def log(message: str) -> None:
@@ -257,7 +260,8 @@ def round_failures(which: str, path: str, row: dict, marks: dict, settle: float)
         if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
             out.append("the app typed no key: no window could take keys at its first frame (terminal.probe_no_key_window)")
         else:
-            out.append(f"the {which} took no key within {settle:.0f} s ({path})")
+            first = next((k.removeprefix(FIRST_KEY_PREFIX) for k in marks if k.startswith(FIRST_KEY_PREFIX)), None)
+            out.append(f"the {which} took no key within {settle:.0f} s ({path})" + (f"; its key hold read {first}" if first else ""))
     return out
 
 
@@ -544,7 +548,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     row.update(split(row.get("input_ms"), row["main_ms"]))
     if path == "in_app":
         row["probe_focus"] = probe_focus(marks)
-    row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["marks"] = {**{k: marks[k] for k in KEPT_MARKS if k in marks}, **{k: v for k, v in marks.items() if k.startswith(FIRST_KEY_PREFIX)}}
     row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
