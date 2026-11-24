@@ -10,6 +10,11 @@
 //! B's workspaces (`cross_machine`). A row that is dragged, or anything under
 //! a dragged group, refuses with `self`.
 //!
+//! A drag reorders within its own band (design dp-1824f397ce, "the pin goes
+//! where the pinned thing goes"): an item dragged from the Pinned band lands
+//! only in Pinned (`pinned_band`); Unpin is in its right-click menu. A row
+//! dragged into Pinned is the one drag that pins.
+//!
 //! A dragged group lands beside a row only at its own level or above
 //! (`nesting`): the gap after a group's last member row looks like the gap
 //! after the group, so taking the member row's parent there nested a group
@@ -43,6 +48,8 @@ struct Dragged {
     /// every group above it, and the top level (`None`). `None` when no group is
     /// dragged (a workspace or link lands beside any row it is allowed by).
     group_levels: Option<HashSet<Option<String>>>,
+    /// A dragged item sits in the Pinned band: the drag stays in it.
+    from_pinned: bool,
 }
 
 fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
@@ -51,10 +58,12 @@ fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
         machines: HashSet::new(),
         group_height: 0,
         group_levels: None,
+        from_pinned: false,
     };
     for key in items {
         result.keys.insert(key.clone());
         if let Some(item) = doc.item(key) {
+            result.from_pinned |= item.section == PINNED_SECTION_ID;
             if item.body.is_group() {
                 result.group_height = result.group_height.max(doc.group_height(item));
                 let mut levels: HashSet<Option<String>> =
@@ -112,6 +121,9 @@ fn can_place<'a>(
     parent: Option<&str>,
     trees: &mut TreeMachines<'a>,
 ) -> Result<(), Refusal> {
+    if dragged.from_pinned && section != PINNED_SECTION_ID {
+        return Err(Refusal::PinnedBand);
+    }
     let Some(target) = doc.section(section) else {
         // A stand-in machine section (no stored section yet).
         return match section.strip_prefix(MACHINE_SECTION_PREFIX) {

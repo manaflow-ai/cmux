@@ -38,11 +38,14 @@ nonisolated enum ContextMenuEssentials {
         // within its row cap after the top-level Copy folder.
         // Archive Workspace (Archive or Unarchive for the row) sits in the closing section just above
         // Close Workspace, as the reference chat apps end their row menus with Archive (#48536: it
-        // was only under More, so people did not find it).
-        .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
+        // was only under More, so people did not find it). Pin Workspace (Pin or Unpin) sits right
+        // above Archive: the row has no hover pin, and pinning moves it into the Pinned band (design
+        // dp-1824f397ce, "the pin goes where the pinned thing goes"; Leo 2026-11-21: "the pin button
+        // does not make sense. you expect this to be the pinned thing.").
+        .workspaceRow: Rows(top: [.action("renameWorkspace"), .choices("palette.workspaceColor"),
                                   .action("workspace.newBelow"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
-                            close: ["workspace.toggleArchive", "closeWorkspace"], beforeMore: copyFolder),
+                            close: ["palette.toggleWorkspacePin", "workspace.toggleArchive", "closeWorkspace"], beforeMore: copyFolder),
         // New Tab to the Right and the group rows stay at the top (Lawrence 2026-10-14, "my groups
         // UI is lost"; scripts/cmux-next/check-group-menus.py), then the frequent tab actions (Leo
         // 2026-10-23: keep the obviously useful rows), then Copy ▸ and More. Moves, Rename and
@@ -60,20 +63,22 @@ nonisolated enum ContextMenuEssentials {
     ]
 
     /// The workspace menu opened on one of several selected rows, as Chrome's menu on several
-    /// selected tabs (Leo 2026-10-20): New Workspace Below and Group Selected Workspaces (the Cmd-Shift-G action); Duplicate, Move ▸,
-    /// Pin and Mute; More; then Close Workspaces, Close Other Workspaces and Close Workspaces Below,
+    /// selected tabs (Leo 2026-10-20): New Workspace Below and Group Selected Workspaces (the Cmd-Shift-G action); Duplicate, Move ▸
+    /// and Mute; More; then Pin, Archive, Close Workspaces, Close Other Workspaces and Close Workspaces Below,
     /// which keep the selection (`WorkspaceClose.keeping`); then Reopen Closed Workspace. Its
     /// rows act on every selected row (`WindowMembershipHandlers.rowTargets`) and say so
     /// (`NSMenu.namingWorkspaceSelection`).
     static let selectionMenus: [ActionMenuContext: Rows] = [
         // The color row becomes the header's swatches, which color every selected row (MenuIdentityHeader).
         .workspaceRow: Rows(top: [.choices("palette.workspaceColor"), .action("workspace.newBelow"), .action("groupSelectedWorkspaces"), .separator,
-                                  .action("workspace.duplicate"), .folder(.move, []), .action("palette.toggleWorkspacePin"),
+                                  .action("workspace.duplicate"), .folder(.move, []),
                                   .action("workspace.toggleAudioMute"), .separator],
                             // Archive opens the closing section here too, as on one row (#48595): every selected
                             // row takes the right-clicked row's new state (`workspace.toggleArchive`). Leo, 2026-11-21:
                             // "there's no right click archive chat in the left bit."
-                            close: ["workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],
+                            // Pin sits beside Archive as on one row (dp-1824f397ce).
+                            close: ["palette.toggleWorkspacePin", "workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces",
+                                    "palette.closeWorkspacesBelow"],
                             tail: ["reopenClosedWorkspace"]),
     ]
 

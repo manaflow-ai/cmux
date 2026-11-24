@@ -344,7 +344,7 @@ import Testing
                 row.layoutSubtreeIfNeeded()
                 defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
                 let label = "\(density.rawValue)/\(spot.rawValue) \(id.rawValue) hovered"
-                let controls = ([row.closeButton, row.moreButton, row.pinButton] as [NSView]).filter { !$0.isHidden && $0.alphaValue > 0 }
+                let controls = ([row.closeButton, row.moreButton] as [NSView]).filter { !$0.isHidden && $0.alphaValue > 0 }
                 #expect(!controls.isEmpty, "\(label): no hover control shows")
                 let marks = Self.marks(in: row, named: id.rawValue, list: h.list)
                 #expect(marks.isEmpty, "\(label): \(marks) draw beside the hover controls")
@@ -391,7 +391,7 @@ import Testing
                 row.layoutSubtreeIfNeeded()
                 row.isHovered = false
                 row.layoutSubtreeIfNeeded()
-                let controls = ([row.closeButton, row.moreButton, row.pinButton] as [NSView]).filter(drawn)
+                let controls = ([row.closeButton, row.moreButton] as [NSView]).filter(drawn)
                 #expect(controls.isEmpty, "\(spot.rawValue)/\(style.rawValue) \(id.rawValue): a hover control still draws as the mark returns")
             }
             for id in [Self.folded, Self.deep] {
@@ -405,36 +405,5 @@ import Testing
                 #expect(!drawn(header.moreButton) && !drawn(header.addButton), "\(id.rawValue): + or more still draws as the spinner returns")
             }
         } }
-    }
-
-    /// Leo 2026-10-21: "no empty pin symbol by default" (cmux#24371): no row draws a pin at rest. Under the pointer
-    /// an expanded row offers its pin either way (David Beyer 2026-11-20: pinning by drag is awkward,
-    /// `SidebarHoverPinTests`): Pin on an unpinned row, Unpin on a pinned one.
-    @Test func anExpandedRowOffersItsPinOnHoverOnly() throws {
-        Motion.reduceMotionOverride = true // the controls show at once instead of fading in from 0
-        defer { Motion.reduceMotionOverride = nil }
-        try SidebarGroupRailAlignmentTests.with(.expanded, .off) {
-            let h = KindHarness(width: 260)
-            defer { h.window.close() }
-            h.model.workspacePin = (isPinned: { $0 == Self.busy }, toggle: { _ in })
-            h.model.expanded = true // rows read the model's density flag, which this harness sets by hand
-            h.sidebar.contextMenuProvider = { _ in NSMenu() } // a row with no menu shows neither ⋮ nor its pin
-            h.list.reload(animated: false)
-            h.sidebar.layoutSubtreeIfNeeded()
-            @MainActor func pinShows(_ id: WorkspaceID, hovered: Bool) throws -> Bool {
-                let row = try #require(h.list.rowViews[.workspace(id)] as? WorkspaceRowView)
-                row.isHovered = hovered
-                row.layoutSubtreeIfNeeded()
-                defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
-                guard let pin = row.pinSlot.made else { return false }
-                return !pin.isHidden && pin.alphaValue > 0
-            }
-            let shown = try #require(h.list.rowViews[.workspace(Self.unread)] as? WorkspaceRowView)
-            try #require(shown.isExpanded, "the row is not expanded, so the check proves nothing")
-            for id in [Self.unread, Self.busy] {
-                #expect(try !pinShows(id, hovered: false), "\(id.rawValue) draws a pin at rest")
-                #expect(try pinShows(id, hovered: true), "\(id.rawValue) offers no pin on hover")
-            }
-        }
     }
 }

@@ -1,8 +1,8 @@
 import CmuxNextActions
 import CmuxNextSidebar
 
-/// A row's hover pin (cx-13w3): runs the palette's, menu's and CLI's Pin/Unpin Workspace (`PinCommands`) on that row alone
-/// (`closesRowOnly`; Leo 2026-11-22, "the pin button ... doesnt do anything": it pinned the window's selection).
+/// A row's pin state (a pinned row offers no hover close) and Pin/Unpin Workspace toggle (right-click menu; the hover pin went,
+/// dp-1824f397ce); it runs `PinCommands` on that row alone (`closesRowOnly`; Leo 2026-11-22, "the pin button ... doesnt do anything").
 @MainActor
 enum SidebarWorkspacePins {
     static func wire(_ bridge: SidebarBridge) {

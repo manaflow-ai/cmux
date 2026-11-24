@@ -75,7 +75,7 @@ import CmuxNextTestSupport
     /// joined the window, before the row's first layout hid it. Every hover-only control starts hidden.
     @Test func aNewRowsHoverControlsStartHidden() throws {
         let row = WorkspaceRowView(key: .workspace(WorkspaceID("lazy-controls")))
-        for (name, button) in [("close", row.closeButton), ("pin", row.pinButton), ("audio", row.audioButton),
+        for (name, button) in [("close", row.closeButton), ("audio", row.audioButton),
                                ("tree fold", row.treeFoldButton)] {
             #expect(button.isHidden, "a new row's \(name) button starts shown")
             #expect(Self.icon(of: button) == nil, "a new row's \(name) button made its image")

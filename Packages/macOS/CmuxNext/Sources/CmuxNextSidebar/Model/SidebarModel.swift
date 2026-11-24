@@ -335,7 +335,7 @@ public final class SidebarModel {
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
-    /// App (layout tiles or the daemon flag): an expanded row's hover pin.
+    /// App (layout tiles or the daemon flag). A pinned row offers no hover close.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
     /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
     /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows

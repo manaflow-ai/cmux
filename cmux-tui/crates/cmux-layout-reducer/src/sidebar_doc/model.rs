@@ -919,6 +919,9 @@ pub enum Refusal {
     InvalidTitle,
     InvalidValue,
     TooMany,
+    /// A pinned item dragged out of the Pinned band: a drag reorders within its own band, and Unpin
+    /// is in the item's right-click menu (design dp-1824f397ce).
+    PinnedBand,
 }
 
 impl Refusal {
@@ -937,6 +940,7 @@ impl Refusal {
             Refusal::InvalidTitle => "invalid_title",
             Refusal::InvalidValue => "invalid_value",
             Refusal::TooMany => "too_many",
+            Refusal::PinnedBand => "pinned_band",
         }
     }
 }
@@ -949,7 +953,7 @@ impl std::fmt::Display for Refusal {
 
 impl Refusal {
     /// Every refusal, in `as_str` order: the text table's tests walk it.
-    pub const ALL: [Refusal; 13] = [
+    pub const ALL: [Refusal; 14] = [
         Refusal::UnknownSection,
         Refusal::UnknownItem,
         Refusal::DuplicateId,
@@ -963,6 +967,7 @@ impl Refusal {
         Refusal::InvalidTitle,
         Refusal::InvalidValue,
         Refusal::TooMany,
+        Refusal::PinnedBand,
     ];
 
     /// The refusal a wire reason names; None for one this build does not know.
@@ -989,6 +994,9 @@ impl Refusal {
             Refusal::InvalidTitle => "A name needs 1 to 80 characters.",
             Refusal::InvalidValue => "The sidebar doesn’t take that setting.",
             Refusal::TooMany => "The sidebar is full: 64 sections and 20,000 items at most.",
+            Refusal::PinnedBand => {
+                "Pinned items stay in Pinned. Unpin it from its right-click menu."
+            }
         }
     }
 }

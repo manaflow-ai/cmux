@@ -37,22 +37,21 @@ import Testing
             #expect(abs(leading.width - side) <= Self.tolerance,
                     "\(c.testDescription): the leading pin is \(leading.width) pt, the hover controls \(side) pt")
 
-            // A hovered workspace row's Pin, ⋮ and ✕: one glyph side, one hit box, one center line.
+            // A hovered workspace row's ⋮ and ✕: one glyph side, one hit box, one center line.
             let row = try HomePinnedRowAlignmentTests.row(list, SidebarLeadingEdgeTests.pinning)
-            // The App wires these; a row without a menu or a pin action shows neither on hover.
+            // The App wires these; a row without a menu shows none on hover.
             row.isPinned = { false }
             row.onMore = {}
-            row.onPin = {}
             row.onClose = {}
             row.isHovered = true
             row.needsLayout = true
             row.layoutSubtreeIfNeeded()
-            let pin = row.pinButton, more = row.moreButton, close = row.closeButton
-            for (name, glyph) in [("Pin", try Self.side(pin)), ("✕", try Self.side(close)),
+            let more = row.moreButton, close = row.closeButton
+            for (name, glyph) in [("✕", try Self.side(close)),
                                   ("⋮", try #require(more.drawnGlyph, "the ⋮ drew no glyph").size.width)] {
                 #expect(abs(glyph - side) < 0.01, "\(c.testDescription): the hover \(name) draws at \(glyph) pt, the row symbols at \(side)")
             }
-            let frames: [(String, NSView)] = [("Pin", pin), ("⋮", more), ("✕", close)]
+            let frames: [(String, NSView)] = [("⋮", more), ("✕", close)]
             for (name, view) in frames where !view.isHidden {
                 #expect(abs(view.frame.width - SidebarStyle.controlSize) < 0.01 && abs(view.frame.height - SidebarStyle.controlSize) < 0.01,
                         "\(c.testDescription): the hover \(name)'s hit box is \(view.frame.size), a control is \(SidebarStyle.controlSize)")

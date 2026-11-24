@@ -45,7 +45,7 @@ struct SidebarHoverReplacesMarksTests {
                     // on Leo's "in all cases").
                     let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: style, warned: warned)
                     defer { window.close() }
-                    // A pinned row draws the ⋮ and Unpin, no ✕ (Lawrence msg 19392); an unpinned one the ✕, the ⋮ and Pin.
+                    // A pinned row draws the ⋮, no ✕ (Lawrence msg 19392); an unpinned one the ✕ and the ⋮. Pin lives in the menu (dp-1824f397ce).
                     sidebar.list.model.workspacePin = (isPinned: { _ in pinned }, toggle: { _ in })
                     sidebar.list.contextMenuProvider = { _ in NSMenu() }
                     window.orderFrontRegardless()
@@ -58,7 +58,7 @@ struct SidebarHoverReplacesMarksTests {
                     let titleWidth = row.title.frame.width
                     row.isHovered = true
                     row.layoutSubtreeIfNeeded()
-                    let controls = [row.closeButton, row.moreButton, row.pinSlot.made].compactMap(\.self)
+                    let controls = [row.closeButton, row.moreButton]
                         .filter { !$0.isHidden && $0.alphaValue > 0 }
                     try #require(!controls.isEmpty, "\(spot) pinned \(pinned): no hover control on the hovered row")
                     if warned { try #require(resting.contains("usageWarning"), "\(spot) \(marks): the warned row draws no triangle at rest") }
@@ -76,7 +76,7 @@ struct SidebarHoverReplacesMarksTests {
         }
     }
 
-    /// A pinned workspace's tile (Pinned, a band row): its ⋮ and Unpin replace the blue dot, the spinner, the unread
+    /// A pinned workspace's tile (Pinned, a band row): its ⋮ replaces the blue dot, the spinner, the unread
     /// count and the task count ("2/9"), and all of them come back when the controls go.
     @Test(arguments: [false, true])
     func aWorkspaceTileHidesEveryMarkUnderItsControls(_ unreadDot: Bool) throws {
@@ -87,8 +87,6 @@ struct SidebarHoverReplacesMarksTests {
         info.activity = .working(progress: nil)
         info.taskProgress = SidebarTaskProgress(done: 2, total: 9)
         view.onMore = {}
-        view.onUnpin = {}
-        view.isPinned = { true }
         view.configure(info, style: .list)
         view.layoutSubtreeIfNeeded()
         let marks: [(String, NSView)] = [("unread", view.badge), ("rowBadge", view.rowBadge), ("activity", view.activity), ("taskCount", view.taskCount)]
@@ -98,7 +96,6 @@ struct SidebarHoverReplacesMarksTests {
         view.showsMenu = true // reveals the controls as the pointer does
         view.layoutSubtreeIfNeeded()
         #expect(view.hoverMore.map { !$0.isHidden } == true, "no ⋮ on the revealed tile")
-        #expect(view.hoverUnpin.map { !$0.isHidden } == true, "no Unpin on the revealed pinned tile")
         #expect(drawn().isEmpty, "\(drawn()) still draw beside the tile's hover controls")
         view.showsMenu = false
         view.layoutSubtreeIfNeeded()

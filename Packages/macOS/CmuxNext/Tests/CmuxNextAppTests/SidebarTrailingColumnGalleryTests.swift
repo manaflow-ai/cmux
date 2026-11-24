@@ -102,7 +102,7 @@ import Testing
             }
             var controls: [(String, NSView)] = []
             if let row = view as? WorkspaceRowView {
-                controls = [("close", row.closeButton), ("more", row.moreButton), ("pin", row.pinButton)]
+                controls = [("close", row.closeButton), ("more", row.moreButton)]
             } else if let header = view as? GroupHeaderRowView {
                 controls = [("more", header.moreButton), ("add", header.addButton)]
             }

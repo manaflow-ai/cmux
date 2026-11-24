@@ -72,8 +72,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
     let moreSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeMoreButton() }
-    /// An expanded pinned row's Unpin (cx-13w3), on hover beside the menu button.
-    let pinSlot = RowControlSlot { (row: WorkspaceRowView) in row.makePinButton() }
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
@@ -148,8 +146,9 @@ final class WorkspaceRowView: SidebarRowView {
     }
     /// The hover controls (more, close, the chevron) show: under the pointer, or while their menu is open.
     var revealsHoverControls: Bool { isHovered || showsMenu }
-    /// nil: the App offers no pin; the pin button does not show.
-    var onPin: (() -> Void)?, isPinned: (() -> Bool?)?
+    /// Whether the workspace is pinned (nil: the App offers no pin). A pinned row offers no hover close. Pin and
+    /// Unpin live in the right-click menu beside Archive, never on a hover button (design dp-1824f397ce).
+    var isPinned: (() -> Bool?)?
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
     var onToggleAudio: (() -> Void)?
@@ -212,11 +211,11 @@ final class WorkspaceRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] {
         // The subagent lines take their own presses (`SidebarSubagentsView`); the rest of the row selects it.
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator,
+        ([closeSlot.made, moreSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator,
           subagentsView.pressable.isEmpty ? nil : subagentsView] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
     }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
@@ -250,7 +249,7 @@ final class WorkspaceRowView: SidebarRowView {
         onClose = nil
         onMore = nil
         showsMenu = false
-        (onPin, isPinned) = (nil, nil)
+        isPinned = nil
         onSelect = nil
         onToggleTree = nil
         subagentsView.onOpen = nil

@@ -247,9 +247,8 @@ extension WorkspaceRowView {
         (closeSlot.frame, moreSlot.frame) = (closeFrame, moreFrame)
         // The pill gives way to the hover controls as the column's mark does; they keep their slots.
         if let pillView = agentPillView { fadeOpacity(pillView, to: showsPill && (showClose || showMore) ? 0 : 1, fades: fades) }
-        let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, moreFrame: moreFrame, control: control, fades: controlFades)
-        let overlayStart = [showClose ? closeFrame.minX : nil, showMore ? moreFrame.minX : nil, pinStart].compactMap { $0 }.min()
-        let shownControls = [showClose ? closeFrame : nil, showMore ? moreFrame : nil, pinStart.map { _ in pinSlot.frame }].compactMap { $0 }
+        let overlayStart = [showClose ? closeFrame.minX : nil, showMore ? moreFrame.minX : nil].compactMap { $0 }.min()
+        let shownControls = [showClose ? closeFrame : nil, showMore ? moreFrame : nil].compactMap { $0 }
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
             agentMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
