@@ -62,6 +62,9 @@ private struct World {
     /// answered, or `nil` when it is lost (it times out). One clean round
     /// trip unless a cell plays a link profile.
     var probeAnswer: (_ t: Duration) -> Duration? = { _ in .milliseconds(50) }
+    /// The standby probe's timeout on this link (``MacLink/probeTimeout(floor:)``):
+    /// the floor unless a cell plays the Rust link's RTT scaling.
+    var standbyProbeTimeout: Duration = LinkController.standbyProbeTimeout
 }
 
 /// Runs a `LinkMachine` on virtual time: dials resolve by `world`, retries
@@ -112,7 +115,7 @@ private struct Timeline {
                 pending.append(standbyOutcome(generation: generation, world: world))
             case .promoteStandby:
                 resumed += 1
-            case .close, .probe, .quickProbe, .closeStandby:
+            case .close, .probe, .quickProbe, .closeStandby, .park, .resumeParked:
                 break
             }
         }
@@ -127,11 +130,11 @@ private struct Timeline {
         let closes = world.linkClosesAt.map { max($0, now) } ?? limit
         var t = now
         while t < min(limit, closes) {
-            if world.linkCarries(t), let rtt = world.probeAnswer(t), rtt <= LinkController.standbyProbeTimeout {
+            if world.linkCarries(t), let rtt = world.probeAnswer(t), rtt <= world.standbyProbeTimeout {
                 let millis = UInt32(rtt.components.seconds * 1000 + rtt.components.attoseconds / 1_000_000_000_000_000)
                 return (t + rtt, .standbyAlive(generation: generation, path: .direct, rttMillis: millis))
             }
-            t += LinkController.standbyProbeTimeout + LinkController.standbyProbeEvery
+            t += world.standbyProbeTimeout + LinkController.standbyProbeEvery
         }
         return (min(limit, closes), .standbyLost(generation: generation))
     }
@@ -309,6 +312,45 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         #expect(withinGodBound(small: results[0], god: results[1]))
     }
 
+    /// A short background (another app for a few seconds; the Mac still
+    /// holds the link) or a long one (the link is gone). Before: the link was
+    /// closed on resume and redialed, so the chat waited a dial and re-attached
+    /// every channel. After: it is kept beside the redial; a live one answers
+    /// its first probe in one round trip and nothing re-attaches, a dead one
+    /// loses to the redial exactly as before.
+    @Test func cellAppShortBackgroundKeepsTheLink() {
+        for (variant, carries) in [("short-link-alive", true), ("long-link-gone", false)] {
+            var results: [String: Duration] = [:]
+            var reattached: [String: Int] = [:]
+            for (mode, keeps) in [("before", false), ("after", true)] {
+                let leave: Duration = .seconds(5)
+                let resume = leave + .seconds(8)
+                let world = World(dial: { _ in (true, dialTime, "") }, linkCarries: { t in carries || t < leave })
+                var timeline = Timeline()
+                timeline.machine.keepsStandby = keeps
+                timeline.run(world: world, external: [
+                    (.zero, .target(studio)),
+                    (leave, .background),
+                    (resume, .resume),
+                ], until: resume + .seconds(60))
+                let flowing = timeline.connected(after: resume + .milliseconds(1)).map { $0 - resume }
+                results[mode] = flowing ?? .seconds(3600)
+                reattached[mode] = timeline.newLinks
+                report("app_short_background", "\(variant)-\(mode)", [
+                    "flowing_after_resume_ms": (flowing?.seconds ?? -1) * 1000,
+                    "channels_reattached": timeline.newLinks, "resumed_from_standby": timeline.resumed,
+                ])
+            }
+            #expect(results["after"]! <= results["before"]!, "\(variant): a kept link never slows the resume")
+            if carries {
+                #expect(results["after"]! <= .milliseconds(60), "\(variant): \(results["after"]!)")
+                #expect(reattached["after"] == 0)
+            } else {
+                #expect(results["after"]! == dialTime)
+            }
+        }
+    }
+
     /// Killed and relaunched: a fresh machine dials at once with no retry
     /// delay, and says "Reconnecting…" (never "Offline") until it is up.
     @Test func cellAppKilledAndRelaunched() {
@@ -431,7 +473,15 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                 for (blackout, keepalive) in [(8, 20), (30, 20), (30, 45), (60, 45)] {
                     let back = lost + .seconds(blackout)
                     var reattached: [String: Int] = [:]
-                    for (variant, keeps) in [("before", false), ("after", true)] {
+                    // "before": no standby; "fixed-1s": the standby with a 1 s
+                    // probe timeout (#49327); "after": the Rust link's
+                    // RTT-scaled timeout, max(1 s, min(3 x RTT, 5 s)).
+                    let scaled = max(LinkController.standbyProbeTimeout, min(rtt * 3, .seconds(5)))
+                    for (variant, keeps, probeTimeout) in [
+                        ("before", false, LinkController.standbyProbeTimeout),
+                        ("fixed-1s", true, LinkController.standbyProbeTimeout),
+                        ("after", true, scaled),
+                    ] {
                         let draws = Draws(seed: 0x4932_7000 &+ UInt64(blackout))
                         let jitter = { () -> Duration in
                             profile.jitterMs == 0 ? .zero : .milliseconds(Int(draws.random.next() % UInt64(profile.jitterMs + 1)))
@@ -449,7 +499,8 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                                 if streaming { return rtt / 2 + jitter() + frame }
                                 let answered = rtt + jitter()
                                 return draws.random.chance(1 - (1 - loss) * (1 - loss)) ? nil : answered
-                            }
+                            },
+                            standbyProbeTimeout: probeTimeout
                         )
                         var timeline = Timeline()
                         timeline.machine.keepsStandby = keeps
@@ -470,10 +521,10 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                         ])
                         #expect(resumed != nil, "\(profile.name) \(blackout)s \(variant): never connected again")
                     }
-                    // A probe answered within its 1 s timeout resumes the kept
-                    // link. Idle on lossy-10 (1 s round trip) no probe can be:
-                    // reported, not expected.
-                    let probeFits = streaming || rtt + .milliseconds(profile.jitterMs) < LinkController.standbyProbeTimeout
+                    // A probe answered within its timeout resumes the kept link.
+                    // The RTT-scaled timeout fits every profile, lossy-10's 1 s
+                    // round trip included (with a fixed 1 s none could).
+                    let probeFits = streaming || rtt + .milliseconds(profile.jitterMs) < scaled
                     if blackout < keepalive && probeFits {
                         #expect(reattached["after"] == 0, "\(profile.name) \(blackout)s: re-attached channels")
                     }
