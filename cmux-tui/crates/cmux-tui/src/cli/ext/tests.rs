@@ -1119,7 +1119,7 @@ fn a_record_that_cannot_be_written_fails_the_shot() {
     assert_eq!(json["exitCode"], exit::RECORD_FAILED);
     assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
     // Nothing drawn to record is a failed record too, not a quiet success.
-    let mut nothing = outcome.clone();
+    let mut nothing = outcome;
     nothing.recorded.clear();
     let recorded = shot::record(&dir, &nothing);
     assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
