@@ -58,6 +58,11 @@ await requireBrowserLane("chat-snapshot-handover-no-cap.test.ts", async () => {
         link.onerror = () => failed(new Error("the page's stand-in sheet did not load"));
         document.head.appendChild(link);
       });
+      // The app's page holds these rules in its linked sheet only, not as `<style>` elements too:
+      // left in, the writer would count them twice as page sheets and go past its size cap.
+      for (const style of Array.from(document.querySelectorAll("style"))) {
+        if (!style.closest("#root") && style.id !== "cmux-theme") style.remove();
+      }
       // The pane's dev server serves src/agent-session/acpmux at its root.
       const at = (file: string) => `/chatSnapshot/${file}`;
       const capture = await import(/* @vite-ignore */ at("capture.ts"));
