@@ -59,12 +59,14 @@ fn options() -> DialOptions {
 /// `browser_url`: the page the Mac's one browser tab shows (`list-workspaces`).
 fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mutex<Vec<serde_json::Value>>> {
     let listener = tokio::net::UnixListener::bind(dir.join("main.sock")).unwrap();
+    let dir = dir.to_path_buf();
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = Arc::clone(&seen);
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let recorded = Arc::clone(&recorded);
             let browser_url = browser_url.clone();
+            let dir = dir.clone();
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = BufReader::new(read).lines();
@@ -93,6 +95,10 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mut
                     }
                     let mut data =
                         serde_json::json!({"cmd": request["cmd"], "host": request["agent_session"]["host"]});
+                    // A daemon that hangs on its tab list (`stall-list` in the socket folder).
+                    if request["cmd"] == "list-workspaces" && dir.join("stall-list").exists() {
+                        continue;
+                    }
                     if request["cmd"] == "list-workspaces" {
                         data["workspaces"] = serde_json::json!([{"screens": [{"panes": [{"tabs": [
                             {"surface": 9, "kind": "browser", "url": browser_url},
@@ -1018,6 +1024,26 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     assert!(path.starts_with(&fixture.uploads), "{path:?}");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
+}
+
+/// A daemon that never answers its tab list cannot hold an upload unopened: past
+/// hostd's 5 s bound it answers `unavailable`, on which the phone uses the uploads folder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_upload_to_a_tab_folder_is_bounded_when_the_daemon_stalls() {
+    let fixture = fixture(FakeOptions::default()).await;
+    std::fs::write(fixture.services.tui_socket_dir.join("stall-list"), "").unwrap();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let started = std::time::Instant::now();
+    let mut upload = connected
+        .link
+        .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
+        .await
+        .unwrap();
+    let (_, code) = tokio::time::timeout(std::time::Duration::from_secs(20), drain(&mut upload))
+        .await
+        .expect("the upload waited on the daemon past its bound");
+    assert_eq!(code, "unavailable");
+    assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
 }
 
 fn sha256(bytes: &[u8]) -> Vec<u8> {

@@ -903,9 +903,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
   within the part but beyond the declared size closes `bad_request`.
   Data is acknowledged with `{"ack":bytes}\n` after each MiB and when the
-  stream stops. An overlapping attempt that still finds the part busy after
+  stream stops. An ack is durable: the host syncs the partial file to disk
+  before it sends one, so a Mac crash never loses acknowledged bytes. An overlapping attempt that still finds the part busy after
   two seconds closes `busy`. Once `size` bytes are present, the host flushes
-  and syncs the partial file, publishes it under the safe name, and answers
+  and syncs the last unsynced bytes (at most one MiB), publishes it under the safe name, and answers
   `{"path","size"}\n` before closing `eof`. A link close or a 120-second
   period without data keeps the partial file. The latter answers its last ack
   and closes `stalled`. Receiving more than `size` bytes deletes the partial

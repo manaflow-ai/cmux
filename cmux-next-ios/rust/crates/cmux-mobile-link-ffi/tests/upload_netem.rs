@@ -67,18 +67,32 @@ async fn netem_host_child() {
         pairing: None,
     };
     let mac = SignalingClient::connect(&url, "user:alice", "team", &mac_id).await.unwrap();
-    tokio::spawn(serve_signaling(
-        mac,
-        AnswerContext {
-            owner_user_id: "alice".into(),
-            services: Arc::new(services),
-            ice: IceSource::Fixed(Vec::new()),
-            include_loopback: true,
-            exclude_cgnat: false,
-            mailbox: None,
-            session_exposure: None,
-        },
-    ));
+    let services = Arc::new(services);
+    let context = move || AnswerContext {
+        owner_user_id: "alice".into(),
+        services: Arc::clone(&services),
+        ice: IceSource::Fixed(Vec::new()),
+        include_loopback: true,
+        exclude_cgnat: false,
+        mailbox: None,
+        session_exposure: None,
+    };
+    // As the real hostd (`host.rs`): when signaling drops (a long blackout), connect again,
+    // move live WireGuard sessions onto the new socket, and serve on.
+    tokio::spawn(async move {
+        let mut mac = mac;
+        loop {
+            let reason = serve_signaling(mac, context()).await;
+            eprintln!("host: signaling closed ({reason}); reconnecting");
+            mac = loop {
+                match SignalingClient::connect(&url, "user:alice", "team", &mac_id).await {
+                    Ok(mac) => break mac,
+                    Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
+                }
+            };
+            cmux_mobile_link::dial::wireguard::rehome(&mac);
+        }
+    });
     println!("{READY}");
     let _ = std::io::stdout().flush();
     // The phone half holds our stdin; its exit (or kill) closes it.
@@ -154,7 +168,11 @@ struct UploadJob {
     root: PathBuf,
     started: Instant,
     progress: Arc<Progress>,
+    /// Dials the Mac again, as `MacSession` does when the served link dies.
+    relink: Relink,
 }
+
+type Relink = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Option<Arc<LinkHandle>>> + Send>> + Send + Sync>;
 
 /// The engine's verdict: `Ok` when the Mac stored `size` bytes, else a failure code.
 type UploadFuture = Pin<Box<dyn Future<Output = Result<(), String>>>>;
@@ -175,7 +193,7 @@ fn ms(since: Instant) -> u64 {
 /// `LinkUpload.swift` as `tests/upload.rs` ports it: one `upload` channel, `CHUNK` writes read from
 /// disk, a failed send means the Mac answered early, then wait for the reply.
 async fn upload_current(job: UploadJob) -> Result<(), String> {
-    let UploadJob { handle, source, size, root, started, progress } = job;
+    let UploadJob { handle, source, size, root, started, progress, relink: _ } = job;
     let args =
         serde_json::json!({"name": "big.bin", "size": size.to_string(), "cwd": root.to_str().unwrap()});
     let channel = handle
@@ -219,27 +237,69 @@ async fn upload_current(job: UploadJob) -> Result<(), String> {
 struct BenchObserver {
     started: Instant,
     progress: Arc<Progress>,
+    last: std::sync::Mutex<(Option<UploadStage>, u32)>,
 }
 
 impl UploadObserver for BenchObserver {
     fn on_progress(&self, update: UploadProgress) {
         let p = &self.progress;
+        {
+            let mut last = self.last.lock().unwrap();
+            if *last != (Some(update.stage), update.attempt) {
+                *last = (Some(update.stage), update.attempt);
+                eprintln!(
+                    "stage {:?} attempt {} acked {} at {} ms {}",
+                    update.stage,
+                    update.attempt,
+                    update.acked_bytes,
+                    ms(self.started),
+                    update.error_code.clone().unwrap_or_default()
+                );
+            }
+        }
         if update.stage == UploadStage::Uploading && p.open_ms.load(Ordering::Relaxed) == 0 {
             p.open_ms.store(ms(self.started), Ordering::Relaxed);
         }
         if update.stage != UploadStage::Compressing {
             p.acked.fetch_max(update.acked_bytes, Ordering::Relaxed);
         }
-        if update.total_bytes > 0 && update.sent_bytes >= update.total_bytes && p.last_byte_ms.load(Ordering::Relaxed) == 0 {
+        if update.total_bytes > 0
+            && update.sent_bytes >= update.total_bytes
+            && p.last_byte_ms.load(Ordering::Relaxed) == 0
+        {
             p.last_byte_ms.store(ms(self.started), Ordering::Relaxed);
         }
     }
 }
 
 async fn upload_new(job: UploadJob) -> Result<(), String> {
-    let UploadJob { handle, source, size, root, started, progress } = job;
-    let uploads = AttachmentUploads::new(Arc::new(BenchObserver { started, progress: progress.clone() }));
-    uploads.set_link("bench".into(), Some(handle));
+    let UploadJob { handle, source, size, root, started, progress, relink } = job;
+    let uploads = AttachmentUploads::new(Arc::new(BenchObserver {
+        started,
+        progress: progress.clone(),
+        last: Default::default(),
+    }));
+    uploads.set_link("bench".into(), Some(Arc::clone(&handle)));
+    // MacSession's part: when the served link dies, dial again and hand the engine the new one.
+    let relinker = {
+        let uploads = Arc::clone(&uploads);
+        tokio::spawn(async move {
+            let mut current = handle;
+            loop {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                if !current.is_closed() {
+                    continue;
+                }
+                eprintln!("relink: link closed, dialing again");
+                let next = relink().await;
+                eprintln!("relink: {}", if next.is_some() { "linked" } else { "dial failed" });
+                if let Some(next) = next {
+                    uploads.set_link("bench".into(), Some(Arc::clone(&next)));
+                    current = next;
+                }
+            }
+        })
+    };
     let spec = UploadSpec {
         upload_id: None,
         mac_id: "bench".into(),
@@ -248,6 +308,7 @@ async fn upload_new(job: UploadJob) -> Result<(), String> {
     };
     let id = uploads.start(spec, source.to_str().unwrap().into());
     let result = uploads.wait(id.clone()).await;
+    relinker.abort();
     progress.reply_ms.store(ms(started), Ordering::Relaxed);
     if progress.last_byte_ms.load(Ordering::Relaxed) == 0 {
         progress.last_byte_ms.store(ms(started), Ordering::Relaxed);
@@ -260,6 +321,26 @@ async fn upload_new(job: UploadJob) -> Result<(), String> {
             Err(error) => Err(format!("missing {path}: {error}")),
         },
         Err(error) => Err(format!("{error} (attempts {attempts})")),
+    }
+}
+
+/// The phone's dial, as the app makes it (a fresh device id each time, like a reinstall: hostd
+/// must find the part by upload id alone).
+fn request(base_url: &str, mac_id: &str, transport: Transport) -> ConnectRequest {
+    ConnectRequest {
+        base_url: base_url.to_owned(),
+        token: "user:alice".into(),
+        team_id: "team".into(),
+        device_id: uuid::Uuid::new_v4().to_string(),
+        mac_device_id: mac_id.to_owned(),
+        transport,
+        // The veth address is the path under test; loopback only misleads (the phone's own).
+        include_loopback: false,
+        relay_only: false,
+        block_udp: false,
+        video_lane: false,
+        webrtc_media: false,
+        ultra: cmux_mobile_link::UltraSetting::Off,
     }
 }
 
@@ -358,24 +439,7 @@ async fn upload_netem_cell() {
     let connect_started = Instant::now();
     let connected = tokio::time::timeout(
         Duration::from_secs(120),
-        connect_inner(
-            ConnectRequest {
-                base_url: local_url,
-                token: "user:alice".into(),
-                team_id: "team".into(),
-                device_id: uuid::Uuid::new_v4().to_string(),
-                mac_device_id: mac_id,
-                transport,
-                // The veth address is the path under test; loopback only misleads (the phone's own).
-                include_loopback: false,
-                relay_only: false,
-                block_udp: false,
-                video_lane: false,
-                webrtc_media: false,
-                ultra: cmux_mobile_link::UltraSetting::Off,
-            },
-            None,
-        ),
+        connect_inner(request(&local_url, &mac_id, transport), None),
     )
     .await;
     let connect_ms = ms(connect_started);
@@ -437,6 +501,16 @@ async fn upload_netem_cell() {
                 root: root.clone(),
                 started: Instant::now(),
                 progress: Arc::clone(&progress),
+                relink: {
+                    let (url, mac) = (local_url.clone(), mac_id.clone());
+                    Arc::new(move || {
+                        let (url, mac) = (url.clone(), mac.clone());
+                        Box::pin(async move {
+                            let dial = connect_inner(request(&url, &mac, transport), None);
+                            tokio::time::timeout(Duration::from_secs(30), dial).await.ok()?.ok()
+                        })
+                    })
+                },
             };
             match tokio::time::timeout(cap, engine(&engine_name)(job)).await {
                 Ok(Ok(())) => (finished, code) = (true, "ok".into()),
@@ -479,6 +553,9 @@ async fn upload_netem_cell() {
     drop(child.stdin.take());
     let _ = child.wait();
     drop(server);
+    // `exit` skips destructors: remove the workdir (the source and the Mac's copy) first, or
+    // every run leaves its file behind in the temp dir.
+    drop(workdir);
     // A capped run leaves tasks mid-send; leave without waiting for them.
     std::process::exit(0);
 }

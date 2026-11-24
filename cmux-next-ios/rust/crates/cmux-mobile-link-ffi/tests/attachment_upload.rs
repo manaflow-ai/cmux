@@ -17,8 +17,8 @@ use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link_ffi::{
-    AttachmentUploads, ConnectRequest, LinkHandle, Timings, Transport, UploadObserver, UploadProgress,
-    UploadSpec, UploadStage, VideoPlan, connect_inner, video_plan,
+    AttachmentUploads, CmuxMobileError, ConnectRequest, LinkHandle, Timings, Transport, UploadObserver,
+    UploadProgress, UploadSpec, UploadStage, VideoPlan, connect_inner, video_plan,
 };
 use sha2::{Digest, Sha256};
 
@@ -282,6 +282,27 @@ async fn with_no_link_it_waits_for_the_mac_then_finishes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_tab_folder_the_mac_cannot_check_falls_back_to_the_uploads_folder() {
+    // The cwd is outside the roots, so hostd asks its daemon, which is not running here:
+    // `unavailable`. Retrying the same cwd would never finish; the uploads folder needs no daemon.
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("tab.bin");
+    patterned_file(&source, MIB + 3);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let mut outside = spec(&rig, "tab.bin");
+    outside.cwd = Some(phone.path().to_str().unwrap().into());
+    let id = uploads.start(outside, source.to_str().unwrap().into());
+    let path = tokio::time::timeout(Duration::from_secs(20), uploads.wait(id))
+        .await
+        .expect("bounded: it fell back instead of retrying the tab folder")
+        .expect("uploaded");
+    assert!(!path.starts_with(phone.path().to_str().unwrap()), "{path}");
+    assert_eq!(sha256(Path::new(&path)), sha256(&source));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_missing_file_fails_unreadable_and_a_given_id_is_kept() {
     let rig = upload_rig(Transport::WireGuard).await;
     let (uploads, _recorder) = engine(Timings::default());
@@ -292,6 +313,30 @@ async fn a_missing_file_fails_unreadable_and_a_given_id_is_kept() {
     assert!(uploads.wait(id.clone()).await.is_err());
     let progress = uploads.progress(id).unwrap();
     assert_eq!((progress.stage, progress.error_code.as_deref()), (UploadStage::Failed, Some("unreadable")));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wait_that_starts_after_the_upload_ended_still_gets_its_result() {
+    // The result used to be stored with watch `send`, which keeps nothing when no waiter is
+    // subscribed yet: a `wait` after a cancel (or a fast failure) then hung forever.
+    let rig = upload_rig(Transport::WireGuard).await;
+    let (uploads, _recorder) = engine(Timings::default());
+    let failed = uploads.start(spec(&rig, "nope.bin"), "/definitely/not/here".into());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !uploads.progress(failed.clone()).unwrap().stage.eq(&UploadStage::Failed) {
+        assert!(Instant::now() < deadline, "the missing file never failed");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let late = tokio::time::timeout(Duration::from_secs(1), uploads.wait(failed)).await;
+    assert!(matches!(late, Ok(Err(_))), "{late:?}");
+
+    let cancelled = uploads.start(spec(&rig, "nope.bin"), "/definitely/not/here/either".into());
+    uploads.cancel(cancelled.clone());
+    let late = tokio::time::timeout(Duration::from_secs(1), uploads.wait(cancelled)).await;
+    assert!(
+        matches!(&late, Ok(Err(CmuxMobileError::Refused { code, .. })) if code == "cancelled" || code == "unreadable"),
+        "{late:?}"
+    );
 }
 
 fn plan(width: u32, height: u32, seconds: u64, bytes: u64) -> VideoPlan {

@@ -224,9 +224,11 @@ impl Upload {
             }
             st.progress.clone()
         };
-        let _ = self
-            .result
-            .send(Some(outcome.map_err(|(code, message)| CmuxMobileError::Refused { code, message })));
+        // send_replace, not send: `send` drops the value when no waiter is subscribed yet (the
+        // channel keeps no receiver), and a `wait` that came after would then hang forever.
+        self.result.send_replace(Some(
+            outcome.map_err(|(code, message)| CmuxMobileError::Refused { code, message }),
+        ));
         self.observer.on_progress(snapshot);
         true
     }
@@ -474,12 +476,16 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
     let mut links = core.link_channel(&upload.mac_id).subscribe();
     let mut backoff = timings.backoff_start;
     loop {
-        let current = links.borrow_and_update().clone();
+        // A link the keepalive declared dead is no link: wait for the app's next one with the
+        // give-up clock held, as for a phone offline, instead of burning attempts on it.
+        let current = links.borrow_and_update().clone().filter(|link| !link.is_closed());
         let link = match current {
             Some(link) => link,
             None => {
                 upload.stage(UploadStage::WaitingForMac);
-                let Ok(link) = links.wait_for(|link| link.is_some()).await.map(|l| l.clone()) else { return };
+                let live =
+                    |link: &Option<Arc<LinkHandle>>| link.as_ref().is_some_and(|link| !link.is_closed());
+                let Ok(link) = links.wait_for(live).await.map(|l| l.clone()) else { return };
                 let Some(link) = link else { continue };
                 lock(&upload.state).last_advance = Instant::now();
                 link
@@ -519,7 +525,8 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
             let st = lock(&upload.state);
             (st.epoch != epoch, st.last_advance.elapsed())
         };
-        if idle >= timings.give_up {
+        let offline = links.borrow().as_ref().is_none_or(|link| link.is_closed());
+        if idle >= timings.give_up && !offline {
             return upload
                 .fail("stalled", "The upload stopped making progress, so it gave up. Try sending it again.");
         }
@@ -624,7 +631,9 @@ fn handle(upload: &Upload, event: Event, attempt: &mut Attempt) -> Option<Outcom
         }
         Event::Final(path) => Some(Outcome::Done(path)),
         Event::Refused { code, message } => match code.as_str() {
-            "forbidden" | "not_found" if attempt.sent_cwd => {
+            // `unavailable` with a cwd is the Mac's daemon not answering for the tab folder
+            // (hostd bounds it at 5 s); the uploads folder needs no daemon.
+            "forbidden" | "not_found" | "unavailable" if attempt.sent_cwd => {
                 lock(&upload.state).no_cwd = true;
                 Some(Outcome::RetryNow)
             }

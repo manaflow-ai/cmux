@@ -2110,6 +2110,8 @@ async fn upload_folder(
         return Err(Refusal::new("bad_request", "cwd is not a folder"));
     }
     let in_roots = confine(&config.file_roots, &canonical).is_ok();
+    // The daemon is asked only for a folder outside the roots (`daemon_query` bounds it at
+    // 5 s, `unavailable`, on which the phone falls back to the uploads folder).
     if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
         return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
     }
