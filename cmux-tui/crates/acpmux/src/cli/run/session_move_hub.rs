@@ -88,7 +88,17 @@ fn folder_value(folder: &Folder, home: &Path, named: bool) -> Result<Value> {
         Folder::Worktree { repo, url, branch, subdir, .. } => {
             json!({"repo": repo, "url": url, "branch": branch, "subdir": subdir})
         }
+        Folder::Bundle { top, .. } => bail!("{}", no_origin_over_the_hub(top)),
     })
+}
+
+/// Why a checkout with no `origin` does not move over the hub: the target makes the folder
+/// itself from a remote, and the git bundle that carries such a checkout goes over ssh only.
+fn no_origin_over_the_hub(top: &str) -> String {
+    format!(
+        "{top} has no origin, and a checkout with no remote does not move through the team hub \
+         yet: add a remote and push, or pass --cwd to a folder the target already has"
+    )
 }
 
 async fn steps(
@@ -133,12 +143,17 @@ async fn steps(
         args.cwd.as_deref(),
     )
     .map_err(|e| anyhow!(e))?;
+    // Refused before anything is frozen, and in a dry run too.
+    if let Folder::Bundle { top, .. } = &planned {
+        bail!("{}", no_origin_over_the_hub(top));
+    }
     if args.dry_run {
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, .. } => {
                 format!("a worktree of {repo} {branch}{}", sub_text(subdir))
             }
+            Folder::Bundle { top, .. } => top.clone(),
         });
         return Ok(());
     }

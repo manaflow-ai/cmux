@@ -230,3 +230,56 @@ fn facts_read_from_partial_json_and_the_route_prints_its_step() {
     let v = serde_json::to_value(route(&f)).unwrap();
     assert_eq!(v, serde_json::json!({"step": "restart", "number": 1}));
 }
+
+#[test]
+fn a_dead_host_or_gone_row_with_a_kept_copy_moves_from_the_copy_before_briefs() {
+    // past the grace, with a copy: the move from it comes before a successor
+    let mut f = dead();
+    f.host_down = true;
+    f.dead_seconds = 4000.0;
+    f.snapshot_records = 120;
+    f.hosts.answering = s(&["b", "c"]);
+    assert_eq!(route(&f), Route::MoveFromCopy { to: "b".into() });
+    // within the grace its host is started first
+    f.dead_seconds = 10.0;
+    f.host_startable = true;
+    assert_eq!(route(&f), Route::StartHost);
+    // its row gone on a live host: moved from the copy, not started again from its briefs
+    let mut f = dead();
+    f.has_row = false;
+    f.snapshot_records = 5;
+    assert_eq!(route(&f), Route::MoveFromCopy { to: "b".into() });
+    // a failed copy move goes on to the fresh start, as before
+    f.tried.snapshot_failed = "no row kept".into();
+    assert_eq!(route(&f), Route::Respawn { to: "b".into(), network: false });
+    // a placement cap waits without spending the try
+    let mut f = dead();
+    f.has_row = false;
+    f.snapshot_records = 5;
+    f.placement_cap = "10 placed this pass".into();
+    assert_eq!(route(&f), Route::Wait { why: "10 placed this pass".into() });
+    // no copy, or no host admits one: unchanged
+    let mut f = dead();
+    f.host_down = true;
+    f.dead_seconds = 4000.0;
+    assert_eq!(route(&f), Route::Successor { to: String::new(), number: 1 });
+    f.snapshot_records = 9;
+    f.hosts.admitted.clear();
+    assert!(!matches!(route(&f), Route::MoveFromCopy { .. }));
+    // a live, moved or held session never moves from the copy
+    let mut f = dead();
+    f.has_row = false;
+    f.snapshot_records = 9;
+    f.alive = true;
+    assert_eq!(route(&f), Route::Resume);
+}
+
+#[test]
+fn a_move_from_the_copy_prints_its_step() {
+    let v = serde_json::to_value(Route::MoveFromCopy { to: "b".into() }).unwrap();
+    assert_eq!(v, serde_json::json!({"step": "move_from_copy", "to": "b"}));
+    let f: Facts =
+        serde_json::from_str(r#"{"snapshot_records": 3, "tried": {"snapshot_failed": "x"}}"#)
+            .unwrap();
+    assert_eq!((f.snapshot_records, f.tried.snapshot_failed.as_str()), (3, "x"));
+}
