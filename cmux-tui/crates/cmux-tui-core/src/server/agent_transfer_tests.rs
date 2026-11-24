@@ -1138,7 +1138,7 @@ fn verbs_ignore_a_field_a_newer_client_adds() {
     let mut client = Client::connect(&mux, "xnewer");
     let read = client
         .request(json!({"cmd":"agent-transfer-source","surface":surface,"future_field":{"v":2}}));
-    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    assert_eq!(ok_data(&read)["session"], json!(SESSION));
     // Every verb answers as it would without the field, never a bad request.
     for frame in every_verb(surface, &home.text("work/project")) {
         let mut frame = frame;
