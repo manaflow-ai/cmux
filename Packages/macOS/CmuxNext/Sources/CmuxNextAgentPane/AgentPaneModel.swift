@@ -634,7 +634,7 @@ public final class AgentPaneModel {
                 AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
             }
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled, let copy):
+        case .painted(let fromKeptTail, let settled, let copy, let live):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             // The page's own app drew the chat (not the inert saved copy): what the relaunch bench times as
             // the chat drawn live (scripts/ci/relaunch_restore_check.py `page_painted_ms`, goal restart-to-chat).
@@ -650,8 +650,10 @@ public final class AgentPaneModel {
             markPainted()
             let reloadWaiters = reloadPaintWaiters
             for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
-            // acpmux's settled view is on screen: a remote chat's `agent.chat.live_paint`, once per chat.
-            if settled, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
+            // The chat on screen is the live one: acpmux's settled view, or the page's attach to the chat
+            // answered (`live`, a chat's first open, which has no settled view yet). A remote chat's
+            // `agent.chat.live_paint`, once per chat.
+            if settled || live, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
         case .runAttach(let request): return await request.attach(in: self)
