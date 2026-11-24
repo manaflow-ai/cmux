@@ -90,6 +90,31 @@ class ReadTest(unittest.TestCase):
         self.assertIn("b" * 40, why)
         self.assertEqual(len(urls), 1)
 
+    def test_the_app_debug_phase_reads_only_the_debug_record(self):
+        def phase_run(body):
+            clock, urls = Clock(), []
+
+            def fetch(url, timeout):
+                urls.append(url)
+                clock.t += 5
+                return 200, body
+
+            word, _ = f.read(SHA, REPO, "12", 600, 300, fetch=fetch, now=clock.now, sleep=clock.sleep,
+                             phase="app-debug")
+            return word, urls
+
+        word, urls = phase_run(rec("pass", configuration="debug"))
+        self.assertEqual(word, "pass")
+        self.assertIn("phase=app-debug", urls[0])
+        self.assertIn("pr=12", urls[0])
+        self.assertEqual(phase_run(rec("fail", configuration="debug"))[0], "fail")
+        # The land Release's record never answers the Debug phase, nor the other way round.
+        self.assertEqual(phase_run(rec("pass"))[0], "none")
+        self.assertNotIn("phase=", run([(200, rec("pass"))])[2][0])
+        self.assertEqual(f.main(["--sha", SHA, "--repo", REPO, "--phase", "app-debug", "--wait", "0"]), 0)
+        with self.assertRaises(SystemExit):
+            f.main(["--sha", SHA, "--repo", REPO, "--phase", "release"])
+
     def test_the_workflow_skips_only_a_push_whose_head_moved(self):
         w = (Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml").read_text()
         i = w.index('if [[ "$word" == superseded && -z "${PR:-}" ]]; then')
