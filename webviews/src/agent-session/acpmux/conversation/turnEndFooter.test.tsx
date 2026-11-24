@@ -140,7 +140,9 @@ test("reply-less turns joined under one Worked for end on one row under it", () 
   const wake = (n: number, at: number): AcpmuxRow[] => [
     { id: `wake-${n}`, version: 1, at, kind: "user", text: "", incoming: { kind: "hidden" } } as AcpmuxRow,
     ran(`run-${n}`, at + 500),
-    summary(`sum-${n}`, at + 3_000),
+    // Six seconds each: a turn folds under "Worked for" only with three work rows or five seconds
+    // (workedForSmallTurns.test.tsx), and these wakes are about turns that do.
+    summary(`sum-${n}`, at + 6_000, { durationMs: 6_000 }),
   ];
   const rows = [
     ask("a", 1_000),

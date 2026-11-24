@@ -28,10 +28,16 @@ const line = (id: string, background: Partial<NonNullable<AcpmuxRow["background"
   row(backgroundTurnRowId(id), BACKGROUND_TURN, {
     background: { id, trigger: "system", running: false, hasRows: true, ...background },
   });
+// Three calls: a turn folds under "Worked for" only with three work rows or five seconds
+// (workedForSmallTurns.test.tsx), and these are about turns that do.
 const call = (id: string, inBackground: string) =>
   row(id, "activity", {
     inBackground,
-    items: [{ kind: "tool", text: "Ran check", tool: { id, title: "check", kind: "execute", status: "completed" } }],
+    items: [id, `${id}-2`, `${id}-3`].map((call) => ({
+      kind: "tool",
+      text: "Ran check",
+      tool: { id: call, title: "check", kind: "execute", status: "completed" },
+    })),
   });
 
 const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) => {
