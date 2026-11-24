@@ -785,6 +785,21 @@ def dump_smaps(run, count, day):
                 dst.write(src.read())
         except OSError as exc:
             log(f"smaps {role}: {exc}")
+    trim = os.environ.get("INF_TRIM_FILE")
+    if trim:
+        pid = run.top["tui"]
+        before = smaps_kinds(pid)
+        open(f"{trim}.{pid}", "w").close()
+        deadline = time.monotonic() + 30
+        while not os.path.exists(f"{trim}.{pid}.done") and time.monotonic() < deadline:
+            time.sleep(0.1)  # sleep-ok: experiment, the preloaded trim thread's poll
+        try:
+            os.unlink(f"{trim}.{pid}.done")
+        except OSError:
+            pass
+        after = smaps_kinds(pid)
+        print(f"INFINITE-TRIM {count} day={day} before_mb={sum(before.values()) / 1024:.1f} "
+              f"after_mb={sum(after.values()) / 1024:.1f} before={json.dumps(before)} after={json.dumps(after)}", flush=True)
 
 
 def run_count(args, count):
