@@ -56,6 +56,7 @@ export type WakeCycle = {
   guest: GuestMarks | null;
   state_json: boolean;
   state_wake: unknown;
+  start_retries?: string[];
 };
 
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
@@ -77,7 +78,7 @@ export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   const e = c.error;
   if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
   if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
-  if (/no probe result|clock offset/.test(e)) return "guest unreachable after wake";
+  if (/no probe result|clock offset|^exec: |vm_unavailable/.test(e)) return "guest unreachable";
   if (/guest probe: net|no TCP connect/.test(e)) return "guest network";
   if (/guest probe/.test(e)) return "guest probe";
   if (/cloud\.machine\.start|cloud\.machine\.pause/.test(e)) return "platform op";
@@ -144,8 +145,8 @@ export type WakeEchoDeps = {
   netPort: number;
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
   pause: () => Promise<number>;
-  /** cloud.machine.start, answered. */
-  wake: () => Promise<void>;
+  /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
+  wake: () => Promise<void | string[]>;
   status: () => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
@@ -178,6 +179,59 @@ export async function setupProbe(d: Pick<WakeEchoDeps, "exec" | "guest" | "netHo
 const ENSURE_PROBE = `if ! [ -s ${WAKE_DIR}/pid ] || ! kill -0 "$(cat ${WAKE_DIR}/pid)" 2>/dev/null; then nohup setsid python3 ${WAKE_DIR}/probe.py run ${WAKE_DIR} >> ${WAKE_DIR}/probe.log 2>&1 < /dev/null & echo $! > ${WAKE_DIR}/pid; echo @@started; sleep 1; fi; echo "@@probe $(cat ${WAKE_DIR}/pid)"`;
 
 const STEADY = new Set(["running", "paused"]);
+
+export type StartAnswer = { status: number; body: any };
+
+/**
+ * cloud.machine.start until it lands, by a deadline. Run 45481652567 lost 5 of 50 cycles to two refusals that are
+ * the platform's to settle, not the guest's: `mutation.indeterminate` (retryable; "retry with the same key": the same
+ * key is sent again) and `not_paused` while the machine reads `pausing` right after cloud.machine.get read `paused`
+ * (operation_in_flight: wait for it to settle, then a new key). Each retry is a note in the cycle's warnings, and
+ * the cycle's wake_at stays the first call's, so the wait counts in restore.
+ */
+export async function startWithRetry(
+  call: (key: string) => Promise<StartAnswer>,
+  newKey: () => string,
+  status: () => Promise<string>,
+  deadlineMs: number,
+  sleep: (ms: number) => Promise<void>,
+  now: () => number = Date.now,
+): Promise<string[]> {
+  const notes: string[] = [];
+  const t0 = now();
+  let key = newKey();
+  for (;;) {
+    const r = await call(key);
+    if (r.status === 200 && r.body?.ok === true) return notes;
+    const err = r.body?.error ?? r.body;
+    const what = `cloud.machine.start: HTTP ${r.status} ${short(typeof err === "string" ? err : JSON.stringify(err))}`;
+    const code = String(err?.code ?? "");
+    const pausing = code === "cloud.machine.not_paused" && err?.details?.state === "pausing";
+    const retryable = r.status >= 500 || err?.retryable === true || pausing;
+    if (!retryable || now() - t0 >= deadlineMs) throw new Error(notes.length ? `${what} (after ${notes.length} retries: ${notes.join("; ")})` : what);
+    notes.push(`${code || `HTTP ${r.status}`} at ${now() - t0} ms`);
+    if (pausing) {
+      const st = await settle(status, Math.max(1_000, deadlineMs - (now() - t0)), sleep, now);
+      if (st === "running") return notes;
+      key = newKey();
+    } else {
+      await sleep(1_000);
+    }
+  }
+}
+
+/** Runs an exec until it answers (the guest can be unreachable for a moment after the machine reads running). */
+async function execAnswered(d: WakeEchoDeps, command: string, deadlineMs: number, sleep: (ms: number) => Promise<void>) {
+  const end = Date.now() + deadlineMs;
+  for (;;) {
+    try {
+      return await d.exec(command, 60_000);
+    } catch (e) {
+      if (Date.now() >= end) throw e;
+      await sleep(1_000);
+    }
+  }
+}
 
 /** Polls the machine's status until it reads running or paused (out of pausing, starting, ...), by a deadline. */
 export async function settle(status: () => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
@@ -212,14 +266,15 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
     try {
       // A machine still pausing (or starting) from the last cycle settles first; one that settled paused is woken.
       await ensureRunning(d, sleep);
-      const arm = await d.exec(`${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}"}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 60_000);
+      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}"}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
       c.paused_ms = await d.pause();
       await sleep(d.holdMs);
       const wakeAt = Date.now();
-      await d.wake();
+      const retries = await d.wake();
       c.answered_ms = Date.now() - wakeAt;
+      if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
       const end = wakeAt + 150_000;
       let out = "";

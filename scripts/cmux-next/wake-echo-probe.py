@@ -10,7 +10,9 @@
       on its own clock by an offset it measures).
 
 The sequence, from the first tick after the gap (resumed_wall):
-  net:    a thread loops a TCP connect (1 s timeout) to NETADDR:NETPORT until one succeeds -> net_up_at. NETADDR is
+  net:    a new TCP connect (1 s timeout each) to NETADDR:NETPORT every 50 ms, side by side, until one succeeds ->
+          net_up_at (one connect at a time read +1.0 s whenever the first SYN went out before the network was back
+          and waited out its own timeout: run 45481652567, net_up 1.03 s on most cycles). NETADDR is
           NETHOST resolved once at setup: a name resolved after the wake waited out the resolver's 5 s timeout on
           a query sent before the network was back (run 45475656502: net_up +5.0 s on every cycle). The resolve is
           timed apart in its own thread -> dns_at (a mark, not a phase).
@@ -135,17 +137,30 @@ def sequence(cfg, marker, deadline_s=60.0):
 
     threading.Thread(target=dns, daemon=True).start()
 
+    up = threading.Event()
+    lock = threading.Lock()
+
+    def attempt():
+        try:
+            s = socket.create_connection((cfg.get("netaddr") or cfg["nethost"], cfg["netport"]), timeout=1.0)
+            at = now_ms()
+            s.close()
+            with lock:
+                if not up.is_set():
+                    marks["net_up_at"] = at
+                    up.set()
+        except Exception as e:  # noqa: BLE001
+            marks["net_last_error"] = type(e).__name__ + ": " + str(e)[:80]
+
     def net():
-        while time.monotonic() < deadline:
-            try:
-                c = socket.create_connection((cfg.get("netaddr") or cfg["nethost"], cfg["netport"]), timeout=1.0)
-                c.close()
-                marks["net_up_at"] = now_ms()
-                return
-            except Exception as e:  # noqa: BLE001
-                marks["net_last_error"] = type(e).__name__ + ": " + str(e)[:80]
-                time.sleep(0.02)
-        marks["net_error"] = "no TCP connect to %s:%s in %.0f s (%s)" % (cfg["nethost"], cfg["netport"], deadline_s, marks.get("net_last_error"))
+        tries = 0
+        while time.monotonic() < deadline and not up.is_set():
+            threading.Thread(target=attempt, daemon=True).start()
+            tries += 1
+            up.wait(0.05)
+        marks["net_tries"] = tries
+        if not up.wait(1.5):
+            marks["net_error"] = "no TCP connect to %s:%s in %.0f s (%s)" % (cfg["nethost"], cfg["netport"], deadline_s, marks.get("net_last_error"))
 
     t = threading.Thread(target=net, daemon=True)
     t.start()

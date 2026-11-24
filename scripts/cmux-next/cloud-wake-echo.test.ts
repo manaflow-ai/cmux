@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { causeOf, phasesOf, runWakeEcho, settle, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
+import { causeOf, phasesOf, runWakeEcho, settle, startWithRetry, summarize, wakeEchoMarkdown, type WakeCycle } from "./cloud-wake-echo.ts";
 
 const cycle = (i: number, ok: boolean, marks: WakeCycle["marks_ms"]): WakeCycle => ({
   i, ok, error: ok ? "" : "boom", at: "", paused_ms: 1, answered_ms: 1, first_exec_ms: 1, offset_ms: 0, offset_rtt_ms: 1, offset_pre_ms: 0,
@@ -55,4 +55,21 @@ test("failed cycles count apart; percentiles over echoed; biggest phase", () => 
   expect([s.cycles, s.echoed, s.failed, s.biggest]).toEqual([3, 2, 1, "restore"]);
   expect(s.rows.find((r) => r.phase === "total")).toMatchObject({ n: 2, p50: 1250, p95: 3250 });
   expect(wakeEchoMarkdown(cs, { machine: "m" })).toContain("#1 (other): boom");
+});
+
+test("start retries an indeterminate answer with the same key, and a pausing refusal after it settles with a new one", async () => {
+  let t = 0;
+  const sleep = async (ms: number) => { t += ms; };
+  let n = 0;
+  const keys: string[] = [];
+  const answers = [
+    { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } },
+    { status: 200, body: { ok: false, error: { code: "cloud.machine.not_paused", retryable: false, details: { state: "pausing" } } } },
+    { status: 200, body: { ok: true } },
+  ];
+  const states = ["pausing", "paused"];
+  const notes = await startWithRetry(async (key) => { keys.push(key); return answers.shift()!; }, () => `k${n++}`, async () => states.shift() ?? "paused", 60_000, sleep, () => t);
+  expect(keys).toEqual(["k0", "k0", "k1"]);
+  expect(notes.length).toBe(2);
+  await expect(startWithRetry(async () => ({ status: 200, body: { ok: false, error: { code: "cloud.machine.not_found", retryable: false } } }), () => "k", async () => "paused", 60_000, sleep, () => t)).rejects.toThrow(/not_found/);
 });
