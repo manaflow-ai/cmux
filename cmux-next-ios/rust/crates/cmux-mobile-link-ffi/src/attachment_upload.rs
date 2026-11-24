@@ -11,6 +11,15 @@
 //! final object (maybe without a newline) and never `have`: every retry then starts at byte 0.
 //! During `Compressing`, `acked_bytes` / `total_bytes` carry the encoder's progress in
 //! thousandths (`total_bytes` is 1000).
+//!
+//! Bundle (PROTOCOL.md "bundle"): once Swift hands the engine a chunk-store root in the app's
+//! Caches (`set_bundle_root`; each Mac gets `<root>/<Mac device id>`, from the link), a file up to [`crate::bundle::PHONE_MAX_BUNDLE_BYTES`] goes as sealed
+//! content-defined chunks, so a file the Mac already holds costs one round trip and its manifest.
+//! The attempt runs in the same abortable task with the same `Timings` (open, `have` for the key and
+//! the want, `ack_stall` per message, `final_answer`); a bound hit is a retry with backoff, and the
+//! Mac keeps the chunks it stored, so the retry sends only the rest. A Mac without `bundle`
+//! (`unknown_service`, remembered on the link) or `too_large` goes the resumable `upload` below, as
+//! does any upload with no store folder.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -159,6 +168,8 @@ struct State {
     have_seen: bool,
     /// The cwd was refused: send without it.
     no_cwd: bool,
+    /// This upload goes the resumable `upload` path from now on (the bundle path gave up on it).
+    no_bundle: bool,
     last_emit: Option<Instant>,
     /// The last time the progress bytes moved (reset while waiting for the Mac).
     last_advance: Instant,
@@ -263,9 +274,26 @@ struct Core {
     timings: Timings,
     links: Mutex<HashMap<String, watch::Sender<Option<Arc<LinkHandle>>>>>,
     uploads: Mutex<HashMap<String, Arc<Upload>>>,
+    /// Where every Mac's chunk store lives (`set_bundle_root`); none: the resumable path only.
+    bundle_root: Mutex<Option<PathBuf>>,
 }
 
 impl Core {
+    /// `<root>/<Mac device id>` for the link's Mac. Keyed by the link, not the upload's `mac_id`
+    /// (a caller holding only a link uses a one-shot key), so every upload to one Mac shares its
+    /// chunks and its pair key.
+    fn bundle_store(&self, link: &LinkHandle) -> Option<PathBuf> {
+        let root = lock(&self.bundle_root).clone()?;
+        let mac: String = link
+            .mac_device_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+            .map(|c| if c == ':' { '_' } else { c })
+            .take(128)
+            .collect();
+        (!mac.is_empty()).then(|| root.join(mac))
+    }
+
     fn link_channel(&self, mac_id: &str) -> watch::Sender<Option<Arc<LinkHandle>>> {
         lock(&self.links).entry(mac_id.to_string()).or_insert_with(|| watch::channel(None).0).clone()
     }
@@ -282,7 +310,13 @@ impl AttachmentUploads {
     #[doc(hidden)]
     pub fn with_timings(observer: Arc<dyn UploadObserver>, timings: Timings) -> Arc<Self> {
         Arc::new(Self {
-            core: Arc::new(Core { observer, timings, links: Mutex::default(), uploads: Mutex::default() }),
+            core: Arc::new(Core {
+                observer,
+                timings,
+                links: Mutex::default(),
+                uploads: Mutex::default(),
+                bundle_root: Mutex::default(),
+            }),
         })
     }
 
@@ -315,6 +349,13 @@ impl AttachmentUploads {
         }
     }
 
+    /// The folder (in the app's Caches) under which the engine keeps each Mac's bundle chunks and
+    /// pair key, one subfolder per Mac device id; with one, uploads go over `bundle` when the Mac has
+    /// it. `None` or empty: the resumable `upload` path only. Takes effect from the next attempt.
+    pub fn set_bundle_root(&self, dir: Option<String>) {
+        *lock(&self.core.bundle_root) = dir.filter(|dir| !dir.is_empty()).map(PathBuf::from);
+    }
+
     /// Registers an upload in stage `Compressing` and returns its id.
     pub fn reserve(&self, spec: UploadSpec) -> String {
         let id =
@@ -339,6 +380,7 @@ impl AttachmentUploads {
                 acked: 0,
                 have_seen: false,
                 no_cwd: false,
+                no_bundle: false,
                 last_emit: Some(Instant::now()),
                 last_advance: Instant::now(),
                 epoch: 0,
@@ -491,7 +533,8 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         };
         let epoch = lock(&upload.state).epoch;
         let outcome = {
-            let attempting = attempt(&upload, &link, &path, size);
+            let store = core.bundle_store(&link);
+            let attempting = attempt(&upload, &link, &path, size, store);
             tokio::pin!(attempting);
             loop {
                 tokio::select! {
@@ -651,17 +694,110 @@ fn read_chunk(mut file: std::fs::File, want: usize) -> (std::fs::File, std::io::
     (file, read)
 }
 
+/// Whether this attempt goes over `bundle`: a store folder, a Mac not known to lack it, a file
+/// under the phone's cap, and an upload that has not started (or fallen back to) the resumable path.
+fn bundle_eligible(upload: &Upload, link: &LinkHandle, total: u64, store: Option<&std::path::Path>) -> bool {
+    let st = lock(&upload.state);
+    store.is_some()
+        && !link.bundle_refused.load(std::sync::atomic::Ordering::Acquire)
+        && total <= crate::bundle::PHONE_MAX_BUNDLE_BYTES
+        && !st.no_bundle
+        && !st.have_seen
+}
+
+/// One attempt over `bundle` (`put_bounded`), every wait bounded by the engine's `Timings`.
+async fn attempt_bundle(
+    upload: &Arc<Upload>,
+    link: &Arc<LinkHandle>,
+    path: &std::path::Path,
+    store: &std::path::Path,
+    use_cwd: bool,
+) -> Outcome {
+    use crate::bundle::{PutBounds, PutError, PutEvent};
+    let timings = &upload.timings;
+    let bounds = PutBounds {
+        open: timings.open,
+        first: timings.have,
+        stall: timings.ack_stall,
+        final_answer: timings.final_answer,
+    };
+    let cwd = upload.cwd.as_deref().filter(|c| use_cwd && c.starts_with('/')).unwrap_or("");
+    let sent_cwd = !cwd.is_empty();
+    let mut last_wire = 0u64;
+    let reporter = Arc::clone(upload);
+    let mut report = move |event: PutEvent| match event {
+        PutEvent::Sent { wire, covered } => {
+            let delta = wire.saturating_sub(last_wire);
+            last_wire = wire;
+            reporter.edit(false, |st| st.progress.sent_bytes += delta);
+            reporter.advance(covered, false);
+        }
+        PutEvent::Finishing => reporter.stage(UploadStage::Finishing),
+    };
+    let put = crate::bundle::put_bounded(
+        &link.link,
+        path,
+        &upload.name,
+        cwd,
+        store,
+        crate::bundle::PHONE_MAX_BUNDLE_BYTES,
+        &bounds,
+        &mut report,
+    )
+    .await;
+    match put {
+        Ok(crate::bundle::Outcome::Done(transfer)) => Outcome::Done(transfer.path),
+        Ok(crate::bundle::Outcome::Fallback(unsupported)) => {
+            if unsupported {
+                link.bundle_refused.store(true, std::sync::atomic::Ordering::Release);
+            }
+            lock(&upload.state).no_bundle = true;
+            Outcome::RetryNow
+        }
+        // A silent Mac or a broken link: retried with backoff, over `bundle` again (the Mac kept
+        // the chunks it stored).
+        Err(PutError::TimedOut(_) | PutError::Transport(_)) => Outcome::Retry,
+        // The phone's chunk store failed it: this upload goes the resumable path (which reports a
+        // file it cannot read).
+        Err(PutError::Local(_)) => {
+            lock(&upload.state).no_bundle = true;
+            Outcome::RetryNow
+        }
+        Err(PutError::Refused { code, message }) => match code.as_str() {
+            "forbidden" | "not_found" | "unavailable" if sent_cwd => {
+                lock(&upload.state).no_cwd = true;
+                Outcome::RetryNow
+            }
+            // A chunk or offer the Mac would not take: the bytes go the plain way instead.
+            "bad_request" => {
+                lock(&upload.state).no_bundle = true;
+                Outcome::RetryNow
+            }
+            "io" | "forbidden" | "not_found" => Outcome::Fatal(code, message),
+            _ => Outcome::Retry,
+        },
+    }
+}
+
 async fn attempt(
     upload: &Arc<Upload>,
     link: &Arc<LinkHandle>,
     path: &std::path::Path,
     total: u64,
+    store: Option<PathBuf>,
 ) -> Outcome {
     let timings = &upload.timings;
     let (offset, use_cwd) = {
         let st = lock(&upload.state);
         (if st.have_seen { st.acked.min(total) } else { 0 }, !st.no_cwd)
     };
+    if bundle_eligible(upload, link, total, store.as_deref()) {
+        upload.edit(true, |st| {
+            st.progress.attempt += 1;
+            st.progress.stage = UploadStage::Uploading;
+        });
+        return attempt_bundle(upload, link, path, store.as_deref().unwrap_or(path), use_cwd).await;
+    }
     upload.edit(true, |st| {
         st.progress.attempt += 1;
         st.progress.stage = UploadStage::Uploading;

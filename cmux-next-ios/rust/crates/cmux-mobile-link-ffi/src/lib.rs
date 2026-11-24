@@ -308,6 +308,8 @@ pub struct LinkHandle {
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
     /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
     bundle_refused: std::sync::atomic::AtomicBool,
+    /// The Mac's device id: the attachment engine keeps this Mac's bundle chunks under it.
+    mac_device_id: String,
 }
 
 impl Drop for LinkHandle {
@@ -938,6 +940,7 @@ async fn connect_on(
         session_id: connected.session_id,
         media,
         bundle_refused: std::sync::atomic::AtomicBool::new(false),
+        mac_device_id: request.mac_device_id.clone(),
     }))
 }
 

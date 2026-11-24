@@ -64,6 +64,14 @@ upload.
   `cancelled`, and the composer is already free (it never waited).
 - Progress per ack to an observer: stage (`compressing`, `waiting_for_mac`, `uploading`,
   `finishing`, `done`, `failed`, `cancelled`), acked bytes, total, attempt.
+- Bundle first: with a chunk-store folder set (`set_bundle_root`, Swift passes
+  Caches/attachment-bundles; one subfolder per Mac), a file up to 64 MiB goes over the Mac's
+  `bundle` service. The Mac keeps every chunk it receives, so a re-send of a file it holds is one
+  manifest round trip, and a retried bundle sends only the chunks the Mac still wants. The same
+  Timings bound every wait; a bound hit is a retry with backoff, cancel aborts it at once.
+  `unknown_service` or `too_large` falls back to the resumable `upload` path and is remembered per
+  link. Above 64 MiB the phone would hold the whole file in memory to chunk it, so those use
+  `upload` too.
 
 ### Compression policy (Rust decides, the platform encoder encodes)
 

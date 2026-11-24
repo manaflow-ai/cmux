@@ -38,6 +38,10 @@ public final class AttachmentUploadClient {
 
     init() {
         engine = AttachmentUploads(observer: Bridge(client: self))
+        // Each Mac's bundle chunks and pair key (the engine keeps `<root>/<Mac device id>`), so a
+        // file the Mac already holds is not sent again. Caches: iOS may purge it; the engine then
+        // sends the chunks again.
+        engine.setBundleRoot(dir: Self.bundleRoot()?.path)
     }
 
     /// The Mac's served link changed (nil: none). Uploads waiting for it go on, from their last acked byte.
@@ -150,6 +154,12 @@ public final class AttachmentUploadClient {
         if let file = ownedFiles.removeValue(forKey: id) {
             try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
         }
+    }
+
+    /// `Caches/attachment-bundles`: the engine's bundle chunk stores, one folder per Mac.
+    static func bundleRoot() -> URL? {
+        guard let caches = try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        return caches.appendingPathComponent("attachment-bundles", isDirectory: true)
     }
 
     /// `Caches/attachment-outbox/<id>/<name>`: one folder per upload, so names never collide.

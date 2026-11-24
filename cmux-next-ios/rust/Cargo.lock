@@ -645,6 +645,7 @@ dependencies = [
  "base64",
  "cmux-bundle",
  "cmux-composer-send",
+ "cmux-fault",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
