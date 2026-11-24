@@ -70,7 +70,12 @@ def setup(args):
     xvfb = subprocess.Popen(["ip", "netns", "exec", HOST_NS, "Xvfb", disp, "-screen", "0",
                              "1920x1080x24", "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    time.sleep(1.0)
+    # The display is up when its socket is; a fixed sleep lost that race on a loaded runner
+    # (testapp: "Connection refused").
+    sock = f"/tmp/.X11-unix/X{disp.lstrip(':').split('.')[0]}"
+    deadline = time.time() + 10
+    while not os.path.exists(sock) and xvfb.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
     started(xvfb, "Xvfb " + disp)
     app = subprocess.Popen(["ip", "netns", "exec", HOST_NS, args.bin, "testapp", "--display", disp,
                             "--workload", args.workload],
