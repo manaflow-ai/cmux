@@ -102,11 +102,25 @@ impl Hub {
         session: &Session,
         from: Option<&super::restore_point::RestorePoint>,
     ) -> anyhow::Result<u64> {
-        let mut epoch = from.map_or(0, |p| p.ownership_epoch);
+        let (after, start) = from.map_or((0, 0), |p| (p.seq, p.ownership_epoch));
+        let epoch = self.ownership_epoch_after(&session.id, after, start)?;
+        session.restore_ownership_epoch(epoch);
+        Ok(epoch)
+    }
+
+    /// The highest ownership epoch of chat `id`'s transfer records past seq `after`, from
+    /// `start`, the epoch through `after`.
+    pub(super) fn ownership_epoch_after(
+        &self,
+        id: &str,
+        after: u64,
+        start: u64,
+    ) -> anyhow::Result<u64> {
+        let mut epoch = start;
         let mut malformed = false;
         self.store.scan_kinds_after_strict(
-            &session.id,
-            from.map_or(0, |p| p.seq),
+            id,
+            after,
             &["transfer_out", "transferred", "transferred_in", "transfer_aborted"],
             &mut |record| {
                 if let Some(value) = record.msg.get("epoch") {
@@ -120,7 +134,6 @@ impl Hub {
             },
         )?;
         anyhow::ensure!(!malformed, "transfer event contains a malformed ownership epoch");
-        session.restore_ownership_epoch(epoch);
         Ok(epoch)
     }
 }
