@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use cmux_config::history::{HISTORY_CAPACITY, HISTORY_FILE};
+use cmux_config::history::{HISTORY_CAPACITY, history_file_name, last_text_file_name};
 use cmux_config::managed::FixedManagedReader;
 use cmux_config::{ConfigStore, ManagedPreferences, Op, Origin, Refusal, Target, WriteMeta};
 use serde_json::{Value, json};
@@ -30,6 +30,11 @@ impl Scratch {
 
     fn state_dir(&self) -> PathBuf {
         self.0.join("state")
+    }
+
+    /// The history file of this scratch's settings file.
+    fn history_file(&self) -> PathBuf {
+        self.state_dir().join(history_file_name(&self.config()))
     }
 
     fn text(&self) -> String {
@@ -104,7 +109,7 @@ fn a_cli_set_then_undo_restores_the_file_text() {
     assert_eq!(set_entry.before, original);
     assert_eq!(set_entry.keys, vec!["editor.wordWrap".to_string()]);
     assert!(set_entry.at > 0);
-    assert!(scratch.state_dir().join(HISTORY_FILE).exists());
+    assert!(scratch.history_file().exists());
 }
 
 /// Three changes, then undo twice: each undo walks back one change; a third
@@ -345,7 +350,7 @@ fn the_history_keeps_the_newest_entries() {
     assert_eq!(history.len(), HISTORY_CAPACITY);
     assert_eq!(history[0].revision, last);
     assert!(history.windows(2).all(|pair| pair[0].revision > pair[1].revision));
-    let lines = fs::read_to_string(scratch.state_dir().join(HISTORY_FILE)).unwrap().lines().count();
+    let lines = fs::read_to_string(scratch.history_file()).unwrap().lines().count();
     assert!(lines < HISTORY_CAPACITY * 2, "the file was trimmed: {lines} lines");
     // A fresh owner reads the same history from the file.
     drop(store);
@@ -428,8 +433,109 @@ fn the_history_files_are_private() {
     let scratch = Scratch::new("private");
     let mut store = open(&scratch);
     set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
-    for name in [HISTORY_FILE, cmux_config::history::LAST_TEXT_FILE] {
-        let mode = fs::metadata(scratch.state_dir().join(name)).unwrap().permissions().mode();
+    for name in [history_file_name(&scratch.config()), last_text_file_name(&scratch.config())] {
+        let mode = fs::metadata(scratch.state_dir().join(&name)).unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0, "{name}: {mode:o}");
     }
+}
+
+/// A hand edit that changes only the text (a comment) is a change of its
+/// own: undo takes back the comment, not the set before it too.
+#[test]
+fn a_comment_only_hand_edit_undoes_alone() {
+    let scratch = Scratch::new("comment-only");
+    let mut store = open(&scratch);
+    let set_revision = set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    let after_set = scratch.text();
+    fs::write(scratch.config(), format!("// mine\n{after_set}")).unwrap();
+    let change = store.reload().expect("a text-only edit is a change");
+    assert!(change.keys.is_empty(), "{change:?}");
+    assert!(change.revision > set_revision, "{change:?}");
+
+    undo(&mut store, Origin::Cli).expect("the comment is undone");
+    assert_eq!(scratch.text(), after_set, "the CLI set stays");
+}
+
+/// The write-time refresh records a comment-only edit the watcher has not
+/// reported yet, too.
+#[test]
+fn a_comment_only_edit_found_at_write_time_is_recorded() {
+    let scratch = Scratch::new("comment-write");
+    let mut store = open(&scratch);
+    set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    let after_set = scratch.text();
+    let commented = format!("// mine\n{after_set}");
+    fs::write(scratch.config(), &commented).unwrap();
+    set(&mut store, "editor.wordWrap", json!("on"), Origin::Cli);
+
+    undo(&mut store, Origin::Cli).expect("the second set is undone");
+    assert_eq!(scratch.text(), commented);
+    undo(&mut store, Origin::Cli).expect("then the comment");
+    assert_eq!(scratch.text(), after_set);
+}
+
+/// An owner that starts while the file does not parse records the change
+/// out of it against the text saved last: undo takes back only that edit.
+#[test]
+fn a_restart_on_a_broken_file_keeps_undo_to_one_change() {
+    let scratch = Scratch::new("broken-restart");
+    let mut store = open(&scratch);
+    set(&mut store, "editor.tabSize", json!(2), Origin::Cli);
+    let after_set = scratch.text();
+    fs::write(scratch.config(), "{\"editor\": {\"tabSize\": 2, \"wordWrap\": ").unwrap();
+    store.reload();
+    drop(store);
+
+    let mut store = open(&scratch);
+    fs::write(scratch.config(), "{\"editor\": {\"tabSize\": 2, \"wordWrap\": \"on\"}}\n").unwrap();
+    store.reload().expect("the edit out of the broken file is a change");
+    undo(&mut store, Origin::Cli).expect("the hand edit is undone");
+    assert_eq!(scratch.text(), after_set, "the CLI set stays");
+}
+
+/// One state directory, two settings files: an owner on the second sees
+/// none of the first's history, so it never writes the first's texts over
+/// its own file.
+#[test]
+fn another_settings_file_does_not_share_the_history() {
+    let scratch = Scratch::new("two-files");
+    let mut first = open(&scratch);
+    set(&mut first, "editor.tabSize", json!(2), Origin::Cli);
+    drop(first);
+
+    let other = scratch.0.join("other.json");
+    fs::write(&other, "{\"editor\": {\"wordWrap\": \"on\"}}\n").unwrap();
+    let mut second = ConfigStore::open(
+        other.clone(),
+        None,
+        Some(scratch.state_dir()),
+        Box::new(FixedManagedReader::default()),
+    );
+    assert!(second.history().is_empty(), "{:?}", second.history());
+    assert!(matches!(undo(&mut second, Origin::Cli), Err(Refusal::InvalidParams { .. })));
+    assert_eq!(fs::read_to_string(&other).unwrap(), "{\"editor\": {\"wordWrap\": \"on\"}}\n");
+
+    drop(second);
+    let mut first = open(&scratch);
+    assert_eq!(first.history().len(), 1, "the first file keeps its history");
+    undo(&mut first, Origin::Cli).expect("the first file's set is undone");
+}
+
+/// Undo of a background switch writes the saved text back as it was: no
+/// `appearance.backgroundRecents` entry is added on the way.
+#[test]
+fn undo_of_a_background_switch_restores_the_text_exactly() {
+    let scratch = Scratch::new("background-undo");
+    fs::write(scratch.config(), "{}\n").unwrap();
+    let mut store = open(&scratch);
+    set(&mut store, "appearance.background", json!("daily"), Origin::User);
+    let after_switch = scratch.text();
+    assert_ne!(after_switch, "{}\n");
+
+    undo(&mut store, Origin::User).expect("the switch is undone");
+    assert_eq!(scratch.text(), "{}\n");
+    let history = store.history();
+    run(&mut store, Op::Restore { revision: history[0].revision, meta: meta(Origin::User) })
+        .expect("the restore applies");
+    assert_eq!(scratch.text(), after_switch, "restore writes the saved text back as it was");
 }
