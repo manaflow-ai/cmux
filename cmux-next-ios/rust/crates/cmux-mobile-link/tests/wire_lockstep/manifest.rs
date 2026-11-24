@@ -96,6 +96,15 @@ pub(super) fn manifest() -> Manifest {
         ]
         .into(),
     );
+    // A channel's messages also travel as class datagrams only between peers that both list it.
+    manifest.capabilities.insert(
+        cmux_mobile_link::classes::CLASSES_LANE.to_owned(),
+        [
+            FrameType::Sequenced.wire_name().to_owned(),
+            format!("control:liveness/class={}", cmux_mobile_link::classes::DATAGRAM_CLASS),
+        ]
+        .into(),
+    );
     // Reach is sent only on a v2 tunnel. Peers send the endpoint announcements on every version.
     manifest.capabilities.insert(
         format!("wg-version={}", signaling::WG_VERSION),

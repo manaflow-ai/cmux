@@ -158,6 +158,7 @@
     "field:mailbox_ack.results#reason",
     "field:mailbox_ack.results#sig",
     "field:open#args",
+    "field:open#delivery",
     "field:open#lane",
     "field:open#service",
     "field:phone-frames/clock#kind",
@@ -253,6 +254,10 @@
     "browser-video-track-v1": [
       "param:browser#video",
       "param:browser#video_tag"
+    ],
+    "classes": [
+      "control:liveness/class=3",
+      "frame:sequenced=6"
     ],
     "cloud-acpmux-v1": [
       "param:cloud-acpmux#machine_id",

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxConversationCore
 
+#if canImport(Darwin)  // NSDataDetector: Apple only
 /// Lawrence 2026-10-23: the Cloud Chief wrote `**https://github.com/login/device**`; the bubble
 /// shows Markdown as written, and the system detector takes the closing `**` into the URL, so a
 /// tap opened `https://github.com/login/device**`. A detected link ends before Markdown marks.
@@ -28,3 +29,4 @@ import Testing
         #expect(links("https://example.com/a_b_c").map(\.1) == ["https://example.com/a_b_c"])
     }
 }
+#endif

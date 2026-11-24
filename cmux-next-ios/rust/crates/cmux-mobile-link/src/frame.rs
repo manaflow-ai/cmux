@@ -47,6 +47,9 @@ frame_types! {
     Ping = 3 => "ping",
     Pong = 4 => "pong",
     DeflatedData = 5 => "deflated-data",
+    // A chunk of a numbered message on a channel whose messages also travel as datagrams
+    // (`crate::classes`): sent only to a peer that listed [`crate::classes::CLASSES_LANE`].
+    Sequenced = 6 => "sequenced",
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
