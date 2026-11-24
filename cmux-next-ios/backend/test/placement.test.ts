@@ -40,8 +40,10 @@ describe("relay placement from both ends", () => {
   })
 
   it("mixes a measured end with an estimated one", () => {
-    const a = at(47.6, -122.3, { wnam: 20, enam: 70 })
-    expect(relayPlacement(a, LONDON, "wnam").hint).toBe("enam")
+    // By geography alone a Seattle-London relay goes to weur; Seattle's netcheck finds Europe slow from there.
+    expect(relayPlacement(SEATTLE, LONDON, "wnam").hint).toBe("weur")
+    const a = at(47.6, -122.3, { wnam: 20, enam: 70, weur: 160, eeur: 180, sam: 190, apac: 150, oc: 180, afr: 300, me: 260 })
+    expect(relayPlacement(a, LONDON, "wnam").hint).toBe("wnam")
   })
 })
 
