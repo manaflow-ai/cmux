@@ -52,7 +52,10 @@ pub const CONDITION_LIMIT: usize = 4000;
 /// holding for "push it" was sent back by every check and posted one more
 /// "still holding" each time (user, 2026-11-23: "it spams too much 'still
 /// holding' even though the turn has ended"). acpmux also caps the checks at
-/// one re-prompt with no tool call between (`hub/stop_condition.rs`).
+/// one re-prompt with no tool call between, and lets any later stop of a
+/// turn the check already sent back through (Claude Code's
+/// `stop_hook_active`, `hub/stop_condition.rs` `REPEAT_STOP`): one re-prompt
+/// a turn at most, not 51 in two sessions (Lucas's Mac, 2026-11-23).
 pub const CONDITION: &str = "The Chief's task in this session's first message is finished. \
 Finished means one of: (1) the work is done and landed where the task says \
 (pushed to the branch it names, plainly, not on a scratch branch), and the \

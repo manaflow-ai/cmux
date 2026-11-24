@@ -23,7 +23,7 @@ const LANES = [
   "Bisect the stalled cloud sync",
 ];
 const WAITS = [
-  "glaeda-gh wait pr 53101 --timeout 2000",
+  "gh pr checks 53101 --watch",
   "Wait for rust test run",
   "Peek at both runs",
   "Block on verdict wait",
@@ -63,8 +63,8 @@ const steered = (burst: AcpmuxRow[]): AcpmuxRow[] => [
   user("Keep the lanes moving and land what goes green", 20),
   activity(
     [
-      tool("glaeda-gh wait pr 53101", "execute", "completed", {
-        command: "glaeda-gh wait pr 53101",
+      tool("gh pr checks 53101 --watch", "execute", "completed", {
+        command: "gh pr checks 53101 --watch",
         output: "green",
       }),
     ],
@@ -134,8 +134,12 @@ export default agentPaneEntry({
       },
     },
     mixed: {
-      note: "Ends that differ (finished, stopped, disconnected) and shells read as one count, 13 background updates; the one subagent that failed stays in sight outside the Worked for, counted and named in red: 1 failed.",
+      note: "Ends that differ (finished, stopped, disconnected) and shells read as one count, 12 background updates; the one subagent that failed draws as its own row in sight outside the Worked for, with its Retry.",
       snapshot: chat(steered(mixedBurst())),
+    },
+    failedBurst: {
+      note: "Five subagents that failed together read as one line in sight, 5 subagents failed, never hidden in the Worked for; it opens to each failed row with its Retry.",
+      snapshot: chat(steered(Array.from({ length: 5 }, (_, i) => ended(i, "failed", 15 - i * 0.05)))),
     },
   },
 });
