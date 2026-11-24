@@ -29,7 +29,7 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
         guard Self.isToken(session), Self.isToken(toolCall), !socket.isEmpty else { return nil }
         argv = [executable.path, "process", "show", "--follow", "--session", session, "--tool-call", toolCall]
         environment = ["ACPMUX_SOCKET": socket]
-        title = String(localized: "agentPane.processTerminal.title", defaultValue: "Background task", bundle: .module)
+        title = String(localized: "agentPane.processTerminal.title", defaultValue: "Background task", bundle: .localizedModule)
         self.session = session
         self.toolCall = toolCall
         onChatMachine = false
@@ -46,7 +46,7 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
             + show + #"; done; exec acpmux "# + show
         argv = ["/bin/sh", "-c", script, "acpmux", session, toolCall]
         environment = [:]
-        title = String(localized: "agentPane.processTerminal.title", defaultValue: "Background task", bundle: .module)
+        title = String(localized: "agentPane.processTerminal.title", defaultValue: "Background task", bundle: .localizedModule)
         self.session = session
         self.toolCall = toolCall
         onChatMachine = true

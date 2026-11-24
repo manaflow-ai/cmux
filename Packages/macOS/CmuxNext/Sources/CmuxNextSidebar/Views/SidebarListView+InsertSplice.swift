@@ -88,7 +88,7 @@ extension SidebarListViewComponents {
     /// `keepsRows(selecting:inserted:_:)` for a splice of several rows: a selection on one of them moves no other row.
     private func keepsRows(selecting id: WorkspaceID?, spliced: Set<WorkspaceID>, _ o: SidebarLayoutOptions) -> Bool {
         guard let id, !spliced.contains(id), let ws = workspaces[id] else { return true }
-        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done) else { return false }
+        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id) else { return false }
         // Listed but not drawn: a collapsed group or a fold hides it, and its selection would draw it.
         guard let row = displayed.row(for: .workspace(id)) else { return false }
         // A group that leaves for the Archive stays in its list while it holds the selection (`splittingArchive`),
