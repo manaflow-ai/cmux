@@ -16,6 +16,15 @@
   review_mac.py mac-id SOCK [--timeout S]     the Mac's device id from its own pairing link (`mac=`),
       the id the phone pairs with; no file lookup that could name another build's state
   review_mac.py phones SOCK                   {"paired_connected": N, "phones": [...]} (names and ids only)
+  review_mac.py allow-state SOCK --phone-id ID [--phone-id ID ...] [--until asked|answered] [--timeout S]
+      review.sh --approve-first: what the Mac shows for the phone with these device ids (its receipt's
+      phone_device_ids), as one JSON line {"state", "mac_name", "request", "prompt", "connected"}:
+      `waiting` (its request waits under Connection Requests; `prompt` is the open "Allow ... to connect?"
+      dialog's title, null when none is on screen), `paired` (allowed), `gone` (a waiting request left
+      without an Allow: Don't Allow, or the phone signed out), `none` (no request), `off` (iPhone
+      connections off). --until asked (default) returns at the first state that is not `none`;
+      --until answered returns at `paired` or `gone`, else at the deadline still `waiting`. Read only:
+      the dialog list (`debug.dialog {}`) presses, types and dismisses nothing.
   review_mac.py quit SOCK                     quit as the person does, keeping sessions (quitKeepSessions)
   review_mac.py backend-check VALUE           the canonical origin --backend names, or exit 2 with the reason:
       `dev`/`development`, `preview-N`, the shared dev Workers API origin, a tailnet origin
@@ -198,6 +207,35 @@ def status(sock):
     return r.get("value") if isinstance(r.get("value"), dict) else {}
 
 
+PAIR_DIALOG = "cmux.dialog.iphonePair"
+
+
+def allow_state(sock, ids):
+    """One read of what the Mac shows for the phone with device ids `ids` (lowercase): see allow-state."""
+    value = status(sock)
+    host = value.get("host") if isinstance(value.get("host"), dict) else {}
+    rows = [r for r in (host.get("phones") or []) if isinstance(r, dict) and str(r.get("id", "")).lower() in ids]
+    waiting = [r for r in (host.get("pending") or []) if isinstance(r, dict) and str(r.get("id", "")).lower() in ids]
+    dialogs = rpc(sock, "debug.dialog", {}, timeout=10).get("dialogs") or []
+    titles = [str(d.get("title")) for d in dialogs if isinstance(d, dict) and d.get("identifier") == PAIR_DIALOG
+              and d.get("visible") is not False and d.get("title")]
+    # The prompt shows one waiting phone at a time: the one whose quoted name its request row has, else the first.
+    name = re.search(r"“[^”]+”", str(waiting[0].get("title") or "")) if waiting else None
+    prompt = next((t for t in titles if name and name.group(0) in t), titles[0] if titles else None)
+    if value.get("allowed") is False:
+        state = "off"
+    elif any(r.get("paired") is True for r in rows):
+        state = "paired"
+    elif waiting:
+        state = "waiting"
+    else:
+        state = "none" if value else "unreachable"
+    return {"state": state, "mac_name": value.get("macName") or None,
+            "request": (waiting[0].get("title") if waiting else None),
+            "prompt": prompt if state == "waiting" else None,
+            "connected": any(r.get("paired") is True and r.get("connected") is True for r in rows)}
+
+
 def wait(fn, timeout, every=1.0):
     deadline = time.monotonic() + timeout
     while True:
@@ -210,11 +248,14 @@ def wait(fn, timeout, every=1.0):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("op", choices=["socket", "bundle", "wait-socket", "account", "pair-url", "mark-used", "mac-id",
-                                  "phones", "quit", "backend-check", "backend-write", "backend", "space"])
+                                  "phones", "allow-state", "quit", "backend-check", "backend-write", "backend",
+                                  "space"])
     p.add_argument("target")
     p.add_argument("value", nargs="?", default="")
     p.add_argument("--timeout", type=float, default=60)
     p.add_argument("--used", default="")
+    p.add_argument("--phone-id", action="append", default=[])
+    p.add_argument("--until", default="asked", choices=["asked", "answered"])
     a = p.parse_args(argv)
     if a.op == "space":
         try:
@@ -329,6 +370,30 @@ def main(argv=None):
                    "connected": row.get("connected") is True}
                   for row in ((value.get("host") or {}).get("phones") or []) if isinstance(row, dict)]
         print(json.dumps({"paired_connected": sum(1 for r in phones if r["paired"] and r["connected"]), "phones": phones}))
+        return 0
+    if a.op == "allow-state":
+        ids = {i.strip().lower() for i in a.phone_id if i.strip()}
+        if not ids:
+            print("allow-state needs the phone's device ids (--phone-id)", file=sys.stderr)
+            return 2
+        deadline = time.monotonic() + a.timeout
+        while True:
+            got = allow_state(a.target, ids)
+            if a.until == "asked" and got["state"] not in ("none", "unreachable"):
+                break
+            if a.until == "answered":
+                if got["state"] in ("paired", "off"):
+                    break
+                # The caller saw it waiting: a request that left with no Allow (Don't Allow, or the phone
+                # signed out). The app keeps a request until it is answered or forgotten, also across
+                # hostd's own two-minute waits, so this is not a gap between the phone's retries.
+                if got["state"] == "none":
+                    got["state"] = "gone"
+                    break
+            if time.monotonic() > deadline:
+                break
+            time.sleep(2)
+        print(json.dumps(got, ensure_ascii=False))
         return 0
     if a.op == "quit":
         r = rpc(a.target, "action.run", {"action": "quitKeepSessions"})

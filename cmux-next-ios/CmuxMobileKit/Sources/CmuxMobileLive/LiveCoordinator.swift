@@ -122,6 +122,10 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
+    @ObservationIgnored var callMacID: String?
+    /// The hold that keeps that link out of the park, and the link it is on.
+    @ObservationIgnored var callHold: (link: ObjectIdentifier, hold: LinkAwakeHold)?
     /// When the scene last went to the background (ContinuousClock counts the suspension).
     @ObservationIgnored private var backgroundedAt: ContinuousClock.Instant?
     /// Major connectivity incidents of a cmux team account, for the team's Slack (PROTOCOL.md
@@ -1088,6 +1092,9 @@ public final class LiveCoordinator {
         presence = nil
         registeredTeamID = nil
         startedTeamID = nil
+        callMacID = nil
+        callHold?.hold.release()
+        callHold = nil
         closeAllSessions()
         let link = idleSession.link
         Task { await link.resetWarmState() }
@@ -1143,6 +1150,8 @@ public final class LiveCoordinator {
         isBackgrounded = true
         backgroundedAt = ContinuousClock.now
         incidents.appActive(false)
+        // A call's link may have been opened since the call started.
+        holdCallLink()
         for session in sessions.values { session.link.send(.background) }
         discovery.pause()
         presence?.backgrounded = true
@@ -1152,6 +1161,7 @@ public final class LiveCoordinator {
     /// seeded with it now (a sign-in made in front has no scene change to start it).
     public func followApplicationState() {
         incidents.followApplicationState()
+        LinkController.useApplicationBackgroundTasks()
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.

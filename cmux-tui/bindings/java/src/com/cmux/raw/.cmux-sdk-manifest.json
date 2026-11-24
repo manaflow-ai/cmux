@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "e6cc2037ad351a3b0ee8cb2a2a8dd45354de03a21c06f6a54e656216ae39daac",
-      "size": 86652
+      "sha256": "49e7870dbdc3fd34ee815425acb7f5a1f829aba171a2d45d6ef05abe2880991f",
+      "size": 86724
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1872,8 +1872,8 @@
     },
     {
       "path": "ListWorkspacesRequest.java",
-      "sha256": "d818bfe1ed1f1a5da2ef1cbfedca95c549f7b84c5bc215e296dafcd44390fc9d",
-      "size": 2630
+      "sha256": "9ac5c7e1db81d743a1c1721f7792dff13a9cdfa123f32db991ae7942714754c8",
+      "size": 3243
     },
     {
       "path": "LivePane.java",
@@ -2282,7 +2282,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "08c52e5cfe0e244955dfd1a214121db8738dc95aee02c8e301cc9a2e276ce355",
+      "sha256": "3900eb065890adc82e7cddc434e0ce2257459587c2b20e70be0f11027e014877",
       "size": 8511
     },
     {
@@ -3582,8 +3582,8 @@
     },
     {
       "path": "Tree.java",
-      "sha256": "fac8af4cb087981501b55fe3df5e3e151f24227ff7a4d14d87d217d55db8f3fd",
-      "size": 7471
+      "sha256": "82f354b323ea37be045a65e0d8ef7035ff3caf57db3ff124e90db719f3a14b31",
+      "size": 8014
     },
     {
       "path": "TreeChangedEvent.java",
@@ -3822,7 +3822,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "081be245bda63b920737caa97b159caa63f4e863b159dc7bdeb4b56b34b4f740",
+  "ir_sha256": "8c3768283143ab2dd6987ca07830cd27545491697467f23207c4477c8c9ea3d9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -221,7 +221,8 @@ impl Client {
 
     /// One client process, bounded. A missing client is `ci.unavailable`: nothing ran.
     async fn call_within(&self, args: &[String], bound: Duration) -> Result<Output, RpcError> {
-        let program = Path::new("cmux-ci");
+        let resolved = crate::config::user_program("cmux-ci");
+        let program = resolved.as_path();
         #[cfg(test)]
         let program = self.program.as_deref().unwrap_or(program);
         tokio::time::timeout(
