@@ -1873,12 +1873,6 @@ function TranscriptView({
   const [drawn, setDrawn] = useState(LayeredMap.empty<DrawnHeight>);
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
-  /// This render draws a scroll that outruns the warm rows (a fling: `warmOutrun` below). Its rows
-  /// are measured by their observer in the browser's own layout pass, not read in the commit: about
-  /// 30 rows a frame came in new, and the commit's read restyled and laid them all out inside the
-  /// frame's React work, then the browser laid them out again for the placement (cmuxterm-hq
-  /// docs/findings/2026-11-20-cmux-scroll-frame-cost.md).
-  const flingMount = useRef(false);
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<LastEstimate | undefined>(undefined);
@@ -2227,16 +2221,8 @@ function TranscriptView({
       // browser's own layout pass, before the frame paints (`observer` below); one it left at its
       // height keeps the height already placed, whose version differs only in a field placement
       // never reads. Read here only when no height is kept for the row as it is drawn now.
-      // A fling's row (`flingMount`) is read by its observer too: a row just mounted reports its first
-      // size there, one kept at the height placed reports when that changed. Read here only when the
-      // placed entry is for another width or footer, which the observer's size alone does not change.
-      const fling = flingMount.current;
-      if (
-        (fling || (versionOnly && tokenRows.get(rowsRef.current) === true)) &&
-        typeof ResizeObserver !== "undefined"
-      ) {
+      if (versionOnly && tokenRows.get(rowsRef.current) === true && typeof ResizeObserver !== "undefined") {
         const known = drawnRef.current.get(id);
-        if (fling && !known) return noQueue;
         if (
           known &&
           known.sessionId === sessionId &&
@@ -4061,7 +4047,6 @@ function TranscriptView({
       ? heldWarmAt.current
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
-  flingMount.current = warmOutrun && !sessionSwitched;
   // A chat's first followed frame (a cold open, at its latest row) mounts only the rows it shows: the
   // history above them (and the warm rows) are stand-ins at their estimated boxes until that frame has
   // painted, then mount in full (the effect below). Built in the first commit they were about 3/4 of
