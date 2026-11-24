@@ -560,13 +560,15 @@ done
         self.assertNotIn("inside this checkout", result.stderr)
         self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
 
-    def test_pre_commit_refuses_a_node_modules_linked_back_into_the_checkout(self):
+    def test_pre_commit_never_runs_a_node_modules_linked_back_into_the_checkout(self):
+        """The vp is never run; like any formatter that cannot run, the commit goes on with a warning."""
         self.assertEqual(self.install().returncode, 0)
         vp_log = self.root / "vp.log"
         self.link_web_install(self.repo / "elsewhere/node_modules")
         result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("inside this checkout", result.stderr)
+        self.assertIn("committing without formatting", result.stderr)
         self.assertFalse(vp_log.exists(), "a vp the checkout points at never runs")
 
     def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
@@ -918,7 +920,8 @@ mkdir -p node_modules/.bin
         tracked = source.parent / "lib.rs"
         tracked.write_text("pub fn a() {}\n")
         self.git("add", str(tracked))
-        self.git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "base")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.hooksPath=/dev/null",
+                 "commit", "-q", "-m", "base")
         source.write_text("mod other;\nfn   main() {}\n")
         self.git("add", str(source))
         tracked.write_text("pub fn   a() {}\n")  # an unstaged edit
