@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -113,19 +113,22 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
     });
   });
 
-  describe("glass underlay in webkit", () => {
-    let browser: Browser;
-    beforeAll(async () => {
-      browser = await webkit.launch({ headless: true });
-    });
-    afterAll(async () => browser?.close());
+  // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+  if (await probeEngineOrSkip("chromium-glass-underlay webkit", "webkit", webkit)) {
+    describe("glass underlay in webkit", () => {
+      let browser: Browser;
+      beforeAll(async () => {
+        browser = await webkit.launch({ headless: true });
+      });
+      afterAll(async () => browser?.close());
 
-    // WebKit's backdrop takes in the window glass and frosts the text itself: the tint alone.
-    test("draws no underlay", async () => {
-      const page = await open(browser, "medium");
-      const image = await page.evaluate(() => getComputedStyle(document.getElementById("floating")!).backgroundImage);
-      expect(image).toBe("none");
-      await page.close();
+      // WebKit's backdrop takes in the window glass and frosts the text itself: the tint alone.
+      test("draws no underlay", async () => {
+        const page = await open(browser, "medium");
+        const image = await page.evaluate(() => getComputedStyle(document.getElementById("floating")!).backgroundImage);
+        expect(image).toBe("none");
+        await page.close();
+      });
     });
-  });
+  }
 });

@@ -35,6 +35,8 @@ import { withForeignFiles } from "../chips/linkedText";
 import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
+import { ToolBadge } from "../chips/ToolBadge";
+import { toolOfHref, toolWords } from "../toolMentions";
 import { cmuxLinkTarget } from "./cmuxLinks";
 import { leadCommand, SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./withSkillWords";
@@ -401,7 +403,14 @@ export function PromptTyped({
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false} skills={markdownSkills} commonmark messageAt={messageAt}>
+    <Markdown
+      className="cv-user__markdown"
+      thumbnails={false}
+      skills={markdownSkills}
+      tools
+      commonmark
+      messageAt={messageAt}
+    >
       {shown}
     </Markdown>
   ) : (
@@ -430,6 +439,19 @@ function plainWithForeignFiles(text: string): ReactNode {
 /// link (`cmux://workspace/…`, `cmux-nightly://agent/…`) a link the host opens in the app, as a
 /// reply's app link draws (Markdown.tsx); the rest keeps its break points (softBreaks.tsx).
 function LiteralText({ text }: { text: string }) {
+  // `@computer-use` and `@browser-use` draw as their badges, as the composer drew them (chips/ToolBadge.tsx).
+  const tools = toolWords(text);
+  if (tools.length) {
+    const out: ReactNode[] = [];
+    let at = 0;
+    tools.forEach((word, index) => {
+      if (word.start > at) out.push(<LiteralText key={`w${index}`} text={text.slice(at, word.start)} />);
+      out.push(<ToolBadge key={`b${index}`} tool={toolOfHref(word.href)!.id} />);
+      at = word.end;
+    });
+    if (at < text.length) out.push(<LiteralText key="wt" text={text.slice(at)} />);
+    return <>{out}</>;
+  }
   const links = text.includes("://") ? promptLinks(text) : [];
   if (!links.length) return <>{withForeignFiles(text, "f", softBreaks)}</>;
   const out: ReactNode[] = [];

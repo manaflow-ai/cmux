@@ -2,7 +2,7 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Stand in only for the three SSH operations the CLI needs. No host SSH, credentials or
+/// Stand in only for the SSH operations the CLI and a daemon's own peer link need. No host SSH, credentials or
 /// network are used; the socket symlink reaches the other test daemon's real RPC server.
 pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
     let bin = home.join("bin");
@@ -19,11 +19,45 @@ if '-L' in args:
     os.symlink(socket, local)
     signal.pause()
     sys.exit(0)
+if '-W' in args:
+    # A daemon's own link to its peer (`peer.rs` `tunnel_argv`): this process's stdin and
+    # stdout are the peer's WebSocket port, the one its config names whatever port was asked for.
+    import socket as net, threading
+    listen = json.loads(pathlib.Path(home, 'config.json').read_text()).get('websocket') or dict()
+    at = listen.get('listen')
+    if not at:
+        sys.exit(1)
+    host, port = at.rsplit(':', 1)
+    link = net.create_connection((host, int(port)))
+    def up():
+        while True:
+            data = os.read(0, 65536)
+            if not data:
+                break
+            link.sendall(data)
+        link.shutdown(net.SHUT_WR)
+    threading.Thread(target=up, daemon=True).start()
+    while True:
+        data = link.recv(65536)
+        if not data:
+            break
+        os.write(1, data)
+    sys.exit(0)
 command = args[-1]
 if 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
+elif 'cat ~/.acpmux/config.json' in command:
+    # A daemon's own link to its peer (`peer.rs` `read_config_argv`): the peer's config, a NUL,
+    # its peer token of this launch. A peer that serves no WebSocket has no link, as before.
+    config = pathlib.Path(home, 'config.json').read_bytes()
+    if 'websocket' not in json.loads(config):
+        sys.exit(1)
+    sys.stdout.buffer.write(config + b'\0')
+    token = pathlib.Path(home, 'run', 'peer.token')
+    if token.exists():
+        sys.stdout.buffer.write(token.read_bytes())
 elif 'mkdir -p' in command and 'read -r d' in command:
     folder = pathlib.Path(sys.stdin.readline().strip())
     assert str(folder).startswith(home + '/')

@@ -123,7 +123,7 @@ export function CustomizeDoctorView({
   refusal = null,
   said = null,
   reveal = false,
-  treatment = "chip",
+  treatment = "inline",
   actions,
 }: {
   report: DoctorReport;
@@ -341,11 +341,11 @@ function DoctorConfirm({
   );
 }
 
-/** The one-line notice: the CLI's `line`, Review that opens the card, and Recover… while the report
- * has a way back (it opens the card with Recover's question, so it is still asked first). `chip`: a
- * dot and the line on one small button (the app-health footer's look); `banner`: a warning Notice
- * across the top of the Settings column; `inline`: the count and the line in the card's header
- * (already at the card, whose own Recover… is beside it). Draws nothing while `line` is null. */
+/** The one-line notice: the CLI's `line`, with Review that opens the card and Recover… while the
+ * report has a way back (it opens the card with Recover's question, so it is still asked first).
+ * `banner`: a warning Notice across the top of the Settings column; `inline`: the count and the line
+ * in the card's header (already at the card, whose own Recover… is beside it). Draws nothing while
+ * `line` is null. */
 export function DoctorNotice({
   treatment,
   report,
@@ -360,7 +360,6 @@ export function DoctorNotice({
   const line = report?.line ?? null;
   const count = openFindings(report).length;
   if (!line || count === 0) return null;
-  const warning = openFindings(report).some((finding) => finding.level === "warning");
   const recover = report?.recover ? onRecover : undefined;
   if (treatment === "banner") {
     const actions: NoticeAction[] = [
@@ -373,50 +372,23 @@ export function DoctorNotice({
       </div>
     );
   }
-  if (treatment === "inline")
-    return (
-      <div className="doctor-inline" data-doctor-notice="inline">
-        <span className="doctor-count" data-count={count}>
-          {count}
-        </span>
-        <span className="row-help doctor-line">{line}</span>
-      </div>
-    );
   return (
-    <div className="doctor-chip" data-doctor-notice="chip">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="doctor-chip-open"
-        aria-label={`${line}. ${t("settingsPage.customizeDoctor.review")}`}
-        data-doctor-action="review"
-        onClick={onReview}
-      >
-        <span className="doctor-dot" data-level={warning ? "warning" : "info"} aria-hidden="true" />
-        <span className="doctor-line">{line}</span>
-      </Button>
-      {recover && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="doctor-chip-recover"
-          data-doctor-action="recover"
-          onClick={recover}
-        >
-          {t("settingsPage.customizeDoctor.recover")}
-        </Button>
-      )}
+    <div className="doctor-inline" data-doctor-notice="inline">
+      <span className="doctor-count" data-count={count}>
+        {count}
+      </span>
+      <span className="row-help doctor-line">{line}</span>
     </div>
   );
 }
 
 /** The notice where the page draws it (SettingsApp): `place` is the treatment this slot holds, so
  * only the chosen one draws, and another treatment's slot reads nothing. */
-export function DoctorNoticeSlot({ place }: { place: "banner" | "chip" }) {
+export function DoctorNoticeSlot({ place }: { place: "banner" }) {
   return doctorTreatment() === place ? <DoctorNoticeRead place={place} /> : null;
 }
 
-function DoctorNoticeRead({ place }: { place: "banner" | "chip" }) {
+function DoctorNoticeRead({ place }: { place: "banner" }) {
   const store = useStore();
   const router = useSettingsRouter();
   const query = useQuery(doctorQuery(store));
