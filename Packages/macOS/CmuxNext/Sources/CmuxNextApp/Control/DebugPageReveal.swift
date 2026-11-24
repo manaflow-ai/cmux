@@ -8,7 +8,8 @@ import CmuxNextSettings
 ///
 /// Actions: `hide` (`NSApp.hide`), `show` (`NSApp.unhideWithoutActivation`), `cover` (an opaque window of this app
 /// ordered over the main window, so it is occluded while the app keeps its windows) and `uncover`, `samples` (the
-/// sampling so far and its summary; it stops the sampler). Every reply carries `occluded` (the window's occlusion
+/// sampling so far and its summary; it stops the sampler), `front` (the main window above every other app's
+/// windows, `orderFrontRegardless`, still without activating: a host whose screen another app's window fills). Every reply carries `occluded` (the window's occlusion
 /// state lacks `.visible`) and `hidden` (`NSApp.isHidden`).
 ///
 /// The summary, `reveal`: the remote layers' context ids when the window left the screen, when it was visible again,
@@ -52,6 +53,8 @@ enum DebugPageReveal {
             sampler?.mark(action)
             cover?.orderOut(nil)
             cover = nil
+        case "front":
+            window.orderFrontRegardless()
         case "samples":
             let result = sampler?.report() ?? .null
             sampler?.stop()
