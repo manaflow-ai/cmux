@@ -35,19 +35,8 @@ pub(super) async fn run(
     let host = field(&machine, "host").as_str().unwrap_or(&args.host).to_owned();
     let mut outcomes = Vec::new();
     for key in ids {
-        let mut o = Outcome {
-            session: key.clone(),
-            name: key.clone(),
-            host: Some(host.clone()),
-            cwd: None,
-            moved: false,
-            there: None,
-            resumed: Ok(false),
-            carried: None,
-            error: None,
-            error_code: None,
-            preflight: preflight::Preflight::default(),
-        };
+        let mut o = Outcome::new(key);
+        o.host = Some(host.clone());
         if let Err(e) = steps(src, key, args, home, &daemon, &host, &mut o).await {
             o.error = Some(format!("{e:#}"));
         }
@@ -63,7 +52,8 @@ pub(super) async fn run(
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "via": "hub",
-                       "there": o.there, "error": o.error})
+                       "there": o.there, "targetSessionId": o.there,
+                       "error": o.error})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -211,6 +201,7 @@ async fn precopy(src: &Client, id: &str, daemon: &str) -> Option<Staged> {
         prepare_id: field(&staged, "prepareId").as_str()?.to_owned(),
         after_seq: field(&staged, "afterSeq").as_u64()?,
         stage_id: field(&staged, "stageId").as_str()?.to_owned(),
+        history_later: false,
     })
 }
 
@@ -229,13 +220,11 @@ impl Moving<'_> {
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
-        let begun = match t::begin_move(src, &id, Some(to.clone()), running, None, staged).await {
-            // The target's copy diverged from what was staged: send the whole chat.
-            Err(e) if staged.is_some() && t::refused_diverged(&e) => {
-                t::begin_move(src, &id, Some(to), running, None, None).await?
-            }
-            begun => begun?,
-        };
+        // The hub carries the move: this end is the source's daemon here, asked on one
+        // connection. A staged prefix the source no longer holds as staged is sent whole
+        // (`begin_staged`).
+        let src_end = &mut MoveEnd::new("source", src, None);
+        let begun = t::begin_staged(src_end, &id, Some(to), running, staged, None).await?;
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -272,7 +261,7 @@ impl Moving<'_> {
         let sent = match made {
             Ok(sent) => sent,
             Err(e) => {
-                super::super::transfer::abort_move(src, &id, &begun).await;
+                super::super::transfer::abort_move(src_end, &id, &begun).await;
                 return Err(e);
             }
         };
@@ -282,7 +271,7 @@ impl Moving<'_> {
                 let data =
                     e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
                 if data.as_ref().is_some_and(|d| d["refused"] == true) {
-                    super::super::transfer::abort_move(src, &id, &begun).await;
+                    super::super::transfer::abort_move(src_end, &id, &begun).await;
                     return Err(e);
                 }
                 bail!(

@@ -128,20 +128,24 @@ impl Composers {
     /// dropped, never the move.
     pub(in crate::hub) fn restore(&mut self, v: &Value) {
         let list = |key: &str| v.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+        // The other machine's `order` only ranks the carried drafts among themselves: each gets
+        // this chat's next number in that rank, so a bundle naming `u64::MAX` cannot leave the
+        // counter where the next keystroke overflows it.
+        let mut carried = Vec::new();
         for d in list("drafts") {
             let Ok(Some(surface)) = self::surface(d.get("surface")) else { continue };
             let Some(text) = d.get("text").and_then(Value::as_str) else { continue };
             if text.trim().is_empty() {
                 continue;
             }
-            let order = d.get("order").and_then(Value::as_u64).unwrap_or(0);
-            self.typed = self.typed.max(order);
-            let draft = Draft {
-                surface: surface.clone(),
-                text: text.to_owned(),
-                updated_at: d.get("updatedAt").and_then(Value::as_u64).unwrap_or_else(now_ms),
-                order,
-            };
+            let rank = d.get("order").and_then(Value::as_u64).unwrap_or(0);
+            let updated_at = d.get("updatedAt").and_then(Value::as_u64).unwrap_or_else(now_ms);
+            carried.push((rank, surface, text.to_owned(), updated_at));
+        }
+        carried.sort_by_key(|(rank, ..)| *rank);
+        for (_, surface, text, updated_at) in carried {
+            self.typed = self.typed.saturating_add(1);
+            let draft = Draft { surface: surface.clone(), text, updated_at, order: self.typed };
             self.drafts.insert(surface.id, draft);
         }
         for s in list("sent") {
@@ -213,7 +217,7 @@ impl Hub {
             let mut c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
             let before = c.drafts.get(&surface.id).map(|d| d.surface.clone());
             if composing {
-                c.typed += 1;
+                c.typed = c.typed.saturating_add(1);
                 let draft = Draft {
                     surface: surface.clone(),
                     text: text.to_owned(),
@@ -348,5 +352,16 @@ mod tests {
         assert_eq!(back.typed, 2, "the next draft typed here orders after the carried ones");
         assert_eq!(back.sent_by("p-1"), Some(&phone));
         assert_eq!(back.sent.len(), 1);
+    }
+
+    #[test]
+    fn a_bundles_draft_order_only_ranks_the_drafts_it_carries() {
+        let draft = |id: &str, order: u64| json!({"surface": {"id": id, "name": id}, "text": "t", "order": order});
+        let bundled = json!({"drafts": [draft("late", u64::MAX), draft("early", 3)]});
+        let mut back = Composers { typed: 5, ..Composers::default() };
+        back.restore(&bundled);
+        assert_eq!(back.drafts["early"].order, 6, "numbered on from this chat's own count");
+        assert_eq!(back.drafts["late"].order, 7, "in the order the other machine typed them");
+        assert_eq!(back.typed, 7, "the next keystroke has a number left to take");
     }
 }
