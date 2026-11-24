@@ -529,28 +529,32 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   other party's socket is joined), then `{"type":"peer","online":bool}` when
   it joins or leaves, or at most every 5 s while frames find it absent. A
   client's `ping` is answered `pong` without waking the object.
-- **Relay ticket request (`relay_ticket`):** a signaling frame
-  `{"type":"relay_ticket","sessionId":S,"to":MAC}`, sent by a phone that offered
-  `relay: "first"` as its dial starts, before `wg-init`. The service binds the
-  session like a first signal and answers `{"type":"relay_ticket","sessionId":S,
-  "relayTicket":T}`: the phone's own ticket, the one it otherwise gets stamped on
-  the Mac's `wg-resp`. The phone joins the relay with it at once, two round trips
-  sooner. The Mac is unchanged (its ticket still comes on `wg-init`). Versioning:
-  an older Worker refuses the frame with `bad_request "unknown frame type"`; the
-  phone swallows that refusal, never asks again on that connection, and takes the
-  ticket from `wg-resp` as before. An older phone never sends it; an older Mac
-  (no `first`) does not join early, and a phone dialing it keeps the 3 s rule and
-  drops its early join. The pending handshake initiation sent on a join that finds
-  the Mac absent goes again the moment the relay reports the peer (`joined`
-  `peer:true`), not at the 250 ms repeat.
+- **Early join (`wg-relay` before `wg-init`):** a phone that offers `relay:
+  "first"` sends `wg-relay` (an ordinary signal, nothing else in it) as its
+  dial starts, before the gather that `wg-init` waits for. Being the
+  session's first admitted signal, it binds the session, so both devices can
+  join the relay with the Bearer token alone, before either has sent
+  `wg-init` / `wg-resp`: the phone joins right after sending it, and a Mac
+  that offers `first` opens the session on it and joins at once, then waits
+  for the `wg-init`. No ticket and no new frame are involved (a join presents
+  a relay ticket only if a service ever stamps one). A join that finds the
+  peer absent sends its pending handshake initiation again the moment the
+  relay reports the peer (`joined` `peer:true`), not at the 250 ms repeat. A
+  cue no `wg-init` follows within the dial timeout ends the Mac's session
+  quietly: no `bye` (it could end something the phone still holds).
+  Versioning: an older Mac drops a signal of a session it has not seen, so
+  the cue is lost quietly; it answers `relay: "ready"`, keeps the 3 s rule,
+  and the phone lets its early join go unused. An older phone never sends the
+  cue, and a new Mac joins on its `wg-init` as before. With relay first off on
+  either side, the phone sends no cue or the Mac drops it as an older Mac does.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); as the dial starts when both said `"first"` (the
-  Mac on the phone's `wg-init`, the phone as its tunnel starts on the
-  Mac's `wg-resp`, beside the direct race and TURN; the phone's pending
+  path (`relay: "now"`); as the dial starts when both said `"first"` (both
+  on the phone's early `wg-relay` above; else the Mac on the phone's
+  `wg-init`, the phone as its tunnel starts on the Mac's `wg-resp`; beside the direct race and TURN; the phone's pending
   handshake initiation goes through the relay as it joins, the same
-  message, so a direct answer in flight still completes it; neither asks
-  the other with `wg-relay`, and a join that finds the peer already heard
+  message, so a direct answer in flight still completes it; apart from the
+  early cue neither asks the other with `wg-relay`, and a join that finds the peer already heard
   is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
