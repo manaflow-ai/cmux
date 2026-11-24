@@ -140,11 +140,15 @@ describe("send-slot-transitions-complete", () => {
     expect(morphFrom(other, "chat", "stop", at, "stop")).toBeUndefined();
   });
 
-  test("the send's Stop grows in only within GAP_MS of its ↵ leaving", () => {
+  // Stop into an empty slot fades in, the send's own and a turn started elsewhere alike: it shows only
+  // once the turn held (turnPresence.ts, #51225). A Stop that left and comes back is drawn at once.
+  test("Stop grows in from an empty slot; a Stop that left and comes back is drawn at once", () => {
     const at = 10_000;
     const recent: SlotMemory = { scope: "chat", since: 0, left: "return", leftAt: at - GAP_MS + 1 };
     expect(morphFrom(recent, "chat", "stop", at, "stop")?.transition.morph).toBe("enter");
     const late: SlotMemory = { scope: "chat", since: 0, left: "return", leftAt: at - GAP_MS - 1 };
-    expect(morphFrom(late, "chat", "stop", at, "stop")).toBeUndefined();
+    expect(morphFrom(late, "chat", "stop", at, "stop")?.transition.morph).toBe("enter");
+    const back: SlotMemory = { scope: "chat", since: 0, left: "stop", leftAt: at - 50 };
+    expect(morphFrom(back, "chat", "stop", at, "stop")).toBeUndefined();
   });
 });
