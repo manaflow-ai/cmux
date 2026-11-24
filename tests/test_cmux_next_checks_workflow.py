@@ -1856,15 +1856,10 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = one_runs_on(cargo)
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
-        self.assertTrue(runs_on.endswith(
-            "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-            "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-        ), runs_on)
-        route_without_pools = re.sub(
-            r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
-        )
-        self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
+        # Its RUNNER_POOLS.linux_8 read is frozen to the label it resolved to (scripts/ci/one_linux_label.py),
+        # and no variable picks the route.
+        self.assertIn("|| 'cmux-fleet-linux-x64' }}", runs_on)
+        self.assertNotIn("vars.", runs_on, "no variable picks the cargo job's runner")
         # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
         # The cargo route goes before the label guard, which stays last
