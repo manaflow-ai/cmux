@@ -79,9 +79,9 @@ struct Pending {
     nonce: Option<String>,
     /// [`CardKind::one_line`].
     one_line: Option<usize>,
-    /// A secret card's reason, the purpose a kept key gets; None for a card that never keeps
-    /// (a sudo password).
-    keep_purpose: Option<String>,
+    /// A secret card's name and reason: the one key its value may be kept as, and the purpose
+    /// that key gets; None for a card that never keeps (a sudo password).
+    keep_as: Option<(String, String)>,
     /// The key the person kept the value as ([`Hub::keep_card_value`]).
     kept: Option<String>,
     /// [`CardKind::wait`].
@@ -283,13 +283,14 @@ impl Hub {
             let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
             // Dropping the old card's reply answers its asker `cancelled`.
             pending.retain(|_, p| p.session != session.id);
-            let keep_purpose = (kind.request == CARD_SECRET.request)
-                .then(|| card.get("reason").and_then(Value::as_str).unwrap_or_default().to_owned());
+            let text = |field: &str| card.get(field).and_then(Value::as_str).unwrap_or_default();
+            let keep_as = (kind.request == CARD_SECRET.request)
+                .then(|| (text("name").to_owned(), text("reason").to_owned()));
             let card = Pending {
                 session: session.id.clone(),
                 nonce: nonce.clone(),
                 one_line: kind.one_line,
-                keep_purpose,
+                keep_as,
                 kept: None,
                 wait: kind.wait,
                 reply: tx,
@@ -517,8 +518,8 @@ impl Hub {
         }
     }
 
-    /// Whether open card `secret_id` may keep its value as key `key`, and the purpose the key
-    /// gets: checked before an answer spends anything.
+    /// Whether open card `secret_id` may keep its value as key `key` (only the card's own name),
+    /// and the purpose the key gets: checked before an answer spends anything.
     pub fn check_keep(
         &self,
         session: &Session,
@@ -532,9 +533,13 @@ impl Hub {
         }
         let map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
         match map.get(secret_id) {
-            Some(p) if p.session == session.id => p.keep_purpose.clone().ok_or_else(|| {
-                RpcError::invalid_params("this card's value is never kept as a key")
-            }),
+            Some(p) if p.session == session.id => match &p.keep_as {
+                Some((name, purpose)) if name == key => Ok(purpose.clone()),
+                Some((name, _)) => Err(RpcError::invalid_params(format!(
+                    "this card's value is kept only as key {name}"
+                ))),
+                None => Err(RpcError::invalid_params("this card's value is never kept as a key")),
+            },
             _ => Err(RpcError::invalid_params("no secret request with that id in this chat")),
         }
     }

@@ -297,6 +297,11 @@ async fn secrets_keep_as_key_saves_the_value_into_the_key_store() {
     // A name the key store does not take is refused before anything is kept.
     let bad = person.request("_acpmux/secret_submit", answer("not a key")).await;
     assert!(bad.is_err(), "{bad:?}");
+    // The card keeps only as its own name: an answer cannot overwrite another key.
+    let other = person.request("_acpmux/secret_submit", answer("GITHUB_TOKEN")).await;
+    let error = other.expect_err("the card kept its value under another key");
+    assert!(error.contains("only as key STRIPE_API_KEY"), "{error}");
+    assert!(keys.kept.lock().unwrap().is_empty());
     // keepAs keeps the value it comes with: a decline keeps nothing.
     let bare = person
         .request(
