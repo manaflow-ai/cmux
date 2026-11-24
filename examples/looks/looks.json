@@ -38,6 +38,24 @@
       "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
     },
     {
+      "id": "workbench",
+      "addon": "workbench",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "hearth",
+      "addon": "hearth",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "halo",
+      "addon": "halo",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
       "id": "grid",
       "addon": "grid",
       "builtIn": null,
