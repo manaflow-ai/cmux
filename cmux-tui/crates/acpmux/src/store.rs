@@ -3160,6 +3160,8 @@ fn is_zero(v: &u64) -> bool {
 
 #[cfg(test)]
 mod head_tests;
+#[cfg(test)]
+mod no_rolling_summary_tests;
 
 #[cfg(all(test, unix))]
 mod journal_meta_tests;
