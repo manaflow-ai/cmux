@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b59b1ae4979ff96e9183184e08895382d51ea8f667fbbd75146d978e4cf8f036";
+pub const ir_sha256 = "c62b97e65b9dbc498226315e359eae940883b946ca0a4aa815981a0e81599ba5";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -10482,6 +10482,43 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
     );
 }
 
+pub const TerminalFindRequest = struct {
+    /// Marker the page ends above (exclusive): the previous page's next_before.
+    before: wire.Field(u64) = .absent,
+    case_sensitive: ?bool = null,
+    /// The previous page's epoch; a different one restarts at the bottom.
+    epoch: wire.Field(u64) = .absent,
+    max_matches: wire.Field(u64) = .absent,
+    page_rows: wire.Field(u64) = .absent,
+    /// Empty matches nothing.
+    query: []const u8,
+    /// query is a Rust regex pattern, not a literal.
+    regex: ?bool = null,
+    surface: Id,
+    whole_word: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "case_sensitive",
+        "regex",
+        "whole_word",
+    };
+};
+
+pub const TerminalFindResult = JsonValue;
+
+pub fn terminalFind(client: anytype, request: TerminalFindRequest) !wire.Decoded(TerminalFindResult) {
+    return client.callTyped(
+        TerminalFindResult,
+        .{
+            .name = "terminal-find",
+            .authority = "control",
+            .since = 7,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const TerminalHistoryRequest = struct {
     before: wire.Field(u64) = .absent,
     marker_epoch: u64,
@@ -12904,7 +12941,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 311;
+pub const command_count: usize = 312;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13187,6 +13224,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-command-context", .authority = "control", .since = 12, .capability = "terminal-command-context-v1", .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "terminal-find", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },
     .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },

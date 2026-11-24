@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b59b1ae4979ff96e9183184e08895382d51ea8f667fbbd75146d978e4cf8f036. */
+/* cmux-tui mux protocol 12, IR c62b97e65b9dbc498226315e359eae940883b946ca0a4aa815981a0e81599ba5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b59b1ae4979ff96e9183184e08895382d51ea8f667fbbd75146d978e4cf8f036" as const;
+export const SDK_IR_SHA256 = "c62b97e65b9dbc498226315e359eae940883b946ca0a4aa815981a0e81599ba5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3702,6 +3702,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Consumers apply only contiguous revisions for one registry_id and generation."
+    ]
+  },
+  "terminal-find": {
+    "authority": "control",
+    "since": 7,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "PTY surfaces only; matches newest first, named by history marker (spec/commands.md terminal-find)."
     ]
   },
   "terminal-history": {
@@ -30645,6 +30655,100 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalEventsResult"
+    }
+  },
+  "terminal-find": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before": {
+          "description": "Marker the page ends above (exclusive): the previous page's next_before.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "case_sensitive": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "epoch": {
+          "description": "The previous page's epoch; a different one restarts at the bottom.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "max_matches": {
+          "constraints": [
+            {
+              "maximum": 10000,
+              "minimum": 1
+            }
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "page_rows": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "query": {
+          "description": "Empty matches nothing.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "regex": {
+          "description": "query is a Rust regex pattern, not a literal.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "whole_word": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "terminal-history": {
