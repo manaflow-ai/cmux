@@ -153,7 +153,7 @@ static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
                 .map(std::os::unix::ffi::OsStringExt::from_vec)
                 .collect()
         };
-        enter(super::HERMETIC, args);
+        enter(crate::HERMETIC, args);
     }
     init
 };
@@ -163,7 +163,7 @@ static ENTER_HERMETIC: extern "C" fn(i32, *const *const std::ffi::c_char) = {
 /// files that run a hub in process compile there but run with the host
 /// environment. The constant is still required.
 #[cfg(windows)]
-const _: Process = super::HERMETIC;
+const _: Process = crate::HERMETIC;
 
 /// Starts this process again (same pid, same arguments) with the hermetic
 /// environment, unless it already runs with it.

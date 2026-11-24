@@ -106,7 +106,7 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         binary,
         "unsafe(link_section = \".init_array\")",
         "unsafe(link_section = \"__DATA,__mod_init_func\")",
-        "enter(super::HERMETIC, args)",
+        "enter(crate::HERMETIC, args)",
     ] {
         assert!(helper.contains(needle), "tests/{HELPER} lost `{needle}`");
     }

@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "tmux for ACP agents: a headless session multiplexer daemon and CLI (its TUI: feature `tui`)"
 license.workspace = true
 publish.workspace = true
+# All ordinary integration tests share one harness so Cargo links acpmux once.
+autotests = false
 readme = "README.md"
 repository = "https://github.com/manaflow-ai/cmux"
 homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/crates/acpmux"
@@ -290,6 +292,10 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 [target.'cfg(unix)'.dev-dependencies]
 # The share host's device channel test seals a relay secret as a viewer does (`share_host/tests.rs`).
 hpke = { version = "0.13", default-features = false, features = ["alloc", "p256"] }
+
+[[test]]
+name = "acpmux_all"
+path = "tests/acpmux_all.rs"
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]
