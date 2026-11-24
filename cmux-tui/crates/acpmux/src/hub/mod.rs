@@ -1237,6 +1237,11 @@ pub struct Hub {
     /// (`cold_segments.rs`).
     pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_sealed_wake: Arc<Notify>,
+    /// Chats whose log grew past another 4 MiB since the pack worker last looked, its wake, and
+    /// the log stamp each chat's pack was last checked against (`pack_as_it_grows.rs`).
+    pub(super) pack_grown: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) pack_grown_wake: Arc<Notify>,
+    pub(super) pack_checked: StdMutex<HashMap<String, u64>>,
     /// Tests: the level the cold segments' worker moves at, in place of the settings file's.
     #[cfg(test)]
     pub(super) cold_segments_level: StdMutex<Option<Option<i32>>>,
@@ -1743,6 +1748,9 @@ impl Hub {
             cold_wake: Arc::new(Notify::new()),
             cold_sealed: Default::default(),
             cold_sealed_wake: Arc::new(Notify::new()),
+            pack_grown: Default::default(),
+            pack_grown_wake: Arc::new(Notify::new()),
+            pack_checked: Default::default(),
             #[cfg(test)]
             cold_segments_level: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
