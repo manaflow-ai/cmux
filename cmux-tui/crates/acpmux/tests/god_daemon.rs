@@ -1315,10 +1315,12 @@ async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
 /// with the function and its file and line.
 /// With line tables, a generic frame (`poll<acpmux::...>`, `call_mut<...>`) names acpmux in its
 /// type and a std file as its place: only a frame whose file is under `acpmux/src/` is acpmux's.
-/// The site is the first three such frames, innermost first.
+/// The site is the first three such frames, innermost first (`ACPMUX_GOD_DHAT_FRAMES` more).
 fn acpmux_frame(frames: &[&str]) -> String {
+    let depth =
+        std::env::var("ACPMUX_GOD_DHAT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let own: Vec<String> =
-        frames.iter().filter(|f| own_file(f)).take(3).map(|f| place(f)).collect();
+        frames.iter().filter(|f| own_file(f)).take(depth).map(|f| place(f)).collect();
     if own.is_empty() {
         return frames.get(1).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
     }
