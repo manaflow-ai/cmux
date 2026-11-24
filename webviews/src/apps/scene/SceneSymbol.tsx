@@ -1,6 +1,7 @@
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
+import type { IconPack } from "../../agent-session/acpmux/icons/types";
 import { sceneText } from "./sceneStyle";
 import { symbolLayerPaint } from "./sceneSymbolRendering";
 
@@ -60,10 +61,35 @@ const SYMBOLS: Record<string, string> = {
   "arrow.clockwise": "action.reload",
 };
 
+/** The pack has a sun, a crescent and a cloud but no compound weather glyphs, so a weather SF name
+ * draws its nearest one: the stand-in's pack name and the SF name its layers paint as (a sun is
+ * yellow in multicolor; a cloud standing in for `cloud.sun.rain.fill` keeps the tint, since the rain
+ * and sun layers it would color are not drawn). */
+const SUN = ["appearance.light", "sun.max"] as const;
+const MOON = ["appearance.dark", "moon"] as const;
+const CLOUD = ["cloud", "cloud"] as const;
+const WEATHER_CLOUD =
+  /^cloud(\.(sun|moon))?(\.(rain|drizzle|heavyrain|bolt|bolt\.rain|hail|sleet|snow|fog))?(\.fill)?$/;
+
+function weatherStandIn(name: string): readonly [string, string] | undefined {
+  if (/^(sun\.(max|min)|sunrise|sunset)(\.fill)?$/.test(name)) return SUN;
+  if (/^moon(\.stars)?(\.fill)?$/.test(name)) return MOON;
+  if (WEATHER_CLOUD.test(name)) return CLOUD;
+  return undefined;
+}
+
+/** `value`'s glyph in `icons` and the SF name its layer paint keys on (sceneSymbolRendering.ts). */
+export function resolveSceneSymbol(icons: IconPack["icons"], value: string): { name: string; paintAs: string } {
+  if (Object.hasOwn(icons, value)) return { name: value, paintAs: value };
+  const mapped = SYMBOLS[value];
+  if (mapped && Object.hasOwn(icons, mapped)) return { name: mapped, paintAs: value };
+  const standIn = weatherStandIn(value);
+  if (standIn && Object.hasOwn(icons, standIn[0])) return { name: standIn[0], paintAs: standIn[1] };
+  return { name: MISSING_ICON, paintAs: value };
+}
+
 export function appSceneIcon(value: unknown): string {
-  const name = sceneText(value);
-  const mapped = Object.hasOwn(bundledIconPack.icons, name) ? name : SYMBOLS[name];
-  return mapped && Object.hasOwn(bundledIconPack.icons, mapped) ? mapped : MISSING_ICON;
+  return resolveSceneSymbol(bundledIconPack.icons, sceneText(value)).name;
 }
 
 /** Unknown SF names deliberately draw a neutral fallback without an icon-pack warning. `rendering`
@@ -85,9 +111,7 @@ export function SceneSymbol({
   palette?: unknown;
 }) {
   const { pack } = useIcons();
-  const value = sceneText(symbol);
-  const mapped = Object.hasOwn(pack.icons, value) ? value : SYMBOLS[value];
-  const name = mapped && Object.hasOwn(pack.icons, mapped) ? mapped : MISSING_ICON;
-  const layerPaint = name === MISSING_ICON ? undefined : symbolLayerPaint(value, rendering, palette);
+  const { name, paintAs } = resolveSceneSymbol(pack.icons, sceneText(symbol));
+  const layerPaint = name === MISSING_ICON ? undefined : symbolLayerPaint(paintAs, rendering, palette);
   return <Icon name={name} size={size} row fit color={color} className={className} layerPaint={layerPaint} />;
 }

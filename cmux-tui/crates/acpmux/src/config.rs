@@ -76,7 +76,34 @@ pub fn panic_log_path() -> std::path::PathBuf {
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    default_home_in(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+    resolve_supervised_home(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// `<account_home>/.acpmux`, or the real directory it links to when it is a symlink to the
+/// person's own supervised home (`<account_home>/.acpmux-supervised/<name>`, what a supervised
+/// daemon's `ACPMUX_HOME` names). The private-state directory opens with O_NOFOLLOW and the
+/// consent check refuses redirection, so both must see the real path. A link anywhere else is
+/// returned unresolved and keeps being refused.
+pub fn resolve_supervised_home(account_home: &Path) -> PathBuf {
+    let link = default_home_in(account_home);
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    if !is_link(&link) {
+        return link;
+    }
+    let supervised = account_home.join(".acpmux-supervised");
+    if is_link(&supervised) {
+        return link;
+    }
+    let (Ok(real), Ok(account)) =
+        (std::fs::canonicalize(&link), std::fs::canonicalize(account_home))
+    else {
+        return link;
+    };
+    if real.parent() == Some(account.join(".acpmux-supervised").as_path()) && real.is_dir() {
+        real
+    } else {
+        link
+    }
 }
 
 /// [`default_home`] for the OS account whose home folder is `account_home`.
@@ -1510,6 +1537,19 @@ pub struct PersonHoldConfig {
     pub ms: Option<u64>,
 }
 
+/// `pageRule` (`hub/inbox_page_rule.rs`): the coordinator list. Another agent's message to one of
+/// these chats starts a turn only when it is a page (a block or question from a session, a
+/// first-seen FIRE or program block, a message from or tagged for the person); the rest waits
+/// for the next notice, at most `inbox.rs` `FLUSH_MS`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRuleConfig {
+    /// The chats, by name (`NAME`, or `HOST/NAME` as fleet-registry.json `coordinators` writes
+    /// them), that only a page wakes.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1612,6 +1652,10 @@ pub struct Config {
     /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub person_hold: Option<PersonHoldConfig>,
+    /// `pageRule`: the coordinator chats only a page wakes (`hub/inbox_page_rule.rs`). Unset:
+    /// none, every chat wakes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_rule: Option<PageRuleConfig>,
     /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
     /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
     #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
@@ -1973,7 +2017,7 @@ pub use nested_env::{
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
-pub(crate) use launchers::{which, which_in};
+pub(crate) use launchers::{user_program, which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
