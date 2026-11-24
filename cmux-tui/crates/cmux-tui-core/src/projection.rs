@@ -902,9 +902,9 @@ fn mount(
     // first absence, and the next mount tries again.
     if !overlay.pins().is_empty() {
         let pinned = overlay.clone();
-        let _ = std::thread::Builder::new()
-            .name("projection-pins".into())
-            .spawn(move || drop(pinned.hydrate_pins()));
+        let _ = std::thread::Builder::new().name("projection-pins".into()).spawn(move || {
+            let _ = pinned.hydrate_pins();
+        });
     }
     let projected = Arc::new(Projected {
         link,
@@ -920,7 +920,7 @@ fn mount(
     // until Bring Back reads the machine's repository after a swap.
     if std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
         let swapping = projected.clone();
-        let (overlay, at, state) = (overlay.clone(), at.to_path_buf(), state.to_path_buf());
+        let (at, state) = (at.to_path_buf(), state.to_path_buf());
         let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {
             let forget =
                 || match swapping.mounted.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
@@ -930,7 +930,7 @@ fn mount(
             match cmux_projection::git_swap::run(&overlay, &forget, &at, &state) {
                 Ok(outcome) => eprintln!("cmux projection: {} .git: {outcome:?}", at.display()),
                 Err(error) => {
-                    eprintln!("cmux projection: {} .git stays projected: {error:#}", at.display())
+                    eprintln!("cmux projection: {} .git stays projected: {error:#}", at.display());
                 }
             }
         });
