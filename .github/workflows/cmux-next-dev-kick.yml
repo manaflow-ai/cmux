@@ -34,7 +34,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main
+        run: |
+          # The kick only shortens the wait for cmux-next-dev-daily-dispatch.yml's own cron. When the installation's REST quota is
+          # spent (HTTP 403 "API rate limit exceeded", 2026-11-24 09:53Z), the cron still reaches the tip, so a
+          # spent quota is a warning, not a red base; any other error still fails the job.
+          if out=$(gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main 2>&1); then
+            printf '%s\n' "$out"
+          elif grep -qiE 'rate limit|HTTP 429' <<<"$out"; then
+            printf '%s\n' "$out"
+            echo "::warning title=DEV kick skipped::the installation REST quota is spent; cmux-next-dev-daily-dispatch.yml's cron reaches the tip instead"
+          else
+            printf '%s\n' "$out" >&2
+            exit 1
+          fi
       # The nightly-next tick (nightly-next-tick.yml on main) at landing too. It heard of a landing only from its
       # 5-minute cron, or 15-26 min later when cmux-next or cmux-tui artifacts finished (86dc299b, 2026-11-14: landed
       # 04:29:21Z; they finished 04:44 and 04:55). With no sha the tick applies its rolling rule, which starts nothing
@@ -44,4 +56,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh workflow run nightly-next-tick.yml --repo "$GH_REPO" --ref main
+        run: |
+          # The kick only shortens the wait for nightly-next-tick.yml's own cron. When the installation's REST quota is
+          # spent (HTTP 403 "API rate limit exceeded", 2026-11-24 09:53Z), the cron still reaches the tip, so a
+          # spent quota is a warning, not a red base; any other error still fails the job.
+          if out=$(gh workflow run nightly-next-tick.yml --repo "$GH_REPO" --ref main 2>&1); then
+            printf '%s\n' "$out"
+          elif grep -qiE 'rate limit|HTTP 429' <<<"$out"; then
+            printf '%s\n' "$out"
+            echo "::warning title=DEV kick skipped::the installation REST quota is spent; nightly-next-tick.yml's cron reaches the tip instead"
+          else
+            printf '%s\n' "$out" >&2
+            exit 1
+          fi
