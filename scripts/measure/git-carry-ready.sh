@@ -129,7 +129,7 @@ for mode in clone carry; do
     t0=$(now)
     set +e; "run_$mode" "$d"; rc=$?; set -e
     t1=$(now)
-    secs=$(echo "$t1 - $t0" | bc)
+    secs=$(awk -v a="$t0" -v b="$t1" 'BEGIN {printf "%.2f", b - a}')
     if [ $rc -eq 0 ] && check "$d"; then match=yes; else match=no; ok=1; fi
     echo "$mode run=$i rc=$rc ready_s=$secs matches_sender=$match objects_bytes=$(pack_bytes "$d") carry_pack_bytes=$CARRY_BYTES shallow=$([ -f "$d/.git/shallow" ] && echo yes || echo no)"
     times+=("$secs")
