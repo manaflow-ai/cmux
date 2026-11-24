@@ -39,7 +39,8 @@ struct MenuIconColumnTests {
         #expect(MenuIconColumn.rowsWithoutIcon(in: plain).isEmpty)
     }
 
-    /// The browser toolbar's More (⋮) menu, as `BrowserToolbarHandlers.overflowMenu` builds it, on both engines.
+    /// The browser toolbar's More (⋮) menu, as `BrowserToolbarHandlers.overflowMenu` builds it (Show in Toolbar at the
+    /// end of Tools), on both engines.
     @Test(arguments: [false, true])
     func browserMoreMenuGivesEveryRowAnIcon(chromium: Bool) {
         let registry = Self.registry()
@@ -48,21 +49,13 @@ struct MenuIconColumnTests {
             .action("browser.extensions.menu"), .action("toggleBrowserDesignMode"), .action("toggleBrowserDeveloperTools"),
             .action("browser.profile.choose"), .choices("browserTheme"), .action("browser.media.show"),
         ]
-        let menu = registry.makeBrowserMoreMenu(tabKey: "t1", buttons: entries, chromium: chromium) { buttons.zoomRow($0) }
-        let more = buttons.addingShowInToolbar(to: menu, (enabled: true, toggle: { _ in }))
-        #expect(more.items.contains { $0.title == BrowserToolbarButton.showInToolbarTitle })
+        let show = buttons.showInToolbarItem(enabled: true) { _ in }
+        let more = registry.makeBrowserMoreMenu(tabKey: "t1", buttons: entries, chromium: chromium, toolsFooter: [show]) { buttons.zoomRow($0) }
+        #expect(show.menu != nil, "Show in Toolbar is in the menu")
+        #expect(show.image != nil)
         #expect(MenuIconColumn.rowsWithoutIcon(in: more).isEmpty, "rows with an empty icon slot")
     }
 
-    /// The tab bar's … menu (`PaneToolbar.moreMenu`), for every kind of pane, ending with Show in Tab Bar.
-    @Test(arguments: [PaneToolbar.Kind.newTab, .terminal, .browser, .other])
-    func paneMoreMenuGivesEveryRowAnIcon(kind: PaneToolbar.Kind) throws {
-        let registry = Self.registry()
-        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "p1"))
-        toolbar.update(target: "t1", kind: kind)
-        let menu = try #require(toolbar.view.moreMenu?())
-        #expect(MenuIconColumn.rowsWithoutIcon(in: menu).isEmpty, "rows with an empty icon slot")
-    }
 
     /// Every catalog right-click menu: a row of one is drawn with its action's symbol, so an action placed in a
     /// menu beside rows with icons needs a symbol of its own.

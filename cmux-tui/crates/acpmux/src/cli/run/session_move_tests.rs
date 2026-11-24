@@ -77,6 +77,9 @@ fn about_ok(free_gb: Option<u64>) -> RemoteDaemon {
         home: "/home/cmux".into(),
         socket: "/home/cmux/.acpmux/acpmux.sock".into(),
         disk_free: free_gb.map(|g| g * 1_000_000_000),
+        harnesses: None,
+        rate: None,
+        copy_secs: None,
     }
 }
 
@@ -111,6 +114,7 @@ fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
     let w = walk(
         &targets(&order.iter().map(String::as_str).collect::<Vec<_>>()),
         0,
+        "claude",
         |_| 0,
         |t| {
             asked.push(t.name.clone());
@@ -139,7 +143,13 @@ fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
 /// No host answers: no pick, and every host is named with why.
 #[test]
 fn auto_with_no_host_that_answers_picks_none_and_says_why_for_each() {
-    let w = walk(&targets(&["a", "b"]), 0, |_| 0, |t| Err(format!("ssh to {} failed", t.name)));
+    let w = walk(
+        &targets(&["a", "b"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Err(format!("ssh to {} failed", t.name)),
+    );
     assert!(w.pick.is_none());
     let names: Vec<&str> = w.skipped.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
@@ -158,7 +168,9 @@ fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
         _ => None,
     };
     let floor = |_: &str| 10 * gb;
-    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, "claude", floor, |t| {
+        Ok(about_ok(disk(&t.name)))
+    });
     assert_eq!(w.pick.unwrap().name, "roomy");
     assert_eq!(w.skipped[0].0, "tight");
     assert!(
@@ -168,11 +180,13 @@ fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
     );
     assert!(w.unreachable.is_empty() && w.warning.is_none());
 
-    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, "claude", floor, |t| {
+        Ok(about_ok(disk(&t.name)))
+    });
     assert_eq!(w.pick.unwrap().name, "tight", "most free of the short ones");
     assert!(w.warning.unwrap().contains("disk floors only warn"));
 
-    let w = walk(&targets(&["unread"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["unread"]), 3 * gb, "claude", floor, |t| Ok(about_ok(disk(&t.name))));
     assert_eq!(w.pick.unwrap().name, "unread");
 }
 
@@ -365,6 +379,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             dry_run: true,
             resume_there: false,
             from: None,
+            slow_ok: false,
             from_snapshot: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
@@ -459,7 +474,7 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     targets.observer = Some(observer);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        targets.pick(&source, Path::new("/project"), 0),
+        targets.pick(&source, Path::new("/project"), 0, "claude", 0),
     )
     .await
     .expect("local placement answered");
@@ -467,6 +482,87 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     local_server.await.unwrap();
     // Client owns a background reader; stop the fixture rather than wait for that task to close.
     remote_server.abort();
+}
+
+/// A host that lists its harnesses without the chat's is passed over for one that has it, with
+/// why; one that lists none (an older build) is still taken, and its receive decides.
+#[test]
+fn auto_passes_over_a_host_without_the_chats_harness() {
+    let with = |ids: Option<&[&str]>| RemoteDaemon {
+        harnesses: ids.map(|ids| ids.iter().map(|s| (*s).to_owned()).collect()),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["fs-lane", "gcp-lane"]),
+        0,
+        "claude-sr2",
+        |_| 0,
+        |t| {
+            Ok(if t.name == "fs-lane" {
+                with(Some(&["claude"]))
+            } else {
+                with(Some(&["claude", "claude-sr2"]))
+            })
+        },
+    );
+    assert_eq!(w.pick.unwrap().name, "gcp-lane");
+    assert_eq!(w.skipped.len(), 1);
+    assert_eq!(w.skipped[0].0, "fs-lane");
+    assert!(
+        w.skipped[0].1.contains("agent \"claude-sr2\" is not configured there"),
+        "{:?}",
+        w.skipped
+    );
+    assert!(w.unreachable.is_empty(), "a missing harness is not an unreachable host");
+
+    let w = walk(&targets(&["old"]), 0, "claude-sr2", |_| 0, |_| Ok(with(None)));
+    assert_eq!(w.pick.unwrap().name, "old", "a host that lists no harnesses is not refused here");
+}
+
+/// The about script's fourth line is `acpmux harness list --json`: its ids are the harnesses.
+#[test]
+fn about_reads_the_targets_harness_ids() {
+    let out = "/home/cmux\n{\"socket\":\"/home/cmux/.acpmux/acpmux.sock\"}\n1024\n{\"diagnostics\":[],\"harnesses\":[{\"id\":\"claude\"},{\"id\":\"claude-sr2\"}]}\n";
+    let r = parse_about(out).unwrap();
+    assert_eq!(r.disk_free, Some(1024 * 1024));
+    assert_eq!(r.harnesses.as_deref(), Some(&["claude".to_owned(), "claude-sr2".to_owned()][..]));
+    assert!(r.lacks("claude-sr2").is_none());
+    assert!(r.lacks("codex").unwrap().contains("not configured there"));
+    let old = parse_about("/home/cmux\n{\"socket\":\"/s\"}\n1024\n").unwrap();
+    assert!(old.harnesses.is_none() && old.lacks("claude-sr2").is_none());
+}
+
+/// 2026-11-22: a 7 GB chat went to a host reached through a ~96 KB/s relay (about 6 h of copy)
+/// when another took about 1 MB/s. A host whose copy is estimated past `SLOW_COPY` is passed
+/// over, with why, for one that is not; when only slow hosts answer, the fastest is the pick
+/// (the move then refuses it without `--slow-ok`).
+#[test]
+fn auto_passes_over_a_host_whose_copy_takes_hours() {
+    let wire = super::link::wire_bytes(6_800_000_000);
+    let at = |rate: f64| RemoteDaemon {
+        rate: Some(rate),
+        copy_secs: Some(super::link::copy_secs(wire, rate)),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["relayed", "direct"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "relayed" { 96_000.0 } else { 1_000_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "direct");
+    assert_eq!(w.skipped.len(), 1);
+    assert!(w.skipped[0].1.contains("96 KB/s"), "{:?}", w.skipped);
+    let w = walk(
+        &targets(&["slower", "slow"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "slower" { 50_000.0 } else { 96_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "slow");
+    assert!(w.warning.unwrap().contains("slow"));
 }
 
 #[test]
@@ -477,8 +573,8 @@ fn the_run_error_names_each_chat_that_did_not_move_and_why() {
     let mut lost = Outcome::new("s-2");
     lost.name = "optchat".into();
     lost.error = Some("transfer.busy: the running turn did not stop".into());
-    assert_eq!(not_moved(&[moved]), None, "every chat moved");
-    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap();
+    assert!(not_moved(&[moved]).is_none(), "every chat moved");
+    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap().message;
     assert!(why.starts_with("2 of 3 chats did not move: "), "{why}");
     assert!(why.contains("claude-13 (claude-13): a turn is running"), "{why}");
     assert!(why.contains("optchat (s-2): transfer.busy: the running turn did not stop"), "{why}");
@@ -554,6 +650,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         interrupt: false,
         after_turn: true,
         turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
         leave_dirty: false,
         carry_changes: false,
         cwd: Some("/srv/x".into()),
@@ -562,7 +659,8 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         from: None,
         from_snapshot: false,
     };
-    let e = match begin_waiting(&client, "chat", "Chat", None, &args, None).await {
+    let mut src = MoveEnd::new("source", &client, None);
+    let e = match begin_waiting(&mut src, "chat", "Chat", None, &args, None).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
         Err(e) => format!("{e:#}"),
     };
@@ -846,19 +944,19 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    let both = vec!["s1".to_owned(), "s2".to_owned()];
+    let both = vec![("t/s1".to_owned(), "s1".to_owned()), ("t/s2".to_owned(), "s2".to_owned())];
     let started = tokio::time::Instant::now();
     assert_eq!(await_arrival(&client, &both, bound, poll).await, vec![]);
     assert_eq!(started.elapsed(), 3 * poll, "one wait for both, ended when the last arrived");
     // A link that stays down: the wait ends at its bound and says why, per chat.
-    let one = vec!["s1".to_owned()];
+    let one = vec![("t/s1".to_owned(), "s1".to_owned())];
     let late = await_arrival(&client, &one, std::time::Duration::from_secs(1), poll).await;
     assert_eq!(late, vec![("s1".to_owned(), "peer reconnecting".to_owned())]);
     drop(client);
     let asked = server.await.unwrap();
     assert_eq!(
         asked[..4],
-        [json!(["s1", "s2"]), json!(["s1", "s2"]), json!(["s1"]), json!(["s1"])]
+        [json!(["t/s1", "t/s2"]), json!(["t/s1", "t/s2"]), json!(["t/s1"]), json!(["t/s1"])]
     );
     assert!((4 + 4..=4 + 5).contains(&asked.len()), "asked {} times", asked.len());
 
@@ -869,4 +967,122 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
     // Another chat's row says nothing of this one.
     assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
+    assert_eq!(arrived(&json!({"rows": [{"sessionId": "s1", "status": "idle"}]}), "s1"), Ok(()));
+    assert_eq!(
+        arrived(&json!({"rows": [{"sessionId": "s1", "status": "closed"}]}), "s1"),
+        Err("listed here as closed".to_owned())
+    );
+}
+
+fn outcome(name: &str, error: Option<&str>) -> Outcome {
+    Outcome {
+        session: format!("id-{name}"),
+        name: name.into(),
+        host: Some("vm".into()),
+        cwd: None,
+        moved: error.is_none(),
+        there: None,
+        resumed: Ok(false),
+        carried: None,
+        error: error.map(str::to_owned),
+        error_code: None,
+        preflight: preflight::Preflight::default(),
+        arrival_key: None,
+        reachable: None,
+    }
+}
+
+/// A move with a chat that did not move ends with each such chat and why, in the message (text
+/// output) and as `data.failed` in `--json`'s error envelope: it once said only "1 of 1 chats did
+/// not move", the reason nowhere a caller read.
+#[test]
+fn a_chat_that_did_not_move_names_its_reason_in_the_moves_error() {
+    assert!(not_moved(&[outcome("ok", None)]).is_none());
+    let e = not_moved(&[outcome("ok", None), outcome("demo", Some("ssh to vm failed"))]).unwrap();
+    assert!(e.message.starts_with("1 of 2 chats did not move: demo (id-demo): ssh to vm failed"));
+    assert!(e.text().contains("ssh to vm failed"), "text output: {}", e.text());
+    let env = e.envelope();
+    let failed = env
+        .get("error")
+        .and_then(|e| e.get("data"))
+        .and_then(|d| d.get("failed"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(failed.len(), 1, "{env}");
+    let row = failed.first().cloned().unwrap_or_default();
+    assert_eq!(row.get("session").and_then(Value::as_str), Some("id-demo"));
+    assert_eq!(row.get("reason").and_then(Value::as_str), Some("ssh to vm failed"));
+}
+
+/// A chat in a git repository with no remote (dirty) moves: its branches go as a bundle into a
+/// fresh repository at the same path under the target's home, its uncommitted work applied, and
+/// no remote is added on either side. A second move to the same place goes beside it. Before,
+/// every such chat failed with "has no origin remote to push".
+#[cfg(unix)]
+#[test]
+fn a_repo_with_no_remote_moves_as_a_bundle_with_its_changes_and_no_remote() {
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let home = base.path().join("home");
+    let src = home.join("scratch").join("demo");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    git(&src, &["init", "-q"]);
+    std::fs::write(src.join("sub").join("a.txt"), "a").unwrap();
+    git(&src, &["add", "."]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    git(&src, &["branch", "side"]);
+    git(&src, &["tag", "v1"]);
+    // Uncommitted: a change and an untracked file.
+    std::fs::write(src.join("sub").join("a.txt"), "a2").unwrap();
+    std::fs::write(src.join("new.txt"), "n").unwrap();
+    let head = git(&src, &["rev-parse", "HEAD"]);
+
+    let home = home.canonicalize().unwrap();
+    let src = src.canonicalize().unwrap();
+    let c = checkout_of(&src.join("sub")).unwrap().expect("a checkout");
+    assert!(c.origin.is_none() && c.dirty);
+    let target_home = base.path().join("target-home");
+    std::fs::create_dir(&target_home).unwrap();
+    let target_home = target_home.canonicalize().unwrap();
+    let th = target_home.to_string_lossy().into_owned();
+    let folder = plan::plan_folder(&src.join("sub"), &home, Some(&c), &th, true, None).unwrap();
+    let Folder::Bundle { top, branch, subdir, dirty: true } = &folder else {
+        panic!("{folder:?}");
+    };
+    assert_eq!(Path::new(top), target_home.join("scratch/demo"));
+
+    let (commit, bundle) = read_bundle(None, &c.top).unwrap();
+    assert_eq!(commit, head);
+    let read = carry::snapshot(&|script, input| run_here(script, input), &c.top, true).unwrap();
+    carry::check_base(&read, &commit).unwrap();
+    let there = unbundle_folder("", top, branch, subdir, &commit, &bundle).unwrap();
+    assert_eq!(Path::new(&there), target_home.join("scratch/demo/sub"));
+    apply_carry("", &there, &read).unwrap();
+
+    let new = target_home.join("scratch/demo");
+    assert_eq!(git(&new, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&new, &["symbolic-ref", "--short", "HEAD"]), "main");
+    assert_eq!(git(&new, &["for-each-ref", "--format=%(refname)"]).lines().count(), 3);
+    assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2");
+    assert_eq!(std::fs::read_to_string(new.join("new.txt")).unwrap(), "n");
+    assert!(git(&new, &["remote"]).is_empty(), "no remote on the target's repository");
+    assert!(git(&src, &["remote"]).is_empty(), "no remote added to the person's repository");
+    assert_eq!(git(&src, &["rev-parse", "HEAD"]), head, "the source is as it was");
+
+    // The folder is taken now: a second move makes a fresh one beside it, never into it.
+    let again = unbundle_folder("", top, branch, "", &commit, &bundle).unwrap();
+    assert_ne!(Path::new(&again), new.as_path());
+    assert!(again.starts_with(&format!("{top}.moved.")), "{again}");
+    assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2", "untouched");
 }
