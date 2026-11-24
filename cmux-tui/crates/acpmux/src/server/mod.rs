@@ -221,6 +221,9 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// The features its `initialize` listed (`client_features.rs`): a gated notification goes
+    /// to it only once it listed the gate.
+    client_features: client_features::ClientFeatures,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
@@ -2040,6 +2043,7 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        client_features: Default::default(),
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
@@ -2698,13 +2702,22 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
         // stopped it until the next page, so a move during a long turn found a copy without
         // the running turn or the prompts queued behind it.
-        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+        if !sent
+            && rec.seq > 0
+            && conn.origin == Origin::Peer
+            && ev.remote.is_none()
+            && conn.client_features.hears_any(&[client_features::UNSENT_FEATURE])
+        {
             conn.send(&Message::notification(
                 method::MUX_UNSENT,
                 json!({"sessionId": ev.session_id, "seq": rec.seq}),
             ));
         }
-        if message && heard && !repeat {
+        if message
+            && heard
+            && !repeat
+            && conn.client_features.hears_any(&[crate::capabilities::SESSION_MESSAGES])
+        {
             // Routed as the event beside it: a peer's chat id alone may match one here.
             conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
         }
@@ -2858,6 +2871,7 @@ mod cancel_prompt_tests;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
+pub(crate) mod client_features;
 mod client_request;
 pub(crate) mod computer_use_relay;
 #[cfg(test)]
