@@ -108,16 +108,12 @@
       "why": "a bot that repairs mechanical reds by committing on the base"
     },
     "cmux-next-base-tier-kick.yml": {
-      "kind": "check",
-      "why": "starts the base Mac tier, whose Swift tests pull requests run only under full-ci"
+      "kind": "publish",
+      "why": "a scheduler: dispatches the base Mac tier at most every 15 minutes and cancels superseded runs; the checks it starts run on the pull request or in the post-merge batch"
     },
     "cmux-next-chromium-staleness.yml": {
       "kind": "publish",
       "why": "reports how stale the Chromium pin is; no verdict on a change"
-    },
-    "cmux-next-daemon-macos-shadow.yml": {
-      "kind": "check",
-      "why": "the macOS-only daemon tests (Keychain, Seatbelt, idle wakeups) run on the base only"
     },
     "cmux-next-dev-kick.yml": {
       "kind": "publish",
@@ -132,8 +128,8 @@
       "why": "a bot that regenerates files on the base"
     },
     "cmux-next-head-compile.yml": {
-      "kind": "check",
-      "why": "compiles the head the merges make together; each pull request compiles only its own merge with the base it saw"
+      "kind": "publish",
+      "why": "a bot: compiles the merged head, bisects a red one and opens the issue naming the merge; each pull request compiles its own merge commit, and only a post-merge run can see the skew between merges"
     },
     "cmux-next-package-deps-heal.yml": {
       "kind": "publish",
@@ -144,20 +140,20 @@
       "why": "a probe of upstream security advisories that keeps one issue open, not a verdict about the change"
     },
     "cmux-next-tab-switch.yml": {
-      "kind": "check",
-      "why": "advisory tab-switch timing on display Macs runs once per in-scope merge, not per pull request (#48493)"
+      "kind": "publish",
+      "why": "advisory tab-switch timing on exclusive display Macs, GATE_MODE report, never a verdict on a change (#48515); it needs a fleet display Mac no pull request step reaches"
     },
     "cmux-next-web-bundle-publish.yml": {
       "kind": "publish",
       "why": "publishes the web bundle from the base"
     },
     "cmux-next-web-lint.yml": {
-      "kind": "check",
-      "why": "web lint fails here on push; cmux-next-fast-gates.yml re-creates it for pull requests"
+      "kind": "publish",
+      "why": "saves the lint-tool and Bun caches pull requests restore; its hook tests and whole-tree typecheck run on the pull request (ci/steps.toml webviews-typecheck), its lint verdict is cmux-next-fast-gates.yml's"
     },
     "cmux-tui-artifacts.yml": {
-      "kind": "check",
-      "why": "its daemon tests gate the nightly and run only after the branch push, on no pull request trigger"
+      "kind": "publish",
+      "why": "publishes the tree and writes its daemon-tests marker that the feat channel requires; the same cmux_next_ daemon tests run on the pull request (ci/steps.toml cmux-next-daemon-tests)"
     },
     "cmux-tui-headless-debug.yml": {
       "kind": "publish",
@@ -176,8 +172,8 @@
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
     },
     "gateway-e2e.yml": {
-      "kind": "check",
-      "why": "the inference gateway end-to-end run starts on push paths only"
+      "kind": "publish",
+      "why": "a manual trip against the live development backend with its stack credentials, started only by an edit of .github/gateway-e2e/request or a dispatch; a probe of a live system"
     },
     "git-mirror-bundle.yml": {
       "kind": "publish",
@@ -192,8 +188,8 @@
       "why": "deploys the mobile Worker to development"
     },
     "pair-machine-join-check.yml": {
-      "kind": "check",
-      "why": "the pairing join check starts on push paths only"
+      "kind": "publish",
+      "why": "a probe of the live production Workers' secrets and logs with Cloudflare credentials, started by an edit of its own file or a dispatch; no verdict about a change"
     },
     "whats-new-gallery.yml": {
       "kind": "publish",
