@@ -610,6 +610,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserImport = "browser-import-v1"
     /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
     case classicImport = "classic-import-v1"
+    /// Classic offers use a metadata-only probe until the person accepts the import.
+    case classicImportProbe = "classic-import-probe-v1"
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
     /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
     case diffCommentsSend = "diff-comments-send-v1"
@@ -677,7 +679,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks,
+             .browserImport, .classicImport, .classicImportProbe, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks,
              .workspaceOpenURL:
             return .optional
         }

@@ -58,12 +58,13 @@ public nonisolated struct ImportCardDeck: Sendable {
             // Safari has one store, no profiles to count.
             guard finding.browser?.family != .safari else { return kinds }
             return "\(ImportSuggestionStrings.profiles(finding.profiles.count)) · \(kinds)"
-        case .claudeCode: return ImportSuggestionStrings.sessions(finding.count)
-        case .codex: return ImportSuggestionStrings.threads(finding.count)
+        case .claudeCode: return ImportSuggestionStrings.sessions(finding.count ?? 0)
+        case .codex: return ImportSuggestionStrings.threads(finding.count ?? 0)
         case .cmuxClassic:
-            return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(finding.count)
-        case .conductor: return ImportSuggestionStrings.workspaces(finding.count)
-        case .iterm2: return ImportSuggestionStrings.profiles(finding.count)
+            guard let count = finding.count else { return "" }
+            return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(count)
+        case .conductor: return ImportSuggestionStrings.workspaces(finding.count ?? 0)
+        case .iterm2: return ImportSuggestionStrings.profiles(finding.count ?? 0)
         case .ghostty: return ImportSuggestionStrings.inUse
         }
     }

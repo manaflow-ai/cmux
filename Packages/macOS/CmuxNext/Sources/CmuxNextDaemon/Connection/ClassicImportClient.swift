@@ -19,27 +19,34 @@ public struct ClassicImportClient: Sendable {
         self.bundleID = bundleID
     }
 
-    /// `classic_import.plan`: one run's decision (automatic only), source, plan and preview.
-    /// `outline` leaves every terminal's scrollback out (a count or a folder list needs none).
-    public func plan(_ mode: ClassicImportMode, outline: Bool = false) async throws -> ClassicImportReply {
-        var fields: [String: JSONValue] = ["bundle_id": .string(bundleID), "mode": .string(mode.rawValue)]
-        if outline { fields["outline"] = .bool(true) }
-        let params = fields
+    /// The daemon checks known paths and NEXT's ledger without opening Classic's files.
+    public func probe(_ mode: ClassicImportMode) async throws -> ClassicImportReply {
+        try await requestPlan(mode, consented: false)
+    }
+
+    /// Read the saved session and lifecycle state once the person accepts the import.
+    public func planAfterConsent(_ mode: ClassicImportMode) async throws -> ClassicImportReply {
+        try await requestPlan(mode, consented: true)
+    }
+
+    private func requestPlan(_ mode: ClassicImportMode, consented: Bool) async throws -> ClassicImportReply {
+        let params: [String: JSONValue] = ["bundle_id": .string(bundleID), "mode": .string(mode.rawValue), "consented": .bool(consented)]
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "classic_import.plan", params: params, idempotencyKey: nil)
-        }, as: ClassicImportReply.self, requiring: Self.capability)
+        }, as: ClassicImportReply.self, requiring: DaemonCapability.classicImportProbe.rawValue)
     }
 
     /// `classic_import.record`: one ledger step, replayed by its idempotency key.
     @discardableResult
-    public func record(_ event: ClassicImportEvent) async throws -> ClassicImportRecordResult {
+    public func record(_ event: ClassicImportEvent, observed: String? = nil) async throws -> ClassicImportRecordResult {
         var fields: [String: JSONValue] = ["bundle_id": .string(bundleID)]
+        if let observed { fields["observed"] = .string(observed) }
         fields.merge(event.fields) { _, new in new }
         let params = fields
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "classic_import.record", params: params,
                                     idempotencyKey: UUID().uuidString.lowercased())
-        }, as: ResourceMutationResult<ClassicImportRecordResult>.self, requiring: Self.capability).value
+        }, as: ResourceMutationResult<ClassicImportRecordResult>.self, requiring: DaemonCapability.classicImportProbe.rawValue).value
     }
 }
 
@@ -55,8 +62,10 @@ public enum ClassicImportMode: String, Sendable {
 public enum ClassicImportEvent: Sendable {
     /// A launch's first contact with nothing to record.
     case seen
-    /// A launch's first contact while this app was already in use: classic's workspaces recorded as seen, none made.
+    /// First contact while NEXT was already in use. Record only the file metadata stamp.
     case baseline
+    /// The person accepted. Snapshot terminal settings and agent harnesses into NEXT.
+    case settings
     /// The launch's preview was cancelled: later launches stop asking.
     case decline(source: JSONValue?)
     /// A confirmed run starts: the daemon backs up `backups` (classic's files read).
@@ -73,6 +82,7 @@ public enum ClassicImportEvent: Sendable {
         switch self {
         case .seen: fields = ["event": .string("seen")]
         case .baseline: fields = ["event": .string("baseline")]
+        case .settings: fields = ["event": .string("settings")]
         case .decline(let source): fields = ["event": .string("decline"), "source": source ?? .null]
         case .begin(let source, let backups, let keys, let version):
             fields = ["event": .string("begin"), "source": source, "backups": texts(backups), "cloud_vm_keys": texts(keys)]
@@ -103,6 +113,11 @@ public struct ClassicImportRecordResult: Decodable, Sendable {
 public struct ClassicImportReply: Decodable, Sendable {
     /// What the ledger file held: `none` (first contact), `ledger`, `newer`, `unreadable` or `failed`.
     public var ledger: String
+    /// A known Classic input exists. Probing never opens it.
+    public var available: Bool
+    public var observed: String?
+    /// The accepted plan found settings and no saved workspaces.
+    public var settingsOnly: Bool
     /// Whether an automatic run starts; nil for a manual run.
     public var decision: Decision?
     /// The classic save read, echoed back by `begin` and `finish`; `bundleID` and `modifiedAt` name it.
@@ -117,12 +132,15 @@ public struct ClassicImportReply: Decodable, Sendable {
     public var classicRunning: Bool
 
     enum CodingKeys: String, CodingKey {
-        case ledger, decision, source, backups, error, plan, preview, classicRunning = "classic_running"
+        case ledger, available, observed, settingsOnly = "settings_only", decision, source, backups, error, plan, preview, classicRunning = "classic_running"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ledger = try container.decode(String.self, forKey: .ledger)
+        available = try container.decodeIfPresent(Bool.self, forKey: .available) ?? false
+        observed = try container.decodeIfPresent(String.self, forKey: .observed)
+        settingsOnly = try container.decodeIfPresent(Bool.self, forKey: .settingsOnly) ?? false
         decision = try container.decodeIfPresent(Decision.self, forKey: .decision)
         source = try container.decodeIfPresent(JSONValue.self, forKey: .source).flatMap { $0 == .null ? nil : $0 }
         backups = try container.decodeIfPresent([String].self, forKey: .backups) ?? []
@@ -186,7 +204,7 @@ public struct ClassicImportReply: Decodable, Sendable {
 /// What the confirmation shows: the daemon's preview of the exact plan, the classic
 /// app it reads and when that saved, and whether that app is still open.
 public struct ClassicImportPreview: Equatable, Sendable {
-    public var counts: ClassicImportReply.Preview
+    public var counts: ClassicImportReply.Preview?
     /// The classic bundle id whose save this imports.
     public var bundleID: String
     /// When classic saved it (seconds since 1970).
@@ -194,7 +212,7 @@ public struct ClassicImportPreview: Equatable, Sendable {
     /// Whether that classic app is open now: this is its last autosave, not its quit save.
     public var classicRunning: Bool
 
-    public init(counts: ClassicImportReply.Preview, bundleID: String, savedAt: Double, classicRunning: Bool) {
+    public init(counts: ClassicImportReply.Preview?, bundleID: String, savedAt: Double, classicRunning: Bool) {
         self.counts = counts
         self.bundleID = bundleID
         self.savedAt = savedAt
@@ -202,7 +220,7 @@ public struct ClassicImportPreview: Equatable, Sendable {
     }
 
     public init(reply: ClassicImportReply) {
-        self.init(counts: reply.preview ?? ClassicImportReply.Preview(workspaces: reply.plan?.workspaces.count ?? 0),
+        self.init(counts: reply.preview,
                   bundleID: reply.sourceBundleID ?? "com.cmuxterm.app", savedAt: reply.savedAt, classicRunning: reply.classicRunning)
     }
 }
