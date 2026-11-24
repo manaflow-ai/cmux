@@ -66,16 +66,20 @@ export function DensityPreview({ density, rows = 1 }: { density: Density; rows?:
       <div className="density-strip">
         <span className="density-tab" data-on="">
           <span className="density-icon" />
-          zsh
+          <span className="density-text">zsh</span>
         </span>
-        <span className="density-tab">README.md</span>
+        <span className="density-tab">
+          <span className="density-text">README.md</span>
+        </span>
       </div>
       <div className="density-list">
-        <div className="density-item density-group">{names[0]}</div>
+        <div className="density-item density-group">
+          <span className="density-text">{names[0]}</span>
+        </div>
         {names.slice(1, 1 + rows).map((name, index) => (
           <div key={name} className="density-item" data-selected={index === 0 ? "" : undefined}>
             <span className="density-icon" />
-            {name}
+            <span className="density-text">{name}</span>
           </div>
         ))}
       </div>

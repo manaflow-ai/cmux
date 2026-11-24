@@ -2074,6 +2074,16 @@ mark {
   background: var(--accent-soft);
   font-size: var(--density-body);
   white-space: nowrap;
+  /* A tab gives up width before its neighbour is cut off: the label ends in an ellipsis. */
+  min-width: 0;
+}
+
+/* The sample labels grow with the density while the tile does not, so a label that no longer fits
+   ends in an ellipsis instead of being cut mid-letter by the tile's edge. */
+.density-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .density-tab:not([data-on]) {
