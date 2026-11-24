@@ -202,6 +202,8 @@ PATH_OWNERS = {
     # preflight and tesseract tool, and reads the action and its fixtures.
     "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
     "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    # tests/test_ci_pr_media_lint.py (ci) loads the warn-only lint by path.
+    "scripts/ci/pr_media_lint.py": frozenset(("ci",)),
     ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
     ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
     "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),

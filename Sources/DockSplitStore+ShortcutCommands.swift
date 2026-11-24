@@ -24,6 +24,7 @@ enum DockShortcutCommand {
     case focusHistoryBack
     case focusHistoryForward
     case focusHistoryLast
+    case focusHistoryLastSurface
     case triggerFlash
     case renameSurface(presentingWindow: NSWindow?)
     case closeOtherTabsInPane
@@ -99,6 +100,8 @@ extension DockSplitStore {
             return focusHistoryNavigation.navigateForward()
         case .focusHistoryLast:
             return focusHistoryNavigation.navigateToLastFocused()
+        case .focusHistoryLastSurface:
+            return focusHistoryNavigation.navigateToLastFocusedSurface()
         case .triggerFlash:
             guard let focusedPanelId else { return false }
             triggerUserInitiatedFocusFlash(panelId: focusedPanelId)

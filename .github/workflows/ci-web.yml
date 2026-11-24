@@ -146,7 +146,7 @@ jobs:
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 15 # 2026-11-22 run 45078456505 shard 3/4: checkout 2m, Bun download 1.5m, tests 5.3m, cache save 1m; cancelled at 10m with 0 failures
     defaults:
       run:
         working-directory: web

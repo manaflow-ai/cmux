@@ -1669,6 +1669,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_docs_localization.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_workflow_catalog_translation.py"
 lane = "macos-cli-no-socket"
 
@@ -2406,4 +2411,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_api_call_log_bootstrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_select_ios_simulator.py"
 lane = "linux-guard"

@@ -20,10 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 # The watch's own selector: the repair one-job JIT label first (no Blacksmith minutes, and it keeps working while the
 # probed sizes stall), then its own bounded CI_TRUSTED_RUNNER pick: ephemeral labels only, never a probed size.
 REPAIR_LABEL = "cmux-gcp-repair-jit-x64"
+SECRET_JIT_LABEL = "cmux-gcp-secret-jit-x64"
 WATCH_SELECTOR = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
     "vars.CI_REPAIR_SKIP_FLEET != '1' && '" + REPAIR_LABEL + "' || contains(fromJSON('"
-    '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
+    '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'
     "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -263,7 +264,7 @@ class FailoverTests(unittest.TestCase):
         self.assertEqual(values["LINUX_RUNNER"], "blacksmith-32vcpu-ubuntu-2404")
         self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         self.assertEqual(len(problems), 1)
-        # CI_TRUSTED_RUNNER's readers accept only the 2 and 4 vCPU labels.
+        # CI_TRUSTED_RUNNER's readers accept the 2 and 4 vCPU labels and the one-job GCP JIT label.
         values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}))
         self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         self.assertEqual(len(problems), 1)
@@ -271,6 +272,28 @@ class FailoverTests(unittest.TestCase):
         self.assertEqual((values["CI_TRUSTED_RUNNER"], len(problems)), ("blacksmith-2vcpu-ubuntu-2404", 1))
         values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}))
         self.assertEqual((values["CI_TRUSTED_RUNNER"], problems), ("blacksmith-4vcpu-ubuntu-2404", []))
+        values, problems = switch.failover_values(PIN, json.dumps({"CI_TRUSTED_RUNNER": SECRET_JIT_LABEL}))
+        self.assertEqual((values["CI_TRUSTED_RUNNER"], problems), (SECRET_JIT_LABEL, []))
+
+    def test_trusted_runner_on_the_gcp_jit_label_never_follows_probe_health(self) -> None:
+        # Leo, 2026-11-19, on Blacksmith: "stop ... relying on it". No probe asks for the one-job GCP JIT label and
+        # a Blacksmith outage does not stall it: the switch never moves CI_TRUSTED_RUNNER off it, keeps an override
+        # to it, and puts a recorded value of it back whichever Blacksmith sizes started.
+        failover = {"LINUX_RUNNER": switch.LINUX_FAILOVER, "CI_TRUSTED_RUNNER": switch.TRUSTED_FAILOVER}
+        self.assertNotIn("CI_TRUSTED_RUNNER", switch.plan_off({"CI_TRUSTED_RUNNER": SECRET_JIT_LABEL}, failover))
+        kept = switch.toward_started({"CI_TRUSTED_RUNNER": SECRET_JIT_LABEL}, [])
+        self.assertEqual(kept, {"CI_TRUSTED_RUNNER": SECRET_JIT_LABEL})
+        # LINUX_RUNNER is not the trusted variable: the label earns it no pass.
+        self.assertEqual(switch.toward_started({"LINUX_RUNNER": SECRET_JIT_LABEL}, []), {})
+        record = {"changed": {"CI_TRUSTED_RUNNER": {"before": SECRET_JIT_LABEL,
+                                                    "after": "blacksmith-2vcpu-ubuntu-2404"}}}
+        restores = switch.plan_on(record, {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404"},
+                                  ["blacksmith-16vcpu-ubuntu-2404"])
+        self.assertEqual(restores, [switch.Restore("CI_TRUSTED_RUNNER", SECRET_JIT_LABEL)])
+        record = {"changed": {"CI_TRUSTED_RUNNER": {"before": None, "after": SECRET_JIT_LABEL}}}
+        resumes = switch.plan_resume(record, {"CI_TRUSTED_RUNNER": None}, [], failover)
+        self.assertEqual([(item.name, item.value, item.skipped) for item in resumes],
+                         [("CI_TRUSTED_RUNNER", SECRET_JIT_LABEL, "")])
 
     def test_no_pin_leaves_macos_alone(self) -> None:
         values, problems = switch.failover_values("", "")
@@ -1209,7 +1232,7 @@ class WorkflowTests(unittest.TestCase):
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-tick.yml:request", moved)
+        self.assertIn("nightly-next-feed-watch.yml:watch", moved)
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
@@ -1253,7 +1276,7 @@ class RepoVariableCheckTests(unittest.TestCase):
     REFUSED = "glaeda-side-std-xcode-26.6"
 
     def env(self, label: str = REFUSED, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=ubuntu-24.04\n",
+        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
     def test_an_owned_pull_request_pool_is_no_drift_without_the_record(self) -> None:
@@ -1272,6 +1295,8 @@ class RepoVariableCheckTests(unittest.TestCase):
                     "CMUX_CI_XCODE_APP_PR": PIN}
         self.assertTrue(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("blacksmith-16vcpu-ubuntu-2404"))))
         self.assertFalse(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("blacksmith-2vcpu-ubuntu-2404"))))
+        self.assertFalse(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env(SECRET_JIT_LABEL))))
+        self.assertTrue(any("CI_TRUSTED_RUNNER" in p for p in check.problems(env("cmux-gcp-lane-x64"))))
 
     def test_an_owned_label_is_drift_without_the_record(self) -> None:
         self.assertTrue(check.problems(self.env()))
