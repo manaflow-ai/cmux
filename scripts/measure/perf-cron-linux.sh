@@ -85,7 +85,7 @@ case "$part" in
     shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
     [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
     ;;
-  diff-viewer)
+  diff-viewer|daemon-start)
     command -v cargo >/dev/null || ./scripts/install-rust-ci.sh >>"$setup_log" 2>&1 || setup_yield "rust"
     export PATH="$HOME/.cargo/bin:$PATH"
     ;;

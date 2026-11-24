@@ -376,6 +376,10 @@ PARTS = [
     # 15 minutes and this), each home's median restartChatAttachMs (daemon_restart.<shape>_home.chat_attach_ms). No god
     # home reading gives no metric, so the small home never stands in for the worst of both.
     {"name": "daemon-restart", "where": "linux", "kind": "webui", "needs": "daemon-restart"},
+    # Process spawn-to-ready and spawn-to-prompt-accepted from the ignored Rust startup bench. These rows are
+    # report-only because a shared Linux runner's scheduler adds host noise, while their budgets keep the service level
+    # visible in every cron report.
+    {"name": "daemon-start", "where": "linux", "kind": "startup", "needs": "daemon-start"},
     # Coordinator load (scripts/measure/coord-sim-linux.sh, crate cmux-tui/crates/coord-sim): 3 synthetic coordinator
     # chats shaped like the heaviest real ones (histograms only) streamed at 10x into a release acpmux at once, with
     # readers attached: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, a
@@ -426,6 +430,7 @@ ROW_PARTS = [
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
+    (r"^daemon\.(acpmux|cmux_tui)\.", "daemon-start"),
     (r"^webui\.coord_sim\.", "coord-sim"),
     (r"^webui\.chat_search\.", "chat-search"),
     (r"^webui\.", "web-ui"),
@@ -446,7 +451,8 @@ REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.b
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
                                 r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
-                                r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
+                                r"|webui\.chat_search\.(fill|scan_keystroke)\b"
+                                r"|daemon\.(acpmux|cmux_tui)\.)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -460,6 +466,10 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # Terminal key to echo's target p95 (ms): plans/cmux-next/perf-lead.md's "Key to frame (terminal, Home composer,
 # omnibar) p95 < 8 ms", whose proof is bench-typing.py's probe. Under the generic LATENCY_TARGET_MS on purpose.
 TYPING_KEY_TO_ECHO_MS = 8.0
+DAEMON_START_BUDGETS = {
+    "daemon.acpmux.spawn_to_accept_ms": 2000.0,
+    "daemon.cmux_tui.spawn_to_ready_ms": 1000.0,
+}
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
                        "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000,
                        # Before main on a relaunch of the same copy: launch-shell-first.md measured 117 to 166 ms through
@@ -879,6 +889,15 @@ def rows_of_part(part, report, budgets_mod, budgets):
             version = versions.get(bench)
             out[name]["measure_version"] = (version if isinstance(version, int) else DIFF_LEGACY_VERSION) \
                 + 100 * DIFF_LOAD_VERSION
+    elif part["kind"] == "startup":
+        accept = report.get("accept") if isinstance(report.get("accept"), dict) else {}
+        for name, source in (("daemon.acpmux.spawn_to_accept_ms", "acpmux_spawn_to_accept_ms"),
+                             ("daemon.cmux_tui.spawn_to_ready_ms", "cmux_tui_spawn_to_ready_ms")):
+            sample = accept.get(source) if isinstance(accept.get(source), dict) else {}
+            p50, p95 = sample.get("p50_ms"), sample.get("p95_ms")
+            if isinstance(p50, (int, float)) and isinstance(p95, (int, float)):
+                out[name] = {"p50": round(p50, 2), "p95": round(p95, 2), "unit": "ms",
+                             "budget": DAEMON_START_BUDGETS[name], "floor": 20.0}
     elif part["kind"] == "typing":
         out.update(typing_rows(report, budgets_mod))
     elif part["kind"] == "webui":
@@ -1272,6 +1291,16 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "daemon-start":
+        cargo = ["cargo", "test", "-p", "acpmux", "--release"]
+        return {
+            "accept": (cargo + ["--test", "startup_accept_bench", "--", "--ignored", "--nocapture"],
+                       os.path.join(root, "cmux-tui"),
+                       {"ACPMUX_BENCH_GOD_MB": "128", "ACPMUX_BENCH_CHATS": "64", "ACPMUX_BENCH_ROUNDS": "5"}),
+            "load": (cargo + ["--test", "startup_load", "--", "--nocapture"],
+                     os.path.join(root, "cmux-tui"),
+                     {"ACPMUX_STARTUP_BENCH_SESSIONS": "24", "ACPMUX_STARTUP_BENCH_EVENTS": "4000"}),
+        }
     if part == "chat-search":
         script = os.path.join(root, CHAT_SEARCH)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
