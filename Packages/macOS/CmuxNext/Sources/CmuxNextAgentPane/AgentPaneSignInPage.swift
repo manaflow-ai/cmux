@@ -5,7 +5,9 @@ public import Foundation
 /// (`_acpmux/agent_login/start`, which takes the click's gesture), and that same start opens the
 /// page the login names, once, with no second click (``AgentPaneTransport/takeSignInPage(_:)``).
 /// Only a provider's own sign-in page over https may be opened this way: the hosts of acpmux's
-/// `agent_login::parse::ALLOWED_HOSTS` and `CURSOR_HOSTS`, and the page's `SIGN_IN_HOSTS`.
+/// `agent_login::parse::ALLOWED_HOSTS` and `CURSOR_HOSTS`, and the page's `SIGN_IN_HOSTS`, plus
+/// GitHub's device page (``githubDevicePage``) and nothing else on github.com: a Cloud chat's
+/// "Sign in to GitHub" (`_acpmux/account/sign_in`, the page's `accountSignInURL`).
 public struct AgentPaneSignInPage {
     /// The policy for opening a provider's own approval page.
     public init() {}
@@ -37,7 +39,8 @@ public struct AgentPaneSignInPage {
 
     public static func allowed(_ url: URL) -> Bool { Self().allowed(url) }
 
-    /// `url` is a provider sign-in page: https, no user info or port, on ``hosts``.
+    /// `url` is a provider sign-in page: https, no user info or port, on ``hosts``; or exactly
+    /// ``githubDevicePage``, with no query or fragment. `forClaude` allows only Claude's hosts.
     public func allowed(_ url: URL, forClaude: Bool = false) -> Bool {
         guard url.scheme?.lowercased() == "https", url.user == nil, url.password == nil, url.port == nil,
               let host = url.host?.lowercased() else { return false }

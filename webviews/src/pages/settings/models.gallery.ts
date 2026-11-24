@@ -2,6 +2,8 @@
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { GALLERY_NOW } from "../../gallery/clock";
 import { chatgptDeviceError, mockChatGPTDevice, mockModels } from "./mockModels";
+import type { AccountsState } from "./ops";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
@@ -27,6 +29,26 @@ const custom = [
   input('[data-models-endpoint-form] input[type="url"]', "https://inference.example.com/v1"),
   input(secret, "example-key"),
 ];
+// A host that signs in in place: it lists the sign-in accounts (the rest of Settings > Accounts is
+// not on this page).
+const signInHost: AccountsState = {
+  teams: null,
+  refresh: "Refresh",
+  refreshing: false,
+  cmux: {
+    title: "cmux",
+    detail: null,
+    status: "Signed in",
+    statusKind: "success",
+    busy: false,
+    buttons: [],
+    note: null,
+    error: null,
+  },
+  removeTitle: "Remove",
+  groups: [],
+  signInAccounts: [...ACCOUNT_LISTS.signedOut],
+};
 const cloudPlan = mockModels.chatgptForCloud.personal.connections.find((c) => c.kind === "chatgpt-plan")!;
 
 export default settingsPageEntry({
@@ -58,6 +80,19 @@ export default settingsPageEntry({
       ...page,
       models: mockModels.macLogins,
       steps: [click('[data-menu="connection-openrouter-key"]'), click('[data-value="edit"]'), wait(secret)],
+    },
+    // Logins done right (Leo, 2026-11-22): on a host that signs in in place, the Claude login's
+    // Sign In Again opens the card under the row.
+    "claude-sign-in-in-place": {
+      ...page,
+      models: mockModels.macLogins,
+      accounts: signInHost,
+      signInHold: true,
+      steps: [
+        click('[data-menu="connection-claude-login"]'),
+        click('[role="menuitem"][data-value="signInAgain"]'),
+        wait('[data-connection-sign-in="claude-login"] .signin[data-state="waiting"]'),
+      ],
     },
     "mac-only": { ...page, models: mockModels.macOnly },
     "signed-out": { ...page, models: mockModels.signedOut },
