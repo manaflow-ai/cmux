@@ -1220,10 +1220,14 @@ pub async fn timed_allocation(
     candidates.sort_by_key(|server| cmux_braid_carrier::rank(&server.endpoint()));
     let server = candidates.into_iter().next().ok_or_else(|| format!("no TURN server over {transport:?}"))?;
     let address = server.address.clone();
+    // Through the braid carrier, as the ladder opens a TURN rung.
+    let rung = TurnRung::new(transport.carrier_kind(), options).ok_or("not a TURN leg")?;
+    let endpoint = server.endpoint();
     let started = tokio::time::Instant::now();
-    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, TurnCarrier::allocate_on(server, options))
+    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, rung.open(&endpoint))
         .await
-        .map_err(|_| "TURN allocation timed out".to_owned())??;
+        .map_err(|_| "TURN allocation timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
     let elapsed = started.elapsed();
     let relayed = carrier.relayed;
     drop(carrier);
