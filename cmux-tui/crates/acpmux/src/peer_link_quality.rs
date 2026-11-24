@@ -211,8 +211,12 @@ impl LinkQuality {
     }
 
     /// A ping tick on a link that is up; `late` when it found the link silent a whole interval.
-    /// The tier moves only once a round trip is known.
+    /// Nothing counts until a round trip is known: before the first pong a late tick is the link
+    /// opening, and on a two-tick window it would read as half the minute late.
     pub fn tick(&mut self, late: bool) {
+        if self.rtt.srtt().is_none() {
+            return;
+        }
         let mask = (1u64 << LATE_WINDOW) - 1;
         self.late_bits = ((self.late_bits << 1) | u64::from(late)) & mask;
         self.ticks = self.ticks.saturating_add(1).min(LATE_WINDOW as u8);
