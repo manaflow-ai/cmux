@@ -175,8 +175,8 @@ Callers: **owner** (a signed-in session or a person's install: the laptop's daem
 
 | Route | Caller | Body | Answer |
 |---|---|---|---|
-| `GET /v1/auto-sessions/machine` | owner | | `{team, machine}`: the machine the owner named, else one of their own Cloud machines that the store picks and keeps; 404 `auto.no_machine` when they have none |
-| `PUT /v1/auto-sessions/machine` | owner | `{team, machine}` | `{team, machine}`; optional: it replaces the store's pick, and no pick replaces it |
+| `GET /v1/auto-sessions/machine` | owner | | `{team, machine}`: the machine the owner named, else one of their own Cloud machines in the caller's team that the store picks and keeps for that team; 404 `auto.no_machine` when they have none there |
+| `PUT /v1/auto-sessions/machine` | owner | `{team, machine}` | `{team, machine}`; optional, one per owner for every team's chats: it replaces the store's picks, and no pick replaces it |
 | `PUT /v1/auto-sessions/:id` | owner | `{auto, title, harness, device, keepInCloud?, repo?: {remote, branch}}` | `{session}`; first call makes it with holder `device:<device>`, epoch 1. `auto: false` closes it: 409 `auto.held_in_cloud` while a machine holds it |
 | `POST /v1/auto-sessions` | owner | `{title?, harness, repo: {remote, branch}, firstMessage: {id, text}}` | 201 `{session}`: holder the Auto machine, assignment `create`, machine started; 409 `auto.no_machine` only when the owner named no machine and has none of their own |
 | `GET /v1/auto-sessions?limit=&cursor=` | owner | | `{sessions, nextCursor}` |
@@ -312,20 +312,38 @@ Rules added after the correctness review (2026-11-23):
   (`cloud.machine.list` on the platform's CloudDO) and picks one the owner made that is not being deleted, failed
   or still on Cloud classic: a running one first, then the most recently used or made. The team is the chat's
   (`team` on its record, set from the caller's at the first `PUT`); with no chat yet, the caller's; the owner's
-  personal team when neither is known. A team the owner may not use is never read. The pick is kept as the
-  Auto machine, so later chats go to the same one; it is read again at most once a minute and replaced when it
-  is gone, which a named machine never is. With no machine the chat is `blocked: "no_machine"` as before, and
-  gets its machine with no further step once the owner has one: at the owner's next `GET` or `wait` of that
-  chat, at their list, at the next lease end, message or `POST`, and from the index's alarm (15 s later, then
-  twice as long each time up to 10 minutes, for 6 hours). A renewal never looks, and two looks in one team that
-  find nothing are at least 10 s apart. `lease.ts` is unchanged: this is where `machine` comes from, not what
-  the rules do with it.
+  personal team when neither is known. A team the owner may not use is never read. With no machine the chat is
+  `blocked: "no_machine"` as before, and gets its machine with no further step once the owner has one: at the
+  owner's next `GET` or `wait` of that chat, at their list, at the next lease end, message or `POST`, and from
+  the index's alarm (15 s later, then twice as long each time up to 10 minutes, for 6 hours). A renewal never
+  looks, and two looks in one team that find nothing are at least 10 s apart. `lease.ts` is unchanged: this is
+  where `machine` comes from, not what the rules do with it.
+- A pick is per team (`machine-store.ts`). The store keeps one pick for each team and answers it only for a chat
+  of that team: a chat of team T with no pick for T looks in T only, so a personal chat never goes to a shared
+  team's machine (with its events and its folder) because a work chat needed a machine first, nor the other way
+  round, and a pick never changes a chat's `team`. `GET machine` answers for the caller's team. The machine the
+  owner named (`PUT machine`) stays one per owner: it is for every chat of theirs, it wins over every pick, and
+  the picks are dropped when it is set. A named machine that lands while a pick is being sent to the waiting
+  chats wins for all of them: the send stops, and a chat that sits unpicked on a machine that is not the one
+  stored for it is sent to the stored one at its next index write.
+- A pick is read again at most once a minute, and at once when its start is answered
+  `cloud.machine.not_found`; a named machine never is. A pick that is gone is replaced by another of the owner's
+  machines in the team, and the chats it never picked up move there. With none left the pick is dropped and
+  those chats are parked at the next epoch with `blocked: "no_machine"` (`machine-gone.ts`: only a chat the
+  machine was never heard from on, the test `machineSet` uses; parked as the Cloud's, so a laptop takes it as a
+  standby), and a machine made later reaches them through the same look. "Gone" is a fact only when the team's
+  machines were read whole: a failed read, or a list still paged after 5 pages of 100 with none of the owner's
+  among them, changes nothing.
+- The alarm's look reads at most 3 teams with a chat that waits, by their oldest such chat, counting only teams
+  the owner may still use: a team they left takes no place, and with no other team waiting the look ends.
 
 Known limits of the store's rules:
 
-- A chat whose machine cannot run it has one way back only when the machine was never heard from: the owner sets
-  another Auto machine. A machine whose start is refused or given up (deleted, the owner left its team, six hours
-  of failed starts) keeps the chat's `takeover`, and a laptop that returns stands by with nothing coming home.
+- A chat whose machine cannot run it has a way back only when the machine was never heard from: the owner sets
+  another Auto machine, or the machine was the store's pick and is found gone (the rule above). A named machine
+  whose start is refused or given up (deleted, the owner left its team, six hours of failed starts), and a pick
+  that exists and cannot start, keep the chat's `takeover`, and a laptop that returns stands by with nothing
+  coming home.
   The fix is a second `blocked` reason (the machine is unavailable) that parks the chat for a standby laptop or a
   new machine; it adds a value to the wire's `blocked` and to both apps, so it is not in this change. `PUT
   machine` also takes any well-formed id without reading the machine.
