@@ -228,15 +228,11 @@ export function typingSummary(samples: TypingSample[]) {
   };
 }
 
-/**
- * Process-wide recorder. VirtualTranscript reports layout and render time and
- * the mounted range; the fling marks one frame per display frame.
- */
 /// The first task after the frame a key's rAF callback ran in: the frame's style, layout and paint are done. Where the
 /// engine has a prioritized task API (Chromium's `scheduler.postTask`), at user-blocking priority. A posted message is a
 /// default-priority task: under a stream Chromium runs the later keys' input and the frames ahead of it, so on
 /// composer-typing L1 it ran 35 ms (p50) to 133 ms (p95) after its key, behind about 100 other tasks, while the
-/// key's frame itself was drawn at 17 ms (p95). WebKit has no `scheduler.postTask` and keeps the posted message.
+/// key's rAF callback ran at 17 ms (p95). WebKit has no `scheduler.postTask` and keeps the posted message.
 export function afterFrame(done: () => void): void {
   const scheduler = (
     globalThis as { scheduler?: { postTask?: (task: () => void, options: { priority: string }) => unknown } }
@@ -253,6 +249,10 @@ export function afterFrame(done: () => void): void {
   channel.port2.postMessage(0);
 }
 
+/**
+ * Process-wide recorder. VirtualTranscript reports layout and render time and
+ * the mounted range; the fling marks one frame per display frame.
+ */
 export class AcpmuxPerf {
   enabled = false;
   readonly ring = new FrameRing();
