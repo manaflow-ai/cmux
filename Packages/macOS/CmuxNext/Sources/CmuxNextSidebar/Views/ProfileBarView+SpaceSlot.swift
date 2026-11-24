@@ -23,24 +23,38 @@ extension ProfileBarView {
         return plus.width > 0 && bounds.contains(NSPoint(x: plus.midX, y: plus.midY))
     }
 
+    /// The x range a dot must sit in whole to be drawn: from the strip's leading inset to the bar's trailing edge,
+    /// or to the drawn "+" (#32981). A scrolled strip slides dots past both ends; a dot cut by either edge is not drawn.
+    var visibleDotRange: ClosedRange<CGFloat> {
+        let rects = slotRects(), plus = rects[model.profiles.count]
+        let leading = min(bounds.width, max(0, leadingInset ?? SidebarStyle.horizontalInset))
+        // A strip that fits starts at or after the inset already; only a scrolled one slides dots into it.
+        let start = strip.scrolled ? leading : bounds.minX
+        let end = plusIsDrawn ? min(bounds.maxX, plus.minX) : bounds.maxX
+        return start...max(start, end)
+    }
+
     /// Resolve once per draw, not once per profile: long space strips stay linear.
+    /// Only a dot fully inside `visibleDotRange` is drawn; nothing else (a click, a hover, a shortcut hint, a drag
+    /// layer) acts on a dot that is not drawn (#32981).
     var drawnDotIndices: [Int] {
-        let rects = slotRects(), plus = rects[model.profiles.count], showsPlus = plusIsDrawn
+        let rects = slotRects(), range = visibleDotRange
         return model.profiles.indices.filter {
             let slot = rects[$0]
-            let overlapsPlus = slot.maxX > plus.minX + 0.5 && slot.minX < plus.maxX - 0.5
-            return slot.width > 0 && slot.intersects(bounds) && (!showsPlus || !overlapsPlus)
+            return slot.width > 0 && slot.minY < bounds.maxY && slot.maxY > bounds.minY
+                && slot.minX >= range.lowerBound - 0.5 && slot.maxX <= range.upperBound + 0.5
         }
     }
 
     func dotIsDrawn(at index: Int) -> Bool { drawnDotIndices.contains(index) }
     var drawnDotCount: Int { drawnDotIndices.count }
 
-    /// The visible + owns its slot; a dot scrolled under it is not pressable there.
+    /// The visible + owns its slot; a dot that is not drawn (scrolled under the +, past the bar's edge or into the
+    /// leading inset) is not pressable anywhere, not even by the sliver of its slot that shows (#32981).
     func interactionIndex(at point: NSPoint) -> Int? {
         guard bounds.contains(point) else { return nil }
         let rects = slotRects()
         if plusIsDrawn, let plus = rects.last, plus.contains(point) { return Self.plusIndex }
-        return rects.dropLast().firstIndex { $0.contains(point) }
+        return drawnDotIndices.first { rects[$0].contains(point) }
     }
 }

@@ -27,7 +27,10 @@ extension ProfileBarView {
         }
         guard let drag = dotDrag, !drag.landing else { return }
         let centers = slotRects().prefix(model.profiles.count).map(\.midX)
-        guard let first = centers.first, let last = centers.last else { return }
+        // The dot follows the pointer between the first and last drawn dots: never off the bar, under the "+" or
+        // into the leading inset (#32981).
+        let drawn = drawnDotIndices
+        guard let first = drawn.first.map({ centers[$0] }), let last = drawn.last.map({ centers[$0] }) else { return }
         let x = min(max(point.x - drag.grab, first), last)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -82,6 +85,13 @@ extension ProfileBarView {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let container = CALayer()
         container.frame = bounds
+        // The dots stay inside the strip's drawn range: a dot sliding past the "+" or the bar's edges is cut there,
+        // never painted over the "+", the search button or the avatar (#32981). The dragged dot's lift stays whole.
+        let range = visibleDotRange, mask = CALayer()
+        mask.backgroundColor = CGColor(gray: 0, alpha: 1) // colour-allow: a mask layer, never drawn: only its alpha clips
+        mask.frame = CGRect(x: range.lowerBound, y: bounds.minY - bounds.height, width: range.upperBound - range.lowerBound, height: bounds.height * 3)
+        container.mask = mask
+        let drawn = Set(drawnDotIndices)
         let dots = model.profiles.enumerated().map { offset, profile in
             let active = profile.id == model.activeProfileID
             let slot = rects[offset]
@@ -102,6 +112,9 @@ extension ProfileBarView {
             dot.contentsScale = scale
             dot.contents = image
             dot.frame = slot
+            // A dot the strip does not draw at rest gets no layer content to show: it shows once a reorder springs
+            // it into a drawn slot (`placeDots`).
+            dot.opacity = drawn.contains(offset) ? 1 : 0
             container.addSublayer(dot)
             return dot
         }
@@ -123,9 +136,12 @@ extension ProfileBarView {
     /// Springs every dot but the dragged one (and it too when `includingDragged`) to its slot in the drop's order.
     private func placeDots(_ drag: ProfileBarDotDrag, includingDragged: Bool) {
         let rects = slotRects()
+        let drawn = Set(drawnDotIndices)
         let order = ProfileBarDotDrag.order(Array(drag.dots.indices), moving: drag.from, to: drag.target)
         for (position, index) in order.enumerated() where (includingDragged || index != drag.from) && rects.indices.contains(position) {
             Motion.sidebar.set(drag.dots[index], "position", to: NSValue(point: CGPoint(x: rects[position].midX, y: bounds.midY)), spring: .selection)
+            // Shown only in a slot the strip draws: a dot pushed under the "+" or past an edge hides, as at rest.
+            drag.dots[index].opacity = drawn.contains(position) || index == drag.from ? 1 : 0
         }
     }
 

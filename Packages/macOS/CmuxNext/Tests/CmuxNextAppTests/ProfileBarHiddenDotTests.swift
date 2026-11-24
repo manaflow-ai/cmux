@@ -100,4 +100,36 @@ import Testing
         #expect(drag.dots[20].position.x >= rects[first].midX - 0.5, "the dragged dot \(drag.dots[20].position.x) passed the first drawn dot \(rects[first].midX)")
         view.mouseUp(with: event(.leftMouseUp, NSPoint(x: -200, y: start.y), in: view))
     }
+
+    /// Shortcut hints (Ctrl-1…9) go only on drawn dots, each with the digit that selects it (9: the last space).
+    @Test func spaceShortcutHintsShowOnlyOnDrawnDots() throws {
+        let design = DesignSettings.shared
+        let saved = (design.sidebarSections.showSpaces, design.sidebarSections.noFade)
+        defer { (design.sidebarSections.showSpaces, design.sidebarSections.noFade) = saved }
+        design.sidebarSections.showSpaces = true
+        design.sidebarSections.noFade = false
+        let h = SidebarTrailingColumnTests.KindHarness(width: 220)
+        defer { h.window.close() }
+        h.sidebar.spacesPosition = .bottom
+        h.model.profiles = (0..<40).map { SidebarProfile(id: ProfileKey("hint-space-\($0)"), name: "Space \($0)") }
+        h.model.activeProfileID = h.model.profiles[20].id
+        h.sidebar.renderNow()
+        h.sidebar.layoutSubtreeIfNeeded()
+        let bar = h.sidebar.profileBar
+        try #require(!bar.isHidden && bar.strip.scrolled, "the fixture shows no scrolled strip")
+        let hints = h.sidebar.shortcutHintSpaceFrames
+        let rects = bar.slotRects(), drawn = bar.drawnDotIndices
+        // Ctrl-1…8 reach the first eight spaces and Ctrl-9 the last: a chip only where its digit lands and the dot is drawn.
+        let expected = drawn.compactMap { $0 < 8 ? ($0 + 1, $0) : $0 == 39 ? (9, 39) : nil }
+        #expect(hints.map(\.digit) == expected.map(\.0), "hints \(hints.map(\.digit)) for drawn dots \(drawn)")
+        for (hint, (_, index)) in zip(hints, expected) {
+            #expect(hint.rect == bar.convert(rects[index], to: h.sidebar), "the ⌃\(hint.digit) chip is not on space \(index)'s dot")
+        }
+        // The ninth space is not the last: Ctrl-9 does not select it, so no chip says it does.
+        h.model.activeProfileID = h.model.profiles[8].id
+        h.sidebar.renderNow()
+        h.sidebar.layoutSubtreeIfNeeded()
+        let nine = h.sidebar.shortcutHintSpaceFrames.filter { $0.digit == 9 }
+        #expect(nine.allSatisfy { $0.rect == bar.convert(bar.slotRects()[39], to: h.sidebar) }, "a ⌃9 chip sits on a space Ctrl-9 does not select")
+    }
 }
