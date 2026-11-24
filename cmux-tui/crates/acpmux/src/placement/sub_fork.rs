@@ -30,19 +30,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 /// The settings key that turns sub VMs on (AutoCloud's hidden key, default off).
-pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
-
-/// Whether the AutoCloud key is on in the settings file now. A missing or unreadable file is off.
-pub fn enabled() -> bool {
-    use crate::user_settings::{self, Settings};
-    matches!(user_settings::read(), Settings::Parsed(doc)
-        if key_on(&doc))
-}
-
-/// Whether a parsed settings document turns the key on (`true` only, never a truthy string).
-pub fn key_on(doc: &Value) -> bool {
-    crate::user_settings::value(doc, AUTO_CLOUD_KEY) == Some(Value::Bool(true))
-}
+pub use super::{AUTO_CLOUD_KEY, auto_cloud_in as key_on, auto_cloud_on as enabled};
 
 /// The machine calls a placement needs: fork the parent's machine, and delete the fork.
 pub trait Machines: Send + Sync + 'static {
