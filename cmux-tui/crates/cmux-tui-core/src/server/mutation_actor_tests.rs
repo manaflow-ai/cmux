@@ -48,16 +48,17 @@ fn a_caller_cannot_forge_the_actor() {
     envelope["actor"] = forged.clone();
     let reply = send(&mux, &plain, &envelope);
     assert_eq!(reply["error"]["code"], "validation.invalid", "{reply}");
-    // An `actor` param.
-    let mut params = create("forged-param");
-    params["params"]["actor"] = forged;
-    let reply = send(&mux, &plain, &params);
-    assert_eq!(reply["error"]["code"], "validation.invalid", "{reply}");
     // An origin claim cannot raise a plain connection to the user's app.
     let mut claimed = create("forged-claim");
     claimed["origin"] = json!({"claim": "user"});
     assert_forbidden(&send(&mux, &plain, &claimed));
     assert_eq!(mutation_count(&mux), before, "a forged request committed");
+    // An `actor` param is no param of the operation: it is dropped unread, so
+    // the mutation runs as the connection's own actor.
+    let mut params = create("forged-param");
+    params["params"]["actor"] = forged;
+    assert_eq!(send(&mux, &plain, &params)["ok"], true);
+    assert_eq!(stored_actor(&mux, "forged-param").as_deref(), Some("user:user_local"));
     // The same connection without the forgery is the local user.
     assert_eq!(send(&mux, &plain, &create("honest"))["ok"], true);
     assert_eq!(stored_actor(&mux, "honest").as_deref(), Some("user:user_local"));

@@ -11,7 +11,6 @@ on:
       - tests/test_risk_tier.py
       - tests/git_fixture_env.py
       - tests/fleet_test_host.py
-      - .github/workflows/risk-tier.yml
       - .github/workflows/risk-tier-tests.yml
 
 permissions:
@@ -39,6 +38,5 @@ jobs:
             tests/test_risk_tier.py
             tests/git_fixture_env.py
             tests/fleet_test_host.py
-            .github/workflows/risk-tier.yml
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

@@ -61,3 +61,53 @@ pub fn commit(file: &Path, record: &Stub) -> anyhow::Result<Option<u64>> {
     crate::sync_dir(file.parent().context("a file has a folder")?)?;
     Ok(Some(plain.len() as u64))
 }
+
+/// Upload one immutable session-pack revision from a private staging store. The caller
+/// publishes the stub and registers all its blob addresses before releasing its archive.
+pub fn upload_pack(
+    source: &cmux_session_pack::Store,
+    name: &str,
+    tail_turns: usize,
+    cloud: &Cloud,
+) -> anyhow::Result<stub::Packed> {
+    use cmux_session_pack::{Pack, hex, ship};
+    use std::collections::{BTreeMap, HashSet};
+
+    let pack = Pack::open(source, name).map_err(anyhow::Error::from_boxed)?;
+    let manifest = &pack.manifest;
+    let first_line = if tail_turns > 0 && manifest.marks().next().is_none() {
+        manifest.segments.last().map_or(0, |segment| segment.line)
+    } else {
+        manifest.tail_turns(tail_turns)
+    };
+    let range = first_line..manifest.lines;
+    let mut bundle = Vec::new();
+    ship::bundle_range(source, name, range.clone(), &HashSet::new(), &mut bundle)
+        .map_err(anyhow::Error::from_boxed)?;
+    let tail = upload_part(&bundle, cloud)?;
+    let included: HashSet<_> =
+        pack.needed(range).map_err(anyhow::Error::from_boxed)?.into_iter().collect();
+    let mut older = BTreeMap::new();
+    for id in manifest.chunk_ids().map_err(anyhow::Error::from_boxed)? {
+        if !included.contains(&id) {
+            let file = source.stored(&id).map_err(anyhow::Error::from_boxed)?;
+            older.insert(hex(&id), upload_part(&file, cloud)?);
+        }
+    }
+    Ok(stub::Packed {
+        v: 2,
+        name: name.to_owned(),
+        tail,
+        first_line,
+        manifest_sha256: crate::sha256_hex(&manifest.to_json().map_err(anyhow::Error::from_boxed)?),
+        older,
+    })
+}
+
+fn upload_part(bytes: &[u8], cloud: &Cloud) -> anyhow::Result<stub::Part> {
+    let sealed = seal::seal(&cloud.key, bytes)?;
+    anyhow::ensure!(sealed.len() <= MAX_BLOB, "sealed history part exceeds the sync blob limit");
+    let blob = crate::sha256_hex(&sealed);
+    cloud.store.put(&blob, &sealed)?;
+    Ok(stub::Part { blob, plain_bytes: bytes.len() })
+}

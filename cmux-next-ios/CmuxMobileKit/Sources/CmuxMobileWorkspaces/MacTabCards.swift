@@ -37,6 +37,8 @@ public struct MacCardInfo: Codable, Equatable, Sendable {
 struct MacCardDisk: Sendable {
     var cards: [String: MacCardInfo] = [:]
     var names: [String] = []
+    /// The epoch the rows were sent under (empty: none kept).
+    var epoch = ""
 }
 
 /// The Mac's blobs and rows on disk: one folder per account and Mac beside the phone's own
@@ -90,11 +92,27 @@ extension TabSnapshotStore {
         if let data = try? JSONEncoder().encode(cards) { try? data.write(to: url, options: .atomic) }
     }
 
+    func macEpochURL(accountID: String, macID: String) -> URL {
+        macDirectory(accountID: accountID, macID: macID).appendingPathComponent("epoch")
+    }
+
+    /// The epoch the kept rows were sent under (empty: none kept).
+    public func macEpoch(accountID: String, macID: String) -> String {
+        (try? String(contentsOf: macEpochURL(accountID: accountID, macID: macID), encoding: .utf8)) ?? ""
+    }
+
+    public func putMacEpoch(_ epoch: String, accountID: String, macID: String) {
+        let url = macEpochURL(accountID: accountID, macID: macID)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data(epoch.utf8).write(to: url, options: .atomic)
+    }
+
     func macDisk(accountID: String, macID: String) -> MacCardDisk {
         let folder = macDirectory(accountID: accountID, macID: macID)
         let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         let names = files.compactMap { $0.hasPrefix("blob-") ? String($0.dropFirst(5)) : nil }.filter(Self.isHash)
-        return MacCardDisk(cards: macCards(accountID: accountID, macID: macID), names: names)
+        return MacCardDisk(cards: macCards(accountID: accountID, macID: macID), names: names,
+                           epoch: macEpoch(accountID: accountID, macID: macID))
     }
 
     /// The tab's newest picture: the phone's own capture or the Mac's thumbnail.
@@ -143,10 +161,18 @@ public final class MacTabCards {
     private var held: [String: Set<String>] = [:]
     private var heldAccount: String?
     private var warmed: Set<String> = []
+    /// The epoch each Mac's rows in `entries` were sent under, by Mac id (empty: kept rows of
+    /// an unknown epoch). Tab ids last one epoch: the same id under another names another tab.
+    private var epochs: [String: String] = [:]
     /// Bytes just received, until their file is written.
     private var arriving: [String: Data] = [:]
+    /// The cards nearest the open tab of a Mac, nearest first: the shell hands them to the
+    /// feed, which asks for their blobs before the rest.
+    public var near: ((_ tabIDs: [String], _ macID: String) -> Void)?
     /// Disk reads finished (tests).
     public private(set) var loads = 0
+    /// Per card, who waits for its first screen (`whenScreen`): one each, the newest asker.
+    private var screenWaiters: [TabSnapshotKey: @MainActor (String) -> Void] = [:]
 
     public init(store: TabSnapshotStore = .standard, snapshots: TabCardSnapshots = .shared) {
         self.store = store
@@ -160,8 +186,10 @@ public final class MacTabCards {
             heldAccount = account
             held = [:]
             warmed = []
+            epochs = [:]
             arriving = [:]
             entries = [:]
+            screenWaiters = [:]
         }
         return account
     }
@@ -174,6 +202,7 @@ public final class MacTabCards {
         warmed = []
         arriving = [:]
         entries = [:]
+        screenWaiters = [:]
     }
 
     public func entry(_ key: TabSnapshotKey) -> MacCardEntry {
@@ -181,6 +210,20 @@ public final class MacTabCards {
         let entry = MacCardEntry()
         entries[key] = entry
         return entry
+    }
+
+    /// Hands `use` the card's screen: now when it is read, else once, when the disk or the Mac
+    /// brings it. A terminal card copies the screen into its own model when it is built, which on
+    /// a cold launch is before the disk read (`warm`) is done: without this it never saw the screen
+    /// and stayed the labeled placeholder (Leo, 2026-11-22: "so many blank previews").
+    public func whenScreen(_ key: TabSnapshotKey, _ use: @escaping @MainActor (String) -> Void) {
+        guard account() == key.accountID else { return }
+        if let screen = entries[key]?.screen, !screen.isEmpty {
+            screenWaiters[key] = nil
+            use(screen)
+        } else {
+            screenWaiters[key] = use
+        }
     }
 
     /// The blobs of `macID` on disk. From memory: empty until `warm(macID:)` has read the
@@ -208,6 +251,9 @@ public final class MacTabCards {
         loads += 1
         guard account() == accountID else { return nil }
         held[macID, default: []].formUnion(disk.names)
+        // The link was first: its rows stand, and the file's are of an epoch it replaced.
+        guard epochs[macID] == nil else { return nil }
+        epochs[macID] = disk.epoch
         var keys: [TabSnapshotKey] = []
         for (tabID, info) in disk.cards {
             let key = TabSnapshotKey(accountID: accountID, macID: macID, tabID: tabID)
@@ -229,10 +275,26 @@ public final class MacTabCards {
 
     /// The Mac's tabs in its order (a manifest or a delta). A tab it no longer lists loses its
     /// row; its blobs go when the feed says no row names them (`remove`).
-    public func cards(_ cards: [(tabID: String, info: MacCardInfo)], macID: String) {
+    ///
+    /// `epoch` names the Mac's run that handed out the tab ids (empty: not said). A new epoch
+    /// starts when the Mac's daemon restarts, which hands the same ids to other tabs, and also
+    /// on a plain reconnect to the same daemon, where every id still names its tab. The epoch
+    /// alone cannot tell the two apart, so under a new epoch a kept card stays only when its
+    /// new row is still the tab it was (`sameTab`); any other card kept by that id goes first,
+    /// the phone's own picture of it included, so no card shows another tab's picture. Blobs
+    /// stay: they are named by content, and the new rows may name them.
+    public func cards(_ cards: [(tabID: String, info: MacCardInfo)], epoch: String = "", macID: String) {
         guard let account = account(), !macID.isEmpty else { return }
+        if !epoch.isEmpty {
+            if let kept = epochs[macID], kept != epoch {
+                void(macID: macID, except: Dictionary(cards.map { ($0.tabID, $0.info) }, uniquingKeysWith: { _, last in last }))
+            }
+            epochs[macID] = epoch
+        }
         let listed = Set(cards.map(\.tabID))
         for key in entries.keys where key.macID == macID && !listed.contains(key.tabID) { entries[key] = nil }
+        // A card the Mac no longer lists never gets its first screen: its waiter goes with it.
+        for key in screenWaiters.keys where key.macID == macID && !listed.contains(key.tabID) { screenWaiters[key] = nil }
         var keys: [TabSnapshotKey] = []
         for card in cards {
             let key = TabSnapshotKey(accountID: account, macID: macID, tabID: card.tabID)
@@ -242,7 +304,32 @@ public final class MacTabCards {
         fill(keys, macID: macID)
         let store = store
         let rows = Dictionary(cards.map { ($0.tabID, $0.info) }, uniquingKeysWith: { _, last in last })
-        Task.detached(priority: .utility) { store.putMacCards(rows, accountID: account, macID: macID) }
+        let kept = epochs[macID] ?? ""
+        Task.detached(priority: .utility) {
+            store.putMacCards(rows, accountID: account, macID: macID)
+            store.putMacEpoch(kept, accountID: account, macID: macID)
+        }
+    }
+
+    /// A row under a new epoch is the tab the kept row was: the same kind, and the same title
+    /// or a blob in common (a page keeps its favicon while its title changes).
+    static func sameTab(_ kept: MacCardInfo, _ now: MacCardInfo) -> Bool {
+        kept.kind == now.kind && (kept.title == now.title || !Set(kept.hashes).isDisjoint(with: now.hashes))
+    }
+
+    /// Every card of `macID` whose row in `rows` is not the tab it was forgets what it showed,
+    /// in place (its views observe the entry).
+    private func void(macID: String, except rows: [String: MacCardInfo]) {
+        for (key, entry) in entries where key.macID == macID {
+            if let kept = entry.info, let now = rows[key.tabID], Self.sameTab(kept, now) { continue }
+            entry.info = nil
+            entry.favicon = nil
+            entry.screen = nil
+            entry.shownFavicon = nil
+            entry.shownScreen = nil
+            entry.shownThumb = nil
+            snapshots.remove(key)
+        }
     }
 
     /// Bytes that hash to `hash`: held from now on, written off the main thread.
@@ -345,6 +432,7 @@ public final class MacTabCards {
                 guard info.screenHash == part.hash, let text = item.text else { continue }
                 entry.screen = text
                 entry.shownScreen = part.hash
+                if !text.isEmpty { screenWaiters.removeValue(forKey: part.key)?(text) }
             case .thumb:
                 guard info.thumbHash == part.hash, let image = item.image else { continue }
                 entry.shownThumb = part.hash
