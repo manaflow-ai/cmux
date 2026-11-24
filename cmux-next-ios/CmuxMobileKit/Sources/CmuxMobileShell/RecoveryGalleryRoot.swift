@@ -210,8 +210,8 @@ public struct RecoveryGalleryRoot: View {
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
 
-    /// A (picked): a quiet line at the top of the list, the same place and type as "Updating…",
-    /// so a blip reads as the list refreshing, not as a problem; rows stay tappable.
+    /// A (picked): a quiet line at the top of the list, the same place and type the list's old
+    /// "Updating…" line used, so a blip does not read as a problem; rows stay tappable.
     /// B: a floating glass pill over the bottom of the list (motion over content; covers the
     /// last row and competes with the tab bar).
     /// C: a thin indeterminate bar under the title with the rows dimmed (reads as blocked, and

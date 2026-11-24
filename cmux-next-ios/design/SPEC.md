@@ -1169,8 +1169,9 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 (view) and `WorkspaceInbox.swift` (sections, status, search, folding; unit tested).
 
 - Toolbar: leading drawer, inline title "Workspaces" with a `navigationSubtitle`: the
-  filtered Mac and its presence; else "Updating…" when a refresh takes over 1.5 s; else
-  "N need you"; else with 2+ Macs "2 of 3 Macs online". Trailing glass capsule: the Mac
+  filtered Mac and its presence; else "Offline · last known" / "Couldn't refresh · last
+  known" when no row's Mac is live after a failed refresh; else "N need you"; else with
+  2+ Macs "2 of 3 Macs online". Never that a refresh runs. Trailing glass capsule: the Mac
   filter (only with 2+ Macs) and New Workspace.
 - Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
   each Mac (online first, `desktopcomputer`; the model has no Mac kind) titled with its name
@@ -1243,7 +1244,10 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - States (live mode reads each Mac's `MacDataMachine` phase): team loading with no cache, or
   the linked Mac dialing with nothing known → `SkeletonList`. Last-known (snapshot) rows show
   at 55 % opacity with no agent state (never "is waiting" from a cache) until the Mac
-  answers; while the link connects the subtitle reads "Updating…" after 1.5 s. An online Mac
+  answers; while the link connects nothing says it updates (Leo, 2026-11-24: "they dont need
+  to know that it's updating before they KNOW it's updating"): no subtitle, chip or hairline
+  over rows the phone has, on Workspaces, Agent Chats, Home or an agent chat; only a link that
+  is down or failed speaks (its chip after 10 s, the last-known subtitle). An online Mac
   whose dial failed with nothing known is a "<Mac> · Can't connect" line (Retry); filtered to
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to
