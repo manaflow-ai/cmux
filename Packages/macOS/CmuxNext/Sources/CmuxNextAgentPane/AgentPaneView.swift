@@ -577,6 +577,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.

@@ -456,6 +456,8 @@ public final class AgentPaneModel {
     }
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
+    /// Its page was closed (``AgentPaneView/close()``): it is no longer a live page (``AgentPageLiveness``).
+    @ObservationIgnored public internal(set) var pageClosed = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
