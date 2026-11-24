@@ -134,7 +134,7 @@ for _ in $(seq 1 100); do curl -fsS http://10.99.0.1:8080/health >/dev/null 2>&1
 HSC="$HS -c $OUT/hs.yaml"
 $HSC users create bench >/dev/null
 USER_ID=$($HSC users list -o json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
-KEY=$($HSC preauthkeys create -u "$USER_ID" -r -e 2h -o json | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
+KEY=$($HSC preauthkeys create -u "$USER_ID" --reusable -e 2h -o json | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
 
 # --- tailscaled per namespace (its own socket and state; never the runner's own daemon)
 tsd() {
@@ -152,7 +152,7 @@ tsctl bcmux up --login-server=http://10.99.0.1:8080 --authkey="$KEY" --hostname=
 CONNECT_CMUX_MS=$(ms "$t")
 NODE_ID=$($HSC nodes list -o json | python3 -c \
   'import json,sys; print([n["id"] for n in json.load(sys.stdin) if "cmux" in (n.get("given_name"), n.get("name"))][0])')
-$HSC nodes approve-routes -i "$NODE_ID" -r 10.50.0.0/24 >/dev/null
+$HSC nodes approve-routes --identifier "$NODE_ID" --routes 10.50.0.0/24 >/dev/null
 
 tsd bclient
 t=$(date +%s%N)
