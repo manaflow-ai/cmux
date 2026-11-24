@@ -22,7 +22,11 @@ fn receiver_protocol_hello_bounds_leave_control_frames_small() {
     let padded =
         format!("{}{}", " ".repeat(MAX_HELLO_BYTES), line(&ServiceHello::paired(Service::Daemon)));
     assert!(ServiceHello::parse(&padded).is_none());
-    assert!(ServiceHello::parse(r#"{"service":"daemon","extra":true}"#).is_none());
+    // A newer link's hello may carry a field this receiver does not know.
+    assert_eq!(
+        ServiceHello::parse(r#"{"service":"daemon","extra":true}"#),
+        Some(ServiceHello::paired(Service::Daemon))
+    );
 }
 
 #[test]
@@ -75,8 +79,18 @@ fn bad_dial_requests_are_refused() {
         r#"{"op":"link.dial","host":"inst","service":"shell"}"#,
         r#"{"op":"link.listen","host":"inst","service":"daemon"}"#,
         r#"{"op":"link.dial","host":"../x","service":"daemon"}"#,
-        r#"{"op":"link.dial","host":"inst","service":"daemon","command":"sh"}"#,
     ] {
         assert_eq!(parse_request(bad), Err(DialError::BadRequest), "{bad}");
     }
+}
+
+#[test]
+fn requests_from_a_newer_caller_ignore_unknown_fields() {
+    let request =
+        parse_request(r#"{"op":"link.dial","host":"inst","service":"daemon","command":"sh"}"#)
+            .expect("an unknown dial field is ignored");
+    assert_eq!((request.host.as_str(), request.service), ("inst", Service::Daemon));
+    let reload: ReloadRequest = parse_line(r#"{"op":"link.reload","later":1}"#)
+        .expect("an unknown reload field is ignored");
+    assert_eq!(reload.op, ReloadOp::Reload);
 }
