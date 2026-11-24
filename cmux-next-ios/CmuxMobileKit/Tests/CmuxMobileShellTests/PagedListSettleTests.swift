@@ -19,9 +19,10 @@ struct PagedListSettleTests {
         #expect(again(drift: 118))
     }
 
-    /// The same at rest (no slide): the layout pass keeps the newest row (`stayOnNewest`); no extra pass.
-    @Test func atRestNoExtraPass() {
-        #expect(!again(sliding: false, drift: 118))
+    /// An `.up` list whose update's restore ran (anchored), at rest: the rows it restored sized after
+    /// it, so it restores once more (the coordinator's rule: whenever the anchored restore ran).
+    @Test func anAnchoredUpdateAtRestRestoresAgain() {
+        #expect(again(sliding: false, drift: 22))
     }
 
     /// A `.down` list: its rows above the reader are the rows arriving at the top; restoring again
@@ -30,9 +31,13 @@ struct PagedListSettleTests {
         #expect(!again(up: false, drift: 118))
     }
 
-    /// Under a finger or a fling: the scroll moves the rows; no extra pass.
-    @Test func whileScrollingNoExtraPass() {
-        #expect(!again(scrolling: true, drift: 118))
+    /// A finger resting on the list, or a drag or a fling, after an anchored update: the first restore
+    /// already moved the offset under the finger, so one more bounded restore in the same update is
+    /// no more of a fight (af47eab9/633ee37a: up-slow-flood `tracking=true, r+148, m_+22`; up-medium-flood
+    /// `m_+22, m_+22, d-25.3` during a drag; 22 pt each).
+    @Test func underAFingerAnAnchoredUpdateRestoresAgain() {
+        #expect(again(scrolling: true, drift: 22))
+        #expect(again(sliding: false, scrolling: true, drift: 22))
     }
 
     /// Nothing drifted (within half a point): no extra pass.
