@@ -306,7 +306,11 @@ export class SimBuilder {
    *  (`false`: the agent has not read it yet). */
   steer(
     value: string,
-    { readMs = 600, after = 300, extra = {} }: { readMs?: number | false; after?: number; extra?: Record<string, unknown> } = {},
+    {
+      readMs = 600,
+      after = 300,
+      extra = {},
+    }: { readMs?: number | false; after?: number; extra?: Record<string, unknown> } = {},
   ): this {
     const promptId = `steer-${this.seq + 1}`;
     this.record(
