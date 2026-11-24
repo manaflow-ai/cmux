@@ -997,23 +997,49 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
-    // Made owner-only by bind itself (umask 0177 for the one call), never wider until the chmod
-    // below: a socket file carries its mode from the umask, and connect needs its write bit.
-    let listener = {
-        // SAFETY: umask has no preconditions and cannot fail; the old mask is put back at once.
-        let old = unsafe { libc::umask(0o177) };
-        let bound = UnixListener::bind(path);
-        // SAFETY: as above.
-        unsafe { libc::umask(old) };
-        bound.with_context(|| format!("bind {}", path.display()))?
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let listener = bind_owner_only(path)?;
     tracing::info!("listening on {}", path.display());
     Ok(listener)
+}
+
+/// Binds `path` so nobody but this user can ever connect, without touching the process umask:
+/// the umask is process-wide, so setting it for one bind made a folder another thread created
+/// meanwhile 0600, which nothing can enter (two hub_carrier pipe tests failed with "bind
+/// .../acpmux.sock: Permission denied" that way). The socket is bound inside a fresh 0700
+/// folder next to `path`, made 0600 there and renamed into place; a bound socket keeps working
+/// under its new name. A staging path too long for `sun_path` binds in place, where the 0600
+/// chmod follows at once and the peer check at accept ([`peer_uid_allowed`]) holds meanwhile.
+#[cfg(unix)]
+fn bind_owner_only(path: &std::path::Path) -> Result<UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let owner_only = || std::fs::Permissions::from_mode(0o600);
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stage = parent.map(|p| p.join(format!(".b{:x}{n:x}", std::process::id())));
+    let staged = stage.as_ref().map(|s| s.join("s"));
+    let fits = staged.as_ref().is_some_and(|s| cmux_unix_socket::check_path(s).is_ok());
+    let (Some(stage), Some(staged), true) = (stage, staged, fits) else {
+        let listener =
+            UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(path, owner_only())?;
+        return Ok(listener);
+    };
+    crate::home_fs::create_dir(&stage, 0o700)
+        .with_context(|| format!("create {}", stage.display()))?;
+    let bound = (|| -> Result<UnixListener> {
+        // A umask set elsewhere can leave the folder without its search bit; 0700 whatever it was.
+        crate::home_fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700))?;
+        let listener =
+            UnixListener::bind(&staged).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(&staged, owner_only())?;
+        crate::home_fs::rename(&staged, path)
+            .with_context(|| format!("move the socket to {}", path.display()))?;
+        Ok(listener)
+    })();
+    let _ = crate::home_fs::remove_file(&staged);
+    let _ = crate::home_fs::remove_dir(&stage);
+    bound
 }
 
 /// Narrows `dir`, the daemon socket's directory, to 0700 when it is acpmux's own (its home, or a
@@ -2139,6 +2165,17 @@ async fn serve_connection_from(
             }
         };
         match msg {
+            // Which of this connection's requests still run (`in_flight.rs` `states`): answered
+            // here, in order with the requests read before it, and never queued for a slot, so a
+            // client whose slots are all taken by slow requests still gets its proof. Only this
+            // connection's own requests, like a `$/cancel_request`: any client may ask.
+            Message::Request { id, method: m, .. } if m == method::MUX_REQUEST_STATE => {
+                let (running, answered) = conn.in_flight.states();
+                conn.send_replying(
+                    &Message::ok(id, json!({"running": running, "answered": answered})),
+                    Some(&m),
+                );
+            }
             Message::Request { id, method: m, mut params } => {
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
