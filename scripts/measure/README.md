@@ -267,7 +267,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `live-code-cost.py` | Report half of live-code-cost.sh. | - | 2026-11-05 | active |
 | `live-code-shell.sh` | Live code in the view shell, judged by rendered width. | - | 2026-11-04 | active |
 | `live-mode-swift.sh` | Swift live mode end to end on a tagged build. | - | 2026-11-10 | active |
-| `live-mode-swift.py` | Python driver for live-mode-swift.sh. | - | 2026-11-12 | active |
+| `live-mode-swift.py` | Python driver for live-mode-swift.sh. | - | 2026-11-24 | active |
+| `live-code-save-overhead.py` | Python share of a Swift live mode save (watcher scan, patch.py lookup) with a fake toolchain, any host. | - | 2026-11-24 | active |
 | `hot-apply-nightly.sh` | hot-apply.py proven on a published nightly (apply then roll back). | - | 2026-11-14 | active |
 | `hot-apply-nightly.py` | App half of hot-apply-nightly.sh. | - | 2026-11-14 | active |
 | `hot-apply-dry-run.sh` | hot-apply fetch side timed cold and warm, any host. | - | 2026-11-14 | active |
