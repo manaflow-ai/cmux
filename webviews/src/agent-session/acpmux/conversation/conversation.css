@@ -1507,13 +1507,15 @@
   line-height: calc(var(--cv-font-size) * 2);
   margin: 20px 0 12px;
 }
+/* h2 and h3 keep their 1.25 and 1.125 of the prose size, rounded to a whole pixel (RFD 0116 strict
+   fix 8: 17.5 and 15.75 px at 14 sat on no scale): 18 and 16 at the default size. */
 .cv-h2 {
-  font-size: calc(var(--cv-font-size) * 1.25);
+  font-size: round(nearest, calc(var(--cv-font-size) * 1.25), 1px);
   line-height: calc(var(--cv-font-size) * 24 / 14);
   margin: 15px 0 3.5px;
 }
 .cv-h3 {
-  font-size: calc(var(--cv-font-size) * 1.125);
+  font-size: round(nearest, calc(var(--cv-font-size) * 1.125), 1px);
   line-height: calc(var(--cv-font-size) * 22 / 14);
   margin: 15px 0 5px;
 }

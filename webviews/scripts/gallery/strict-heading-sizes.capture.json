@@ -1,0 +1,24 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "heading-sizes",
+      "entry": "looks.golden",
+      "variant": "cmux",
+      "width": 900,
+      "height": 1800,
+      "deviceScaleFactor": 2,
+      "clip": ".cv-reply:has(.cv-h2)",
+      "margin": 16,
+      "arms": {
+        "18/16px head": "",
+        "17.5/15.75px now": ".cv-h2 { font-size: 17.5px !important; } .cv-h3 { font-size: 15.75px !important; }",
+        "17/15px": ".cv-h2 { font-size: 17px !important; } .cv-h3 { font-size: 15px !important; }",
+        "20/16px": ".cv-h2 { font-size: 20px !important; } .cv-h3 { font-size: 16px !important; }"
+      }
+    }
+  ]
+}
