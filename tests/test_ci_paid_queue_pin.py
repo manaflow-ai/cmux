@@ -100,7 +100,6 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("ios-streamed-validate.yml", "validate"):
         "needs a simulator runner and dogfood account secrets; ios_runner_pool.py follow-up",
     ("iroh-release-gate.yml", "simulator-e2e"): "a release-environment simulator gate; ios_runner_pool.py follow-up",
-    ("pr-media-privacy.yml", "scan"): "holds the private terms list; the scan is seconds of work, a follow-up",
 }
 
 
