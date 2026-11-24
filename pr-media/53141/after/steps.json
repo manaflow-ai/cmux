@@ -1,0 +1,172 @@
+{
+  "label": "after",
+  "viewport": "900x380",
+  "start": {
+    "composer": {
+      "top": 112,
+      "bottom": 380,
+      "height": 268
+    },
+    "box": {
+      "top": 112,
+      "bottom": 340,
+      "height": 228
+    }
+  },
+  "steps": [
+    {
+      "step": "start",
+      "frames": 74,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "inspector open",
+      "frames": 76,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "inspector closed",
+      "frames": 74,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "header +28 px",
+      "frames": 79,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "header +60 px",
+      "frames": 80,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "header +0 px",
+      "frames": 78,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "header reset",
+      "frames": 79,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "banner on",
+      "frames": 80,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "banner off",
+      "frames": 78,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "connecting on",
+      "frames": 81,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    },
+    {
+      "step": "connecting off",
+      "frames": 112,
+      "composer": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      },
+      "box": {
+        "top": 0,
+        "bottom": 0,
+        "height": 0
+      }
+    }
+  ]
+}

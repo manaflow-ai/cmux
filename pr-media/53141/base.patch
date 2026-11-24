@@ -1,0 +1,80 @@
+diff --git a/webviews/src/agent-session/acpmux/bottomStack.css b/webviews/src/agent-session/acpmux/bottomStack.css
+index 9c3dee441e5..83f35b60f5a 100644
+--- a/webviews/src/agent-session/acpmux/bottomStack.css
++++ b/webviews/src/agent-session/acpmux/bottomStack.css
+@@ -43,6 +43,14 @@
+ .acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
+   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+ }
++/* An open chat's stack in flow (`data-dock="flow"`: the inspector, a handoff review) keeps the same
++   floor over it, so a tall draft's composer keeps its height as the stage over it switches (Leo,
++   2026-11-24: "we need to have more things decoupled from posisble shifts";
++   test/agent-pane-composer-anchored-above.test.ts). The stage carries the dock's `data-foot`. */
++.acpmux-main[data-dock="flow"] > .acpmux-stage[data-foot] {
++  --acpmux-stage-floor-foot: calc(44px + max(64px, var(--acpmux-transcript-min, 96px) - 32px));
++  min-height: var(--acpmux-stage-floor-foot);
++}
+ /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
+    the column's gutters (--cv-inset): the question card, the pull request dock, or an error card. The
+    band takes the pointer, since the transcript's rows under the stack are only
+diff --git a/webviews/src/agent-session/acpmux/composerLocation.css b/webviews/src/agent-session/acpmux/composerLocation.css
+index 8ad0370157a..66a90a7578c 100644
+--- a/webviews/src/agent-session/acpmux/composerLocation.css
++++ b/webviews/src/agent-session/acpmux/composerLocation.css
+@@ -1371,9 +1371,11 @@
+ }
+ /* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
+    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
+-   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
+-   the floating chat dock: a fresh chat's hero layout keeps its padding. */
+-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
++   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). The open
++   chat's dock, floating or in flow (`data-dock="flow"`: a handoff review, the inspector), drops it
++   alike, so the composer does not jump 16 px as the stage over it switches (Leo, 2026-11-24: "we need
++   to have more things decoupled from posisble shifts"); a fresh chat's hero layout keeps its padding. */
++.acpmux-main:is([data-dock="float"], [data-dock="flow"]) > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
+ /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
+    before a chat has a mode, as on a fresh New Tab page). */
+ .acpmux-composer-foot .acpmux-chips { display: contents; }
+diff --git a/webviews/src/agent-session/acpmux/styles.css b/webviews/src/agent-session/acpmux/styles.css
+index 3065c214c56..54e7479b557 100644
+--- a/webviews/src/agent-session/acpmux/styles.css
++++ b/webviews/src/agent-session/acpmux/styles.css
+@@ -426,8 +426,14 @@
+    under it and one quiet button. */
+ .acpmux-unavailable{gap:10px}
+ /* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
+-   its actual height reserve the stage's room (including a growing draft in a short pane). */
+-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}
++   its actual height reserve the stage's room (including a growing draft in a short pane). The dock keeps
++   the floating stack's own max-height (bottomStack.css, the quiet row's `data-foot` one too) and the stage
++   gives up its floor, so the composer is the same size and in the same place loading as open: a second
++   max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
++   stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
++   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
++.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
++.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
+ /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
+    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
+    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
+diff --git a/webviews/src/agent-session/acpmux/pane/PaneBody.tsx b/webviews/src/agent-session/acpmux/pane/PaneBody.tsx
+index 527ebc9e626..afe8f359eb1 100644
+--- a/webviews/src/agent-session/acpmux/pane/PaneBody.tsx
++++ b/webviews/src/agent-session/acpmux/pane/PaneBody.tsx
+@@ -793,5 +792,7 @@ export function drawPaneBody({
+           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
+           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
+-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
++          // An open chat's stack in flow is `flow`: its composer keeps the floating one's place
++          // (composerLocation.css), so it does not move as the stage over it switches.
++          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : !freshView ? "flow" : undefined}
+           data-summary={summaryCard.column ? "inline" : "popover"}
+           data-cu-preview={previewBeside ? "" : undefined}
+@@ -1246,4 +1247,7 @@ export function drawPaneBody({
+                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
+                 data-solo-tab={soloUnder ? "" : undefined}
++                // The stack under it ends in the quiet row (the dock's `data-foot`): in flow the stage
++                // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
++                data-foot={dockFoot ? "" : undefined}
+                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
+                 inert={parkedVisible || undefined}
