@@ -116,14 +116,21 @@ class Trace:
         self.listed: set[str] = set()     # getdents on it
         self.probed: set[str] = set()     # stat/access/readlink, or an open that failed
         self.written: set[str] = set()
-        self.execs: list[list[str]] = []  # argv of every execve that succeeded
+        self.execs: list[tuple[str, list[str]]] = []  # (pid file, argv) of every execve that succeeded
         self.connects: set[str] = set()
+        self.by_pid: dict[str, set[str]] = {}  # pid file -> every path it touched (to find who read .git)
+        self.pid = ""
+        self.cwd: dict[str, str] = {}  # pid file -> its working directory (strace -y decorates AT_FDCWD)
 
     def feed(self, line: str) -> None:
         m = LINE.match(line)
         if not m:
             return
         call, args, ret = m.group("call"), split_args(m.group("args")), m.group("ret")
+        if self.pid not in self.cwd and "AT_FDCWD<" in m.group("args"):
+            d = DECOR.match(m.group("args").split("AT_FDCWD", 1)[1].join(["AT_FDCWD", ""]))
+            if d:
+                self.cwd[self.pid] = unescape(d.group("path"))
         ok = not ret.startswith("-1")
         if call == "getdents64" or call == "getdents":
             d = DECOR.match(args[0]) if args else None
@@ -138,7 +145,7 @@ class Trace:
             return
         if call in EXECS:
             if ok and len(args) > 1:
-                self.execs.append([unescape(s) for s in QUOTED.findall(args[1])])
+                self.execs.append((self.pid, [unescape(s) for s in QUOTED.findall(args[1])]))
                 q = QUOTED.match(args[0]) if call == "execve" else None
                 if q:
                     self.reads.add(resolve(None, unescape(q.group(1))))
@@ -151,6 +158,7 @@ class Trace:
                 paths.append(resolve(args[i - 1] if i and DECOR.match(args[i - 1] or "") else None, unescape(q.group(1))))
         if not paths:
             return
+        self.by_pid.setdefault(self.pid, set()).update(paths)
         if call in OPENS:
             flags = args[2] if call != "open" and len(args) > 2 else (args[1] if len(args) > 1 else "")
             if any(f in flags for f in WRITE_FLAGS):
@@ -184,14 +192,21 @@ def tree_index(root: Path, rev: str) -> dict[str, tuple[str, str, str]]:
     return out
 
 
-def classify_git(argv: list[str]) -> str | None:
-    """None: harmless; 'L': answer is a function of the path list; 'H': reads history or the commit."""
+TREE_REVS = {"HEAD", "HEAD^{tree}", "@"}
+
+
+def classify_git(argv: list[str], root: str = "", cwd: str = "") -> tuple[str | None, list[str]]:
+    """(class, paths). Class None: harmless or keyed by PATHS (tree reads at HEAD); 'L': the answer is a function of
+    the path list; 'H': reads history or the commit itself, so the job has no tree key."""
     words = argv[1:]
     sub = None
     i = 0
+    where = cwd
     while i < len(words):
         w = words[i]
         if w in ("-C", "-c", "--git-dir", "--work-tree"):
+            if w == "-C" and i + 1 < len(words):
+                where = os.path.normpath(os.path.join(where or "/", words[i + 1]))
             i += 2
             continue
         if w.startswith("-") and w not in ("--version",):
@@ -199,14 +214,36 @@ def classify_git(argv: list[str]) -> str | None:
             continue
         sub = w
         break
+    rest = words[i + 1:] if sub else []
+    # git run inside a gitlink (a submodule) reads that module, which the gitlink's commit fixes: key on the gitlink.
+    if root and where and where != root and where.startswith(root + "/"):
+        return None, [where[len(root) + 1:]]
     if sub is None or sub in GIT_HARMLESS:
-        return None
+        return None, []
     if sub in GIT_PATHLIST:
-        return "L"
+        return "L", []
     if sub == "rev-parse" and all(a.startswith("--show-") or a.startswith("--is-") or a == "--git-dir"
-                                  or a == "--absolute-git-dir" for a in words[i + 1:]):
-        return None
-    return "H"
+                                  or a == "--absolute-git-dir" for a in rest):
+        return None, []
+    # A read of the committed tree at HEAD, by path, is that path's object: `show HEAD:P`, `cat-file -p|-e|-t HEAD:P`,
+    # `rev-parse HEAD:P`, `ls-tree HEAD [--] P...`.
+    if sub in ("show", "cat-file", "rev-parse"):
+        args = [a for a in rest if not a.startswith("-")]
+        paths = []
+        for a in args:
+            rev, sep, path = a.partition(":")
+            if not sep or rev not in TREE_REVS:
+                return "H", []
+            paths.append(path.strip("/"))
+        if paths:
+            return None, paths
+    if sub == "ls-tree":
+        args = [a for a in rest if a != "--"]
+        flags = [a for a in args if a.startswith("-")]
+        pos = [a for a in args if not a.startswith("-")]
+        if pos and pos[0] in TREE_REVS and not any(f in ("-r", "-t", "--full-tree") for f in flags):
+            return None, [p.strip("/") for p in pos[1:]] or [""]
+    return "H", []
 
 
 def build_manifest(tr: Trace, root: Path, rev: str, command: list[str]) -> dict:
@@ -259,17 +296,25 @@ def build_manifest(tr: Trace, root: Path, rev: str, command: list[str]) -> dict:
         add("F", p)
     git_class = None
     git_calls = []
-    for argv in tr.execs:
-        if argv and os.path.basename(argv[0]) == "git":
-            c = classify_git(argv)
-            git_calls.append({"argv": argv[:8], "class": c})
+    # Only a process that read this checkout's .git asked git about this tree; a test's own scratch repository in a
+    # temporary directory is not an input.
+    git_pids = {pid for pid, ps in tr.by_pid.items() if any(p == gitdir or p.startswith(gitdir + "/") for p in ps)}
+    for pid, argv in tr.execs:
+        if pid in git_pids and argv and os.path.basename(argv[0]) == "git":
+            c, paths = classify_git(argv, rs, tr.cwd.get(pid, ""))
+            for p in paths:
+                add("F" if p else "N", os.path.join(rs, p) if p else rs)
+            git_calls.append({"argv": argv[:8], "class": c, "paths": paths[:5]})
             if c == "H" or (c == "L" and git_class is None):
                 git_class = c
-    if git_paths and git_class is None:
-        # .git was read by something other than a git subprocess we saw (a library, a script reading HEAD).
-        heads = {p for p in git_paths if p not in (".git", ".git/config", ".git/info/exclude", ".git/commondir")}
-        if heads:
+    git_exec_pids = {pid for pid, argv in tr.execs if argv and os.path.basename(argv[0]) == "git"}
+    benign = (gitdir, gitdir + "/config", gitdir + "/info/exclude", gitdir + "/commondir")
+    for pid in git_pids - git_exec_pids:
+        # .git read by something other than git (a library, a script reading HEAD or refs): the commit, not the tree.
+        if any((p == gitdir or p.startswith(gitdir + "/")) and p not in benign for p in tr.by_pid[pid]):
             git_class = "H"
+            git_calls.append({"argv": [f"(pid file {pid} read .git)"], "class": "H"})
+            break
     return {
         "version": VERSION,
         "rev": git(root, "rev-parse", rev).strip(),
@@ -290,28 +335,99 @@ def cmd_trace(a: argparse.Namespace) -> int:
         return 127
     root = Path(a.root).resolve()
     with tempfile.TemporaryDirectory(prefix="traced-inputs-") as tmp:
-        prefix = os.path.join(tmp, "t")
-        st = subprocess.run(["strace", "-f", "-ff", "--seccomp-bpf", "-qq", "-y", "-e", f"trace={SYSCALLS}",
-                             "-e", "signal=none", "-o", prefix, *a.cmd])
-        tr = Trace()
-        for f in os.listdir(tmp):
-            with open(os.path.join(tmp, f), encoding="latin-1") as fh:
-                pending: dict[str, str] = {}
-                for line in fh:
-                    line = line.rstrip("\n")
-                    if line.endswith("<unfinished ...>"):
-                        pending["x"] = line[: -len("<unfinished ...>")].rstrip()
-                        continue
-                    if "resumed>" in line and "x" in pending:
-                        line = pending.pop("x") + line.split("resumed>", 1)[1]
-                    tr.feed(line)
-    man = build_manifest(tr, root, a.rev, a.cmd)
+        raw = Path(a.raw) if a.raw else Path(tmp)
+        raw.mkdir(parents=True, exist_ok=True)
+        # One file per process (-ff): a pid's reads stay with its own execve, so we know which process asked git.
+        n = sum(1 for _ in raw.glob("t.*"))
+        st = subprocess.run(["strace", "-f", "-ff", "--seccomp-bpf", "-qq", "-y", "-s", "4096", "-e", f"trace={SYSCALLS}",
+                             "-e", "signal=none", "-o", str(raw / f"t{n:03d}" if n else raw / "t"), *a.cmd])
+        man = manifest_from_raw(raw, root, a.rev, a.cmd)
     man["exit"] = st.returncode
-    Path(a.out).write_text(json.dumps(man, indent=1) + "\n")
+    write_manifest(man, Path(a.out), a.append)
     print(f"traced_inputs: {sum(man['counts'].values())} inputs {man['counts']} git={man['git']} "
           f"untracked={len(man['risks']['untracked_reads'])} network={len(man['risks']['network'])} -> {a.out}",
           file=sys.stderr)
     return st.returncode
+
+
+def strace_usable() -> bool:
+    """strace exists and may ptrace here (a container without CAP_SYS_PTRACE, or yama scope 3, refuses)."""
+    if not shutil.which("strace"):
+        return False
+    try:
+        return subprocess.run(["strace", "-f", "-qq", "-e", "trace=none", "true"], capture_output=True,
+                              timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def cmd_step(a: argparse.Namespace) -> int:
+    """A workflow `shell:`: run the step's script with bash as Actions would, traced into --out (merged across steps).
+    The tracer never changes a verdict: where strace cannot run, or tracing fails, the step runs untraced and its own
+    exit status is the answer."""
+    bash = ["bash", "--noprofile", "--norc", "-eo", "pipefail", a.script]
+    out = Path(a.out or os.path.join(os.environ.get("RUNNER_TEMP", tempfile.gettempdir()), "traced-inputs",
+                                     "manifest.json"))
+    if os.environ.get("TRACED_INPUTS", "1") == "0" or not strace_usable():
+        print("traced_inputs: strace unavailable or off; this step runs untraced", file=sys.stderr)
+        (out.parent / "untraced").parent.mkdir(parents=True, exist_ok=True)
+        (out.parent / "untraced").write_text("1\n")
+        return subprocess.run(bash).returncode
+    with tempfile.TemporaryDirectory(prefix="traced-step-") as raw:
+        st = subprocess.run(["strace", "-f", "-ff", "--seccomp-bpf", "-qq", "-y", "-s", "4096", "-e",
+                             f"trace={SYSCALLS}", "-e", "signal=none", "-o", os.path.join(raw, "t"), *bash])
+        try:
+            man = manifest_from_raw(Path(raw), Path(a.root).resolve(), "HEAD", [os.environ.get("GITHUB_ACTION", a.script)])
+            man["exit"] = st.returncode
+            write_manifest(man, out, True)
+        except Exception as e:  # noqa: BLE001 - a tracer bug must never fail the check it watches
+            print(f"traced_inputs: could not record this step's reads ({type(e).__name__}: {e})", file=sys.stderr)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            (out.parent / "untraced").write_text("1\n")
+    return st.returncode
+
+
+def parse_raw(raw: Path) -> Trace:
+    tr = Trace()
+    for f in sorted(raw.iterdir()):
+        tr.pid = f.name
+        with f.open(encoding="latin-1") as fh:
+            pending = ""
+            for line in fh:
+                line = line.rstrip("\n")
+                if line.endswith("<unfinished ...>"):
+                    pending = line[: -len("<unfinished ...>")].rstrip()
+                    continue
+                if "resumed>" in line and pending:
+                    line, pending = pending + line.split("resumed>", 1)[1], ""
+                tr.feed(line)
+    return tr
+
+
+def manifest_from_raw(raw: Path, root: Path, rev: str, command: list[str]) -> dict:
+    return build_manifest(parse_raw(raw), root, rev, command)
+
+
+def write_manifest(man: dict, out: Path, append: bool) -> None:
+    """Write MAN; with append, merge it into the manifest already at OUT (one step of a multi-step job each)."""
+    if append and out.exists():
+        old = json.loads(out.read_text())
+        rank = {"E": 0, "N": 1, "F": 2}
+        for p, k in old["entries"].items():
+            if rank[k] > rank.get(man["entries"].get(p, "E"), -1) or p not in man["entries"]:
+                man["entries"][p] = k
+        man["entries"] = dict(sorted(man["entries"].items()))
+        order = {None: 0, "L": 1, "H": 2}
+        man["git"] = max(old.get("git"), man.get("git"), key=lambda g: order[g])
+        man["git_calls"] = (old.get("git_calls", []) + man["git_calls"])[:200]
+        man["git_paths"] = sorted(set(old.get("git_paths", [])) | set(man["git_paths"]))[:200]
+        for r in ("untracked_reads", "network"):
+            man["risks"][r] = sorted(set(old["risks"][r]) | set(man["risks"][r]))[:500]
+        man["command"] = old["command"] + [man["command"]] if isinstance(old["command"][0], list) else [old["command"], man["command"]]
+        man["exit"] = max(old.get("exit", 0), man.get("exit", 0))
+        man["counts"] = {k: sum(1 for v in man["entries"].values() if v == k) for k in "FNE"}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(man, indent=1) + "\n")
 
 
 def states(man: dict, root: Path, rev: str, idx: dict | None = None) -> list[tuple[str, str, str]]:
@@ -370,6 +486,77 @@ def cmd_entries(a: argparse.Namespace) -> int:
     return 0
 
 
+def export_rows(man: dict, pinned: list[str]) -> list[str]:
+    """The manifest as receipt_input_key rows (`* KIND PATH`): F -> blob, N -> names, E -> blob (keyed absent or
+    present). A path both listed and read through is a tree only when PINNED names it (the check's own code)."""
+    rows = []
+    for path, kind in man["entries"].items():
+        if not path:
+            rows.append(f"* {'names' if kind == 'N' else 'blob'} .")  # the root: `REV:.` is its tree
+            continue
+        if any(c in path for c in " #") or not path.isprintable() or not path.isascii():
+            # receipt_input_key splits on whitespace and the controller takes printable ASCII only: such a path
+            # cannot be listed, so the check is keyed on its parent directory's whole tree instead.
+            parent = path.rpartition("/")[0]
+            rows.append(f"* tree {parent}" if parent else "* tree .")
+            continue
+        rows.append(f"* {'names' if kind == 'N' else 'blob'} {path}")
+    rows += [f"* blob {p}" for p in pinned]
+    return sorted(set(rows))
+
+
+def cmd_export(a: argparse.Namespace) -> int:
+    man = load(a.manifest)
+    if man.get("git") == "H":
+        print("traced_inputs: the check reads git history or the commit; it has no tree key", file=sys.stderr)
+        return 2
+    if man.get("git") == "L":
+        print("traced_inputs: the check asks git for the path list; keyed on the root listing too", file=sys.stderr)
+    rows = export_rows(man, a.pin)
+    if man.get("git") == "L":
+        rows.append("* tree .")
+    head = [f"# Traced inputs of {a.check} (scripts/ci/traced_inputs.py; cmuxterm-hq RFD 0148 row 9). Generated:",
+            f"# python3 scripts/ci/traced_inputs.py export --check {a.check} --manifest M --out THIS; do not edit.",
+            f"# {man['counts']['F']} files read, {man['counts']['N']} directories listed, {man['counts']['E']} paths "
+            "probed absent; traced at " + man["rev"][:12] + "."]
+    Path(a.out).write_text("\n".join(head + sorted(set(rows))) + "\n")
+    print(f"traced_inputs: {len(set(rows))} rows -> {a.out}", file=sys.stderr)
+    return 0
+
+
+def cmd_audit(a: argparse.Namespace) -> int:
+    """A fresh trace against the committed list: every read the list does not cover is a reuse the key would get
+    wrong. Prints `audit=<json>`; exits 1 on a miss with --strict."""
+    man = load(a.manifest)
+    covered: dict[str, str] = {}
+    trees: list[str] = []
+    for raw in Path(a.inputs).read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        _unit, kind, rel = line.split()
+        rel = "" if rel == "." else rel
+        if kind == "tree":
+            trees.append("" if rel == "." else rel)
+        covered[rel] = kind
+
+    def under_tree(p: str) -> bool:
+        return any(t == "" or p == t or p.startswith(t + "/") for t in trees)
+
+    missed = []
+    for path, kind in man["entries"].items():
+        if under_tree(path):
+            continue
+        have = covered.get(path)
+        # names covers a listing, blob covers a file read or an absent probe; a blob row on a directory is its tree.
+        if have is None or (kind == "N" and have not in ("names", "blob")) or (kind != "N" and have == "names"):
+            missed.append(f"{kind} {path}")
+    out = {"missed": len(missed), "examples": missed[:30], "git": man.get("git"),
+           "untracked_reads": man["risks"]["untracked_reads"][:10], "network": man["risks"]["network"][:10]}
+    print("audit=" + json.dumps(out, separators=(",", ":")))
+    return 1 if a.strict and (missed or man.get("git") == "H") else 0
+
+
 def cmd_shadow(a: argparse.Namespace) -> int:
     root = Path(a.root)
     old, new = load(a.manifest_old), load(a.manifest_new)
@@ -403,6 +590,13 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--root", default=".")
     t.add_argument("--rev", default="HEAD")
     t.add_argument("--out", required=True)
+    t.add_argument("--raw", help="keep strace's per-process logs here (re-parse them with `parse`)")
+    t.add_argument("--append", action="store_true", help="merge into the manifest already at --out")
+    pr = sub.add_parser("parse")
+    pr.add_argument("--raw", required=True)
+    pr.add_argument("--root", default=".")
+    pr.add_argument("--rev", default="HEAD")
+    pr.add_argument("--out", required=True)
     t.add_argument("command", nargs=argparse.REMAINDER)
     k = sub.add_parser("key")
     e = sub.add_parser("entries")
@@ -412,6 +606,19 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--root", default=".")
         p.add_argument("--salt", default="")
     k.add_argument("--strict", action="store_true")
+    sp = sub.add_parser("step", help="a workflow shell: `shell: python3 scripts/ci/traced_inputs.py step {0}`")
+    sp.add_argument("script")
+    sp.add_argument("--root", default=".")
+    sp.add_argument("--out", default="")
+    x = sub.add_parser("export")
+    x.add_argument("--check", required=True)
+    x.add_argument("--manifest", required=True)
+    x.add_argument("--out", required=True)
+    x.add_argument("--pin", action="append", default=[], help="a file always in the key (the workflow, the list)")
+    au = sub.add_parser("audit")
+    au.add_argument("--manifest", required=True)
+    au.add_argument("--inputs", required=True)
+    au.add_argument("--strict", action="store_true")
     s = sub.add_parser("shadow")
     s.add_argument("--manifest-old", required=True)
     s.add_argument("--manifest-new", required=True)
@@ -425,7 +632,15 @@ def main(argv: list[str] | None = None) -> int:
         if not a.cmd:
             ap.error("trace needs a command after --")
         return cmd_trace(a)
-    return {"key": cmd_key, "entries": cmd_entries, "shadow": cmd_shadow}[a.sub](a)
+    if a.sub == "step":
+        return cmd_step(a)
+    if a.sub == "parse":
+        man = manifest_from_raw(Path(a.raw), Path(a.root).resolve(), a.rev, ["(parsed)"])
+        write_manifest(man, Path(a.out), False)
+        print(f"traced_inputs: {man['counts']} git={man['git']}", file=sys.stderr)
+        return 0
+    return {"key": cmd_key, "entries": cmd_entries, "shadow": cmd_shadow, "export": cmd_export,
+            "audit": cmd_audit}[a.sub](a)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,12 @@ CHECKS = {
     },
 }
 GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+# blob, tree: the path's git object id (a tree covers everything under it). names: a directory the check lists but
+# does not read through (Python's import system lists every sys.path entry); its key is the names and types of its
+# entries, so editing a file under it changes nothing and adding, removing or renaming one does. A traced inputs
+# list (scripts/ci/traced_inputs.py, hq RFD 0148 row 9) writes names rows; the controller's parseInputRows takes
+# blob and tree only, so a class with names rows stays shadow-only until it learns them.
+KINDS = ("tree", "blob", "names")
 
 
 def git(*args: str) -> str:
@@ -67,7 +73,7 @@ def load_inputs(check: str, path: Path | None = None) -> list[tuple[str, str, st
         if not line:
             continue
         unit, kind, rel = line.split()
-        if kind not in ("tree", "blob"):
+        if kind not in KINDS:
             raise ValueError(f"{check}: unknown input kind {kind!r} in {raw!r}")
         rows.append((unit, kind, rel))
     return rows
@@ -80,6 +86,37 @@ def object_id(revision: str, rel: str) -> str | None:
         return None
 
 
+def object_ids(revision: str, rels: list[str]) -> dict[str, str | None]:
+    """object_id for many paths in one git process (a traced list has hundreds)."""
+    if not rels:
+        return {}
+    if object_id is not _OBJECT_ID:  # replaced (a test's fixed ids): one call per path, as before
+        return {rel: object_id(revision, rel) for rel in rels}
+    out = subprocess.run(["git", "-C", str(ROOT), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                         input="".join(f"{revision}:{'' if rel == '.' else rel}\n" for rel in rels), capture_output=True, text=True,
+                         env=GIT_ENV, timeout=120, check=True).stdout.splitlines()
+    if len(out) != len(rels):
+        raise RuntimeError(f"git cat-file answered {len(out)} lines for {len(rels)} paths")
+    return {rel: (None if line.endswith(" missing") or " " not in line else line.split()[0])
+            for rel, line in zip(rels, out)}
+
+
+_OBJECT_ID = object_id
+
+
+def names_id(revision: str, rel: str, oid: str | None) -> str | None:
+    """The names and types of a tree's entries, hashed; None when the path is absent, the blob id when it is a file."""
+    if oid is None:
+        return None
+    try:
+        listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-z", oid], capture_output=True, env=GIT_ENV,
+                                 timeout=60, check=True).stdout
+    except subprocess.CalledProcessError:
+        return oid  # not a tree: a file (or a gitlink) where the check listed a directory
+    names = sorted(rec.split(b" ", 2)[1] + b" " + rec.split(b"\t", 1)[1] for rec in listing.split(b"\0") if rec)
+    return "names:" + hashlib.sha256(b"\0".join(names)).hexdigest()
+
+
 def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -> tuple[str, dict]:
     if check not in CHECKS:
         raise ValueError(f"unknown check {check!r}; known: {sorted(CHECKS)}")
@@ -90,16 +127,28 @@ def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -
         # A unit with no inputs listed would key on nothing and hit forever: refuse it.
         raise ValueError(f"{check}: no inputs listed for {unknown}; add them to receipt-inputs/{check}.txt")
     selected = sorted(set(units))
-    paths = sorted({rel for unit, _, rel in rows if unit == "*" or unit in selected})
     material = {
         "v": KEY_VERSION,
         "check": check,
         "command": CHECKS[check]["command"],
         "units": selected,
-        "inputs": {rel: object_id(revision, rel) for rel in paths},
+        "inputs": input_ids(revision, [(kind, rel) for unit, kind, rel in rows
+                                       if unit == "*" or unit in selected]),
     }
     blob = json.dumps(material, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest(), material
+
+
+def input_ids(revision: str, selected: list[tuple[str, str]]) -> dict[str, str | None]:
+    """Each selected path's id at REVISION: its object id (blob, tree) or its names id (names). A path listed both as
+    names and as blob or tree keys on its object id, which covers the names."""
+    by_path: dict[str, str] = {}
+    for kind, rel in selected:
+        if by_path.get(rel) in (None, "names"):
+            by_path[rel] = kind
+    oids = object_ids(revision, sorted(by_path))
+    return {rel: names_id(revision, rel, oids[rel]) if by_path[rel] == "names" else oids[rel]
+            for rel in sorted(by_path)}
 
 
 CHECK_PATHS = "scripts/ci/check-paths.txt"
@@ -107,7 +156,8 @@ CHECK_PATHS = "scripts/ci/check-paths.txt"
 
 def pinned_patterns(check: str, base: str, rows=None) -> list[str]:
     rows = load_inputs(check) if rows is None else rows
-    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows if unit == "*"]
+    # A names row pins nothing: the check only listed that directory, so editing a file in it is not running new code.
+    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows if unit == "*" and kind != "names"]
     try:
         text = git("show", f"{base}:{CHECK_PATHS}")
     except subprocess.CalledProcessError:
