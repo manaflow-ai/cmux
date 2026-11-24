@@ -290,6 +290,12 @@ export class MockAppsProvider implements PageClient {
       categories: detail.categories,
       keywords: detail.keywords,
       hide_only: detail.tier === "first-party",
+      ...(detail.commit && {
+        repository: detail.repository,
+        path: detail.path,
+        commit: detail.commit,
+        tag: detail.tag,
+      }),
       new_tab: detail.new_tab === true,
       shelf: detail.shelf ?? "store",
       install: installed
