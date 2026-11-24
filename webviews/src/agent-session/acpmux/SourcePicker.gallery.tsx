@@ -192,6 +192,14 @@ export default componentEntry<Props>({
       ...entry("This Mac lists its folders above the project actions.", picker({ status: notConnected })),
       play: openFolder,
     },
+    "this-mac-repositories": {
+      ...entry(
+        "This Mac lists its folders, then GitHub's repositories under a hairline and their heading (cmux#53226).",
+        picker({ status: ready, repos }),
+        { ...base, runMode: { mode: "persistent", onMode: () => {} } },
+      ),
+      play: openFolder,
+    },
     "cloud-repositories": {
       ...entry("Cloud lists available GitHub repositories.", picker({ status: ready, repos }), cloud),
       play: openFolder,

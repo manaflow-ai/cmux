@@ -303,6 +303,12 @@ pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
     acp::peers(app_acpmux(global).as_deref())
 }
 
+/// Where the acpmux the app's chats use would place new work (`_acpmux/place`): a new chat's Auto
+/// reads this Mac's room from it (`chat_start/auto_place.rs`).
+pub(in crate::cli) fn chat_place_verdict(global: &GlobalArgs) -> Result<Value, String> {
+    acp::place(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -981,6 +987,11 @@ pub(in crate::cli) mod acp {
         })
     }
 
+    /// The acpmux's placement verdict (`_acpmux/place`), as `acpmux machine pick` reads it.
+    pub(super) fn place(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/place", json!({})).await })
+    }
+
     /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
     pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
         block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
@@ -1082,6 +1093,41 @@ pub(in crate::cli) mod acp {
                     json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
                 )
                 .await
+        })
+    }
+
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
         })
     }
 
