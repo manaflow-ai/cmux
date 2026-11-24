@@ -2033,6 +2033,9 @@ async fn dispatch_request_with_identity(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
+            // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
+            // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
+            crate::tool_mentions::add_note(&mut blocks);
             let provenance =
                 crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
             // The caller's own provenance: a `cmux agent message`, never an inbox item.
@@ -2688,18 +2691,16 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
-            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
+            // (`hub/usage_view.rs` `read_usage_for_list`); else rows carry the last pass's.
             if params.get("usage") == Some(&Value::Bool(true)) {
-                let read = hub.refresh_usage_stats();
-                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+                hub.read_usage_for_list().await;
             }
             super::list_reply::sessions(hub, conn, &params).await
         }
         method::MUX_USAGE => {
-            // The same usage read `_acpmux/sessions {usage: true}` waits for, then only the stats
-            // (`hub/usage_answer.rs`).
-            let read = hub.refresh_usage_stats();
-            let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+            // The same usage read `_acpmux/sessions {usage: true}` makes (the cached stats at once,
+            // a pass behind them), then only the stats (`hub/usage_answer.rs`).
+            hub.read_usage_for_list().await;
             let known = match params.get("known") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(known)) => Some(known.as_str()),
