@@ -1794,12 +1794,17 @@ jobs:
     # The marker path (a published tree with no daemon-tests marker) holds one
     # group per key: one run tests, the newest push waits, older waiting ones
     # are replaced; the first pass writes the marker for all of them.
+    # DISPATCH_SUPERSEDED (build): on a branch other than the trunk, integration,
+    # nightly and pin refs, one group per branch, and a newer head's tests cancel
+    # the older head's. This job writes nothing to R2 (publish-tree-tested writes
+    # the marker), and the branch's newer head tests its own tree. On 2026-11-24
+    # 05:10-10:00Z these tests took 3,210 runner-min of branch dispatch runs.
     concurrency:
-      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && 'marker' || github.sha }}
-      # Keep every publisher alive, including a queued run (on the marker
+      group: cmux-tui-daemon-${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && 'marker' || github.sha) }}
+      # Keep every trunk publisher alive, including a queued run (on the marker
       # path a newer push replaces only the waiting job). The complete-key
       # preflight skips duplicate work after the first complete run.
-      cancel-in-progress: false
+      cancel-in-progress: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     name: cmux_next_ daemon tests
     # A pass here writes tree/<key>/daemon-tests.json (publish-tree-tested),
     # which the feat-cmux-next channel (point-feat-channel) requires. Since

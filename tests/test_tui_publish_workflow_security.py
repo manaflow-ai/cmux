@@ -471,10 +471,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     # Per commit, except the marker path (cx-qlilk): a feat-cmux-next push whose
     # tree another run already published shares one group per key, because
     # only the missing daemon-tests marker is at stake there, not the tree.
-    assert ("group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && "
+    # Off the trunk refs a branch's newer head cancels its older head's tests (DISPATCH_SUPERSEDED,
+    # test_branch_push_build_cancels_only_its_own_branch_older_build).
+    assert ("format('{0}-{1}', needs.tree-preflight.outputs.key, github.event_name == 'push' && "
             "github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && "
-            "'marker' || github.sha }}") in daemon
-    assert "cancel-in-progress: false" in daemon
+            "'marker' || github.sha)") in daemon
+    assert "DISPATCH_SUPERSEDED" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
@@ -2447,8 +2449,18 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
         assert render(concurrency["group"], event_name, ref) == "cmux-tui-build-" + "k" * 12 + "-7", (event_name, ref)
         assert render(concurrency["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
     # The jobs that write R2 never share a group across runs and are never cancelled by one.
-    for name in ("publish-tree", "build-darwin-fallback", "cmux-next-daemon-tests"):
+    for name in ("publish-tree", "build-darwin-fallback"):
         assert jobs[name]["concurrency"]["cancel-in-progress"] == "false", name
+    # The daemon tests write nothing to R2: off the trunk refs they follow the build's branch group;
+    # on them they keep the per-key, per-commit (or marker) group nothing cancels.
+    daemon = {name: value.replace("needs.tree-preflight.outputs.tree_ready", "github.tree_ready")
+              for name, value in jobs["cmux-next-daemon-tests"]["concurrency"].items()}
+    for event_name in ("push", "workflow_dispatch"):
+        assert render(daemon["group"], event_name, "refs/heads/lane/c") == "cmux-tui-daemon-ref-refs/heads/lane/c"
+        assert render(daemon["cancel-in-progress"], event_name, "refs/heads/lane/c") == "True"
+        for ref in kept:
+            assert render(daemon["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
+            assert not render(daemon["group"], event_name, ref).startswith("cmux-tui-daemon-ref-"), (event_name, ref)
     assert "concurrency" not in jobs["publish"] or jobs["publish"]["concurrency"]["cancel-in-progress"] == "false"
     assert document["concurrency"]["cancel-in-progress"] == "false"
     # A build a newer push cancelled plans no macOS fallback once the branch has moved;
