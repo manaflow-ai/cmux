@@ -31,7 +31,7 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// What VoiceOver reads for the chip: the words plus the Mac, when the state names one.
     var sentence: String {
         guard let macName, !macName.isEmpty else { return chipKind == .cantReach ? String(localized: "Can't reach your Mac") : text }
-        return String(localized: "\(macName) is offline")
+        return showsSpinner ? String(localized: "Reconnecting to \(macName)…") : String(localized: "\(macName) is offline")
     }
 
     /// A redial past the quiet bound. No link path posts it any more (the chip waits out the bound and
