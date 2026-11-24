@@ -223,7 +223,19 @@ export function EnvironmentPicker({
   const [listOpen, setListOpen] = useState(false);
   // Which list is open: This Mac and Cloud, every machine (Machines… on the right-click menu), a
   // started chat's Move to… targets, or a new chat's Other devices.
-  const [list, setList] = useState<"main" | "machines" | "moves" | "devices" | "auto">("main");
+  const [list, setListOnly] = useState<PickerList>("main");
+  // The lists opened on the way here, so a list opened in place has a way back (Leo 2026-11-24: "i
+  // cant click back"): its heading row, or ← with no search typed, goes to the list it came from.
+  const [trail, setTrail] = useState<readonly PickerList[]>([]);
+  const setList = (next: PickerList) => {
+    setTrail(next === "main" ? [] : (before) => [...before, list]);
+    setListOnly(next);
+  };
+  const back = () => {
+    setQuery("");
+    setListOnly(trail.at(-1) ?? "main");
+    setTrail((before) => before.slice(0, -1));
+  };
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
@@ -1196,9 +1208,30 @@ export function EnvironmentPicker({
       >
         {card?.header}
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
-        {list === "moves" && <div className="acpmux-env-heading">{t("composer.moveToMenu")}</div>}
-        {list === "devices" && <div className="acpmux-env-heading">{t("composer.otherDevices")}</div>}
-        {list === "auto" && listRows !== "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
+        {list !== "main" && (
+          <button
+            type="button"
+            className="acpmux-env-heading acpmux-env-back"
+            data-action="back"
+            aria-label={t("composer.listBack")}
+            // The search field keeps focus, so the arrows and Return go on working in the list it opens.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={back}
+          >
+            <span className="acpmux-env-back-chevron" aria-hidden="true">
+              <ChevronIcon />
+            </span>
+            {t(
+              list === "moves"
+                ? "composer.moveToMenu"
+                : list === "devices"
+                  ? "composer.otherDevices"
+                  : list === "machines"
+                    ? "composer.machinesList"
+                    : "composer.auto",
+            )}
+          </button>
+        )}
         <Combobox
           suggestions={presence.rows}
           // A short list has no search: the field only carries the arrows, Return and Escape.
@@ -1207,6 +1240,12 @@ export function EnvironmentPicker({
           onCancel={close}
           onCommand={(event) => {
             if (event.key === "Escape") escaped.current = true;
+            // ← with no search typed goes back to the list this one opened from.
+            if (event.key === "ArrowLeft" && list !== "main" && query === "") {
+              event.preventDefault();
+              event.preventBaseUIHandler?.();
+              back();
+            }
             if (event.key === "Tab") event.preventDefault();
             // Return runs an action (Cloud opens New Cloud Machine; Move to Cloud moves the chat)
             // only once the arrow keys or the pointer reached it, never when Base UI highlighted it on
@@ -1240,6 +1279,10 @@ export function EnvironmentPicker({
     </span>
   );
 }
+
+/// Which list the picker shows: This Mac and Cloud, every machine, Move to…'s targets, Other
+/// devices, or Auto's places (AutoCloud).
+type PickerList = "main" | "machines" | "moves" | "devices" | "auto";
 
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
