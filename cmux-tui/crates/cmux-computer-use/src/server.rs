@@ -22,6 +22,10 @@
 //!   its cursor never lingers. `session/idle {session, prefix?}` ends the
 //!   Computer Use of a session whose agent turn ended (the daemon and
 //!   acpmux send it), keeping its approvals.
+//! - Hot upgrade (the worker's, [`serve_replaceable`]): once the worker's executable was
+//!   replaced on disk, new requests that run on a lane are refused by closing their
+//!   connection unanswered (the bridge retries them on the next worker), and the ones already
+//!   admitted finish first ([`crate::replaced`]).
 //! - `preview/watch` turns its connection into the live preview's stream
 //!   ([`crate::preview`]): `{"event":"preview",...}` lines, the latest per
 //!   session when the peer reads slower than frames come.
@@ -78,6 +82,8 @@ struct Shared {
     connections: Mutex<Vec<Weak<dyn Stream>>>,
     /// Open `session/attach` connections per session.
     attached: Mutex<std::collections::HashMap<String, usize>>,
+    /// The worker's watch on its own executable (hot upgrade); None in cmux Remote.
+    swap: Option<Arc<crate::replaced::Swap>>,
 }
 
 /// A serving endpoint. [`Server::stop`] (or drop) stops accepting, ends the
@@ -92,7 +98,17 @@ pub struct Server {
 /// Serves `engine` on `endpoint` (a socket path, or `\\.\pipe\NAME` on
 /// Windows) for peers that present `secret`.
 pub fn serve(engine: Arc<Engine>, endpoint: &str, secret: &[u8]) -> io::Result<Server> {
-    serve_on(engine, transport::Listener::bind(endpoint)?, endpoint, secret)
+    serve_on(engine, transport::Listener::bind(endpoint)?, endpoint, secret, None)
+}
+
+/// [`serve`] for a worker that hands over to a replaced executable between calls.
+pub fn serve_replaceable(
+    engine: Arc<Engine>,
+    endpoint: &str,
+    secret: &[u8],
+    swap: Arc<crate::replaced::Swap>,
+) -> io::Result<Server> {
+    serve_on(engine, transport::Listener::bind(endpoint)?, endpoint, secret, Some(swap))
 }
 
 fn serve_on(
@@ -100,6 +116,7 @@ fn serve_on(
     listener: transport::Listener,
     endpoint: &str,
     secret: &[u8],
+    swap: Option<Arc<crate::replaced::Swap>>,
 ) -> io::Result<Server> {
     if secret.len() < 16 {
         listener.remove();
@@ -116,6 +133,7 @@ fn serve_on(
         lanes: lanes::Lanes::new(),
         connections: Mutex::new(Vec::new()),
         attached: Mutex::new(std::collections::HashMap::new()),
+        swap,
     });
     let accept = {
         let shared = Arc::clone(&shared);
@@ -401,7 +419,17 @@ fn handle(
         Ok(ctx) => ctx,
         Err(message) => return fail("invalid_request", message),
     };
-    match request.get("method").and_then(Value::as_str).unwrap_or_default() {
+    let method = request.get("method").and_then(Value::as_str).unwrap_or_default();
+    // A request that runs on a lane holds a ticket until it ends; a replaced worker admits
+    // none (the connection closes unanswered and the bridge retries on the next worker).
+    let ticket = match (&shared.swap, method) {
+        (Some(swap), "tools/call" | "session/end" | "session/idle") => match swap.enter() {
+            Some(ticket) => Some(ticket),
+            None => return stream.shutdown(),
+        },
+        _ => None,
+    };
+    match method {
         "tools/call" => {
             let Some(name) = request.get("name").and_then(Value::as_str).map(str::to_string) else {
                 return fail("invalid_request", "name is required".into());
@@ -411,6 +439,7 @@ fn handle(
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
             shared.lanes.submit(&session, move || {
+                let _ticket = ticket;
                 let out = engine.call(&ctx, &name, &arguments);
                 send(&stream, &writer, &json!({"id": id, "ok": true, "result": out.to_json()}));
             });
@@ -420,6 +449,7 @@ fn handle(
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
             shared.lanes.submit(&session, move || {
+                let _ticket = ticket;
                 engine.end_session(&ctx.session);
                 send(&stream, &writer, &json!({"id": id, "ok": true, "result": {}}));
             });
@@ -437,6 +467,7 @@ fn handle(
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
             let run = move || {
+                let _ticket = ticket;
                 let ended = engine.idle(&session, prefix);
                 send(&stream, &writer, &json!({"id": id, "ok": true, "result": {"ended": ended}}));
             };

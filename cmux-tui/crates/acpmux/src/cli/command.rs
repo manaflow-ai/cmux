@@ -152,6 +152,11 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Block until a pull request's checks finish (or it merges), sharing one GitHub poller with
+    /// every other waiter on this machine. Exit 0 green or merged, 1 failing or closed, 3
+    /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
+    #[command(name = "pr-wait")]
+    PrWait(crate::cli::pr_wait::PrWaitArgs),
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -592,6 +597,11 @@ pub enum Command {
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
         rotate_token: bool,
+        /// Serve the agent pane over this machine's tailnet name with HTTPS
+        /// (`tailscale serve`), so a browser on another device of yours can open and
+        /// sign in to it. Prints that https link; implies `--app`.
+        #[arg(long)]
+        tailnet: bool,
     },
     /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
     /// The old spellings `host`, `hosts` and `peer` still work.
@@ -604,12 +614,17 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// Bridge Claude Desktop and Codex Desktop to each other and to cmux sessions: connect, send, inbox.
+    /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
+    /// connect, send, inbox.
     #[command(subcommand)]
     Bridge(crate::cli::bridge::BridgeCmd),
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
     #[command(subcommand)]
     Watch(crate::cli::watch::WatchCmd),
+    /// Cloud triggers: on a GitHub event (CI failure, PR comment) or a signed webhook, wake a
+    /// Cloud chat with a prompt: create, ls, rm.
+    #[command(subcommand)]
+    Trigger(crate::cli::trigger::TriggerCmd),
     /// Give the Claude desktop app, Claude Code and Codex the cmux tools: link, unlink, status.
     #[command(subcommand)]
     Desktop(crate::cli::desktop::DesktopCmd),
@@ -638,6 +653,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
+    /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
@@ -808,7 +827,19 @@ pub enum Command {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (tab, sidebar row, lists, chat header, a
+    /// message's sender): one emoji, an SF Symbol (`leaf.fill`, `sf:NAME`), an agent mark
+    /// (`claude`), an .svg/.png/.ico file, or a URL (an image, or a site whose favicon it takes).
+    /// `none` clears it; no ICON prints it. `@` is the session this shell runs in: an agent sets
+    /// its own icon with no one's leave.
+    #[command(
+        after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
+    )]
+    Icon { session: String, icon: Option<String> },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -861,7 +892,12 @@ pub enum Command {
     #[command(hide = true)]
     Set { session: String, assignment: String },
     #[command(hide = true)]
-    Allow { session: String, option: Option<String> },
+    Allow {
+        session: String,
+        option: Option<String>,
+        #[arg(long)]
+        standing_grant: bool,
+    },
     #[command(hide = true)]
     Deny { session: String },
     #[command(hide = true)]
@@ -1289,7 +1325,12 @@ pub enum SessionCmd {
         /// Rename the spoken handle.
         #[arg(long)]
         handle: bool,
+        /// With --handle: set the icon too (as `acpmux icon`).
+        #[arg(long, requires = "handle")]
+        icon: Option<String>,
     },
+    /// Set the icon every surface draws for a session (as `acpmux icon`).
+    Icon { session: String, icon: Option<String> },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1335,9 +1376,16 @@ pub enum SessionCmd {
         team_address: Option<String>,
     },
     /// Answer a pending permission request. The daemon accepts an allow
-    /// only from the cmux app (approve it on the Mac app); a deny option
-    /// works from here.
-    Allow { session: String, option: Option<String> },
+    /// only from the cmux app (approve it on the Mac app), or signed with this
+    /// machine's standing grant (--standing-grant); a deny option works from here.
+    Allow {
+        session: String,
+        option: Option<String>,
+        /// Sign the one-time allow with the standing grant
+        /// (`acpmux machine approvals grant` records it).
+        #[arg(long)]
+        standing_grant: bool,
+    },
     /// Reject a pending permission request.
     Deny { session: String },
     /// Answer a pending agent question: one --answer per question, keyed by
@@ -1796,8 +1844,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Rename { session, new_name, handle } => {
-                Command::Rename { session, new_name, handle }
+            SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
+            SessionCmd::Rename { session, new_name, handle, icon } => {
+                Command::Rename { session, new_name, handle, icon }
             }
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
@@ -1819,7 +1868,9 @@ pub fn flatten(c: Command) -> Command {
                     .or_else(|| team_address.map(|address| format!("team-address={address}")))
                     .unwrap_or_default(),
             },
-            SessionCmd::Allow { session, option } => Command::Allow { session, option },
+            SessionCmd::Allow { session, option, standing_grant } => {
+                Command::Allow { session, option, standing_grant }
+            }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },

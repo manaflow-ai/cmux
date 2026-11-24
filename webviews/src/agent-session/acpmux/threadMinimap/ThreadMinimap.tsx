@@ -14,6 +14,7 @@ import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model"
 import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
+import { trailingTimer } from "../../../ui/trailingTimer";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
 import { HOVER_INTENT, useHoverIntent } from "../../../ui/hoverIntent";
@@ -1327,14 +1328,11 @@ function ThreadMinimapView({
   >(undefined);
   /// The one timer that places the list once a fling is at rest (FLING_REST_MS), and the render it asks
   /// for. Each fling frame moves it later; the unmount clears it.
-  const restTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// One timer per fling, however many frames move it (ui/trailingTimer.ts): a clearTimeout and a
+  /// setTimeout each fling frame were a native call pair a frame.
   const [rested, setRested] = useState(0);
-  useEffect(
-    () => () => {
-      if (restTimer.current !== undefined) clearTimeout(restTimer.current);
-    },
-    [],
-  );
+  const [restTimer] = useState(() => trailingTimer(() => setRested((count) => count + 1)));
+  useEffect(() => () => restTimer.stop(), [restTimer]);
   /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES). The rail is
   /// inside the scroller, and a wheel over its own list browses the rail, not the chat.
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
@@ -1392,18 +1390,11 @@ function ThreadMinimapView({
           : 0;
       bandMotion.current = { first: onScreen.first, last: onScreen.last, top: reader, at: now, fast, sessionId };
       if (fast >= FLING_MOVES) {
-        if (restTimer.current !== undefined) clearTimeout(restTimer.current);
-        restTimer.current = setTimeout(() => {
-          restTimer.current = undefined;
-          setRested((count) => count + 1);
-        }, FLING_REST_MS);
+        restTimer.push(FLING_REST_MS);
         return;
       }
     }
-    if (restTimer.current !== undefined) {
-      clearTimeout(restTimer.current);
-      restTimer.current = undefined;
-    }
+    restTimer.cancel();
     const place = () => {
       const current = listOffset.current;
       const next = railScrollTop(
@@ -1443,6 +1434,7 @@ function ThreadMinimapView({
     sessionId,
     rowPitch,
     rested,
+    restTimer,
   ]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser

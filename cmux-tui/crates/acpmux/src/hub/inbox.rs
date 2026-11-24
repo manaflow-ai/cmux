@@ -261,6 +261,13 @@ impl Item {
 /// The waiting `session/prompt` of an inbox message.
 type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 
+impl Inbox {
+    /// The surge row's needYou as last journaled.
+    pub(super) fn surge_counts_need_you(&self) -> u64 {
+        self.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).need_you()
+    }
+}
+
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
@@ -667,7 +674,12 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
-        _ => fallback.to_owned(),
+        // A session with a given name reads by it, with the name it was known by
+        // (`Mango · HOST/NAME`, `prompt_provenance::display_label`).
+        _ => crate::prompt_provenance::display_label(
+            sender.get("displayName").and_then(Value::as_str),
+            fallback,
+        ),
     }
 }
 
@@ -1209,6 +1221,14 @@ pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) ->
         && !super::digest::inbox_digest::is_digest(provenance)
         && !super::turn_cap::is_notice(provenance)
         && !super::subagent_retry::is_retry(provenance)
+        && !is_subagent_resume(provenance)
+}
+
+/// Whether a prompt is the Resume of a stopped subagent (`subagent_resume.rs`): acpmux's own ask
+/// of the chat's agent, never the person's words.
+fn is_subagent_resume(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(super::subagent_resume::PROVENANCE_KIND)
 }
 
 /// Whether the running turn is one the person's own prompt started: no notice and no other
@@ -2339,6 +2359,9 @@ impl Hub {
             inbox.items.push(item);
         }
         trim(&mut inbox);
+        // A needYou journaled before a restart is counted again by the pass (a rule may have
+        // changed what counts: program notices are fyi now).
+        surge_held |= inbox.surge_counts_need_you() > 0;
         drop(inbox);
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
@@ -2472,6 +2495,8 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        // Read before the inbox lock: the journal's read pruning takes it.
+        let held_now = self.surge_held_now(session);
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -2506,12 +2531,26 @@ impl Hub {
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // The held bar's "need you" filter: an unread message for the person.
+                    // A program's notice that is no FIRE never is, held before that rule or not.
+                    "needYou": unread.iter().any(|i| {
+                        crate::surge_triage::needs_person(
+                            i.class.as_str(), &i.text, super::presence::owner_name())
+                            && !crate::surge_triage::program_fyi(&json!({
+                                "fromSession": i.from_session, "sender": i.sender, "text": i.text}))
+                    }),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        let counts = {
+            let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((held, through)) = held_now {
+                counts.settle_held(held, through);
+            }
+            counts.json()
+        };
         json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 
@@ -2554,8 +2593,11 @@ impl Hub {
             (messages, marked, label_key)
         };
         if !marked.is_empty() {
-            let msg = json!({"threadId": thread, "promptIds": marked});
-            self.append(session, "mux", "inbox_read", msg);
+            let msg = json!({"threadId": thread, "promptIds": marked, "wholeThread": true});
+            self.append(session, "mux", super::surge_triage::READ_KIND, msg);
+        }
+        if mark_read {
+            self.surge_after_read(session, Some(thread));
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }

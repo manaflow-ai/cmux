@@ -479,6 +479,25 @@ impl Hub {
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
+        // Serialize each prompt's setup through queue admission. In particular, resolving an
+        // uploaded block can block in a worker, and a later prompt must not claim the chat while
+        // the earlier one is still on its way to the queue. The guard is let go when the prompt
+        // is accepted (a queued one is accepted inside `queue_slot` and then waits there for the
+        // whole turn ahead of it: held that long, the next prompt would never queue), and at
+        // the latest right after `queue_slot`, before the admitted prompt reads its uploads.
+        let prompt_admission = std::sync::Mutex::new(Some(match opts.prompt_admission.take() {
+            Some(guard) => guard,
+            None => session.prompt_admission.clone().lock_owned().await,
+        }));
+        let admitted = || drop(prompt_admission.lock().unwrap_or_else(|e| e.into_inner()).take());
+        #[cfg(test)]
+        {
+            let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
@@ -540,11 +559,21 @@ impl Hub {
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
         let race_guard = opts.race_guard.clone();
+        // The name the target was given (`session_handle.rs`), in its acceptance, so the
+        // sender's "Sent to" line names it as people do.
+        let given =
+            session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
+            admitted();
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
                 v = json!({"raceCancelled": true, "error": error.message});
+            }
+            if let (Some(given), Some(obj)) = (given.as_ref(), v.as_object_mut())
+                && obj.contains_key("sessionId")
+            {
+                obj.entry("displayName").or_insert_with(|| json!(given));
             }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
@@ -767,11 +796,24 @@ impl Hub {
             after_turn: after_turn.is_some(),
             steer_on_start,
         };
+        // A prompt the queue already holds (restored after a restart or a move, `queue.rs`
+        // `start_restored`) has its place and is not accepted again: it lets the order go
+        // before it waits for its turn.
+        if session
+            .restored
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|(id, _)| *id == prompt_id)
+        {
+            admitted();
+        }
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
+        admitted();
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
@@ -1797,6 +1839,9 @@ impl Hub {
         // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
         let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
         if let Some(e) = refused {
+            result = Err(e);
+        }
+        if let Some(e) = result.as_ref().ok().and_then(Self::capacity_retry_error) {
             result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).

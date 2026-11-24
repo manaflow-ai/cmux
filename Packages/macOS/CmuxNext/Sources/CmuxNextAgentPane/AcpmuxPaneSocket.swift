@@ -369,6 +369,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                         awaited += 1
                     }
                     page.append(fresh)
+                case .reply(let fresh, _):
+                    // A reply no observer reads (a history page with no permission record): the
+                    // page asked for it and waits on it (``pageWaits(on:)``, ``answersPage(_:)``).
+                    awaited += 1
+                    answers += 1
+                    page.append(fresh)
                 case .complete(let object, let pageID, let subject):
                     switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
                                                     canSend: agentReplies != nil) {

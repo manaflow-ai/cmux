@@ -21,23 +21,6 @@ use std::time::Instant;
 const SAMPLES: usize = 200;
 
 impl Rpc {
-    /// [`Rpc::call`] that hands a refusal back instead of failing the test.
-    async fn try_call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
-        self.next += 1;
-        let id = self.next;
-        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        self.wr.write_all(format!("{line}\n").as_bytes()).await.expect("send");
-        loop {
-            let v = self.message().await;
-            if v.get("id") == Some(&json!(id)) {
-                return match v.get("error") {
-                    Some(error) => Err(error.clone()),
-                    None => Ok(v["result"].clone()),
-                };
-            }
-        }
-    }
-
     async fn message(&mut self) -> Value {
         let line = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line())
             .await
