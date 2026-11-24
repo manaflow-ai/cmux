@@ -42,7 +42,9 @@ LABEL = "cmux-linux"
 OWNER_GUARD = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 FORK_PR = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
            " && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')")
-CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+# The cloud overflow switch: when the owned pool is saturated, this variable names a vendor label to spill onto.
+OVERFLOW = "vars.CI_OVERFLOW_LINUX"
+CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
 
 # A term naming or choosing a Linux x64 size.
 PICKER = re.compile(
@@ -212,6 +214,8 @@ def rewrite_expr(expr: str) -> str | None:
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
     kept, picked, fork_at = [], False, None
     for term in terms:
+        if term == OVERFLOW:
+            continue  # the overflow switch: re-added before the label, so a rerun does not move or double it
         if LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
             kept.append(term)  # a conditioned arm already on the label (PR control, push roots): keeps its place
         elif PICKER.search(term):
@@ -226,7 +230,7 @@ def rewrite_expr(expr: str) -> str | None:
     if not picked:
         return None
     kept.insert(fork_at, FORK_PR)
-    return "${{ " + " || ".join([OWNER_GUARD, *kept, f"'{LABEL}'"]) + " }}"
+    return "${{ " + " || ".join([OWNER_GUARD, *kept, OVERFLOW, f"'{LABEL}'"]) + " }}"
 
 
 def rewrite_mixed(expr: str) -> str:
