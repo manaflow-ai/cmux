@@ -1,0 +1,56 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/hearth-look",
+  "name": "Hearth",
+  "tagline": "A warm chat assistant desk: serif replies on cream paper, your prompts as soft cards, a header that keeps out of the way.",
+  "description": "A whole cmux look after a warm chat assistant desktop app: a cream paper theme (Hearth) and a warm brown dark (Hearth Dark), serif reading prose at a roomy size and width, prompts as outlined cards on the leading edge with the reply flowing under them as plain prose, a rounded message box and a quiet header. Built only from public surfaces; remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/hearth",
+  "screenshots": ["screenshots/hearth-light.png", "screenshots/hearth-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "hearth",
+
+    // The chat's structure (cmux#52221): prompts as soft outlined cards on the leading edge, a
+    // rounded message box, the header's tools only while the pointer is over it.
+    "agentPane.display.layout.messages": "card",
+    "agentPane.display.layout.composer": "rounded",
+    "agentPane.display.layout.header": "quiet",
+    // With cmux#45843 also set "agentPane.composerLook" and
+    // "agentPane.emptyChatComposerPosition"; neither is a key yet.
+
+    // Reading prose: the serif preset at 16 px with a 1.7 line height in a 760 px column, a
+    // humanist UI face, no minimap, harness marks as small symbols.
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.ui": "source-sans",
+    "agentPane.display.font.size": 16,
+    "agentPane.display.font.lineHeight": 1.7,
+    "agentPane.display.code.scale": 0.85,
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+
+    // The sidebar as a list of conversations by recency, comfortable rows, no clutter on a row.
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "recents",
+    "sidebar.sessionTree": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.controlsOnHover": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.working": true,
+
+    // The Markdown viewer reads the same: serif, 16 px, a narrow measure.
+    "markdown.font.preset": "serif",
+    "markdown.font.size": 16,
+    "markdown.layout.width": 72
+  }
+}

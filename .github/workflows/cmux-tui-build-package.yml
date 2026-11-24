@@ -471,6 +471,21 @@ jobs:
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
+      # The native leg (the macOS fallback, or a feat-cmux-next push leg on a free mini) built
+      # into cmux-tui/target, which actions/checkout's clean empties every job, so every one
+      # compiled cold: run 44947539922's fallback took 2h01m here and the job timeout cancelled
+      # it before it shipped. On an owned Mac it now starts from an APFS clone of the target the
+      # last successful native build on that Mac kept ("Keep the warm Mac target" below);
+      # scripts/ci/cmux-tui-mac-warm-target.sh prints "mac warm target: hit, ..." or "miss (...)".
+      - name: Start from this Mac's warm target
+        if: matrix.cross == false && runner.os == 'macOS'
+        env:
+          LTO: ${{ inputs.lto }}
+        shell: bash
+        run: |
+          scripts/ci/cmux-tui-mac-warm-target.sh restore ${{ matrix.build_target }} \
+            || echo "warning: mac warm target restore failed; building as is" >&2
+
       - name: Build cmux-tui (native)
         if: matrix.cross == false
         env:
@@ -1051,6 +1066,21 @@ jobs:
           [[ "$DARWIN_ON_LINUX" != true ]] || export MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"
           scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
             || echo "warning: warm target record failed" >&2
+
+      # Any successful native Mac build from this repository (a push, a dispatch, a same-repository
+      # pull request, a lane's macOS fallback included), once staged, becomes the one base tree every
+      # later native leg on that Mac clones before it builds; a fork's pull request never writes it.
+      # The fallback lands on any of several Macs, so each builds cold once, on its first native leg
+      # (bounded by scripts/ci/cmux-tui-mac-cargo-builds.sh), and warm after.
+      # scripts/ci/cmux-tui-mac-warm-target.sh.
+      - name: Keep the warm Mac target
+        if: success() && matrix.cross == false && runner.os == 'macOS' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          LTO: ${{ inputs.lto }}
+        shell: bash
+        run: |
+          scripts/ci/cmux-tui-mac-warm-target.sh record ${{ matrix.build_target }} \
+            || echo "warning: mac warm target record failed" >&2
 
       - name: Verify non-npm binaries disable SSH auto-install
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
