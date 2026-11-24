@@ -19,7 +19,12 @@ describe("Settings switches pick experiment arms", () => {
   });
 
   test("an on switch runs its arm, and the gallery's override still wins", () => {
-    setExperimentSwitches({ menuStyleV2: true, menuRowStates: true, composerHatGroups: true, glassToolbarGroups: true });
+    setExperimentSwitches({
+      menuStyleV2: true,
+      menuRowStates: true,
+      composerHatGroups: true,
+      glassToolbarGroups: true,
+    });
     expect(settingArms()).toEqual({
       "menu-style-v2": "v2",
       "menu-row-states": "on",
