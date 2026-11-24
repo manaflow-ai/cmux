@@ -91,7 +91,8 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
     return page;
   }
 
-  /// What the card is made of, logged when a case runs: the strip, the prompt and its cap.
+  /// What the card is made of, logged when a case runs: the strip, the prompt and its cap (the
+  /// numbers a failure needs to be read from the fleet's log).
   const probe = (page: Page, label: string) =>
     page
       .evaluate(() => {
@@ -262,8 +263,9 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
       await probe(page, `line cleared after ${count}`);
       expect(Math.abs((await box(page)).height - rest.height)).toBeLessThanOrEqual(0.5);
     }
-    // A 64 px tile and its 8 px top inset, less the prompt's dropped top inset (15 to 6 px).
-    for (const growth of grown) expect(growth).toBeLessThanOrEqual(64);
+    // A 64 px tile and its 8 px top inset, less the prompt's dropped top inset (13.625 to 6 px at
+    // the default chrome size): 64.375 px, measured on the fleet (run 45394755450).
+    for (const growth of grown) expect(growth).toBeLessThanOrEqual(64.5);
     expect(Math.max(...grown) - Math.min(...grown)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
