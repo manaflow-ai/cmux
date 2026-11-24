@@ -347,7 +347,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         var rest = current, was = previous
         rest.screens = []
         was.screens = []
-        guard changed || rest != was else { return }
+        // A change outside the screens (style, scrollbar, row ops) reaches every screen: only the full sync applies it.
+        guard rest == was else { return syncWithModel() }
+        guard changed else { return }
         WindowControlsAvoiders.batching(in: window) { MotionTrace.measure("layout.sync") { syncBatched(current, only: screens) } }
     }
 
