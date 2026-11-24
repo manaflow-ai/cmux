@@ -542,7 +542,8 @@ fn a_kicked_team_guest_cannot_join_again_by_the_team() {
     // Team membership still holds, but the owner's kick sticks: the next join is refused.
     room.send(json!({"v": 1, "t": "redeem", "request_id": "r2", "attempt_id": "a2",
         "account": "member@example.com", "team_id": team, "name": "Member"}));
-    assert_eq!(room.frame(conn)["error"], "share.kicked");
+    let again = room.frame(conn);
+    assert_eq!(again["error"], "share.kicked", "{again} {}", state(&mut owner));
 }
 
 #[test]
