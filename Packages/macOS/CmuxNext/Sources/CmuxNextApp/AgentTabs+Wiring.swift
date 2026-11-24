@@ -113,7 +113,7 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), focusLoss: { [weak focusLog = services.focusLog] window, detail in focusLog?.pageInputBlurred(window: window, detail: detail) }, hostMarks: services.personInput.hostMarks),
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client, actAsMe: services.personInput.actAsMe, flickerLog: AgentPageFlickerLog.forAppRun(), focusLoss: { [weak focusLog = services.focusLog] window, detail in focusLog?.pageInputBlurred(window: window, detail: detail) }, hostMarks: services.personInput.hostMarks, computerUseState: { [weak services] in services.map { let setup = $0.onboarding.computerUseSetup; return AgentPaneComputerUseState(phase: (setup.rechecking ? .starting : setup.phase).rawValue, granted: setup.permissions.accessibility && setup.permissions.screenRecording) } }, projectPalette: { [weak services] in services?.palette }),
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         CloudFrontedChats.wire(tabs, services: services); tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in // the Cloud chats Mac tabs show in place first (cmux#47677)
@@ -176,6 +176,8 @@ extension AgentTabStore {
                   let machine = tabs.remoteMachineID(of: scoped.key, machine: scoped.machine) else { return nil }
             return SidebarBridge.paneLink(machine, in: services.machines)
         }
+        tabs.machineLink.events.publish = { [weak services] name, payload in _ = services?.apps.controlRouter?.events.publish(name: name, category: "agent", source: "app", payload: payload) }
+        tabs.machineLink.events.peerOf = { [weak services] session in services?.agentLanes.lane(session)?.peer }
         tabs.machineLink.use = { [weak services] machine in
             services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck
         }
@@ -253,11 +255,11 @@ extension AgentTabStore {
         // A chat opens on the right as a link does (LinkOpener, RightColumnPlacement): a split right of
         // the chat, else one split below what is already there (a plain split's terminal included), else a tab in the lower pane.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
-        tabs.openRightScoped = { [weak services] chat, session, host in
+        tabs.openRightScoped = { [weak services] chat, session, host, reveal in
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
             return services.linkOpener.open(from: source, opening: .tool) { target, placed in
                 guard target.daemon.isLocal else { return false }
-                return tabs.openTab(in: target, session: session, host: host, select: placed == nil) { [weak services, weak tabs] key in
+                return tabs.openTab(in: target, session: session, host: host, select: placed == nil) { [weak services, weak tabs] key in if let reveal { tabs?.revealTurn(reveal, in: key, machine: target.daemon.machineID) } // a reveal is on the tab before its first show, as a subagent pane's (view(for:) hands it to the page)
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
                     Task { [weak services, weak tabs] in
                         guard let tabs else { return }
@@ -586,7 +588,7 @@ extension AgentTabStore {
         // pass AgentTabKey directly so duplicate ids remain isolated.
         tabs.openRight = { [weak tabs] chat, session, host in
             guard let tabs else { return false }
-            return tabs.openRightScoped?(tabs.tabKey(chat), session, host) ?? false
+            return tabs.openRightScoped?(tabs.tabKey(chat), session, host, nil) ?? false
         }
         tabs.openTool = { [weak tabs] chat, kind, cwd in
             guard let tabs else { return false }

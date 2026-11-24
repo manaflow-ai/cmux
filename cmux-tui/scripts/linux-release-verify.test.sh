@@ -4,7 +4,8 @@
 #   sh cmux-tui/scripts/linux-release-verify.test.sh
 # 1. The copies of linux-release-verify.sh in web/public/tui/install-static.sh
 #    and cmux-tui/scripts/machine-join.sh, and their keys, equal the source,
-#    web-update-keys.json and channel.rs KEYS (linux-release-verify-gen.py --check).
+#    web-update-keys.json, channel.rs KEYS and the Cloud bake's LINUX_RELEASE_KEYS
+#    in web/services/vms/drivers/linuxRelease.ts (linux-release-verify-gen.py --check).
 # 2. Every curl and fetch in both scripts downloads the signed file, a URL taken
 #    from it, or one of the named unsigned downloads below (each marked in the
 #    script with why).

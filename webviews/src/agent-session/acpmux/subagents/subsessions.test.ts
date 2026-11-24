@@ -138,6 +138,9 @@ test("what a sub-session waits on the person for, in one line", () => {
   const t = translate;
   expect(waitingLine(t, { on: "permission" })).toBe("Waiting for permission");
   expect(waitingLine(t, { on: "question" })).toBe("Waiting on a question · answer in the app");
+  expect(waitingLine(t, { on: "secret" })).toBe("Waiting for a secret");
+  expect(waitingLine(t, { on: "elevation" })).toBe("Waiting to run a command as root");
+  expect(waitingLine(t, { on: "mcpConnect" })).toBe("Waiting to connect an MCP server");
   expect(waitingLine(t, { on: "question", prompt: "Which branch?" })).toBe(
     "Waiting on a question · answer in the app · Which branch?",
   );

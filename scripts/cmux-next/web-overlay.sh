@@ -344,8 +344,13 @@ start_local() {
   answers "$port" && for _ in 1 2 3 4 5; do sleep 1; answers "$port" || break; done
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
-  # The generated string tables are gitignored; the dev server imports them.
-  (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1)
+  # The generated string tables are gitignored; the dev server imports them. A failure says its own
+  # words: silenced, set -e ended this script with no output at all (hot-verify's empty
+  # "web-overlay.sh server --local:", 2026-11-22).
+  local said
+  if ! said="$(cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort 2>&1)"; then
+    echo "webviews/scripts/pages/gen-strings.mjs failed in $tree: $(tail -n 20 <<<"$said")" >&2; exit 1
+  fi
   # Each module's React Compiler output, kept across starts (webviews/reactCompiler.mjs keys it by
   # the file's text, path and bun.lock), so a second start serves the agent pane in seconds, not
   # half a minute. About 50 MB per tree; entries older than 14 days go at each start.
@@ -365,7 +370,8 @@ start_local() {
   echo "$tree:$port" >"$state/dev-server.tree"
   # A server that another process holds the port for answers too; only ours, still running, counts.
   if ! answers "$port" 60 || ! ours_listens "$port"; then
-    echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
+    # Its own last words, not only where they are: `cmux app try .` shows this line alone.
+    echo "the dev server did not start: $(grep -E 'Error|error' "$state/dev-server.log" 2>/dev/null | head -n 3 | tr '\n' ' ')(log: $state/dev-server.log)" >&2; exit 1
   fi
   trap - EXIT
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
@@ -794,9 +800,14 @@ PY
     ;;
   status)
     # First the answer (what the app loads its web UI from, and why), then the details.
-    setting=unknown
-    if command -v cmux >/dev/null 2>&1; then
-      setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    # `cmux live status` reads the setting itself, from the app it was pointed at (--app-socket),
+    # and passes it in CMUX_LIVE_WEB_RELOAD; run by hand, this asks the `cmux` on PATH.
+    setting="${CMUX_LIVE_WEB_RELOAD:-}"
+    if [[ -z "$setting" ]]; then
+      setting=unknown
+      if command -v cmux >/dev/null 2>&1; then
+        setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+      fi
     fi
     explain "$setting" "$(live_pid dev-server)"
     echo

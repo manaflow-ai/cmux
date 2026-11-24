@@ -77,6 +77,7 @@ enum DevToolsHandlers {
     private static func runChromium(_ command: WebDevToolsCommand, on tab: CEFTab, _ context: AppActionContext) {
         switch command {
         case .openDocked: open(tab, .bottom)
+        case .openDockedLeft: open(tab, .left)
         case .openDockedRight: open(tab, .right)
         case .openInWindow: open(tab, .window)
         case .close: tab.performDevTools(.close)

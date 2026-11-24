@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextSignposts
 import CmuxNextWakeups
 import QuartzCore
 
@@ -10,6 +11,8 @@ extension SidebarListViewComponents {
     /// is a user's gesture here, so the model change that follows it may animate too.
     func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=reload")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         if animated, !fromModel { model.noteUserIntent() }
         reloads &+= 1
         holdsModelChange = false // this reload shows the model as it is now
@@ -169,8 +172,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        // A plain folder draws no rail: its header keeps the rows' own frame.
-        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
+        // A plain folder draws no rail, nor does a card (its block wraps the rows): the header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel, !model.groupHeaderDetails.background.drawsCard else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
@@ -223,6 +226,7 @@ extension SidebarListViewComponents {
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { reportGooeySelection() } // after the rows took their frames: the flare follows the selected row
         let old = displayed
         displayed = layout
         spliceBase = nil // a reload sets it again for its own full layout
@@ -642,6 +646,7 @@ extension SidebarListViewComponents {
         guard !isShiftingViewport else { return }
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
+        defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]

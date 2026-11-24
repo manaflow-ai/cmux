@@ -34,6 +34,12 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
         root + (kind.map { [$0.rawValue] } ?? []) + [orderKey]
     }
 
+    /// The All Workspaces order a kind's order key follows while it has no value (``parse(_:diagnostics:)``
+    /// keeps the base order for it); nil for any other path.
+    public static func inheritedOrderPath(for path: [String]) -> [String]? {
+        WorkspaceRowKind.allCases.contains { orderPath(kind: $0) == path } ? orderPath() : nil
+    }
+
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowPreferences {
         var shown = Set(WorkspaceRowElement.allCases.filter(Self.fallback))
         for element in WorkspaceRowElement.allCases {
@@ -52,7 +58,8 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
             change.secondLineOrder = self.order(root, Self.orderPath(kind: kind), &diagnostics)
             if !change.isEmpty { overrides[kind] = change }
         }
-        return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides)
+        return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides,
+                                       layouts: WorkspaceRowLayoutResolver().parse(root, diagnostics: &diagnostics))
     }
 
     private func flag(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> Bool? {

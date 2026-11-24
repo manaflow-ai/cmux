@@ -64,6 +64,7 @@ struct ThinScrollerGrabZoneTests {
             let local = scrollView.convert(point, from: nil)
             let inside = scrollView.bounds.contains(local)
             for axis in Axis.allCases {
+                scroller(axis).flash() // the pointer only widens a knob a scroll showed (Leo 2026-11-22)
                 scroller(axis).pointerMoved(to: inside ? local : nil)
             }
         }
@@ -182,6 +183,28 @@ struct ThinScrollerGrabZoneTests {
         }
         #expect(dragged > 0)
         #expect(failures.isEmpty, "\(failures)")
+    }
+
+    /// A resize handle's band (``ResizeBands``) over the bar's outer columns has priority: with the
+    /// knob shown, the pointer there does not widen it and a press there is not the scroller's.
+    @Test func aResizeBandOverTheBarTakesItsColumns() throws {
+        let fixture = Fixture()
+        defer { fixture.window.close() }
+        let scroller = fixture.scroller(.vertical)
+        let band = NSView(frame: NSRect(x: 240 - 4, y: 0, width: 8, height: 200))
+        fixture.container.addSubview(band) // a divider's hit area, over the scroll view's last 4 columns
+        ResizeBands.register(band)
+        let along = Self.knobMiddle(fixture, .vertical)
+        for column in 0..<Int(fixture.scrollView.bounds.width) {
+            fixture.reset()
+            let point = Self.point(fixture, .vertical, across: CGFloat(column) + 0.5, along: along)
+            fixture.hover(point)
+            guard column < 4 else { continue }
+            #expect(fixture.target(at: point) !== scroller, "column \(column) is the band's: a press resizes")
+            #expect(!scroller.isKnobExpanded, "column \(column) is the band's: no widening")
+            // The scroller alone (nothing above it) also leaves the band's columns to the handle.
+            #expect(scroller.hitTest(fixture.scrollView.convert(point, from: nil)) == nil, "column \(column)")
+        }
     }
 
     /// A grabbed knob keeps following the pointer after it leaves the bar for the content, and

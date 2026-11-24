@@ -833,15 +833,18 @@ const worktreeButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
     (button) => button.textContent?.trim() === t("worktree.new"),
   );
-// New Worktree from the folder menu.
+// New worktree from the current project's worktree list.
 const newWorktreeFromMenu = async () => {
   const folder = host.querySelector<HTMLButtonElement>(
     `.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`,
   );
   expect(folder, "no folder control").toBeTruthy();
   await act(async () => folder!.click());
-  const action = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-action")].find(
-    (item) => item.textContent?.trim() === t("worktree.new"),
+  const expand = doc().querySelector<HTMLElement>("[data-current] .acpmux-location-worktrees");
+  expect(expand, "no worktree list for the selected project").toBeTruthy();
+  await act(async () => expand!.click());
+  const action = [...doc().querySelectorAll<HTMLElement>("[data-worktree]")].find(
+    (item) => item.textContent?.trim() === t("project.newWorktree"),
   );
   expect(action, "no New Worktree in the folder menu").toBeTruthy();
   await act(async () => action!.click());
