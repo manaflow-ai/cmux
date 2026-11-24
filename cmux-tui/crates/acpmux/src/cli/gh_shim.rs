@@ -150,6 +150,8 @@ fn request(
         issue,
         title: p.values.remove("--title"),
         body,
+        // A `token` ask names its permissions; the shim's actions ask for none.
+        permissions: None,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
     })
