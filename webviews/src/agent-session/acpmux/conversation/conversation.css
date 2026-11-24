@@ -4202,7 +4202,11 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
-  padding-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
+  /* `overflow: hidden` clips at the padding edge, so centring the line with padding left the
+     second line's top half showing under the first (Lawrence, 2026-11-24). Margins centre it
+     instead, and the line box is exactly one pitch tall, so the clip sits at its bottom. */
+  line-height: var(--cv-thought-pitch);
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
   color: var(--cv-text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
@@ -6597,6 +6601,11 @@ a.cv-sha:focus-visible {
    (lead + 16 + 8), the icon centred on the cause's first line, which is 18 tall. */
 .cv-turn-error--card .cv-turn-error__cause {
   gap: var(--grid-gap);
+}
+/* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
+   the prose's ink, never the failure red. */
+.cv-github-connect .cv-turn-error__icon {
+  color: var(--agent-text);
 }
 .cv-turn-error--card .cv-turn-error__icon {
   width: var(--grid-icon-box);
