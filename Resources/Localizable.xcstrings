@@ -380259,6 +380259,17 @@
         }
       }
     },
+    "shortcut.key.escape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc"
+          }
+        }
+      }
+    },
     "shortcut.key.mediaBrightnessDown": {
       "extractionState": "manual",
       "localizations": {
