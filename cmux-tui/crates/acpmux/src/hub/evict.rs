@@ -212,7 +212,7 @@ impl Hub {
         now: u64,
         after: u64,
     ) -> Option<&'static str> {
-        let checks: [(&'static str, &dyn Fn() -> bool); 23] = [
+        let checks: [(&'static str, &dyn Fn() -> bool); 24] = [
             ("recently active", &|| {
                 session.last_active.load(Ordering::SeqCst).saturating_add(after) > now
             }),
@@ -228,6 +228,12 @@ impl Hub {
             ("in a turn", &|| session.turn().is_some()),
             ("harness turn", &|| session.harness_turn.load(Ordering::SeqCst)),
             ("queued", &|| session.queued() != 0),
+            // Its inbound loop holds it only weakly between items: an item queued, or a sender
+            // beside its own (an agent, a reader), still has work for it.
+            ("inbound", &|| {
+                let tx = &session.inbound_tx;
+                tx.strong_count() > 1 || tx.capacity() < tx.max_capacity()
+            }),
             ("asks in flight", &|| session.asks_in_flight.load(Ordering::SeqCst) != 0),
             ("agent requests", &|| session.agent_requests.load(Ordering::SeqCst) != 0),
             ("permissions pending", &|| !session.pending_permissions().is_empty()),

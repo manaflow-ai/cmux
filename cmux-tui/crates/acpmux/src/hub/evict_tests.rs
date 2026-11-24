@@ -210,3 +210,46 @@ async fn a_full_batch_of_kept_chats_neither_spins_the_reaper_nor_starves_the_res
     assert_eq!(hub.eviction_counts().0, 40);
     drop(held);
 }
+
+/// An idle chat's inbound loop runs as long as the chat (it ends at a close): it held two strong
+/// handles, so no idle chat that ever started could leave ("held elsewhere (4 handles)" for every
+/// chat at n=1,000). It holds the chat weakly between items now, and ends once the chat leaves.
+#[tokio::test]
+async fn an_idle_chat_with_its_inbound_loop_running_leaves_memory() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
+    let mut meta = meta("s0", "chat-0", 10);
+    meta.status = serde_json::from_value(json!("idle")).unwrap();
+    hub.store.save(&meta).unwrap();
+    let session = hub.insert_test_session(meta);
+    session.hibernated_at.store(1, Ordering::SeqCst);
+    hub.spawn_inbound_loop(&session).await;
+    // Let the loop start and park on its receiver.
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(session.inbound_rx.lock().await.is_none(), "the loop holds the receiver");
+    let weak = Arc::downgrade(&session);
+    drop(session);
+    hub.warm_list_order_for_test();
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    assert_eq!(hub.evict_now_for_test("s0"), None, "the inbound loop does not keep it");
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(weak.upgrade().is_none(), "nothing holds the evicted session, its loop ended");
+    let back = hub.session_get("s0").expect("rehydrated");
+    assert!(back.inbound_rx.lock().await.is_some(), "a new start spawns its loop again");
+}
+
+/// An item queued for the inbound loop keeps its chat: it is still to be handled.
+#[tokio::test]
+async fn a_chat_with_an_inbound_item_queued_stays() {
+    let hub = hub_with(1);
+    let session = hub.session_get("s0").unwrap();
+    let extra = session.inbound_tx.clone();
+    drop(session);
+    assert_eq!(hub.kept_for_test("s0"), Some("inbound"), "a second sender is a producer");
+    drop(extra);
+    assert_eq!(hub.kept_for_test("s0"), None);
+}
