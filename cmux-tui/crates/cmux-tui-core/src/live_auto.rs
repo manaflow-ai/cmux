@@ -998,30 +998,3 @@ pub fn command(op: &str, worktree: Option<&str>) -> anyhow::Result<Value> {
         other => anyhow::bail!("live-auto: unknown op {other} (start, stop, status)"),
     }
 }
-
-/// For tests: a watcher with its own emit and state folder.
-#[cfg(test)]
-fn test_watch(root: &Path, state: Option<PathBuf>, emit: Emit, live: Live) -> Watch {
-    Watch {
-        root: root.to_path_buf(),
-        emit,
-        stats: Arc::new(Mutex::new(Stats::default())),
-        error: Arc::new(Mutex::new(None)),
-        state,
-        file: Arc::new(Mutex::new(())),
-        probe: Arc::new(move |_| live),
-        ffi: Some(FfiClosure::default()),
-    }
-}
-
-/// For tests: run a watcher on `root` until the returned sender stops it.
-#[cfg(test)]
-fn test_spawn(watch: Watch) -> Sender<Wake> {
-    let (sender, wakes) = channel();
-    let wake = sender.clone();
-    std::thread::Builder::new()
-        .name("live-auto-test".into())
-        .spawn(move || watch.run(wake, wakes))
-        .expect("live auto test thread");
-    sender
-}
