@@ -120,13 +120,32 @@ export function lastWrapUp(rows: readonly AcpmuxRow[]): NextStepAsk | undefined 
   return undefined;
 }
 
+/// A completed call read as a wrap-up: its card's ask when it carries one, and whether the card stands
+/// in for the whole call (`withoutWrapUp` drops it). Read once per call: a row's tool is a new object
+/// when it changes (as `readCalls` in dispatchCalls.ts relies on), and the running turn asks again for
+/// every call on each record (`liveWrapUp` in turns.ts), so a record into a long turn searches no
+/// call's title again. null: no wrap-up.
+type WrapUpCall = { ask?: NextStepAsk; drawn: boolean };
+const wrapUpCalls = new WeakMap<Tool, WrapUpCall | null>();
+
+export function completedWrapUp(tool: Tool | undefined): WrapUpCall | undefined {
+  // Only a returned call is one: a failed or unfinished one keeps its row. Not cached, so the read
+  // stays a status check until the call's completed object arrives.
+  if (tool?.status !== "completed") return undefined;
+  const known = wrapUpCalls.get(tool);
+  if (known !== undefined) return known ?? undefined;
+  const wrap = isWrapUp(tool);
+  const exec = wrap ? undefined : execWrapUp(tool);
+  const ask = wrap || exec ? wrapUpAsk(tool) : undefined;
+  const call = wrap || exec ? { ...(ask && { ask }), drawn: wrap ? ask !== undefined : exec!.only } : null;
+  wrapUpCalls.set(tool, call);
+  return call ?? undefined;
+}
+
 /// The turn's rows without the wrap-up calls, which the card draws instead (and a script that did
 /// nothing else): an activity row loses those items, and goes when they were all it held.
 export function withoutWrapUp(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
-  // Only a call the card stands in for goes: a failed or unfinished one keeps its row.
-  const drawn = (tool: Tool | undefined) =>
-    (isWrapUp(tool) && tool.status === "completed" && wrapUpAsk(tool) !== undefined) ||
-    (tool?.status === "completed" && execWrapUp(tool)?.only === true);
+  const drawn = (tool: Tool | undefined) => completedWrapUp(tool)?.drawn === true;
   const out: AcpmuxRow[] = [];
   for (const row of rows) {
     if (row.kind !== "activity" || !(row.items ?? []).some((item) => drawn(item.tool))) {

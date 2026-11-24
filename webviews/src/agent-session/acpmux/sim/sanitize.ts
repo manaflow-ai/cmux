@@ -149,7 +149,15 @@ function scrub(value: unknown, key: string | undefined): unknown {
   if (Array.isArray(value)) return value.map((item) => scrub(item, key));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
+    // A call titled by its tool's name (`mcp__acpmux__wrap_up` before its input streams) keeps the
+    // title: the name is the harness's, kept under `_meta.claude.tool` already, and the pane reads a
+    // wrap-up's card from it (conversation/wrapUp.ts `isWrapUp`).
+    const tool = (value as { _meta?: { claude?: { tool?: unknown } } })._meta?.claude?.tool;
     for (const [name, item] of Object.entries(value)) {
+      if (name === "title" && typeof tool === "string" && item === tool && ENUM.test(tool)) {
+        out[name] = item;
+        continue;
+      }
       const safeName = /^[A-Za-z_$][A-Za-z0-9_$]{0,40}$/.test(name) ? name : scrubText(name);
       out[safeName] = scrub(item, name);
     }

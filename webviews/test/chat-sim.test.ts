@@ -125,6 +125,133 @@ describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () =>
       expect(broken(burst(from), "d-started")).toEqual([]));
 });
 
+// Leo, 2026-11-22: "i am still seeing flickers and flashes of bullshit. sub-second in and out
+// bullshit." and "the content within neeeds to be fucking settling fucking night instantly without
+// extraneous movement". No row is drawn for under a second (FLASH_MS), and no row comes in mid-turn
+// over what the reader follows, in every scenario and in four sanitized excerpts of coordinator
+// chats, each of which did one of them before:
+// - churn-carried-steer: a steer the turn ended without reading drew its stretch's footer over it
+//   and folded the turn around it for 8 ms, then moved again when the next turn took it.
+// - churn-carried-steer-short: the same steer moved under the turn's summary only once the next turn
+//   started, a few ms after the summary came.
+// - churn-carried-notice: an inbox notice the turn ended on drew under the turn for 989 ms, then
+//   folded with it.
+// - churn-wrap-up-steer: the live wrap-up card went back into its run at the next call, which came
+//   in under the steer, above rows already drawn.
+// "Working for" coming in when a carried prompt's turn starts (`+working`, or `+worked` now that the
+// running turn's head line is a `worked` row) is another lane's (the turn's head line; sim map
+// `header-arrives-late`), so it is not counted here. Nor is a step of the reader's own (opening a
+// fold), which moves what is under it because they asked, as map.ts `landings` reads it.
+const CHURN_EXCERPTS = [
+  "churn-carried-steer",
+  "churn-carried-steer-short",
+  "churn-carried-notice",
+  "churn-wrap-up-steer",
+];
+const churned = (result: SimResult) => ({
+  flashes: result.flashes.map((flash) => `${flash.label} ${flash.kind} ${flash.id} ${flash.shownMs} ms`),
+  midTurnShifts: result.shifts
+    .filter(
+      (shift) =>
+        shift.phase === "mid-turn" &&
+        !shift.cause.startsWith("+working ") &&
+        !shift.cause.startsWith("+worked ") &&
+        !shift.label.startsWith("reader "),
+    )
+    .map((shift) => `${shift.label} ${shift.cause}`),
+});
+// What a scenario does that this check counts and the pane means to do, each with why, as the map's
+// `known` holds them (sim/map.ts). Each is pinned exactly: one that stops happening comes out of here.
+// A turn folds its work under "Worked for" when it ends (rule b), drawn at its `turn_end` (direct.ts
+// draws the turn as its result will) or a background turn's end; these scenarios end a turn well
+// under a second after its last row came, as no real turn does, so that row folds under a second
+// after it was drawn.
+const TURN_END_FOLD = "folds with its turn, which the scenario ends under a second after the row came";
+// The live Thinking line lasts as long as its turn: a turn the scenario ends under a second after it starts.
+const LIVE_LINE = "the live line of a turn the scenario ends under a second after it starts";
+// The running turn's head line ("Working for") goes when a turn that only replied ends (a reply alone draws
+// no Worked for: map `turn-with-one-thing`); the head line is another lane's (map `header-arrives-late`).
+const HEAD_LINE = "the head line of a reply-only turn under a second long; the head line is another lane's";
+const KNOWN_CHURN: Record<string, Record<string, string>> = {
+  "background-task": { "background_turn activity activity-17 760 ms": TURN_END_FOLD },
+  "stopped-turn": { "turn_end activity activity-13 600 ms": TURN_END_FOLD },
+  "queued-prompt": { "turn_end activity activity-25 900 ms": TURN_END_FOLD },
+  "lost-result": { "turn_end activity activity-13 980 ms": TURN_END_FOLD },
+  "empty-turn": {
+    "turn_end thinking thinking-live 800 ms": LIVE_LINE,
+    "turn_end activity activity-33 900 ms": TURN_END_FOLD,
+  },
+  "thought-only-turn": {
+    "turn_end activity activity-4 740 ms": TURN_END_FOLD,
+    "turn_end activity activity-15 500 ms": TURN_END_FOLD,
+    "turn_end thinking thinking-live 900 ms": LIVE_LINE,
+  },
+  "plan-checklist": {
+    "turn_end activity activity-26 980 ms": TURN_END_FOLD,
+    // The checklist stays the running turn's last row over the live line (map `checklist`), so a reply
+    // lands above it: map.ts `landings` counts the checklist as pinned, as the live line is.
+    "assistant delta +assistant assistant-8": "lands over the checklist, which stays last (map checklist)",
+    "assistant delta +assistant assistant-16": "lands over the checklist, which stays last (map checklist)",
+  },
+  "received-sent-as-activity": {
+    // Another agent's message folds like work once the turn ends (turns.ts `isOwnSteer`), and the
+    // scenario ends the turn 660 ms after it came.
+    "turn_end user user-31 660 ms": TURN_END_FOLD,
+  },
+  "incoming-burst": {
+    "turn_end worked worked-user-20 900 ms": HEAD_LINE,
+    "turn_end thinking thinking-live 900 ms": LIVE_LINE,
+    "turn_end worked worked-user-27 980 ms": HEAD_LINE,
+    "turn_end thinking thinking-live 980 ms": LIVE_LINE,
+    "turn_end activity activity-38 500 ms": TURN_END_FOLD,
+    "turn_end worked worked-user-43 980 ms": HEAD_LINE,
+    "turn_end worked worked-user-51 900 ms": HEAD_LINE,
+  },
+};
+describe("chat simulator: no sub-second rows and no mid-turn shifts", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    test(name, () => {
+      const known = KNOWN_CHURN[name] ?? {};
+      const { flashes, midTurnShifts } = churned(runSimulation(make(), { rowsInTraceUpTo: 0 }));
+      expect({
+        flashes: flashes.filter((line) => !known[line]),
+        midTurnShifts: midTurnShifts.filter((line) => !known[line]),
+      }).toEqual({ flashes: [], midTurnShifts: [] });
+      expect(Object.keys(known).filter((line) => !flashes.includes(line) && !midTurnShifts.includes(line))).toEqual([]);
+    });
+  for (const name of CHURN_EXCERPTS)
+    test(`${name} (sanitized excerpt)`, () => {
+      const records = parseRecords(readFileSync(join(FIXTURES, `${name}.ndjson`), "utf8"));
+      const result = runSimulation(replayScenario(name, records), { rowsInTraceUpTo: 0 });
+      expect(result.steps).toBeGreaterThan(50);
+      expect(churned(result)).toEqual({ flashes: [], midTurnShifts: [] });
+    });
+});
+
+test("chat simulator: the sanitizer keeps a call's title that is its tool's name", () => {
+  const [clean] = sanitizeRecords([
+    {
+      sessionId: "s",
+      seq: 1,
+      at: 1,
+      dir: "in",
+      kind: "tool_call",
+      msg: {
+        params: {
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "toolu_1",
+            title: "mcp__acpmux__wrap_up",
+            _meta: { claude: { tool: "mcp__acpmux__wrap_up" } },
+          },
+        },
+      },
+    },
+  ] as unknown as Parameters<typeof sanitizeRecords>[0]);
+  const update = (clean!.msg as { params: { update: { title: string } } }).params.update;
+  expect(update.title).toBe("mcp__acpmux__wrap_up");
+});
+
 test("chat simulator: the sanitizer keeps the shape and drops every word", () => {
   const raw = [
     { sessionId: "real-id", seq: 7, at: 1_000, dir: "out", kind: "claude.stdin", msg: { text: "secret" } },

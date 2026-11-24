@@ -148,7 +148,6 @@ export const EVERYWHERE: {
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
       "received-sent-as-activity": "received-drawn-late",
-      "steer-mid-turn": "cut-reply-footer-late",
       "permission-wait": "denial-receipt-order",
     },
   },
@@ -571,7 +570,7 @@ export const MAP: MapEntry[] = [
       ),
   },
 
-  // ---- Rows that land late: found by rows-only-append on the scenarios above. Each is open. ----
+  // ---- Rows that land late: found by rows-only-append on the scenarios above. Each but one is open. ----
   {
     id: "header-arrives-late",
     when: "A turn opens with text (or a compaction line) and starts its first command after.",
@@ -610,7 +609,8 @@ export const MAP: MapEntry[] = [
     expected: "Nothing lands between a reply and the message typed under it once both are drawn.",
     scenario: "steer-mid-turn",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
-    open: "The pane adds the cut reply's footer (superseded-…) when the reply's segment ends, after the steer's row is drawn under it.",
+    // Was open: the pane added the cut reply's footer (superseded-…) when the reply's segment ended, after the
+    // steer's row was drawn under it. That footer now waits for the turn's end (model.ts `steerCutReply`).
   },
   {
     id: "denial-receipt-order",

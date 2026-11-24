@@ -835,6 +835,15 @@ export type AcpmuxRow = {
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
   /// the step it is on ends), then `landed`.
   steer?: "waiting" | "landed";
+  /// A waiting steer whose turn ended (`turn_end`) while the reply above it still streamed: the turn's
+  /// result carries it to the next turn or lands it a few ms later, so no stretch footer comes over it
+  /// in between (conversation/turns.ts `supersededFooters`).
+  steerTurnEnded?: true;
+  /// A steer that came while the reply above it still streamed: that reply's stretch gets its footer
+  /// at the turn's end, never mid-turn. The footer waited for the reply to stop streaming, then came
+  /// between the reply and the steer already drawn under it, which moved down (conversation/turns.ts
+  /// `supersededFooters`; sim map `cut-reply-footer-late`).
+  steerCutReply?: true;
   /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
   /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
   /// ``continuesTurn``), with no mark of its own.
