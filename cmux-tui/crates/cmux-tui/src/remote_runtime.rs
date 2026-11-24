@@ -75,7 +75,10 @@ use client_socket::{
 };
 
 mod daemon_state;
+mod route_last_good;
+mod route_race;
 mod startup_progress;
+mod warm_standby;
 pub use daemon_state::load_runtime_info;
 use daemon_state::{
     CommittedRuntimeInfoError, finalize_daemon_lifecycle, persist_runtime_info,
@@ -92,8 +95,11 @@ use daemon_state::{
     bounded_unix_socket_connect, fail_state_directory_sync_after, persist_shutdown_outcome,
     read_optional_file, read_runtime_info, remove_shutdown_recovery_evidence,
 };
+use route_last_good::LastGoodRoute;
+pub(crate) use route_race::{RouteOrder, RouteRace};
 use startup_progress::StartupProgress;
 pub use startup_progress::startup_refusal;
+use warm_standby::{Armed, WarmStandby, arm_standby, next_warm_route, warm_standby_enabled};
 
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
@@ -951,17 +957,24 @@ async fn dial_first_connection(
         _ => None,
     });
     let progress = &progress;
+    let last_good = LastGoodRoute::open(Some(&options.state_dir), options.expected_daemon);
+    let last_good = last_good.as_ref();
     let dial = cell.dial(options.reconnect, network, || {
-        let mut attempt =
-            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone() };
+        let attempt =
+            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone(), last_good };
+        // Read each round: a remembered route that failed last round is forgotten by now.
+        let first = last_good
+            .and_then(|memory| memory.first(&options.routes, options.ssh_bootstrap.upgrade));
+        let order = initial_route_order(options, first, last_good);
         async move {
-            match select_initial_route(
+            match select_initial_route_from(
                 &options.routes,
+                order,
                 options.session,
                 options.lane_policy,
                 client_auth_kind(&options.auth),
                 options.ssh_bootstrap.upgrade,
-                &mut attempt,
+                &attempt,
             )
             .await
             {
@@ -981,6 +994,43 @@ async fn dial_first_connection(
         }
         never = progress.tick() => match never {},
     }
+}
+
+/// How a first connect's round orders its routes: the remembered route first, and the routes
+/// raced ([`route_race`]) when the connect is enrolled. An invitation is never raced (each
+/// racer would ask the person to approve it), nor a grant (it may be single-use), nor
+/// `--upgrade` (its SSH route installs the daemon first, alone).
+fn initial_route_order(
+    options: &ClientRuntimeOptions,
+    first: Option<usize>,
+    last_good: Option<&LastGoodRoute>,
+) -> RouteOrder {
+    let raceable = matches!(options.auth, ClientAuthMode::Enrolled)
+        && !options.ssh_bootstrap.upgrade
+        && options.routes.len() > 1
+        && route_race_enabled();
+    if !raceable {
+        return RouteOrder::serial(first);
+    }
+    // The stagger follows the leading route's last connect time when it is the remembered one.
+    let lead = first.and(last_good.and_then(LastGoodRoute::connect_time));
+    RouteOrder::raced(first, RouteRace::after(lead))
+}
+
+/// `CMUX_REMOTE_ROUTE_RACE=0` dials the routes one at a time again (the A/B for the race's
+/// numbers).
+fn route_race_enabled() -> bool {
+    std::env::var_os("CMUX_REMOTE_ROUTE_RACE").is_none_or(|value| value != "0")
+}
+
+/// The reconnect pass races when the first connect would: a follow-up dial is Enrolled unless
+/// the link is a carrier's, and a reconnect is never an upgrade. No remembered connect time
+/// reaches it, so the stagger is the floor.
+fn reconnect_race(options: &ClientRuntimeOptions) -> Option<RouteRace> {
+    (followup_auth_kind(&options.auth) == AuthKind::Enrolled
+        && options.routes.len() > 1
+        && route_race_enabled())
+    .then(|| RouteRace::after(None))
 }
 
 /// A route attempt's error type, as the route runner needs it.
@@ -1038,111 +1088,70 @@ impl<E: fmt::Display> fmt::Display for InitialRouteSelectionError<E> {
     }
 }
 
+/// One pass's route dials. The pass may run several at once ([`route_race`]), so both take
+/// `&self`.
 #[async_trait]
-pub(crate) trait InitialRouteAttempt<T: Send, E: Send = anyhow::Error> {
+pub(crate) trait InitialRouteAttempt<T: Send, E: Send = anyhow::Error>: Sync {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError<E>>;
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<T, InitialRouteAttemptError<E>>;
 }
 
+/// One pass over `routes` in their own order, one at a time.
 pub(crate) async fn select_initial_route<T: Send, E: RouteFailure>(
     routes: &[ResolvedRouteCandidate],
     session: SessionId,
     lane_policy: LanePolicy,
     auth: AuthKind,
     upgrade: bool,
-    attempt: &mut impl InitialRouteAttempt<T, E>,
+    attempt: &impl InitialRouteAttempt<T, E>,
 ) -> Result<T, InitialRouteSelectionError<E>> {
-    if routes.is_empty() {
-        return Err(InitialRouteSelectionError::terminal(E::terminal(
-            "remote connection has no route candidates".into(),
-        )));
-    }
-    if upgrade && routes[0].endpoint.scheme() != "ssh" {
-        return Err(InitialRouteSelectionError::terminal(E::terminal(
-            "--upgrade requires SSH to be the initial route".into(),
-        )));
-    }
-    let mut failures = Vec::new();
-    let mut last = None;
-    let mut retryable = false;
-    for (index, candidate) in routes.iter().enumerate() {
-        let display_endpoint = sanitized_route(&candidate.endpoint);
-        if !candidate.supports_client_auth(auth) {
-            failures.push(format!(
-                "{display_endpoint}: {}",
-                ProviderError::UnsupportedClientAuth {
-                    scheme: candidate.endpoint.scheme().into(),
-                    auth,
-                }
-            ));
-            continue;
-        }
-        let request = connect_request(candidate, session, lane_policy).map_err(|error| {
-            InitialRouteSelectionError::terminal(E::terminal(format!("{error:#}")))
-        })?;
-        let endpoint = request.endpoint.clone();
-        let upgrade_candidate = upgrade && index == 0;
-        if endpoint.scheme() == "ssh" {
-            match attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await {
-                Ok(()) => {}
-                Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
-                    if upgrade_candidate {
-                        return Err(InitialRouteSelectionError::terminal(E::terminal(format!(
-                            "SSH bootstrap failed for {display_endpoint}: {}",
-                            error.summary()
-                        ))));
-                    }
-                    retryable |= route_retryable;
-                    failures.push(format!(
-                        "{display_endpoint}: SSH bootstrap failed: {}",
-                        error.summary()
-                    ));
-                    last = Some(error);
-                    continue;
-                }
-                Err(InitialRouteAttemptError::Fatal(error)) => {
-                    return Err(InitialRouteSelectionError::terminal(error));
-                }
-            }
-        }
-        match attempt.connect(index, request).await {
-            Ok(result) => return Ok(result),
-            Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
-                if upgrade_candidate {
-                    return Err(InitialRouteSelectionError::terminal(E::terminal(format!(
-                        "upgraded SSH route failed for {display_endpoint}: {}",
-                        error.summary()
-                    ))));
-                }
-                retryable |= route_retryable;
-                failures.push(format!("{display_endpoint}: {}", error.summary()));
-                last = Some(error);
-            }
-            Err(InitialRouteAttemptError::Fatal(error)) => {
-                return Err(InitialRouteSelectionError::terminal(error));
-            }
-        }
-    }
-    Err(InitialRouteSelectionError { error: E::all_failed(failures, last), retryable })
+    select_initial_route_from(
+        routes,
+        RouteOrder::default(),
+        session,
+        lane_policy,
+        auth,
+        upgrade,
+        attempt,
+    )
+    .await
+}
+
+/// [`select_initial_route`] in `order`: `routes[order.first]` (the last-known-good route,
+/// [`LastGoodRoute`]) before the others, the rest in their own order, raced when `order.race`
+/// is set ([`route_race`]). Each attempt still gets the route's index in `routes`. The order
+/// is ignored when `upgrade` is set: SSH at 0 must go first, alone.
+pub(crate) async fn select_initial_route_from<T: Send, E: RouteFailure>(
+    routes: &[ResolvedRouteCandidate],
+    order: RouteOrder,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    upgrade: bool,
+    attempt: &impl InitialRouteAttempt<T, E>,
+) -> Result<T, InitialRouteSelectionError<E>> {
+    route_race::select_routes(routes, order, session, lane_policy, auth, upgrade, attempt).await
 }
 
 struct RuntimeInitialRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
     shutdown: watch::Receiver<bool>,
+    /// The daemon's last-known-good route: told which route connected, and which failed.
+    last_good: Option<&'a LastGoodRoute>,
 }
 
 #[async_trait]
 impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRouteAttempt<'_> {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError> {
@@ -1154,14 +1163,40 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             Some(self.shutdown.clone()),
         )
         .await
-        .map_err(|error| InitialRouteAttemptError::Route {
-            retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
-            error,
+        .map_err(|error| {
+            if let Some(memory) = self.last_good {
+                memory.failed(endpoint);
+            }
+            InitialRouteAttemptError::Route {
+                retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
+                error,
+            }
         })
     }
 
     async fn connect(
-        &mut self,
+        &self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
+        let endpoint = request.endpoint.clone();
+        let started = tokio::time::Instant::now();
+        let result = self.connect_route(index, request).await;
+        if let Some(memory) = self.last_good {
+            match &result {
+                Ok(_) => memory.connected_in(&endpoint, started.elapsed()),
+                Err(InitialRouteAttemptError::Route { .. }) => memory.failed(&endpoint),
+                // A refusal or a cancel says nothing about the route.
+                Err(InitialRouteAttemptError::Fatal(_)) => {}
+            }
+        }
+        result
+    }
+}
+
+impl RuntimeInitialRouteAttempt<'_> {
+    async fn connect_route(
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
@@ -1203,12 +1238,12 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         let connection_timeout = if invitation { self.options.startup_timeout } else { timeout };
         let connection_deadline =
             if invitation { tokio::time::Instant::now() + connection_timeout } else { deadline };
-        let reconnect_groups: Arc<dyn ReconnectGroupSource> =
-            Arc::new(RuntimeReconnectGroups::with_shutdown(
-                self.options.clone(),
-                index,
-                self.shutdown.clone(),
-            ));
+        let standby_groups = Arc::new(RuntimeReconnectGroups::with_shutdown(
+            self.options.clone(),
+            index,
+            self.shutdown.clone(),
+        ));
+        let reconnect_groups: Arc<dyn ReconnectGroupSource> = standby_groups.clone();
         let mut shutdown = self.shutdown.clone();
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
@@ -1249,7 +1284,11 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             }
         };
         match connection {
-            Ok(connection) => Ok((connection, route)),
+            Ok(connection) => {
+                // The link is up: the best other route goes warm beside it.
+                standby_groups.start_standby();
+                Ok((connection, route))
+            }
             Err(error) if error.refusal().is_some() => {
                 close_failed_initial_group(&group).await;
                 Err(InitialRouteAttemptError::Fatal(error.into()))
@@ -1448,6 +1487,8 @@ pub(crate) trait ReconnectRouteAttempt<T: Send>: Send + Sync {
     ) -> Result<T, ProviderError>;
 }
 
+/// [`route_race::select_reconnect_routes`] one route at a time.
+#[cfg(test)]
 async fn select_reconnect_route<T: Send>(
     routes: &[ResolvedRouteCandidate],
     start: usize,
@@ -1456,46 +1497,31 @@ async fn select_reconnect_route<T: Send>(
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<(usize, T), ProviderError> {
-    if routes.is_empty() {
-        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
-    }
-    let mut failures = Vec::new();
-    for offset in 0..routes.len() {
-        let index = (start + offset) % routes.len();
-        if !routes[index].supports_client_auth(auth) {
-            failures.push(format!(
-                "{}: {}",
-                sanitized_route(&routes[index].endpoint),
-                ProviderError::UnsupportedClientAuth {
-                    scheme: routes[index].endpoint.scheme().into(),
-                    auth,
-                }
-            ));
-            continue;
-        }
-        let request = connect_request(&routes[index], session, lane_policy)
-            .map_err(|error| ProviderError::Configuration(error.to_string()))?;
-        let endpoint = request.endpoint.clone();
-        let display_endpoint = sanitized_route(&endpoint);
-        match attempt.connect(index, request, auth).await {
-            Ok(group) => return Ok((index, group)),
-            Err(error) => {
-                failures.push(format!("{display_endpoint}: {error}"));
-                continue;
-            }
-        }
-    }
-    Err(ProviderError::Transport(format!(
-        "all reconnect route providers failed: {}",
-        failures.join("; ")
-    )))
+    route_race::select_reconnect_routes(routes, start, None, session, lane_policy, auth, attempt)
+        .await
 }
 
 struct RuntimeReconnectGroups {
+    inner: Arc<ReconnectGroupsInner>,
+}
+
+struct ReconnectGroupsInner {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
+    /// The reconnect pass's race (`None`: one route at a time), as the first connect's.
+    race: Option<RouteRace>,
     prepared_ssh: Vec<AtomicBool>,
     shutdown: Option<watch::Receiver<bool>>,
+    /// The warm standby route (`warm_standby.rs`); empty until [`Self::start_standby`].
+    standby: WarmStandby<Arc<dyn LinkGroup>>,
+}
+
+impl std::ops::Deref for RuntimeReconnectGroups {
+    type Target = ReconnectGroupsInner;
+
+    fn deref(&self) -> &ReconnectGroupsInner {
+        &self.inner
+    }
 }
 
 impl RuntimeReconnectGroups {
@@ -1534,12 +1560,34 @@ impl RuntimeReconnectGroups {
                 )
             })
             .collect();
+        let race = reconnect_race(&options);
         Self {
-            options,
-            next: AtomicUsize::new(selected_index.saturating_add(1)),
-            prepared_ssh,
-            shutdown,
+            inner: Arc::new(ReconnectGroupsInner {
+                options,
+                next: AtomicUsize::new(selected_index.saturating_add(1)),
+                race,
+                prepared_ssh,
+                shutdown,
+                standby: WarmStandby::new(selected_index),
+            }),
         }
+    }
+
+    /// Starts keeping one warm standby route, once the active link is up. One keeper task per
+    /// peer; it ends when this source is dropped. A no-op for a single route, for any follow-up
+    /// auth but Enrolled, and with `CMUX_REMOTE_WARM_STANDBY=0`.
+    fn start_standby(&self) {
+        if !self.standby_enabled() {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        runtime.spawn(keep_standby(Arc::downgrade(&self.inner), self.standby.wake()));
+    }
+
+    fn standby_enabled(&self) -> bool {
+        followup_auth_kind(&self.options.auth) == AuthKind::Enrolled
+            && self.options.routes.len() > 1
+            && warm_standby_enabled()
     }
 
     fn unprepared_ssh_probe_count(&self) -> usize {
@@ -1582,25 +1630,82 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             prepared_ssh: &self.prepared_ssh,
             shutdown: self.shutdown.clone(),
         };
-        next_reconnect_route(
+        let (group, stale) = next_warm_route(
+            &self.standby,
             &self.next,
             &self.options.routes,
+            self.race,
             self.options.session,
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
             &attempt,
         )
-        .await
+        .await?;
+        if let Some(stale) = stale {
+            close_failed_initial_group(&stale).await;
+        }
+        Ok(group)
+    }
+}
+
+/// The keeper of one peer's warm standby: dials it when the slot is empty or stale, and looks
+/// again when the reconnect took it, at the standby's expiry, or after a backoff when the dial
+/// failed. Holds the source only weakly, so it ends with it.
+async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tokio::sync::Notify>) {
+    let mut backoff = warm_standby::INITIAL_BACKOFF;
+    loop {
+        let Some(inner) = weak.upgrade() else { return };
+        if inner.shutdown.as_ref().is_some_and(|shutdown| *shutdown.borrow()) {
+            return;
+        }
+        let attempt = RuntimeReconnectRouteAttempt {
+            options: &inner.options,
+            prepared_ssh: &inner.prepared_ssh,
+            shutdown: inner.shutdown.clone(),
+        };
+        let armed = arm_standby(
+            &inner.standby,
+            &inner.next,
+            &inner.options.routes,
+            inner.options.session,
+            inner.options.lane_policy,
+            followup_auth_kind(&inner.options.auth),
+            &attempt,
+        )
+        .await;
+        let wait = match armed {
+            Ok(Armed::Held(left)) => left,
+            Ok(Armed::Dialed { retired, .. }) => {
+                backoff = warm_standby::INITIAL_BACKOFF;
+                if let Some(retired) = retired {
+                    close_failed_initial_group(&retired).await;
+                }
+                warm_standby::MAX_AGE
+            }
+            Ok(Armed::NoRoute) => return,
+            Err(_) => {
+                let wait = backoff;
+                backoff = (backoff * 2).min(warm_standby::MAX_BACKOFF);
+                wait
+            }
+        };
+        drop(inner);
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = wake.notified() => {}
+        }
     }
 }
 
 /// The next route of an established link after its current one failed:
 /// from `next` (one past the route that last connected) round the list,
 /// and `next` moves past the route that connects. `remote connect` and the
-/// Cloud carrier (`carrier::source`) both rotate this way.
+/// Cloud carrier (`carrier::source`) both rotate this way; `remote connect` races the routes
+/// (`race`), the carrier, whose grants are single-use, does not.
 pub(crate) async fn next_reconnect_route<T: Send>(
     next: &AtomicUsize,
     routes: &[ResolvedRouteCandidate],
+    race: Option<RouteRace>,
     session: SessionId,
     lane_policy: LanePolicy,
     auth: AuthKind,
@@ -1609,8 +1714,16 @@ pub(crate) async fn next_reconnect_route<T: Send>(
     let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     };
-    let (index, group) =
-        select_reconnect_route(routes, start, session, lane_policy, auth, attempt).await?;
+    let (index, group) = route_race::select_reconnect_routes(
+        routes,
+        start,
+        race,
+        session,
+        lane_policy,
+        auth,
+        attempt,
+    )
+    .await?;
     next.store(index.saturating_add(1), Ordering::Relaxed);
     Ok(group)
 }
