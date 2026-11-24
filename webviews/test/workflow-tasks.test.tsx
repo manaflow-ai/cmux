@@ -413,7 +413,7 @@ test("the transcript card shows workflow progress, latest agent text, model, tim
   const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
   const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
   // Agents still queued and Judge not reached: what is done and running, not a total.
-  expect(text(html)).toContain("demo-name-tournament Running 3 done · 1 13s 185.1K tokens");
+  expect(text(html)).toContain("demo-name-tournament 3 done · 1 13s 185.1K tokens");
   expect(text(html)).toContain("Critique Opus 5.5");
   expect(text(html)).toContain("The latest shortlist favors names that read clearly at a glance.");
   expect(text(html)).toContain("Opus 5.5");

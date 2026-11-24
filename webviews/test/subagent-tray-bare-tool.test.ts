@@ -28,10 +28,10 @@ test("a step known only by its tool's name gives way to what the agent last said
   expect(latestLine(t, agent({ action: "Read", lastMessage: "Reading the tray." }), false)).toBe("Reading the tray.");
 });
 
-test("with nothing said, a bare shell name stays a neutral tool title", () => {
-  expect(latestLine(t, agent({ action: "Bash" }), false)).toBe("Bash");
-  expect(namedAction(t, "Bash")).toBe("Bash");
-  expect(namedAction(t, "exec_command")).toBe("exec_command");
+test("with nothing said, a bare shell name says nothing: not Bash, not a running word (Leo, 2026-11-23)", () => {
+  expect(latestLine(t, agent({ action: "Bash" }), false)).toBeUndefined();
+  expect(namedAction(t, "Bash")).toBeUndefined();
+  expect(namedAction(t, "exec_command")).toBeUndefined();
   // A real step, or a summary, stays as it is.
   expect(namedAction(t, "Read warm-sources.json")).toBe("Read warm-sources.json");
   expect(namedAction(t, "ls", true)).toBe("ls");
@@ -71,8 +71,8 @@ test("a subagent's call titled only Bash takes its command from the call's input
 test("a shell call announced before its input (Bash, kind execute) is still a bare name", () => {
   const announced = agent({ action: "Bash", actionShell: true, lastMessage: "Waiting on CI for #39120." });
   expect(latestLine(t, announced, false)).toBe("Waiting on CI for #39120.");
-  expect(latestLine(t, { ...announced, lastMessage: undefined }, false)).toBe("Bash");
-  expect(namedAction(t, "Bash", true)).toBe("Bash");
+  expect(latestLine(t, { ...announced, lastMessage: undefined }, false)).toBeUndefined();
+  expect(namedAction(t, "Bash", true)).toBeUndefined();
 });
 
 test("a new last message alone draws the line again", () => {
@@ -104,7 +104,7 @@ test("a Bash call whose command arrives in a later update without its title read
       fold.all().find((one) => one.id === "a")!,
       false,
     ),
-  ).toBe("Bash");
+  ).toBeUndefined();
   feed(
     { sessionUpdate: "tool_call_update", toolCallId: "t1", rawInput: { command: "bun test test/tray.test.ts" } },
     { subagent: "a" },
