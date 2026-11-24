@@ -88,10 +88,11 @@ pub(crate) struct Places {
     pub(crate) support: PathBuf,
     /// The home whose classic socket locks say classic runs: `home`, or the DEV build's own folder.
     pub(crate) probe_home: PathBuf,
-    // Classic may keep its harnesses under XDG_CONFIG_HOME. NEXT snapshots go to its own paths.
+    /// Classic's config home (`XDG_CONFIG_HOME`, else `~/.config`): its
+    /// `cmux/cmux.json` may hold inline harness profiles.
     pub(crate) config_home: PathBuf,
+    /// NEXT's settings folder, where a consented import snapshots Classic's layers.
     pub(crate) settings_directory: PathBuf,
-    pub(crate) harness_destination: PathBuf,
     pub(crate) xdg_state_home: Option<String>,
     /// Where classic's `/tmp` socket lock is (`/tmp`; a test's own folder).
     pub(crate) tmp: PathBuf,
@@ -111,20 +112,15 @@ impl Places {
         let home = PathBuf::from(var(home_var).filter(|value| !value.is_empty())?);
         let fixture = var(CLASSIC_DIR_ENV).filter(|value| !value.is_empty()).map(PathBuf::from);
         let probe_home = fixture.clone().unwrap_or_else(|| home.clone());
-        let xdg = var("XDG_CONFIG_HOME").map(PathBuf::from);
-        let config_home = cmux_config::harness_paths::config_home(
-            &probe_home,
-            if fixture.is_some() { None } else { xdg.as_deref() },
-        );
+        let xdg = var("XDG_CONFIG_HOME").filter(|value| !value.is_empty()).map(PathBuf::from);
+        let config_home = match (&fixture, xdg) {
+            (None, Some(xdg)) => xdg,
+            _ => probe_home.join(".config"),
+        };
         let settings_file = cmux_config::location::config_path_from(|name| {
             if name == "HOME" { Some(home.clone().into_os_string()) } else { var(name) }
         });
         let settings_directory = settings_file.parent()?.to_owned();
-        let harness_destination = if fixture.is_some() {
-            cmux_config::harness_paths::isolated(&settings_directory)
-        } else {
-            cmux_config::harness_paths::next(&config_home)
-        };
         let (support, xdg_state_home, tmp) = match fixture {
             Some(own) => (
                 own.clone(),
@@ -145,7 +141,6 @@ impl Places {
             tmp,
             config_home,
             settings_directory,
-            harness_destination,
         })
     }
 
@@ -159,7 +154,6 @@ impl Places {
         let prefs = self.probe_home.join("Library/Preferences");
         self.probe_home.join(".config/cmux/cmux.json").is_file()
             || self.config_home.join("cmux/cmux.json").is_file()
-            || self.config_home.join("cmux/harnesses").is_dir()
             || cmux_classic_import::ghostty::source_path(&self.support, bundle_id).is_some()
             || cmux_classic_import::source::CHANNELS
                 .iter()
@@ -659,10 +653,6 @@ impl Mux {
             bundle_id,
             &places.settings_directory,
         )?;
-        cmux_classic_import::harnesses::import(
-            &places.config_home.join("cmux/harnesses"),
-            &places.harness_destination,
-        )?;
         cmux_classic_import::harnesses::import_inline(
             &places.config_home.join("cmux/cmux.json"),
             &places.settings_directory,
@@ -822,7 +812,6 @@ pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
         probe_home: home.to_path_buf(),
         config_home: home.join(".config"),
         settings_directory: home.join(".config/cmux"),
-        harness_destination: cmux_config::harness_paths::next(&home.join(".config")),
         xdg_state_home: None,
         tmp: home.join("tmp"),
     }

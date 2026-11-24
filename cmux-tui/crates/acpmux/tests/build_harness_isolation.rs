@@ -27,31 +27,23 @@ use std::process::{Command, Output, Stdio};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-/// The profile loader requires a user-owned file that other users cannot change.
-fn write_profile(path: PathBuf, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::File::options()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?
-        .write_all(contents.as_ref())
+fn scratch() -> PathBuf {
+    let root = std::env::temp_dir().join(format!("acpmux-buildiso-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(daemon_env::home(&root)).unwrap();
+    std::fs::canonicalize(&root).unwrap()
 }
 
-/// Run without XDG_CONFIG_HOME, as on a default Mac or Linux account.
-fn command(root: &Path, acpmux_home: &Path) -> Command {
+/// `acpmux args` as the build whose acpmux home is `acpmux_home`. No
+/// `XDG_CONFIG_HOME`: the user folder is `$HOME/.config/cmux/harnesses`, as
+/// on a real Mac. No daemon runs (the socket is absent).
+fn run(root: &Path, acpmux_home: &Path, args: &[&str]) -> Output {
     let mut cmd: Command = daemon_env::acpmux(root);
     cmd.env("ACPMUX_HOME", acpmux_home)
         .env("ACPMUX_SOCKET", root.join("none.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(Stdio::null());
-    cmd
-}
-
-fn run(root: &Path, acpmux_home: &Path, args: &[&str]) -> Output {
-    command(root, acpmux_home).args(args).output().expect("run acpmux")
+    cmd.args(args).output().expect("run acpmux")
 }
 
 fn text(out: &Output) -> String {
@@ -73,9 +65,7 @@ fn listed(root: &Path, acpmux_home: &Path) -> Vec<String> {
 
 #[test]
 fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
-    let scratch = daemon_env::Scratch::new("acpmux-buildiso");
-    let root = std::fs::canonicalize(scratch.path()).unwrap();
-    std::fs::create_dir_all(daemon_env::home(&root)).unwrap();
+    let root = scratch();
     let home = daemon_env::home(&root);
     let acpmux_root = home.join(".acpmux");
     let builds = acpmux_root.join("builds");
@@ -92,23 +82,11 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     for h in [&rc_tagged, &release_tagged] {
         assert!(h.to_string_lossy().ends_with("--lab"), "not a tagged key: {h:?}");
     }
-    let shared = cmux_config::harness_paths::user(&home.join(".config"));
-
-    // On macOS neither a shipped build nor a DEV build opens unimported Classic profiles.
-    #[cfg(target_os = "macos")]
-    {
-        let legacy = home.join(".config/cmux/harnesses");
-        std::fs::create_dir_all(&legacy).unwrap();
-        write_profile(
-            legacy.join("unimported.toml"),
-            "schema = 1\nid = \"unimported\"\nname = \"Classic only\"\ncommand = \"/bin/echo\"\n",
-        )
-        .unwrap();
-    }
+    let shared = home.join(".config").join("cmux").join("harnesses");
 
     // The person's own harness, in the user folder.
     std::fs::create_dir_all(&shared).unwrap();
-    write_profile(
+    std::fs::write(
         shared.join("mine.toml"),
         "schema = 1\nid = \"mine\"\nname = \"Mine\"\ncommand = \"/bin/echo\"\n",
     )
@@ -130,7 +108,6 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     // Each DEV home lists its own fake and the person's harnesses, not another
     // DEV home's.
     let dev_list = listed(&root, &dev);
-    assert!(!dev_list.contains(&"unimported".into()));
     assert!(dev_list.contains(&"p4rtfake".into()), "DEV lost its own harness: {dev_list:?}");
     assert!(!dev_list.contains(&"tagfake".into()), "DEV lists another home's: {dev_list:?}");
     assert!(dev_list.contains(&"mine".into()), "DEV lost the user's harness: {dev_list:?}");
@@ -147,7 +124,7 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
 
     // A copy in the DEV home wins over the person's, with no "defines it too"
     // warning for a copy the person made on purpose.
-    write_profile(
+    std::fs::write(
         dev.join("harnesses").join("mine.toml"),
         "schema = 1\nid = \"mine\"\nname = \"Mine (dev)\"\ncommand = \"/bin/echo\"\n",
     )
@@ -170,52 +147,10 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     ] {
         let ids = listed(&root, acpmux_home);
         assert!(ids.contains(&"mine".into()), "{name} lost the user's harness: {ids:?}");
-        for fake in ["p4rtfake", "tagfake", "unimported"] {
+        for fake in ["p4rtfake", "tagfake"] {
             assert!(!ids.contains(&fake.into()), "{name} lists the DEV fake {fake}: {ids:?}");
         }
     }
-}
 
-#[test]
-fn isolated_import_profiles_are_read_only_and_follow_user_profiles() {
-    let scratch = daemon_env::Scratch::new("acpmux-classic-import");
-    let root = std::fs::canonicalize(scratch.path()).unwrap();
-    let home = daemon_env::home(&root);
-    let dev = home.join(".acpmux/builds/com.cmuxterm.app.debug.test");
-    let settings = root.join("isolated-settings");
-    let imported = cmux_config::harness_paths::isolated(&settings);
-    let user = cmux_config::harness_paths::user(&home.join(".config"));
-    let profile = |dir: &Path, id: &str, name: &str| {
-        std::fs::create_dir_all(dir).unwrap();
-        write_profile(
-            dir.join(format!("{id}.toml")),
-            format!("schema = 1\nid = \"{id}\"\nname = \"{name}\"\ncommand = \"/bin/echo\"\n"),
-        )
-        .unwrap();
-    };
-    profile(&user, "mine", "Personal profile");
-    profile(&imported, "mine", "Classic copy");
-    profile(&imported, "accepted", "Accepted profile");
-    let run = |source: &str, args: &[&str]| {
-        command(&root, &dev)
-            .env("CMUX_NEXT_CONFIG_FILE", settings.join("cmux-next.json"))
-            .env("CMUX_NEXT_CLASSIC_IMPORT_DIR", source)
-            .args(args)
-            .output()
-            .unwrap()
-    };
-    for (source, expected) in [("classic-fixture", true), ("", false)] {
-        let result = run(source, &["--json", "harness", "list"]);
-        assert!(result.status.success(), "{}", text(&result));
-        let list: Value = serde_json::from_slice(&result.stdout).unwrap();
-        let rows = list["harnesses"].as_array().unwrap();
-        assert_eq!(rows.iter().any(|row| row["id"] == "accepted"), expected);
-        assert_eq!(
-            rows.iter().find(|row| row["id"] == "mine").unwrap()["name"],
-            "Personal profile"
-        );
-    }
-    let result = run("classic-fixture", &["--json", "harness", "remove", "accepted"]);
-    assert!(!result.status.success(), "{}", text(&result));
-    assert!(imported.join("accepted.toml").is_file());
+    let _ = std::fs::remove_dir_all(&root);
 }

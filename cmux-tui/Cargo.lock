@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -1496,7 +1497,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -2282,6 +2282,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",

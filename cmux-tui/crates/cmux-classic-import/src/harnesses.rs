@@ -1,45 +1,9 @@
-//! Snapshot the user's Classic harness TOMLs when the Mac import is accepted.
-//! The NEXT profile loader applies the source's ownership rules. Never turn a
-//! file it would refuse into a trusted, user-owned profile by copying it.
+//! Snapshot the inline harness profiles of Classic's `cmux.json` when the
+//! person accepts the Mac import, so NEXT never reads Classic's file itself.
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-
-const IMPORTED: &str = ".classic-imported";
-
-/// Import once. NEXT profiles win filename conflicts, even across a retry, and
-/// deleting an imported profile afterwards does not bring it back on the next import.
-pub fn import(source: &Path, destination: &Path) -> io::Result<()> {
-    if destination.join(IMPORTED).try_exists()? {
-        return Ok(());
-    }
-    let entries = match fs::read_dir(source) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    fs::create_dir_all(destination)?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let target = destination.join(entry.file_name());
-        if path.extension().is_none_or(|ext| ext != "toml") || target.try_exists()? {
-            continue;
-        }
-        let Some(mut bytes) = read_file(&path, 64 * 1024, true)? else { continue };
-        if let Some(mut doc) =
-            std::str::from_utf8(&bytes).ok().and_then(|s| s.parse::<toml_edit::DocumentMut>().ok())
-            && let Some(icon) = doc.get("icon").and_then(|item| item.as_str())
-            && let Some(name) = import_icon(icon, source, destination, &entry.file_name())?
-        {
-            doc["icon"] = toml_edit::value(name.to_string_lossy().into_owned());
-            bytes = doc.to_string().into_bytes();
-        }
-        install(&target, &bytes)?;
-    }
-    install(&destination.join(IMPORTED), b"")
-}
 
 /// Save the inline profiles that Classic exposed through
 /// `$XDG_CONFIG_HOME/cmux/cmux.json`. The confirmed settings merge reads this
@@ -50,7 +14,7 @@ pub fn import_inline(source: &Path, settings_directory: &Path) -> io::Result<()>
     if layer.try_exists()? {
         return Ok(());
     }
-    let Some(bytes) = read_file(source, 16 * 1024 * 1024, false)? else { return Ok(()) };
+    let Some(bytes) = read_file(source, 16 * 1024 * 1024)? else { return Ok(()) };
     let Some(mut doc) =
         std::str::from_utf8(&bytes).ok().and_then(|text| cmux_config::jsonc::parse(text).ok())
     else {
@@ -102,13 +66,13 @@ fn import_icon(
     let icon_path = source.join(icon);
     let mut name = stem.to_owned();
     name.push(format!(".icon.{ext}"));
-    if let Some(image) = read_file(&icon_path, 256 * 1024, false)? {
+    if let Some(image) = read_file(&icon_path, 256 * 1024)? {
         install(&destination.join(&name), &image)?;
     }
     Ok(Some(PathBuf::from(name)))
 }
 
-fn read_file(path: &Path, limit: u64, executable_profile: bool) -> io::Result<Option<Vec<u8>>> {
+fn read_file(path: &Path, limit: u64) -> io::Result<Option<Vec<u8>>> {
     let mut options = fs::File::options();
     options.read(true);
     #[cfg(unix)]
@@ -123,19 +87,6 @@ fn read_file(path: &Path, limit: u64, executable_profile: bool) -> io::Result<Op
     };
     let meta = file.metadata()?;
     if !meta.is_file() || meta.len() > limit {
-        return Ok(None);
-    }
-    #[cfg(unix)]
-    if executable_profile {
-        use std::os::unix::fs::MetadataExt;
-        if meta.uid() != unsafe { libc::getuid() } || meta.mode() & 0o022 != 0 {
-            return Ok(None);
-        }
-    }
-    // Classic profiles originate on macOS. On platforms without Unix ownership
-    // metadata this importer cannot establish the profile loader's trust condition.
-    #[cfg(not(unix))]
-    if executable_profile {
         return Ok(None);
     }
     let mut bytes = Vec::new();
@@ -156,7 +107,6 @@ fn install(target: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn imports_jsonc_inline_profiles_and_their_icons_from_an_alternate_xdg_home_once() {
@@ -184,30 +134,5 @@ mod tests {
             serde_json::from_slice::<serde_json::Value>(&fs::read(&map).unwrap()).unwrap(),
             profiles
         );
-    }
-
-    #[test]
-    fn imports_the_profile_and_icon_once_and_preserves_existing_settings_and_trust() {
-        let root = tempfile::tempdir().unwrap();
-        let old = root.path().join("cmux/harnesses");
-        let next = root.path().join("cmux-next/harnesses");
-        fs::create_dir_all(old.join("icons")).unwrap();
-        fs::create_dir_all(&next).unwrap();
-        fs::write(old.join("mine.toml"), "icon = 'icons/mine.svg'\ncommand = 'run'\n").unwrap();
-        fs::set_permissions(old.join("mine.toml"), fs::Permissions::from_mode(0o600)).unwrap();
-        fs::write(old.join("icons/mine.svg"), "<svg/>").unwrap();
-        fs::write(old.join("edited.toml"), "command = 'old'").unwrap();
-        fs::write(next.join("edited.toml"), "command = 'next'").unwrap();
-        fs::write(old.join("unsafe.toml"), "command = 'bad'").unwrap();
-        fs::set_permissions(old.join("unsafe.toml"), fs::Permissions::from_mode(0o666)).unwrap();
-        import(&old, &next).unwrap();
-        let doc: toml_edit::DocumentMut =
-            fs::read_to_string(next.join("mine.toml")).unwrap().parse().unwrap();
-        assert_eq!(fs::read_to_string(next.join(doc["icon"].as_str().unwrap())).unwrap(), "<svg/>");
-        assert_eq!(fs::read_to_string(next.join("edited.toml")).unwrap(), "command = 'next'");
-        assert!(!next.join("unsafe.toml").exists());
-        fs::remove_file(next.join("mine.toml")).unwrap();
-        import(&old, &next).unwrap();
-        assert!(!next.join("mine.toml").exists());
     }
 }

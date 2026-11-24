@@ -6,7 +6,7 @@ description: Add the user's coding-agent harness (a company CLI, an ACP adapter,
 # Integrate a harness into cmux
 
 You are helping the user add a coding-agent harness to cmux. A harness is one
-TOML file in `~/.config/cmux-next/harnesses/<id>.toml` on macOS or `~/.config/cmux/harnesses/<id>.toml` elsewhere. cmux reads it without a
+TOML file in `~/.config/cmux/harnesses/<id>.toml`. cmux reads it without a
 restart. You write the file, run the doctor, fix what it reports, and repeat
 until every step passes.
 
@@ -133,5 +133,5 @@ Example: `--example unii`.
 
 1. `/Library/Application Support/cmux/harnesses/` (macOS) or `/etc/cmux/harnesses/`
    (Linux): managed by the company; wins over the user's files.
-2. `cmux-next/harnesses/` on macOS or `cmux/harnesses/` elsewhere, under `$XDG_CONFIG_HOME` (default `~/.config`).
-3. NEXT’s settings file (`cmux-next.json`), key `agents.harnesses.<id>` (same keys, as JSON).
+2. `~/.config/cmux/harnesses/` (or `$XDG_CONFIG_HOME/cmux/harnesses/`).
+3. `~/.config/cmux/cmux.json`, key `agents.harnesses.<id>` (same keys, as JSON).

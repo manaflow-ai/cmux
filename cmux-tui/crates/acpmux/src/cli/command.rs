@@ -624,7 +624,7 @@ pub enum Command {
     #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
-    /// files in your user harness folder. Also `cmux harness …`.
+    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
     /// Forum rules: announce one, list the current ones, ack one.
@@ -815,6 +815,8 @@ pub enum Command {
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
+        #[command(flatten)]
+        close: CloseArgs,
     },
     #[command(hide = true)]
     RestartAgent { session: String },
@@ -1129,7 +1131,7 @@ pub enum HarnessCmd {
         #[arg(long)]
         folder: Option<PathBuf>,
     },
-    /// Write a new file in your user harness folder and check it.
+    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
     #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
@@ -1309,8 +1311,10 @@ pub enum SessionCmd {
     },
     /// Cancel the running turn.
     Cancel { session: String },
-    /// Stop the agent process. The session stays resumable.
-    #[command(alias = "kill")]
+    /// Stop the agent process. The session stays resumable. The stop is recorded with who asked,
+    /// `--reason` and `--outcome` (`ls --closed --json` rows' `close`); a lane with work stopped
+    /// with no `--outcome` is recorded `unfinished`.
+    #[command(alias = "kill", alias = "close")]
     Stop {
         session: String,
         #[command(flatten)]
@@ -1320,6 +1324,8 @@ pub enum SessionCmd {
         purge: bool,
         #[command(flatten)]
         condition: StopIf,
+        #[command(flatten)]
+        close: CloseArgs,
     },
     /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
     /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
@@ -1891,14 +1897,26 @@ pub struct StopIf {
     pub expect_revision: Option<u64>,
 }
 
+/// Why `session stop` closes the session (`close_why.rs`): recorded, never a condition.
+#[derive(Args, Clone, Debug, Default, PartialEq, Eq)]
+pub struct CloseArgs {
+    /// How the session's work ended: `done` or `dropped`. Left out on a lane with work (a
+    /// `lane.reportsTo` or `goal` tag), the close is recorded `unfinished`.
+    #[arg(long, value_parser = ["done", "dropped"])]
+    pub outcome: Option<String>,
+    /// Why it is closed, in a few words; kept with the close.
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
+}
+
 /// Map the grouped spellings onto the flat handlers.
 pub fn flatten(c: Command) -> Command {
     match c {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
-                Command::Kill { session, purge, condition }
+            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, condition, close }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { facts } => Command::RouteDeath { facts },

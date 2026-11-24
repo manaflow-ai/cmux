@@ -20533,7 +20533,8 @@
             "description": "The rev the caller read; refused with rev_mismatch when the record changed."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -20904,7 +20905,8 @@
             "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -27106,7 +27108,8 @@
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -41117,7 +41120,8 @@
             "description": "When true, end the terminal only if it has no tab, is not marked keep and has no attach stream (the reaper's rule, without the grace). Otherwise the close fails with operation.failed (extra.terminal_retained: true) and nothing changes. Omitted or false: end it with its tabs, as before. A daemon whose identify lacks terminal-close-if-unplaced-v1 refuses it as an unknown parameter (validation.invalid, before the request is keyed)."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
