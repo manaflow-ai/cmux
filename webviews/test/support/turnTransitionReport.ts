@@ -65,7 +65,6 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
     for (const row of sample.rows ?? []) seen.add(row.id);
     return before;
   });
-  const causes = frameCauses(samples);
   for (const step of steps) {
     const first = samples.findIndex((sample) => sample.phase === step);
     if (first < 1) continue;
@@ -85,6 +84,9 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
     // Up to the next step, so each window holds only its own step's frames.
     let end = first;
     while (end < Math.min(samples.length, first + WINDOW_FRAMES) && samples[end]!.phase === step) end += 1;
+    /// What last changed in the window: the step's event (a row that came or changed) until the
+    /// reply's text grows.
+    let cause: "arrival" | "stream" = "arrival";
     for (let index = first; index < end; index += 1) {
       const before = samples[index - 1]!;
       const now = samples[index]!;
@@ -102,15 +104,25 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
       const text = answers.find((row) => was.has(row.id)) ?? (now.rows ?? []).find((row) => row.id === PROMPT);
       const textMove = text && was.has(text.id) ? text.top - was.get(text.id)!.top : 0;
       let changed = false;
+      /// A row other than a reply and the live line came, went, or changed its words or height.
+      let other = false;
       for (const row of now.rows ?? []) {
         const old = was.get(row.id);
         if (!old) {
           changed = true;
+          // A row the window mounts out of view draws nothing.
+          if (row.inView) other = true;
           if (row.inView && !seenBefore[index]!.has(row.id) && row.opacity >= 0.9 && row.height > 4)
             report.popIns.push(row.id);
           continue;
         }
         if (old.text !== row.text) changed = true;
+        if (
+          (old.text !== row.text || Math.abs(old.height - row.height) > 0.5) &&
+          row.id !== LIVE_LINE &&
+          !row.id.startsWith(ANSWER)
+        )
+          other = true;
         // A row the reader saw last frame, wherever it went (a move out of view is a move too).
         if (!old.inView) continue;
         const moved = Math.abs(row.top - old.top);
@@ -123,10 +135,15 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
           readingRow = row.id;
         }
       }
-      for (const row of before.rows ?? []) if (!(now.rows ?? []).some((next) => next.id === row.id)) changed = true;
+      for (const row of before.rows ?? [])
+        if (!(now.rows ?? []).some((next) => next.id === row.id)) {
+          changed = true;
+          if (row.inView) other = true;
+        }
 
       const composer = Math.abs((now.composer ?? 0) - (before.composer ?? 0));
-      const cause = causes[index]!;
+      if (other || composer >= 0.5) cause = "arrival";
+      else if (now.length !== before.length) cause = "stream";
       // Nothing new and nothing playing, yet something moved: a reflow after the motion ended.
       const still = (sample: Sample) =>
         Math.abs(sample.lag) < 0.01 && !(sample.rows ?? []).some((row) => row.animating);
@@ -152,45 +169,4 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
     out.push(report);
   }
   return out;
-}
-
-/// What last changed by each frame (`transitionReport`): "arrival" from a frame where a row other than
-/// a reply and the live line came, went or changed (or the composer moved) until the reply's text
-/// grows, then "stream" until the next arrival. Read over the whole run, not per window: the chase
-/// still bringing home a block the step before landed is the stream's motion in the next step's
-/// window too, as the header says, and a window that started at "arrival" charged it to that step
-/// (burst-thought: the burst's chase, a line a frame, read as the thought's).
-function frameCauses(samples: Sample[]): ("arrival" | "stream")[] {
-  const out: ("arrival" | "stream")[] = ["arrival"];
-  let cause: "arrival" | "stream" = "arrival";
-  for (let index = 1; index < samples.length; index += 1) {
-    const before = samples[index - 1]!;
-    const now = samples[index]!;
-    if (otherChanged(before, now) || Math.abs((now.composer ?? 0) - (before.composer ?? 0)) >= 0.5) cause = "arrival";
-    else if (now.length !== before.length) cause = "stream";
-    out.push(cause);
-  }
-  return out;
-}
-
-/// Whether a row other than a reply and the live line came into view, left it, or changed its words or
-/// height between two frames. A row mounted out of view draws nothing.
-function otherChanged(before: Sample, now: Sample): boolean {
-  const was = new Map<string, RowSample>((before.rows ?? []).map((row) => [row.id, row]));
-  const ids = new Set<string>();
-  for (const row of now.rows ?? []) {
-    ids.add(row.id);
-    const old = was.get(row.id);
-    if (!old) {
-      if (row.inView) return true;
-      continue;
-    }
-    if (
-      (old.text !== row.text || Math.abs(old.height - row.height) > 0.5) &&
-      row.id !== LIVE_LINE &&
-      !row.id.startsWith(ANSWER)
-    )
-      return true;
-  }
-  return (before.rows ?? []).some((row) => !ids.has(row.id) && row.inView);
 }
