@@ -63,6 +63,23 @@ def _take(text: str, width: int) -> tuple[str, str]:
     return "".join(head), ""
 
 
+def _pieces(text: str, width: int) -> list[str]:
+    """`text` cut into consecutive heads as repeated `_take(rest, width)` would cut it, in one pass."""
+    out = []
+    head = []
+    used = 0
+    for piece, esc in tokens(text):
+        if not esc:
+            w = char_width(piece)
+            if used + w > width:
+                out.append("".join(head))
+                head, used = [], 0
+            used += w
+        head.append(piece)
+    out.append("".join(head))
+    return out
+
+
 def pad(text: str, width: int, align: str = "left") -> str:
     """`text` padded with spaces to `width` cells. Text already that wide or wider is returned unchanged.
     `align` is "left", "right" or "center" (an odd leftover space goes on the right)."""
@@ -78,14 +95,15 @@ def pad(text: str, width: int, align: str = "left") -> str:
 
 
 def truncate(text: str, width: int, ellipsis: str = ELLIPSIS) -> str:
-    """`text` if it fits in `width` cells, else its longest head that fits together with `ellipsis`."""
+    """`text` if it fits in `width` cells, else its longest head that fits together with `ellipsis`. Only visible
+    characters are dropped: the escape sequences of the cut-off tail are kept (so a closing reset still lands)."""
     if display_width(text) <= width:
         return text
     room = width - display_width(ellipsis)
     if room <= 0:
         return _take(ellipsis, width)[0]
-    head, _ = _take(text, room)
-    return head + ellipsis
+    head, rest = _take(text, room)
+    return head + ellipsis + "".join(ANSI_RE.findall(rest))
 
 
 def fit(text: str, width: int, align: str = "left") -> str:
@@ -96,8 +114,8 @@ def fit(text: str, width: int, align: str = "left") -> str:
 def wrap(text: str, width: int) -> list[str]:
     """Greedy word wrap of `text` into lines of at most `width` cells. Words are split on spaces; a word wider than
     `width` is broken across lines. Runs of spaces between words collapse to one."""
-    if width < 1:
-        raise ValueError("width must be at least 1")
+    if width < 2:
+        raise ValueError("width must be at least 2")
     lines: list[str] = []
     line = ""
     line_w = 0
@@ -110,12 +128,10 @@ def wrap(text: str, width: int) -> list[str]:
         if line:
             lines.append(line)
             line, line_w = "", 0
-        while w > width:
-            head, word = _take(word, width)
-            if not strip_ansi(head):
-                # a single character wider than the line: put it on its own line
-                head, word = _take(word, display_width(word))[0][:1], word[1:]
-            lines.append(head)
+        if w > width:
+            pieces = _pieces(word, width)
+            lines.extend(pieces[:-1])
+            word = pieces[-1]
             w = display_width(word)
         line, line_w = word, w
     if line:
