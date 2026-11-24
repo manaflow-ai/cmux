@@ -381,6 +381,8 @@ export type PaneBodyDeps = NewTabShown &
     reconnectPeer: (peer: string) => Promise<unknown>;
     previewShown: boolean;
     computerUsePreview: ComputerUsePreview | null;
+    /// The Environment card at the chat's top right (session-info/EnvironmentCard.tsx), null when off.
+    environmentCardNode: React.JSX.Element | null;
     viewedSandbox: SandboxRun | undefined;
     pendingWake: React.RefObject<ComposerWake | undefined>;
     sandboxWake: React.RefObject<ComposerWake | undefined>;
@@ -422,6 +424,8 @@ export type PaneBodyDeps = NewTabShown &
     saveDocumentNatively: SaveDocument;
     backgroundPanel: { sessionId?: string | undefined; expanded: boolean; dismissed: ReadonlySet<string> } | undefined;
     backgroundList: BackgroundGroup[];
+    /// acpmux's list of the chat's subagents has not answered yet (backgroundTasks/useListedSubagents.ts).
+    backgroundListing: boolean;
     clientEpoch: number;
     backgroundFocus: BackgroundFocus | undefined;
     stopSubagent: ((id: string) => Promise<unknown>) | undefined;
@@ -650,6 +654,7 @@ export function drawPaneBody({
   reconnectPeer,
   previewShown,
   computerUsePreview,
+  environmentCardNode,
   viewedSandbox,
   pendingWake,
   sandboxWake,
@@ -692,6 +697,7 @@ export function drawPaneBody({
   saveDocumentNatively,
   backgroundPanel,
   backgroundList,
+  backgroundListing,
   clientEpoch,
   backgroundFocus,
   stopSubagent,
@@ -1485,6 +1491,7 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
+                {environmentCardNode}
                 {underHeader.watching &&
                   snapshot.summary?.watching &&
                   // A chat its terminal drives is a live view of the same session, not View Only.
@@ -1676,6 +1683,7 @@ export function drawPaneBody({
             <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
               <BackgroundTasksPanel
                 groups={backgroundList}
+                loading={backgroundListing}
                 readsOutput={
                   chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&
