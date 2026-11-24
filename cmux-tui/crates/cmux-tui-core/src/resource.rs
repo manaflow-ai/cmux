@@ -192,6 +192,12 @@ pub enum ResourceOperation {
     DiffCommentsSend,
     #[serde(rename = "git.branches")]
     GitBranches,
+    #[serde(rename = "git.review.comment")]
+    GitReviewComment,
+    #[serde(rename = "git.review.post")]
+    GitReviewPost,
+    #[serde(rename = "git.review.start")]
+    GitReviewStart,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
@@ -526,6 +532,8 @@ pub enum ResourceOperation {
     SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
+    #[serde(rename = "project.actions.list")]
+    ProjectActionsList,
     #[serde(rename = "project.observe")]
     ProjectObserve,
     #[serde(rename = "project.add")]
