@@ -396,13 +396,13 @@ describe("link relay: tagged-datagrams", () => {
     const a = await joined(tok, sessionId, phone)
     const b = await joined(tok, sessionId, mac)
     await a.until((x) => x.frames.some((f) => f.type === "peer" && f.online === true))
-    a.ws.send(tagged([rec(1, [1], [7, 1])]))
-    a.ws.send(tagged([rec(1, [2], [7, 2])]))
+    // One frame with a record and its successor (deterministic: separate frames share a turn only sometimes).
+    a.ws.send(tagged([rec(1, [1], [7, 1]), rec(1, [2], [7, 2])]))
     await b.until((x) => x.binary.length >= 1)
     a.ws.send("stats")
     await a.until((x) => x.frames.some((f) => f.type === "stats"))
     const stats = a.frames.find((f) => f.type === "stats")!
-    expect(stats.leg).toMatchObject({ framesIn: 2, recordsIn: 2, recordsSuperseded: 1 })
+    expect(stats.leg).toMatchObject({ framesIn: 1, recordsIn: 2, recordsSuperseded: 1 })
     expect(stats.peer).toMatchObject({ framesOut: 1 })
     a.ws.close()
     b.ws.close()
