@@ -8,7 +8,7 @@ import Foundation
 import os
 import ScreenCaptureKit
 
-private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-display-capture")
+nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-display-capture")
 
 /// One of this Mac's displays captured in this app's process, frames to the main actor: the iPhone's
 /// view-only Mac display surface (`d~<display>`, `MacDisplaySurfaceSources`). The capturer is Share
@@ -117,7 +117,7 @@ public final class MacDisplayCapture {
         return content.displays.sorted { $0.frame.minX < $1.frame.minX }.firstIndex { $0.displayID == display }
     }
 
-    private struct CaptureError: Error, CustomStringConvertible {
+    private nonisolated struct CaptureError: Error, CustomStringConvertible {
         var reason: String
         var description: String { reason }
     }
@@ -126,13 +126,13 @@ public final class MacDisplayCapture {
 extension MacDisplayCapture {
     /// A captured picture on its way to the main actor.
     // crash-allow: ScreenCaptureKit never writes a delivered frame's IOSurface again; the buffer only moves to the main actor, read there.
-    struct Frame: @unchecked Sendable {
+    nonisolated struct Frame: @unchecked Sendable {
         let buffer: CVPixelBuffer
     }
 
     /// The newest picture not yet delivered: a frame replaces the waiting one, so the main actor
     /// gets at most one hop per delivery however fast the display changes.
-    final class Mailbox: Sendable {
+    nonisolated final class Mailbox: Sendable {
         private let slot = Mutex<Frame?>(nil)
 
         /// Holds `buffer`; true when nothing was waiting (the caller schedules one delivery).

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
