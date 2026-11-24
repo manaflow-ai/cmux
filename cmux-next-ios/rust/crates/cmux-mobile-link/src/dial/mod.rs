@@ -18,10 +18,13 @@ pub mod diagnosis;
 pub(crate) mod dpi;
 pub mod relay;
 pub(crate) mod turn;
+pub(crate) mod udp_memory;
 #[doc(hidden)]
 pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+/// Measurement only: the per-network UDP memory on or off.
+pub use udp_memory::set_udp_memory;
 pub use wireguard::EarlyTurn;
 pub mod webrtc;
 pub mod wireguard;

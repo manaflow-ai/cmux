@@ -701,8 +701,10 @@ impl Session {
     pub(super) fn upgrade_turn_when(self: &Arc<Self>, udp: tokio::sync::oneshot::Receiver<TurnCarrier>) {
         let weak = Arc::downgrade(self);
         let roams = self.roams.load(Ordering::Relaxed);
+        let epoch = crate::dial::udp_memory::epoch();
         tokio::spawn(async move {
             let Ok(turn) = udp.await else { return };
+            crate::dial::udp_memory::udp_answered(epoch);
             let Some(session) = weak.upgrade() else { return };
             if session.stream_only.load(Ordering::Relaxed) {
                 return;
@@ -1271,6 +1273,8 @@ async fn run_control(
 pub async fn network_changed() -> Vec<(String, Timeline)> {
     // The new network's proxy (and whether it inspects TLS) is asked afresh.
     crate::egress::network_changed();
+    // And whether it carries UDP is not known yet.
+    crate::dial::udp_memory::network_changed();
     let sessions = live();
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });
