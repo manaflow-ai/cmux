@@ -182,8 +182,8 @@ pub(super) fn target(
     hub: &Hub,
     m: &str,
     key: &str,
-) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
-    hub.remote_or_moved(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
+) -> Option<(Arc<crate::peer::Peer>, String, Option<Arc<crate::hub::RemoteSession>>, bool)> {
+    hub.remote_or_moved_entry(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
 }
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -369,7 +369,7 @@ pub(super) async fn forward(
         let mut fields = crate::xhost_audit::prompt_fields(params);
         let peer = session_key(params)
             .ok()
-            .and_then(|key| hub.resolve_remote(key))
+            .and_then(|key| hub.resolve_remote_entry(key))
             .map(|r| r.0.name.clone());
         fields.set("via", json!("peer"));
         fields.set("toHost", json!(peer));
@@ -768,8 +768,15 @@ async fn forward_inner(
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
         // current: its notices keep the row as current as the peer's answer would be, one round
         // trip sooner.
-        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() && !row.is_null() {
-            return Ok(Some(from_row(&row, &peer.name)));
+        if m == method::MUX_INFO
+            && row_will_do(params)
+            && peer.rows_current()
+            && let Some(entry) = &row
+        {
+            let summary = entry.summary.value();
+            if !summary.is_null() {
+                return Ok(Some(from_row(&summary, &peer.name)));
+            }
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
@@ -1018,8 +1025,7 @@ async fn forward_inner(
             m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
         // The row the request was resolved by names it: a purge removes only that generation, even
         // when the row went (and the id came back as another session) before the answer.
-        let asked =
-            (pages || purge).then(|| row.get("createdAt").and_then(Value::as_u64)).flatten();
+        let asked = (pages || purge).then(|| row.as_ref()?.summary.created_at()).flatten();
         // A client that left takes its prompt or wait along: those wait on the peer's turn with no
         // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
         // request keeps its deadline and always goes out: an attach the marker above stands for

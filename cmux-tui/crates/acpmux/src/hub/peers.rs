@@ -1627,42 +1627,47 @@ impl Hub {
     /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
     /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
+        let (peer, row) = self.resolve_remote_entry(key)?;
+        Some((peer, row.receipt.mux_session_id.clone(), row.summary.value()))
+    }
+
+    /// The matched list entry at lookup time, shared with callers that only need its route.
+    pub(crate) fn resolve_remote_entry(
+        &self,
+        key: &str,
+    ) -> Option<(Arc<crate::peer::Peer>, Arc<RemoteSession>)> {
         let map = self.remote_sessions.read();
-        // Only the one row picked is parsed.
-        let row = |r: &RemoteSession| {
-            (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.value())
-        };
         let (hit, by_short_name) = if let Some(r) = map.get(key) {
-            (Some(row(r)), false)
+            (Some(r.clone()), false)
         } else {
             // Whole names and prefixes first; the short-name candidates count only when none
             // matched. Only the rows the indexes say `key` can name are read (`remote_rows.rs`),
             // never every peer's, and the predicates still decide which of them it names. Only
             // the one row picked is cloned.
-            let strict: Vec<&RemoteSession> = map
+            let strict: Vec<&Arc<RemoteSession>> = map
                 .named(key)
                 .into_iter()
                 .filter(|(id, r)| names_remote(id, r, key))
-                .map(|(_, r)| &**r)
+                .map(|(_, r)| r)
                 .collect();
-            let shorts: Vec<&RemoteSession> = if strict.is_empty() {
+            let shorts: Vec<&Arc<RemoteSession>> = if strict.is_empty() {
                 map.short_named(key)
                     .into_iter()
                     .filter(|(_, r)| remote_segment(r, key))
-                    .map(|(_, r)| &**r)
+                    .map(|(_, r)| r)
                     .collect()
             } else {
                 Vec::new()
             };
             let short = strict.is_empty();
-            let mut matches: Vec<&RemoteSession> = if short {
+            let mut matches: Vec<&Arc<RemoteSession>> = if short {
                 // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
                 let live = shorts.iter().any(|r| !remote_closed(r));
                 shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
             } else {
                 strict
             };
-            (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
+            (if matches.len() == 1 { matches.pop().cloned() } else { None }, short)
         };
         drop(map);
         // No peer's session has it as its name: one that had it before a rename
@@ -1677,10 +1682,10 @@ impl Hub {
                     return None;
                 }
                 let map = self.remote_sessions.read();
-                map.get(&route).map(|r| row(r))
+                map.get(&route).cloned()
             }
         };
-        let (peer_name, id, summary) = hit?;
+        let row = hit?;
         // A bare short name gives way to any session here `key` names by id, name or prefix, to
         // a live one here with the short name, and, when this one is closed, to a closed one
         // here too (`Hub::resolve_here` refuses those ties). Read only now, with the peers' rows
@@ -1688,13 +1693,13 @@ impl Hub {
         // second time.
         if by_short_name && !key.contains('/') {
             let [other, live_here, closed_here] = self.local_match_counts(key);
-            let closed = summary.get("status").and_then(Value::as_str) == Some("closed");
+            let closed = row.summary.closed();
             if other > 0 || live_here > 0 || (closed && closed_here > 0) {
                 return None;
             }
         }
-        let peer = self.peer(&peer_name)?;
-        Some((peer, id, summary))
+        let peer = self.peer(&row.peer)?;
+        Some((peer, row))
     }
 
     /// The names of the peer sessions whose name contains `lower` (any case), for a refusal's

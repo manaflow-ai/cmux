@@ -27,6 +27,20 @@ async fn send(hub: &Hub, peer: &Peer, notice: PeerNotice) {
     settled.changed().await.unwrap();
 }
 
+#[tokio::test]
+async fn forwarding_keeps_the_list_entry_it_resolved() {
+    let (hub, peer, mut rows) = fixture();
+    let (_, before) = hub.resolve_remote_entry("remote/live").unwrap();
+    let (_, same) = hub.resolve_remote_entry("live").unwrap();
+    assert!(Arc::ptr_eq(&before, &same));
+
+    rows[0]["status"] = json!("closed");
+    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::sessions_from_values(rows));
+    let (_, after) = hub.resolve_remote_entry("remote/live").unwrap();
+    assert_eq!(before.summary.status(), Some("ready"));
+    assert_eq!(after.summary.status(), Some("closed"));
+}
+
 #[tokio::test(start_paused = true)]
 async fn short_peer_flap_keeps_rows_and_emits_no_status_events() {
     let (hub, peer, rows) = fixture();

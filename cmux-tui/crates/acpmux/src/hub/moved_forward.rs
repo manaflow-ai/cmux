@@ -19,6 +19,14 @@ impl Hub {
     /// None for any other chat, for a host that is no peer's name, and for a peer that is
     /// down: the caller then answers as before (`transfer.moved`).
     pub fn moved_forward(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
+        let (peer, id, entry) = self.moved_forward_entry(key)?;
+        Some((peer, id, entry.map_or(Value::Null, |r| r.summary.value())))
+    }
+
+    fn moved_forward_entry(
+        &self,
+        key: &str,
+    ) -> Option<(Arc<crate::peer::Peer>, String, Option<Arc<RemoteSession>>)> {
         let session = self.resolve(key).ok()?;
         let to = session.read_meta(|m| m.moved_to.clone())?;
         let peer = self.peer_by_name(to.get("host")?.as_str()?)?;
@@ -32,9 +40,9 @@ impl Hub {
             .unwrap_or(&session.id)
             .to_owned();
         let row = self
-            .resolve_remote(&format!("{}/{id}", peer.name))
-            .filter(|(p, rid, _)| p.name == peer.name && *rid == id)
-            .map_or(Value::Null, |(_, _, row)| row);
+            .resolve_remote_entry(&format!("{}/{id}", peer.name))
+            .filter(|(p, row)| p.name == peer.name && row.receipt.mux_session_id == id)
+            .map(|(_, row)| row);
         Some((peer, id, row))
     }
 
@@ -59,9 +67,18 @@ impl Hub {
         &self,
         key: &str,
     ) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+        let (peer, id, row, moved) = self.remote_or_moved_entry(key)?;
+        Some((peer, id, row.map_or(Value::Null, |r| r.summary.value()), moved))
+    }
+
+    pub(crate) fn remote_or_moved_entry(
+        &self,
+        key: &str,
+    ) -> Option<(Arc<crate::peer::Peer>, String, Option<Arc<RemoteSession>>, bool)> {
         if self.resolve(key).is_err() {
-            return self.resolve_remote(key).map(|(peer, id, row)| (peer, id, row, false));
+            let (peer, row) = self.resolve_remote_entry(key)?;
+            return Some((peer, row.receipt.mux_session_id.clone(), Some(row), false));
         }
-        self.moved_forward(key).map(|(peer, id, row)| (peer, id, row, true))
+        self.moved_forward_entry(key).map(|(peer, id, row)| (peer, id, row, true))
     }
 }
