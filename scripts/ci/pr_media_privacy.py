@@ -343,6 +343,12 @@ def batch_end(repo: Path, start: str, end: str, max_files: int = MAX_FILES) -> s
     fit. Always at least one commit past start, so every run makes progress."""
     if max_files <= 0 or len(changed_files(repo, start, end)) <= max_files:
         return end
+    # After prune_pr_media.py squashes the branch the marker is no longer an ancestor:
+    # there are no commits to walk, only the tree-to-tree diff, read whole.
+    try:
+        git("merge-base", "--is-ancestor", start, end, cwd=repo)
+    except subprocess.CalledProcessError:
+        return end
     # The scan fetch is shallow at start, so walk the fetched range in order.
     commits = git("rev-list", "--first-parent", "--reverse", f"{start}..{end}", cwd=repo).split()
     seen: set[str] = set()
