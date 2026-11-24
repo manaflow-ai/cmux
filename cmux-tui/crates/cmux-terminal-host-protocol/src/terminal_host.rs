@@ -4,7 +4,7 @@
 //! separable security foundation used by `terminal_host_runtime`, where each
 //! PTY lives in an independently adoptable process.
 
-use crate::panic_free::RecoverPoison;
+use crate::RecoverPoison;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{BitOr, RangeInclusive};

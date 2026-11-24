@@ -2843,3 +2843,9 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+- 2026-11-24 (lane/sidebar-cloud-page-icon-size, ask-f32d868839): Sidebar-Look: Leo, 2026-11-24: "dont have such a
+  dinky cloud icon. increase it". A cmux page's own icon in a row's favicon slot (a Cloud desktop's cloud, History's
+  clock) drew at the pack glyphs' optical size, 11/16 of the favicon beside it on the next row. It now draws at the
+  favicon's size (`SidebarStyle.rowFaviconOptics`), rasterized at the favicon's box so it stays sharp: it is that
+  page's favicon. The icon column, the row height and the title's x do not change (the favicon already fills that
+  slot). The site globe placeholder keeps its tab's glyph size.
