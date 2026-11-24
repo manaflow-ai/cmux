@@ -275,7 +275,7 @@ impl App {
             .get(&id)
             .or(s.in_flight.as_ref().filter(|(i, _)| *i == id).map(|(_, t)| t))
             .or(s.held.get(&id));
-        // Unread and untouched, an empty composer says nothing of the chat's draft.
+        // acpmux already holds it, or will once a write on its way lands.
         if newest.map(String::as_str).unwrap_or("") == text {
             return;
         }
