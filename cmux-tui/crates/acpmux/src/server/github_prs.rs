@@ -68,7 +68,7 @@ async fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
             None | Some("settled") => Until::Settled,
             Some("change") => Until::Change,
             Some(other) => {
-                return Err(RpcError::invalid_params(&format!(
+                return Err(RpcError::invalid_params(format!(
                     "until must be settled or change, not {other:?}"
                 )));
             }

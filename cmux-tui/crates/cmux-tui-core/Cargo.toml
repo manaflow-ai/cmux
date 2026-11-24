@@ -26,6 +26,8 @@ cmux-agent-pane-policy.workspace = true
 # The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
 cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
+# Cmd-F over the whole retained history (server/cmd_terminal_find.rs).
+cmux-terminal-find.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 # The tab a pane selects after a close (close_focus::tab), the app's own rule.

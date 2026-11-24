@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// One WebSocket to a `cmux.wire/1` stream (`/v1/wire/user` or
 /// `/v1/wire/conv/<id>`, subprotocol `cmux.wire.v1`). Text frames only.

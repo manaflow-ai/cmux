@@ -24,25 +24,32 @@ export function emptySnapshot(): AcpmuxSnapshot {
 /// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
 /// or unloads, so a reload still finds the latest one.
 const SNAPSHOT_SAVE_MS = 250;
+/// One saved snapshot per view (paneView.ts): the chats sharing one pane document each keep their own, so a
+/// reload paints each chat's own last rows. The page's own snapshot (no view) keeps the key it always had.
+export function snapshotKey(view: string | null = null): string {
+  return view === null ? "cmux.acpmux.snapshot" : `cmux.acpmux.snapshot.view.${view}`;
+}
 const snapshotSave: {
-  next?: AcpmuxSnapshot;
+  next: Map<string | null, AcpmuxSnapshot>;
   timer?: ReturnType<typeof setTimeout>;
   hooked?: boolean;
-} = {};
-function writeSnapshot(): void {
+} = { next: new Map() };
+/// Writes every pending snapshot now (the page hiding does this; tests call it instead of waiting the debounce).
+export function writeSnapshot(): void {
   clearTimeout(snapshotSave.timer);
   snapshotSave.timer = undefined;
-  const next = snapshotSave.next;
-  snapshotSave.next = undefined;
-  if (!next) return;
-  try {
-    // The prompt index (`earlierPrompts`) stays out: typed arrays do not survive JSON, and a reload reads it again.
-    sessionStorage.setItem(
-      "cmux.acpmux.snapshot",
-      JSON.stringify({ ...next, earlierPrompts: undefined, sessions: savedSessions(next) }),
-    );
-  } catch {
-    // Painting remains live when storage is unavailable or full.
+  const pending = [...snapshotSave.next];
+  snapshotSave.next.clear();
+  for (const [view, next] of pending) {
+    try {
+      // The prompt index (`earlierPrompts`) stays out: typed arrays do not survive JSON, and a reload reads it again.
+      sessionStorage.setItem(
+        snapshotKey(view),
+        JSON.stringify({ ...next, earlierPrompts: undefined, sessions: savedSessions(next) }),
+      );
+    } catch {
+      // Painting remains live when storage is unavailable or full.
+    }
   }
 }
 
@@ -100,8 +107,8 @@ export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
   Object.assign(savedList, { sessions, shown, saved });
   return saved;
 }
-export function saveSnapshot(next: AcpmuxSnapshot): void {
-  snapshotSave.next = next;
+export function saveSnapshot(next: AcpmuxSnapshot, view: string | null = null): void {
+  snapshotSave.next.set(view, next);
   if (!snapshotSave.hooked && typeof window !== "undefined") {
     snapshotSave.hooked = true;
     window.addEventListener("pagehide", writeSnapshot);
@@ -110,9 +117,9 @@ export function saveSnapshot(next: AcpmuxSnapshot): void {
   snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
 }
 
-export function cachedSnapshot(): AcpmuxSnapshot {
+export function cachedSnapshot(view: string | null = null): AcpmuxSnapshot {
   try {
-    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
+    const value = JSON.parse(sessionStorage.getItem(snapshotKey(view)) ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
       // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is

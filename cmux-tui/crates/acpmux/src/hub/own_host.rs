@@ -299,10 +299,10 @@ mod segment_tests {
     fn a_short_name_counts_closed_sessions_only_when_none_is_live() {
         let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane")]);
         let closed = hub.sessions.lock().unwrap().get("m2").cloned().unwrap();
-        hub.set_status(&closed, SessionStatus::Closed);
+        hub.set_status(&closed, NotWaiting::Closed);
         assert_eq!(id(hub.resolve("lane")), "m1", "the live one, not a tie with the closed one");
         let live = hub.sessions.lock().unwrap().get("m1").cloned().unwrap();
-        hub.set_status(&live, SessionStatus::Closed);
+        hub.set_status(&live, NotWaiting::Closed);
         assert!(err(hub.resolve("lane")).message.contains("matches 2 sessions"), "both closed");
 
         // `OWN/SHORT` keeps the same rule (review of #27791's base merge).
@@ -310,10 +310,10 @@ mod segment_tests {
         if own != "host" {
             let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane")]);
             let closed = hub.sessions.lock().unwrap().get("m2").cloned().unwrap();
-            hub.set_status(&closed, SessionStatus::Closed);
+            hub.set_status(&closed, NotWaiting::Closed);
             assert_eq!(id(hub.resolve(&format!("{own}/lane"))), "m1", "the live one here");
             let live = hub.sessions.lock().unwrap().get("m1").cloned().unwrap();
-            hub.set_status(&live, SessionStatus::Closed);
+            hub.set_status(&live, NotWaiting::Closed);
             assert!(err(hub.resolve(&format!("{own}/lane"))).message.contains("matches 2"));
         }
 

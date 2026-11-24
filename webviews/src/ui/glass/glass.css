@@ -688,22 +688,120 @@
    material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */
 :root {
   --surface-near-opaque: 90%;
+  --surface-hairline: var(--glass-edge); /* the one stroke of every role: the glass's ring, resolved here so a surface can name it without a cycle */
+  --surface-elevation-flat: 0 0 transparent; /* the content roles: no shadow */
+  --surface-popover-radius: var(--ds-radius-popup); /* popovers, pickers, hover cards, find and prompt bars, page info and the palette */
+  --surface-popover-material: floating;
+  --surface-popover-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-popover-stroke: var(--surface-hairline);
+  --surface-popover-elevation: var(--elevation-2);
+  --surface-popover-pad: var(--ds-space-3);
+  --surface-popover-gap: var(--ds-space-2);
+  --surface-popover-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-popover-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-popover-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-menu-radius: var(--ds-radius-popup); /* menus, context menus and dropdowns */
+  --surface-menu-material: floating;
+  --surface-menu-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-menu-stroke: var(--surface-hairline);
+  --surface-menu-elevation: var(--elevation-2);
+  --surface-menu-pad: var(--ds-space-1);
+  --surface-menu-gap: var(--ds-space-1);
+  --surface-menu-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-menu-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-menu-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
   --surface-card-radius: 10px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
   --surface-card-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 45%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 42%, transparent));
   --surface-card-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 80%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 22%, transparent));
   --surface-card-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
+  --surface-card-material: content;
+  --surface-card-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --surface-card-stroke: var(--surface-hairline);
+  --surface-card-elevation: var(--surface-elevation-flat);
+  --surface-card-pad: var(--ds-space-3);
+  --surface-card-gap: var(--ds-space-2);
+  --surface-card-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-card-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-card-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
   --surface-group-radius: 6px; /* the sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil */
   --surface-group-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 20%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 6%, transparent));
   --surface-group-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 75%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 24%, transparent));
   --surface-group-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
+  --surface-group-material: window;
+  --surface-group-fill: var(--surface-group-veil);
+  --surface-group-stroke: var(--surface-hairline);
+  --surface-group-elevation: var(--surface-elevation-flat);
+  --surface-group-pad: var(--ds-space-2);
+  --surface-group-gap: var(--ds-space-1);
+  --surface-group-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-group-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
+  --surface-group-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
   --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
   --surface-toast-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
   --surface-toast-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
+  --surface-toast-material: floating;
+  --surface-toast-fill: var(--surface-toast-veil);
+  --surface-toast-stroke: var(--surface-hairline);
+  --surface-toast-elevation: var(--elevation-2);
+  --surface-toast-pad: var(--ds-space-3);
+  --surface-toast-gap: var(--ds-space-2);
+  --surface-toast-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-toast-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-toast-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
   --surface-sheet-radius: 14px; /* dialogs, confirms, prompt bars and sheets: a little denser veil for longer text */
   --surface-sheet-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 62%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 48%, transparent));
   --surface-sheet-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 28%, transparent));
   --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 5%, transparent));
+  --surface-sheet-material: floating;
+  --surface-sheet-fill: var(--surface-sheet-veil);
+  --surface-sheet-stroke: var(--surface-hairline);
+  --surface-sheet-elevation: var(--elevation-2);
+  --surface-sheet-pad: var(--ds-space-4);
+  --surface-sheet-gap: var(--ds-space-3);
+  --surface-sheet-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
+  --surface-sheet-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-sheet-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-tooltip-radius: var(--ds-radius-popup); /* tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur */
+  --surface-tooltip-material: floating;
+  --surface-tooltip-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-tooltip-stroke: var(--surface-hairline);
+  --surface-tooltip-elevation: var(--elevation-1);
+  --surface-tooltip-pad: var(--ds-space-1) var(--ds-space-2);
+  --surface-tooltip-gap: var(--ds-space-1);
+  --surface-tooltip-title-font: var(--weight-regular) var(--text-caption)/var(--text-caption--line-height) var(--font-ui);
+  --surface-tooltip-body-font: var(--weight-regular) var(--text-caption)/var(--text-caption--line-height) var(--font-ui);
+  --surface-tooltip-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-hoverCard-radius: var(--ds-radius-popup); /* hover cards: a link's, a session's or the context ring's preview beside what it describes */
+  --surface-hoverCard-material: floating;
+  --surface-hoverCard-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-hoverCard-stroke: var(--surface-hairline);
+  --surface-hoverCard-elevation: var(--elevation-2);
+  --surface-hoverCard-pad: var(--ds-space-3);
+  --surface-hoverCard-gap: var(--ds-space-2);
+  --surface-hoverCard-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-hoverCard-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
+  --surface-hoverCard-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-ask-radius: var(--grid-cards-radius); /* the ask card: a permission prompt, a question or a plan the agent waits on, in the transcript's content layer */
+  --surface-ask-material: content;
+  --surface-ask-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --surface-ask-stroke: var(--surface-hairline);
+  --surface-ask-elevation: var(--surface-elevation-flat);
+  --surface-ask-pad: var(--ds-space-4);
+  --surface-ask-gap: var(--ds-space-2);
+  --surface-ask-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-ask-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-ask-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
+  --surface-pill-radius: var(--ds-radius-control); /* pills and chips: a short status or filter label in a control-height box */
+  --surface-pill-material: content;
+  --surface-pill-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --surface-pill-stroke: var(--surface-hairline);
+  --surface-pill-elevation: var(--surface-elevation-flat);
+  --surface-pill-pad: 0 var(--ds-space-2);
+  --surface-pill-gap: var(--ds-space-1);
+  --surface-pill-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-pill-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
+  --surface-pill-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
 }
 /* surface-roles:end */
 

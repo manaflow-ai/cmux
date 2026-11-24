@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.autoCloud",
         "window.titlebar"
       ]
     },
@@ -100,6 +101,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
@@ -502,7 +504,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "labs.appStore"
       ]
     },
     {
@@ -517,8 +520,10 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -826,6 +831,8 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.environmentCard",
+        "agentPane.display.changesPill",
         "agentPane.display.finishSound",
         "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
@@ -863,7 +870,10 @@
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1593,7 +1603,8 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
-        "computerUse.menus"
+        "computerUse.menus",
+        "computerUse.whileLocked"
       ]
     },
     {
@@ -1743,6 +1754,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.",
       "keys": [
         "mobile.terminalSizing",
@@ -1789,6 +1807,15 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "keys": [
+        "remoteDesktop.quality",
+        "remoteDesktop.maxFps",
+        "remoteDesktop.maxBitrateMbps"
       ]
     },
     {
