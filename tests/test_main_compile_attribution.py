@@ -239,9 +239,10 @@ class Workflows(unittest.TestCase):
         data = yaml.safe_load(path.read_text())
         return data, data.get("on", data.get(True))
 
-    def test_attribution_follows_the_seed_and_probe_runs_by_name(self):
+    def test_attribution_follows_the_probe_runs_by_name(self):
+        """This branch has no seed-derived-data.yml (#53395), so only the probe's runs trigger it here."""
         data, on = self.load(ATTRIBUTION)
-        self.assertEqual(on["workflow_run"]["workflows"], [mca.SEED_WORKFLOW, mca.PROBE_WORKFLOW])
+        self.assertEqual(on["workflow_run"]["workflows"], [mca.PROBE_WORKFLOW])
         self.assertEqual(yaml.safe_load(PROBE.read_text())["name"], mca.PROBE_WORKFLOW)
 
     def test_only_later_jobs_write_and_analyze_reads(self):
