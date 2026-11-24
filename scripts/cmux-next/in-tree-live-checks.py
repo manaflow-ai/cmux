@@ -180,14 +180,15 @@ if (location.search.indexOf('heavy') >= 0) {
   // The user's heavy page (defects.md 8): a canvas over the whole viewport, hundreds of moving shapes each frame, so the
   // renderer's frame at a new size costs what a busy page's does. Behind the edge strips, which stay on top.
   const c = document.createElement('canvas'); c.id = 'heavy';
-  c.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:1;pointer-events:none';
+  // Inset 20 px from each side: the page's blue stays beside the cyan and magenta edge strips, which classify_row needs
+  // (a full-width canvas covered it, and every heavy frame read as blank or clipped: other Mac, divload-cap heavy).
+  c.style.cssText = 'position:fixed;left:20px;top:0;width:calc(100vw - 40px);height:100vh;z-index:1;pointer-events:none';
   document.body.appendChild(c);
   const ctx = c.getContext('2d'); const dots = [];
   for (let i = 0; i < 1500; i++) dots.push([Math.random(), Math.random(), Math.random() * 6.28, 2 + Math.random() * 10]);
   (function draw(t) {
-    if (c.width !== innerWidth * devicePixelRatio || c.height !== innerHeight * devicePixelRatio) {
-      c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio;
-    }
+    const cw = Math.max(1, (innerWidth - 40) * devicePixelRatio), ch = innerHeight * devicePixelRatio;
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
     ctx.clearRect(0, 0, c.width, c.height);
     for (const d of dots) {
       const x = (d[0] + Math.sin(t / 900 + d[2]) * 0.05) * c.width, y = (d[1] + Math.cos(t / 700 + d[2]) * 0.05) * c.height;
