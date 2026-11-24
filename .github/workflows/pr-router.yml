@@ -129,5 +129,9 @@ jobs:
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
     permissions:
       contents: read
+      # The ios job's picker reads the queue and its runs (scripts/ci/ios_runner_pool.py).
+      actions: read
