@@ -44,7 +44,7 @@ jobs:
     permissions:
       actions: write
       contents: read
-    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    runs-on: ${{ vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
     timeout-minutes: 9 # under the */10 tick, so the next sweep rarely cancels a running one
     steps:
       - name: Check out the shed script
