@@ -26,4 +26,23 @@ extension AgentPaneView {
             }
         }
     }
+
+    /// A pane whose handshake loop stopped past its bound (hostRetry.ts `hostRetryStep`) asks again
+    /// when this app's acpmux is back: each lookup that answers (``AcpmuxHost``, any pane's, Settings'
+    /// or a restart's) tells every page `acpmux-daemon-answered`. A page still connected or still
+    /// asking ignores it (hostRetry.ts `hostWakeAsks`); there is no tick.
+    func observeAcpmuxAnswers() {
+        // task-owner: this pane (cancelled in close() and deinit); event-driven (NotificationCenter).
+        acpmuxAnswerObservation = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .cmuxNextAcpmuxAnswered).map({ _ in () }) {
+                guard let self else { return }
+                self.evaluateScript("window.dispatchEvent(new Event('acpmux-daemon-answered'))")
+            }
+        }
+    }
+}
+
+public extension Notification.Name {
+    /// This app's acpmux answered a lookup (``AcpmuxHost``): a stopped pane asks again.
+    static let cmuxNextAcpmuxAnswered = Notification.Name("cmux.next.acpmux-answered")
 }

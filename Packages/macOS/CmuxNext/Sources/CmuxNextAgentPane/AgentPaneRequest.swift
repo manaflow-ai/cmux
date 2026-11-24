@@ -24,8 +24,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
     /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
     /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
-    /// Only with a real gesture; answers `{stopped}`.
-    case restartStuckAcpmux
+    /// Only with a real gesture; answers `{stopped}`. `{gaveUp: true}`: the pane's handshake loop
+    /// stopped past its bound (hostRetry.ts `hostRetryStep`), so no lookup waits; the host restarts its
+    /// own daemon anyway (``AgentPaneHostProviding/restartGaveUpAcpmux(sessionId:)``).
+    case restartStuckAcpmux(gaveUp: Bool)
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)

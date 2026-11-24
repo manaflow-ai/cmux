@@ -54,4 +54,8 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         await resolved().restartStuckAcpmux(sessionId: sessionId)
     }
 
+    public func restartGaveUpAcpmux(sessionId: String?) async -> Bool {
+        await resolved().restartGaveUpAcpmux(sessionId: sessionId)
+    }
+
 }

@@ -376,6 +376,8 @@ export type PaneSnapshotArgs = {
   setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  /// The handshake loop stopped (hostRetry.ts `hostRetryStep`): the line offers Restart agent service.
+  setHostGaveUp: React.Dispatch<React.SetStateAction<boolean>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -518,6 +520,7 @@ export function paneSnapshotEffect({
   setRestartUnavailable,
   setRelinkingSince,
   setHostTroubleSince,
+  setHostGaveUp,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -874,6 +877,8 @@ export function paneSnapshotEffect({
   /// The loop stopped (hostRetry.ts `hostRetryStep`): no timer asks again; an event does
   /// (`HOST_WAKE_EVENTS`), as does the line's Retry.
   let stopped = false;
+  /// The host's `acpmux-daemon-answered` already asked once in this stop (hostRetry.ts `hostWakeAsks`).
+  let answerSpent = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
   // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
@@ -1277,6 +1282,7 @@ export function paneSnapshotEffect({
           });
           if (step.kind === "stop") {
             stopped = true;
+            setHostGaveUp(true);
             const failure = new Error("The agent service keeps closing this chat's connection.");
             setHostError(failure.message);
             setHostFailure(failure);
@@ -1384,6 +1390,8 @@ export function paneSnapshotEffect({
       setHostError(undefined);
       setHostErrorShown(false);
       stopped = false;
+      answerSpent = false;
+      setHostGaveUp(false);
       failingSince = undefined;
       setRelinkingSince(undefined);
       setHostRestoring(undefined);
@@ -2914,6 +2922,7 @@ export function paneSnapshotEffect({
         const step = hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
         // A chat too large to open gets the same reply at every ask: only the line's Retry asks again.
         stopped = step.kind === "stop" && !tooLarge;
+        setHostGaveUp(stopped);
         if (step.kind === "retry" && restartGate.mayAsk()) {
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
@@ -2968,9 +2977,11 @@ export function paneSnapshotEffect({
   };
   // A stopped loop asks once more on an event, never on a tick: the window shown or focused again,
   // the network back, or the host's word that its agent service changed.
-  const wake = () => {
+  const wake = (event: Event) => {
     if (cancelled || !restartGate.mayAsk()) return;
-    if (!hostWakeAsks({ stopped, connecting, hidden: document.visibilityState === "hidden" })) return;
+    const hidden = document.visibilityState === "hidden";
+    if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
+    answerSpent = event.type === "acpmux-daemon-answered";
     void connectHost();
   };
   for (const name of HOST_WAKE_EVENTS.document) document.addEventListener(name, wake);

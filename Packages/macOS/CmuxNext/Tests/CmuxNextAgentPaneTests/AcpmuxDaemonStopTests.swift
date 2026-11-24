@@ -142,11 +142,33 @@ struct AcpmuxDaemonStopIdentityTests {
 struct AcpmuxRestartStuckTests {
     private actor NoHost: AgentPaneHostProviding {
         private(set) var restarts = 0
+        private(set) var gaveUpRestarts = 0
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
         func restartStuckAcpmux(sessionId: String?) async -> Bool {
             restarts += 1
             return true
         }
+        func restartGaveUpAcpmux(sessionId: String?) async -> Bool {
+            gaveUpRestarts += 1
+            return true
+        }
+    }
+
+    /// The pane's handshake loop stopped past its bound (hostRetry.ts `hostRetryStep`): its one
+    /// action, `{gaveUp: true}`, reaches the restart that needs no waiting lookup, and still only on
+    /// a real click. Before, the only restart refused whenever no lookup waited, which is always
+    /// the case once the loop has stopped.
+    @Test func restartAfterTheLoopStoppedReachesTheHostWithoutAWaitingLookup() async {
+        let host = NoHost()
+        let model = AgentPaneModel(host: host)
+        let request = AgentPaneRequest(body: ["method": "acpmux.restartStuck", "params": ["gaveUp": true]])
+        let ungestured = await model.respond(to: request)
+        #expect((ungestured["error"] as? [String: Any])?["code"] as? String == "acpmux.gesture_required")
+        model.transport.gestures.record(click: true)
+        let clicked = await model.respond(to: request)
+        #expect((clicked["value"] as? [String: Any])?["stopped"] as? Bool == true, "\(clicked)")
+        #expect(await host.gaveUpRestarts == 1)
+        #expect(await host.restarts == 0)
     }
 
     /// Page script cannot stop the daemon: only a real click reaches the host.

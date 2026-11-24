@@ -6533,6 +6533,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
   /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
   const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
+  /// The pane's handshake loop stopped past its bound (paneSnapshot.ts `stopped`): the failure line
+  /// offers Restart agent service, and an event (focus, shown, online, the host's word) asks again.
+  const [hostGaveUp, setHostGaveUp] = useState(false);
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -7502,6 +7505,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setRestartUnavailable,
       setRelinkingSince,
       setHostTroubleSince,
+      setHostGaveUp,
       setHostRestoring,
       runPendingAdoption,
       freshRef,
@@ -9951,6 +9955,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
+  // The loop stopped (hostRetry.ts `hostRetryStep`): the line's one action restarts this app's agent
+  // service, whether a daemon runs that keeps failing this pane or none runs; the restart then asks
+  // again, which starts a new one.
+  const restartGaveUp = () =>
+    void restartGate.run(
+      () =>
+        callNative<{ stopped?: unknown } | null>("acpmux.restartStuck", { gaveUp: true }).then((reply) => {
+          if (reply?.stopped !== true) setRestartUnavailable(true);
+        }),
+      {
+        cancelRetries: () => cancelRetry.current?.(),
+        changed: setRestartingAcpmux,
+        connected: () => !!directClient.current,
+        ask: () => retryHost.current?.(),
+      },
+    );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostErrorSaid}>
       <HostUnavailableLine
@@ -9979,8 +9999,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   ask: () => retryHost.current?.(),
                 });
               }
-            : undefined
+            : hostGaveUp && !restartUnavailable
+              ? restartGaveUp
+              : undefined
         }
+        restartLabel={!acpmuxRestartOffered && hostGaveUp ? "service" : undefined}
       />
     </Notice>
   );

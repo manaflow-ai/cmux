@@ -65,6 +65,7 @@ export function HostUnavailableLine({
   restarting,
   onRestart,
   selfRetrying = true,
+  restartLabel,
 }: {
   message: string;
   detail?: string;
@@ -73,6 +74,9 @@ export function HostUnavailableLine({
   restarting?: boolean;
   onRestart?(): void;
   selfRetrying?: boolean;
+  /// "service": Restart restarts this app's agent service (the stopped handshake loop's one action,
+  /// hostRetry.ts `hostRetryStep`), and says so; otherwise Restart acpmux (another build's daemon).
+  restartLabel?: "service";
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -91,7 +95,9 @@ export function HostUnavailableLine({
         {onRestart ? (
           // A queued Retry holds Restart acpmux until its handshake settles (#27646).
           <button type="button" onClick={onRestart} disabled={restarting || retrying}>
-            {t(restarting ? "host.restarting" : "host.restart")}
+            {restartLabel === "service"
+              ? t(restarting ? "host.restartingService" : "host.restartService")
+              : t(restarting ? "host.restarting" : "host.restart")}
           </button>
         ) : (
           onRetry && (

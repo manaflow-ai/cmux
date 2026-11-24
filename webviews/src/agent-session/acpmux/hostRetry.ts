@@ -66,7 +66,7 @@ export const SELF_RETRY_SAID_MS = 120_000;
 /// asks again on its own; past it the timer stops and the line says why, with Restart agent service
 /// (`stop`). A stopped pane still comes back by itself, on an event and never on a tick
 /// (`HOST_WAKE_EVENTS`): the window shown or focused again, the network back, or the host saying its
-/// agent service changed; each such event asks once. Before #this the loop asked every 2 s forever
+/// agent service changed; each such event asks once. Before, the loop asked every 2 s forever
 /// (cmux#49148: 490 reconnects an hour from one pane).
 ///
 /// A chat whose machine is unreachable keeps a timer past the bound, at REFUSED_RETRY_MAX_MS: acpmux
@@ -94,17 +94,28 @@ export function lostRetryStep(state: { troubleForMs: number; upForMs: number; wa
 }
 
 /// The events that make a stopped pane ask once more (`hostRetryStep`): on `document`,
-/// `visibilitychange` (only to visible); on `window`, `focus`, `online`, and `acpmux-host-status`
-/// (the host's word that its agent service changed: restarted, restoring, back).
+/// `visibilitychange` (only to visible); on `window`, `focus`, `online`, `acpmux-host-status` (the
+/// host's word on a restore), and `acpmux-daemon-answered` (the host's word that this app's acpmux
+/// answered a lookup, AgentPaneView `observeAcpmuxAnswers`: the daemon is back).
 export const HOST_WAKE_EVENTS = {
   document: ["visibilitychange"],
-  window: ["focus", "online", "acpmux-host-status"],
+  window: ["focus", "online", "acpmux-host-status", "acpmux-daemon-answered"],
 } as const;
 
 /// Whether a wake event should make a stopped pane ask now: never while hidden (the next
-/// `visibilitychange` to visible asks), never while an attempt or a restart runs.
-export function hostWakeAsks(state: { stopped: boolean; connecting: boolean; hidden: boolean }): boolean {
-  return state.stopped && !state.connecting && !state.hidden;
+/// `visibilitychange` to visible asks), never while an attempt or a restart runs. The host's
+/// `acpmux-daemon-answered` asks once per stop (`answerSpent`): two stopped panes whose daemon
+/// answers lookups but fails their connection would otherwise wake each other forever, each ask's
+/// lookup telling the other pane. A person's event (shown, focused, online) asks again.
+export function hostWakeAsks(state: {
+  event: string;
+  stopped: boolean;
+  connecting: boolean;
+  hidden: boolean;
+  answerSpent: boolean;
+}): boolean {
+  if (!state.stopped || state.connecting || state.hidden) return false;
+  return state.event !== "acpmux-daemon-answered" || !state.answerSpent;
 }
 
 /// When the pane's trouble began, after a connection was lost `upForMs` after it connected: a

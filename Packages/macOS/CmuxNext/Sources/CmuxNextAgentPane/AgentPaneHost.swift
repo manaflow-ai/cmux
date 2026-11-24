@@ -39,6 +39,12 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
     /// starts its daemon, and only while a lookup waits on it. True when it stopped.
     func restartStuckAcpmux(sessionId: String?) async -> Bool
+    /// A person asked to restart this app's own acpmux after the pane of `sessionId` stopped asking
+    /// (its handshake loop's bound, hostRetry.ts `hostRetryStep`): no lookup waits then, so
+    /// ``restartStuckAcpmux(sessionId:)`` would refuse. Stops that daemon if one runs (SIGTERM,
+    /// ``AcpmuxDaemonStop``), and answers true when the pane's next handshake may start one: also
+    /// when none runs. Never an attached daemon or the Chief home's.
+    func restartGaveUpAcpmux(sessionId: String?) async -> Bool
     /// The person's click on a request this app's running acpmux lacks (it is older than the app):
     /// restarts this app's own daemon on the app's build, keeping its chats, and answers the socket of
     /// the new one. Nil when nothing restarted: no daemon of this host's own, an attached or Chief
@@ -74,6 +80,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
+
+    /// Hosts without a daemon have none to restart.
+    public func restartGaveUpAcpmux(sessionId: String?) async -> Bool { false }
 
     /// Hosts without a daemon have none to restart.
     public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
@@ -357,6 +366,20 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return await daemonStop.restart(environment)
     }
 
+    /// The person's "Restart agent service" after the pane stopped asking: no lookup waits, so the
+    /// guard of ``restartStuckAcpmux(sessionId:)`` does not apply; the person's click decides (rule R5).
+    /// A daemon of this home that runs gets SIGTERM; none running is a restart too, since the pane's
+    /// next handshake (a `ready`, which starts daemons) starts one.
+    public func restartGaveUpAcpmux(sessionId: String?) async -> Bool {
+        guard startsDaemons else { return false }
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment, !environment.isAttached else { return false }
+        prewarmed.drop()
+        guard await daemonStop.daemon(environment) != nil else { return true }
+        daemons.noteStoppedByPerson(home: environment.home)
+        return await daemonStop.restart(environment)
+    }
+
     /// Restarts this app's own daemon after a request it lacked, then starts the bundled one (a
     /// lookup that may start daemons). Only a daemon that keeps its chats across the restart (agent
     /// hosts or chats on disk, as an update's handoff), never an attached one or the Chief home's.
@@ -446,6 +469,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                            heal: heal, startOwner: startOwner, approver: approver, adoption: adoption)
             }
             Self.markLookup("lookup_end", owned: owned)
+            // A pane whose handshake loop stopped asks again now that acpmux answers (AgentPaneView
+            // `observeAcpmuxAnswers`): the event that ends its terminal state, never a tick.
+            NotificationCenter.default.post(name: .cmuxNextAcpmuxAnswered, object: nil)
             return endpoint
         }
         inFlight[startsDaemon] = task

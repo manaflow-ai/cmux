@@ -164,10 +164,15 @@ enum AgentPaneHandshakeReply {
     /// that is only slow on its own (rule R5). Page script cannot make a gesture, and the host
     /// stops a daemon only while a lookup waits on it. Answers `{stopped}`; the page then asks for
     /// a handshake again, which starts a new daemon.
-    static func restartStuckAcpmux(in model: AgentPaneModel) async -> [String: Any] {
+    /// `gaveUp`: the page's handshake loop stopped past its bound, so no lookup waits; the person's
+    /// click restarts this app's own daemon anyway (``AgentPaneHostProviding/restartGaveUpAcpmux(sessionId:)``).
+    static func restartStuckAcpmux(in model: AgentPaneModel, gaveUp: Bool = false) async -> [String: Any] {
         guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
         }
-        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux(sessionId: model.sessionId)])
+        let stopped = gaveUp
+            ? await model.host.restartGaveUpAcpmux(sessionId: model.sessionId)
+            : await model.host.restartStuckAcpmux(sessionId: model.sessionId)
+        return AgentPaneReply.success(["stopped": stopped])
     }
 }
