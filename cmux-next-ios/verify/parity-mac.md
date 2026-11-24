@@ -173,6 +173,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
 | Type, paste, keys, Ctrl-C | composer, direct typing, key bar, paste | works | |
+| Glass refraction over live content (`ask-d547ac77f0`) | native iOS 26 composer glass; terminal scrollback draws above its theme backing | partial | Terminal backing order corrected; fleet visual verification and iPhone handoff pending. Chat, Chief and TabsKit already use native glass. See [refraction verification](glass-refraction.md). |
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
 | Find, Copy | Files and Links, selection | partial | |
