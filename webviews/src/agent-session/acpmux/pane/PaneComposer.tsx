@@ -69,7 +69,7 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, sendHeldFork } from "../forkHold";
+import { clearHeldFork, heldFork, sendHeldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
 import { AutoArrival } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
@@ -154,6 +154,7 @@ export type PaneComposerDeps = {
   onAutoArrivalDismiss: () => void;
   /// Auto picked: the daemon decides where the Send goes first (App.tsx `autoSendGate`).
   autoSendGate: {
+    picked: boolean;
     holds: (text: string) => boolean;
     once: <A extends unknown[], R>(send: (...args: A) => R) => (...args: A) => R;
   };
@@ -1002,6 +1003,37 @@ export function drawPaneComposer({
                 sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
+            }}
+            // A send made while a dropped file still attaches goes now, ahead of it, and shows as
+            // sent (composer/sendBehind.ts): only where onSend below takes it straight to the client
+            // of the chat open now (its plain path), which sends it once the file is its chip.
+            onBindSendAhead={() => {
+              const client = directClient.current;
+              const plainPath =
+                client !== undefined &&
+                Boolean(snapshot.sessionId) &&
+                client.selectedSession === snapshot.sessionId &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !authBlock &&
+                !cloningGitHub &&
+                !autoSendGate.picked &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !sandboxPickedNotOffered &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId) &&
+                Boolean(window.cmuxAcpmuxActions?.["chat.send"]);
+              const route = {
+                openChat: client?.selectedSession,
+                switchPending: harnessSwitch.view().intent !== undefined,
+                startsChat: Boolean(projectDraft && !snapshot.sessionId),
+                cloudStart: cloudPicked,
+                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
+                sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
+              };
+              return client && plainPath && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that

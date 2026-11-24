@@ -1,5 +1,5 @@
 // After acpmux restarts, the pane's socket can stay open while nothing behind it answers. The pane
-// waited for its requests, said "Waiting for the agent service (m:ss)" and gave the socket up only
+// waited for its requests, showed the wait and gave the socket up only
 // after two minutes without a frame, though the new daemon was up long before (ask-34b8c4ef25).
 // A daemon that is only slow still answers a probe, and its socket is kept.
 import { afterEach, expect, jest, test } from "bun:test";
@@ -136,8 +136,8 @@ test("a socket whose daemon went silent is given up within 20 s, so the pane ask
       await settle();
     }
     // The lost path ran: the host is asked for a fresh handshake, which finds the restarted daemon.
-    // Before, the pane kept the dead socket for DAEMON_LIVENESS_GRACE_MS (two minutes) and counted
-    // "Waiting for the agent service" meanwhile.
+    // Before, the pane kept the dead socket for DAEMON_LIVENESS_GRACE_MS (two minutes) and showed
+    // the wait meanwhile.
     expect(lost()).toBe(1);
     await expect(read).rejects.toMatchObject({ interrupted: true });
   } finally {

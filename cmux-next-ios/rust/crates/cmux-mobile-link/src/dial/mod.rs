@@ -355,6 +355,17 @@ pub fn peer_scope(peer: Option<std::net::IpAddr>) -> &'static str {
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
 
+/// The two WireGuard static public keys a tunnel handshook with (base64, as
+/// in `wg-init` and `wg-resp`): the dialer's (the phone's) and the
+/// answerer's (the Mac's). `auth`'s identity proofs cover them (PROTOCOL.md
+/// "Mac identity"), so the keys each side signs are the ones its own tunnel
+/// authenticated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunnelKeys {
+    pub dialer: String,
+    pub answerer: String,
+}
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -375,6 +386,8 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -547,6 +560,8 @@ pub struct Connected {
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -651,6 +666,7 @@ async fn connect_on(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
     })
 }
 
@@ -701,6 +717,7 @@ pub async fn answer(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
     })
 }
 
