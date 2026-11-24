@@ -78,6 +78,12 @@ fn down_peer_recipient(hub: &Hub, target: &str) -> Option<Target> {
         let down = !peer.connected.load(std::sync::atomic::Ordering::SeqCst);
         return down.then(|| Target { session_id: Some(id), ..Target::default() });
     }
+    // A target that only the team hub knows is still sent from the local durable spool. The
+    // worker reaches this fallback after its direct attempt, so a hub outage cannot lose the
+    // record or make the caller's send depend on discovery latency.
+    if hub.mesh_may_route(target) {
+        return Some(recipient_in(hub, target));
+    }
     hub.peer_down_for(target)?;
     let (host, key) = target.split_once('/')?;
     if uuid::Uuid::try_parse(key).is_ok() {
