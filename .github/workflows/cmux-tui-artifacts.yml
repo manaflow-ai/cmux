@@ -5424,7 +5424,10 @@ jobs:
       name: artifacts
       deployment: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 20
+    # The step's own limits are 1260 s (helper wait), 120 s (tree key) and 900 s (sign and upload): 38 minutes.
+    # At 20 the job was cancelled inside the helper wait whenever no helper was signed in time, before the file
+    # was written, so the channel stopped moving (tests/test_mac_live_delivery.py holds the sum).
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
