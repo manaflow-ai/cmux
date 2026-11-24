@@ -833,11 +833,13 @@ impl RelaySender {
     /// an optional string, and `session: null` was a 400 for every send from a program outside any
     /// session (2026-11-24 04:58Z, after #52662; the hub takes null since cmux-platform's fix).
     pub(crate) fn to_value(&self) -> Value {
-        let mut record = json!({"by": self.by, "machine": self.machine});
+        let mut record = serde_json::Map::new();
+        record.insert("by".into(), json!(self.by));
+        record.insert("machine".into(), json!(self.machine));
         if let Some(session) = &self.session {
-            record["session"] = json!(session);
+            record.insert("session".into(), json!(session));
         }
-        record
+        Value::Object(record)
     }
 
     /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
