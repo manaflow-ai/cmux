@@ -62,7 +62,7 @@ public struct ConnectMacSteps: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFill)
                 .font(theme.type.rowSubtitle.weight(.semibold))
                 .foregroundStyle(theme.colors.accent.color)
                 .accessibilityIdentifier("connect-mac.account")
