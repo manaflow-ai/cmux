@@ -302,9 +302,11 @@ export class AcpmuxPerf {
         key: event.key,
       };
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
-      // The key's edit is done inside its own task. The `input` event reaches the document last, after the field's and
-      // React's handlers and their microtasks. A microtask from here ends the key's work. A posted message can run
-      // after the next frame on WebKit, which makes `to_work` include an idle frame wait.
+      // The key's edit is done inside its own task: the `input` event reaches the document last, as it bubbles, after
+      // the field's and React's handlers, and each handler's microtasks (the editor's flush, React's sync render and
+      // commit) run before the next handler. A microtask from here ends the key's work. A point after the task (a
+      // posted message) also counted whatever ran before it: on Mac WebKit the next frame ran first on nearly every
+      // key, so `to_work` read the wait for the frame, not the work (goal typing-latency). `to_frame` keeps the frame.
       const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
       page.addEventListener("input", input, { once: true });
       requestAnimationFrame((timestamp) => {

@@ -182,6 +182,7 @@ import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
@@ -1298,6 +1299,8 @@ function ComposerFrame({
     if (!field.current?.type(next)) {
       writeText(next, next.length);
     }
+    // A queued prompt taken back moves into the field it is in now (unpopMorph.ts).
+    playUnpop(composerBox.current);
     if (restoredAttachments.length)
       setAttachments((current) => {
         const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
@@ -2810,7 +2813,12 @@ function ComposerFrame({
       onClick={running ? stopTurn : undefined}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
+      <SendSlotGlyph
+        glyph={stopping ? "stopping" : "stop"}
+        state={stopping ? "stopping" : "stop"}
+        memory={morphMemory}
+        scope={sessionId}
+      />
       <StopPulse pulses={stopPresence.pulses} />
     </button>
   ) : null;
@@ -3185,7 +3193,7 @@ function ComposerFrame({
         disabled={resuming}
         onClick={() => runResume(canResume)}
       >
-        <SendSlotGlyph glyph="play" memory={morphMemory} scope={sessionId} />
+        <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
       </button>
     ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
@@ -3228,7 +3236,14 @@ function ComposerFrame({
                         )
           }
         >
-          <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
+          <SendSlotGlyph
+            glyph={quietActions && !shell ? "return" : "arrow"}
+            // The slot's state (composer/sendSlotTransitions.ts): a draft to send, a send the host
+            // has not taken yet, or nothing.
+            state={hasDraft || listening ? "send-ready" : sendingShown ? "sending" : "idle"}
+            memory={morphMemory}
+            scope={sessionId}
+          />
         </button>
       </SendMenu>
     ) : null;
