@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LASTING_MS, setLastingGrace } from "../../ui/lasting";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
@@ -71,12 +72,22 @@ describe("agents", () => {
 
 describe("offline", () => {
   const line = "This Mac is offline. Sign-ins and installs work once it’s back.";
-  test("one line under the title on every scaffold step while offline", () => {
-    for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
-      const html = render(state, undefined, false);
-      expect(html.split('class="onb-offline"').length - 1).toBe(1);
-      expect(text(html)).toContain(line);
+  test("one line under the title on every scaffold step once offline has lasted", () => {
+    // A static render has no time to pass: a zero grace stands for an outage past the quiet bound
+    // (offline.test.tsx checks the bound itself).
+    setLastingGrace(0);
+    try {
+      for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
+        const html = render(state, undefined, false);
+        expect(html.split('class="onb-offline"').length - 1).toBe(1);
+        expect(text(html)).toContain(line);
+      }
+    } finally {
+      setLastingGrace(LASTING_MS);
     }
+  });
+  test("a blip (offline under the quiet bound) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, false)).not.toContain("onb-offline");
   });
   test("online (and server markup with no window) draws no offline line", () => {
     expect(render(agentsState("mixed"), undefined, true)).not.toContain("onb-offline");
