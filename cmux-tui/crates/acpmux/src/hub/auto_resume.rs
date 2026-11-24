@@ -167,9 +167,18 @@ pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 /// it out?"). On 2026-11-23 18 lanes on one machine sat failed for 18 h: the 503s ran out of
 /// their four attempts (before #53115), and the 429s ran out at their fifth strike, one short of
 /// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
-/// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
-pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
-    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit) && !delays.is_empty()
+/// lifts itself; a capacity wait is [`capacity_wait`]. A refused connection (`error` says
+/// `ECONNREFUSED`: the inference gateway is down, [`super::turn_errors::is_refused_connection`])
+/// is a transport error waited out the same way, with capacity's capped waits: its outage ends
+/// when the gateway listens again, which four attempts over 26 minutes may not see. Every other
+/// transport error keeps its configured attempts. Off (`[]`) stays off.
+pub(in crate::hub) fn waits_it_out(reason: RetryReason, error: &str, delays: &[u64]) -> bool {
+    let outage = match reason {
+        RetryReason::Capacity | RetryReason::RateLimit => true,
+        RetryReason::Transport => super::turn_errors::is_refused_connection(error),
+        RetryReason::AgentExited | RetryReason::Context => false,
+    };
+    outage && !delays.is_empty()
 }
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
@@ -759,10 +768,10 @@ impl Hub {
             let delays = if context { compact_first::waits(&delays) } else { delays };
             // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
             let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
-            // A capacity outage or an account's rate limit is waited out, however long it
-            // lasts: never used up ([`waits_it_out`]).
+            // A capacity outage, an account's rate limit or a refused connection is waited
+            // out, however long it lasts: never used up ([`waits_it_out`]).
             let index = done.saturating_sub(moves);
-            let unbounded = waits_it_out(reason, &delays);
+            let unbounded = waits_it_out(reason, &error, &delays);
             let delay = if unbounded {
                 Some(capacity_wait(index, &delays, &session.id))
             } else {

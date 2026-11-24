@@ -267,16 +267,32 @@ fn a_capacity_wait_never_runs_out_and_is_capped() {
     assert!((1600..=1920).contains(&super::capacity_wait(3, &short, "s")), "1600 ms plus jitter");
 }
 
-/// A capacity outage and an account's rate limit are waited out (Leo, 2026-11-24: "didn't we
-/// build auto retries for this? why do they fail instead of waiting it out?"); a connection
-/// error keeps its configured attempts, and `[]` keeps every loop off.
+/// A capacity outage, an account's rate limit and a refused connection (the gateway down) are
+/// waited out (Leo, 2026-11-24: "didn't we build auto retries for this? why do they fail
+/// instead of waiting it out?"); any other connection error keeps its configured attempts, and
+/// `[]` keeps every loop off.
 #[test]
-fn capacity_and_rate_limits_are_waited_out() {
+fn capacity_rate_limits_and_refused_connections_are_waited_out() {
     let delays = DEFAULT_DELAYS_MS.to_vec();
-    assert!(super::waits_it_out(RetryReason::Capacity, &delays));
-    assert!(super::waits_it_out(RetryReason::RateLimit, &delays));
-    assert!(!super::waits_it_out(RetryReason::Transport, &delays));
-    assert!(!super::waits_it_out(RetryReason::RateLimit, &[]));
+    let refused = "API Error: Connection refused (ECONNREFUSED)";
+    let dropped = "stream disconnected before completion: error sending request";
+    assert!(super::waits_it_out(RetryReason::Capacity, "", &delays));
+    assert!(super::waits_it_out(RetryReason::RateLimit, "", &delays));
+    assert!(super::waits_it_out(RetryReason::Transport, refused, &delays));
+    assert!(super::waits_it_out(
+        RetryReason::Transport,
+        "connect ECONNREFUSED 127.0.0.1:4016",
+        &delays
+    ));
+    assert!(!super::waits_it_out(RetryReason::Transport, dropped, &delays));
+    assert!(!super::waits_it_out(RetryReason::Transport, "API Error: Connection error.", &delays));
+    assert!(!super::waits_it_out(RetryReason::AgentExited, refused, &delays));
+    assert!(!super::waits_it_out(RetryReason::RateLimit, "", &[]));
+    assert!(!super::waits_it_out(RetryReason::Transport, refused, &[]));
+    assert_eq!(
+        crate::turn_errors::resume_cause(refused, refused).and_then(RetryReason::from_cause),
+        Some(RetryReason::Transport)
+    );
     // Both errors on the 18 lanes one machine left failed on 2026-11-23 are one of the two.
     for (error, reason) in [
         (

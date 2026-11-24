@@ -455,7 +455,12 @@ id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, clos
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
 `{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
-`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+`agent_exited`), null otherwise. A capacity error, a rate limit and a refused connection
+(`ECONNREFUSED`: the inference gateway is down) never run out of attempts (`untilCapacity: true`
+on their `auto_resume_scheduled`): a capacity error's or a refused connection's waits are the
+configured ones, then the last one doubling, each at most 5 min; a rate limit's are the chat's
+backoff below. Any other connection error stops after the configured attempts
+(`auto_resume_exhausted`). Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
 words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,

@@ -30,6 +30,9 @@ mod limits;
 #[path = "auto_resume_retry.rs"]
 mod retry;
 
+#[path = "auto_resume_refused.rs"]
+mod refused;
+
 /// Every event kind of a session, oldest first.
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {
     hub.events(id, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect()
