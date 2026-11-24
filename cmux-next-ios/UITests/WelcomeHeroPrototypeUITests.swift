@@ -64,6 +64,67 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
         }
     }
 
+    /// A direction picked while the launch intro is still finishing plays its
+    /// whole reveal. The intro's end used to pause the shared animation clock
+    /// mid-reveal, freezing the new direction where it stood (sometimes on a
+    /// blank frame, the cursor off before any letter). Glide 900, picked about
+    /// 1.5 s in, runs 3.8 s, past the intro's end; 6 s later its wordmark must
+    /// be the settled lockup: ink from the canvas's left edge (the chevron) to
+    /// its right edge (the x).
+    @MainActor
+    func testADirectionPickedDuringTheIntroPlaysToTheEnd() throws {
+        let app = launch()
+        defer { app.terminate() }
+        let item = app.buttons["welcome.hero.glide900"]
+        XCTAssertTrue(item.waitForExistence(timeout: 20))
+        _ = app.staticTexts["__never__"].waitForExistence(timeout: 1.5)
+        item.tap()
+        let mark = element(app, id: "welcome.wordmark.glide900")
+        XCTAssertTrue(mark.waitForExistence(timeout: 5))
+        _ = app.staticTexts["__never__"].waitForExistence(timeout: 6)
+        capture("picked-during-intro")
+        // The canvas is the wordmark element less its 40 pt side padding.
+        let canvas = mark.frame.insetBy(dx: 40, dy: 0)
+        let ink = try XCTUnwrap(inkSpan(app, in: mark.frame), "the wordmark draws nothing: the reveal froze on a blank frame")
+        XCTAssertLessThan(ink.lowerBound, canvas.minX + 8, "the reveal froze before the chevron reached the left (ink \(ink), canvas \(canvas))")
+        XCTAssertGreaterThan(ink.upperBound, canvas.maxX - 8, "the reveal froze before the word reached the right (ink \(ink), canvas \(canvas))")
+    }
+
+    /// The x range, in points, of what is drawn inside `frame` on screen (any
+    /// pixel clearly unlike the frame's corner, the background), or nil when
+    /// nothing is drawn there.
+    @MainActor
+    private func inkSpan(_ app: XCUIApplication, in frame: CGRect) -> ClosedRange<CGFloat>? {
+        guard let image = XCUIScreen.main.screenshot().image.cgImage else { return nil }
+        let width = image.width, height = image.height
+        let scale = CGFloat(width) / app.windows.firstMatch.frame.width
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drew else { return nil }
+        func level(_ x: Int, _ y: Int) -> Int {
+            let i = (y * width + x) * 4
+            return Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2])
+        }
+        let x0 = max(0, Int(frame.minX * scale)), x1 = min(width - 1, Int(frame.maxX * scale))
+        let y0 = max(0, Int(frame.minY * scale)), y1 = min(height - 1, Int(frame.maxY * scale))
+        guard x0 < x1, y0 < y1 else { return nil }
+        let background = level(x0 + 2, y0 + 2)
+        var first: Int?, last: Int?
+        for x in x0...x1 {
+            var marked = 0
+            for y in stride(from: y0, through: y1, by: 2) where abs(level(x, y) - background) > 90 { marked += 1 }
+            if marked >= 2 { first = first ?? x; last = x }
+        }
+        guard let first, let last else { return nil }
+        return CGFloat(first) / scale...CGFloat(last) / scale
+    }
+
     /// The sign-in rows answer a held finger the way system glass does: held,
     /// a row stays lit and stretches toward the finger as it drags; dragged
     /// off and released, nothing is sent and the welcome stays. In light and
