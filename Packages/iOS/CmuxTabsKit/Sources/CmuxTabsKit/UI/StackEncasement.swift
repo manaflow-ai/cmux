@@ -98,7 +98,8 @@ private struct EncasementFrame<Content: View>: View, Animatable {
     var rects: StackOutlineRects
     @ViewBuilder var content: (StackOutlineRects, CGRect) -> Content
 
-    var animatableData: AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGRect.AnimatableData, CGRect.AnimatableData>> {
+    // The rows are plain values: SwiftUI interpolates them off the main actor's view body.
+    nonisolated var animatableData: AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGRect.AnimatableData, CGRect.AnimatableData>> {
         get { AnimatablePair(rects.a.animatableData, AnimatablePair(rects.b.animatableData, rects.c.animatableData)) }
         set {
             rects.a.animatableData = newValue.first
