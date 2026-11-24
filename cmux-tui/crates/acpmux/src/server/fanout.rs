@@ -211,7 +211,9 @@ pub(super) fn start(
 /// with the same raw id); never to a peer daemon's link, which does not carry presence
 /// (`hub/presence.rs`).
 fn send_presence(conn: &Conn, note: &serde_json::Value) {
-    if conn.origin == super::Origin::Peer {
+    if conn.origin == super::Origin::Peer
+        || !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE])
+    {
         return;
     }
     let attached = note
