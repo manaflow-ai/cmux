@@ -214,6 +214,7 @@ public struct DaemonTree: Sendable {
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, chatTitles: agents.chatTitles,
                                                     bindings: &agentTabs) else { continue }
+                        if mapped.agentStatus == .working { mapped.workingSince = state?.updatedAt }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
                         mapped.hasCustomName = (tab["name"] as? String).map { !$0.isEmpty } ?? false
                         mapped.linkIDs = WorkspaceTab.LinkIDs(

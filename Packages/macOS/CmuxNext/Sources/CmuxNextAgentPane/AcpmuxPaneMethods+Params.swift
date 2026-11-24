@@ -8,15 +8,18 @@ nonisolated extension AcpmuxPaneMethods {
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
         // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed` (cmux#46563).
         // schemas/agent-pane/initialize-params.json lists every initialize the page sends; refused,
-        // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b).
+        // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b). An
+        // acpmux key missing here is stripped, not refused (``strippingInitializeOptIns``); still
+        // list each one the page sends, or the daemon never sees the opt-in.
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches"]),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
         // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
-        // each as it checks `cwd`.
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
+        // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
@@ -127,12 +130,23 @@ nonisolated extension AcpmuxPaneMethods {
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
+        // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
+        // `place` name and its `headroom`, all data the page already holds (Cloud today).
+        "_acpmux/place_chat": (["where", "targets"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
+        "_acpmux/prompts_list": ([], []),
+        "_acpmux/prompts_save": (["name", "text"], []),
+        "_acpmux/prompts_delete": (["name"], []),
+        "_acpmux/stash_list": (["chat"], []),
+        "_acpmux/stash_push": (["chat", "text", "attachments", "replaces"], []),
+        "_acpmux/stash_get": (["chat", "id"], []),
+        "_acpmux/stash_drop": (["chat", "id"], []),
+        "_acpmux/stash_move": (["chat", "to"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).
@@ -181,6 +195,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
+        "_acpmux/agent_home": (["sessionId"], []),
+        // `accept` and `drop`: proposal ids from `_acpmux/agent_home`.
+        "_acpmux/agent_home_resolve": (["sessionId", "accept", "drop"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
@@ -209,6 +226,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in": (["family", "sessionId"], []),
+        "_acpmux/account/sign_in.finish": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in.cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
         "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),
@@ -279,6 +299,36 @@ nonisolated extension AcpmuxPaneMethods {
         // argv or env): one model id, never a flag or anything else.
         if method == "session/new", let model = acpmux["model"], !isModelID(model) { return "_meta.acpmux.model is not a model id" }
         return nil
+    }
+
+    /// The `_meta.acpmux` keys an `initialize` may never carry, even as an opt-in the relay does not
+    /// know: the LocalApp token is the host's alone (``withLocalAppToken(_:_:)``) and the person key
+    /// never crosses the socket (cx-fcaq). They stay refused, as does a daemon `modeFields` name.
+    static let initializeRefusedAcpmux: Set<String> = ["localAppToken", "personKey"]
+
+    /// The handshake fails safe: an `initialize` with `_meta.acpmux` keys outside its known list
+    /// (capability opt-ins a newer page asks for, as cmux#46563's `peerRowBatches` was) goes with
+    /// those keys removed, so the daemon never sees them and answers with its default behaviour,
+    /// instead of the relay refusing every connect (737+ refusals in Leo's NIGHTLY, 2026-11-21).
+    /// Only those keys: a credential (``initializeRefusedAcpmux``) or a daemon mode field stays for
+    /// the params rule to refuse, as do an unknown top-level param, a `_meta` key beside `acpmux`,
+    /// a non-object `_meta` or `acpmux`, and every key on every other method. Nil: nothing to strip.
+    static func strippingInitializeOptIns(_ object: [String: Any], modeFields: Set<String>?)
+        -> (object: [String: Any], keys: [String])? {
+        guard object["method"] as? String == initialize, var params = object["params"] as? [String: Any],
+              var meta = params["_meta"] as? [String: Any], var acpmux = meta["acpmux"] as? [String: Any],
+              let known = knownParams[initialize]?.acpmux else { return nil }
+        let denied = modeFields ?? []
+        let keys = acpmux.keys.filter {
+            !known.contains($0) && !initializeRefusedAcpmux.contains($0) && !denied.contains($0)
+        }.sorted()
+        guard !keys.isEmpty else { return nil }
+        for key in keys { acpmux.removeValue(forKey: key) }
+        meta["acpmux"] = acpmux
+        params["_meta"] = meta
+        var object = object
+        object["params"] = params
+        return (object, keys)
     }
 
     /// A key as the refusal names it: quoted, at most 64 characters (a page bug can send any key).

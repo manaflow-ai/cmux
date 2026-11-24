@@ -67,6 +67,10 @@ pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
 /// sees that it may not have run; it is never dropped while open.
 pub const OPEN_ON_PEER_FOR_MS: u64 = 30 * KEEP_SETTLED_MS;
 
+/// The reason, and the first words of the error, of a delivery whose target session's folder is
+/// gone (`hub/worktree_care.rs` `folder_missing`): kept and sent again once it is back.
+pub const FOLDER_MISSING: &str = "session.folder_missing";
+
 /// The error of a delivery whose peer never showed it within [`OPEN_ON_PEER_FOR_MS`].
 pub const OPEN_LAPSED: &str = "the peer took this message, but its machine lost it with its disk \
      and did not come back within 30 days to take it again; it may not have run";
@@ -148,6 +152,16 @@ pub struct Delivery {
     /// (`server/outbox.rs` `redeliver_open`, `open_delivery.rs`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_on_peer: bool,
+    /// How many times a link's redelivery sent this open delivery again (`server/outbox.rs`
+    /// `redeliver_one`), and when it last did: each resend waits twice as long as the one before
+    /// (`open_delivery::resend_due`), so a delivery open for its whole 30 days is sent again at
+    /// most `open_delivery::MAX_RESENDS` times however often its peer's link comes back. Before
+    /// them, a link that came back every few minutes under load sent the same prompt id again on
+    /// every one (2026-11-23, on a loaded host: one prompt sent 38 times, 102,825 sends in 3 h).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub resends: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resent_at: u64,
     /// The peer's session it was sent to, read when its attempt started (never after, so a link
     /// replaced meanwhile changes nothing): every attempt names that generation
     /// (`sessionCreatedAt`), and a session purged and made again under the same id refuses it as
@@ -207,6 +221,10 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
 impl Delivery {
     /// Whether it is the record of a message this daemon posted to the mesh hub, a team one or
     /// a direct `HOST/NAME` send (`record_mesh_origin`): bookkeeping, never a delivery.
@@ -262,10 +280,15 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
-            // Why it failed, for a program: the target's machine has no such session, or it
-            // took it and lost it, and did not come back for it.
+            // Why it failed or waits, for a program: the target's machine has no such session,
+            // or the session's folder is gone (`error` names the folder; still queued, it goes
+            // once the folder is back), or it took it and lost it, and did not come back for it.
             "reason": if self.no_session() {
                 Some("no_session")
+            } else if self.state != State::Delivered
+                && self.error.as_deref().is_some_and(|e| e.starts_with(FOLDER_MISSING))
+            {
+                Some(FOLDER_MISSING)
             } else {
                 (self.state == State::Failed && self.error.as_deref() == Some(OPEN_LAPSED))
                     .then_some("open_lapsed")
@@ -289,10 +312,10 @@ impl Delivery {
 /// The deliveries, saved at `path` when the store is on disk.
 #[derive(Default)]
 pub struct Outbox {
-    deliveries: StdMutex<Book>,
+    deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
-    disk: StdMutex<Disk>,
+    disk: crate::worker_lock::Mutex<Disk>,
     /// At most one bounded delivery/reconciliation task for each id in this launch.
     running: StdMutex<HashSet<String>>,
     /// Fired on every change: a `send_status` that waits wakes.
@@ -304,6 +327,8 @@ pub struct Outbox {
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
+    /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
+    unsettled_seen: std::sync::atomic::AtomicUsize,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -493,8 +518,25 @@ impl Outbox {
 
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
+    /// Never waits: `status` (every pane's connect, `ls`) reads it, and a writer can hold the
+    /// book for seconds on a loaded Mac (Leo's daemon, 2026-11-22). While the book is held this
+    /// answers the last count it made.
     pub fn unsettled(&self) -> usize {
-        self.book().deliveries.values().filter(|d| !d.settled()).count()
+        use std::sync::atomic::Ordering::Relaxed;
+        let Some(book) = self.deliveries.try_lock() else {
+            return self.unsettled_seen.load(Relaxed);
+        };
+        let count = book.deliveries.values().filter(|d| !d.settled()).count();
+        self.unsettled_seen.store(count, Relaxed);
+        count
+    }
+
+    /// Tests only: takes the book, runs `taken`, and holds it for `held`, as a slow writer does.
+    #[cfg(test)]
+    pub(crate) fn hold_book_for_then(&self, held: std::time::Duration, taken: impl FnOnce()) {
+        let _book = self.book();
+        taken();
+        std::thread::sleep(held);
     }
 
     /// Keep the original team destination independently of the hub's resolved receipt shape.
@@ -531,6 +573,8 @@ impl Outbox {
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -1063,6 +1107,8 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -1633,6 +1679,8 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,

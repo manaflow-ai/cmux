@@ -80,7 +80,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
         menu.addItem(.separator())
         menu.addItem(withTitle: String(localized: "terminal.menu.selectAll", defaultValue: "Select All", bundle: .localizedModule), action: #selector(selectAll(_:)), keyEquivalent: "")
         for item in menu.items { item.target = self }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     // MARK: Drag and drop

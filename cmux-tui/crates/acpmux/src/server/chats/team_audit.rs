@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use super::super::Origin;
 use crate::mesh_http::{HttpHub, MeshRelayConfig};
 use crate::rpc::{RpcError, method};
+use cmux_usage_share::upload::Sent;
 
 pub(super) const GROUPS: [&str; 6] = ["person", "repo", "model", "harness", "machine", "day"];
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -183,6 +184,111 @@ impl Client {
             };
         }
     }
+}
+
+impl Client {
+    /// `POST {origin}/v1/usage/records` with one upload body (`cmux-usage-share`), with the same
+    /// sign-in as the audit read: one more try with a new token on a 401.
+    async fn post_usage(&self, body: Vec<u8>) -> Sent {
+        let url = format!("{}/v1/usage/records", self.origin);
+        let mut fresh = false;
+        loop {
+            let Ok(token) = self.hub.token(fresh).await else {
+                return Sent::Stopped { status: 401, code: Some("signedOut".into()) };
+            };
+            let sent = self
+                .http
+                .post(&url)
+                .bearer_auth(token.as_str())
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body.clone())
+                .timeout(CALL_TIMEOUT)
+                .send()
+                .await;
+            let response = match sent {
+                Ok(response) => response,
+                Err(e) => return Sent::Retry { why: e.without_url().to_string() },
+            };
+            let status = response.status().as_u16();
+            if status == 401 && !fresh {
+                fresh = true;
+                continue;
+            }
+            let answer = read_capped(response).await.unwrap_or_default();
+            return cmux_usage_share::upload::classify(status, &answer);
+        }
+    }
+}
+
+struct UsageSender(Arc<Client>);
+
+impl cmux_usage_share::upload::Sender for UsageSender {
+    fn send(&self, body: Vec<u8>) -> impl std::future::Future<Output = Sent> + Send {
+        let client = Arc::clone(&self.0);
+        async move { client.post_usage(body).await }
+    }
+}
+
+/// The first retry after a 5xx or no answer; it doubles up to [`cmux_usage_share::UPLOAD_EVERY`].
+const UPLOAD_RETRY_FIRST: Duration = Duration::from_secs(60);
+
+/// Uploads this daemon's shared usage spool (`cmux-usage-share`) to the person's team: once
+/// [`cmux_usage_share::FIRST_UPLOAD_AFTER`] after start, then every
+/// [`cmux_usage_share::UPLOAD_EVERY`], sooner with backoff after a 5xx or no answer. While sharing
+/// is off a wake rereads the setting and sends nothing. Without a person's sign-in, or with an
+/// answer that says this person or server does not share (401, 403, 404) or refuses a batch, it
+/// logs the status once and waits for the next round. Lives as long as the daemon.
+pub(crate) async fn usage_upload_loop() {
+    let Some(sharer) = cmux_usage_share::global() else { return };
+    tokio::time::sleep(cmux_usage_share::FIRST_UPLOAD_AFTER).await;
+    let mut retry = UPLOAD_RETRY_FIRST;
+    let mut last_logged: Option<String> = None;
+    loop {
+        let ended = usage_round(sharer).await;
+        let wait = match &ended {
+            Some(Sent::Retry { .. }) => {
+                let wait = retry;
+                retry = retry.saturating_mul(2).min(cmux_usage_share::UPLOAD_EVERY);
+                wait
+            }
+            _ => {
+                retry = UPLOAD_RETRY_FIRST;
+                cmux_usage_share::UPLOAD_EVERY
+            }
+        };
+        let said = ended.as_ref().map(|e| format!("{e:?}"));
+        if said != last_logged {
+            match &ended {
+                None => tracing::info!("usage sharing: upload caught up"),
+                Some(e) => {
+                    tracing::info!(ended = ?e, "usage sharing: upload stopped for this round")
+                }
+            }
+            last_logged = said;
+        }
+        tokio::time::sleep(wait).await;
+    }
+}
+
+/// One round: what ended it early, None when it sent everything (or sharing is off).
+async fn usage_round(sharer: &'static cmux_usage_share::Sharer) -> Option<Sent> {
+    if !sharer.enabled() {
+        return None;
+    }
+    let Some(client) = client() else {
+        return Some(Sent::Stopped { status: 401, code: Some("signedOut".into()) });
+    };
+    let round = sharer.upload_round(&UsageSender(client)).await?;
+    if round.batches > 0 {
+        tracing::info!(
+            batches = round.batches,
+            records = round.records,
+            accepted = round.accepted,
+            duplicates = round.duplicates,
+            "usage sharing: uploaded"
+        );
+    }
+    round.ended
 }
 
 /// The refusal's code when the platform sent one, else the status.

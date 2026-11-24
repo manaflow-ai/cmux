@@ -79,7 +79,12 @@
 //!   FYIs alone steer in no sooner than [`FLUSH_MS`] after the oldest came: a message that is no
 //!   FYI brings them sooner, in its notice, and a Stop's [`Inbox::due_now`] still lets them in
 //!   at once. A coordinator, busy most of the day, took 204 of its 305 notices in 24 h as
-//!   steers, most of them tool FYIs (2026-11-08);
+//!   steers, most of them tool FYIs (2026-11-08). Results steer in no sooner than
+//!   [`STEER_COALESCE_MS`] after the oldest of them came, so a burst is one steer; a block, a
+//!   question or a message from the chat's parent or delegator ([`steers_at_once`]) brings
+//!   every new message at once. Each steer re-ran the harness's prompt hooks (1-3 KB each), and
+//!   3 results in 3 minutes went into one turn as 3 steers (2026-11-21). A turn that ends first
+//!   leaves them to the idle chat's rules below;
 //! - into the next such turn that starts, as a steer at its start, on the same terms;
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
@@ -122,6 +127,10 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_page_rule.rs"]
+pub(super) mod page_rule;
+#[path = "inbox_reader.rs"]
+pub(super) mod reader;
 #[path = "inbox_surge.rs"]
 mod surge;
 #[path = "inbox_topic.rs"]
@@ -149,6 +158,13 @@ pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// interval at fifteen minutes bounds a quiet coordinator to at most four
 /// notice turns per hour while urgent classes still wake immediately.
 pub const FLUSH_MS: u64 = 15 * 60 * 1000;
+/// How long results wait to steer into a running turn after the oldest new one came, so a burst
+/// goes in as ONE steer at a tool step instead of one each: every steer is a new user message,
+/// which re-runs the harness's prompt hooks (1-3 KB of injected context each, measured
+/// 2026-11-21: 3 results in 3 minutes interrupted one turn singly). A block, a
+/// question, a message from the chat's parent or delegator ([`steers_at_once`]) and a Stop's
+/// `due_now` bring the batch at once.
+pub const STEER_COALESCE_MS: u64 = 2 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
@@ -188,6 +204,9 @@ pub(super) struct Item {
     /// A report of work this chat gave (a lane's report, a task's result): it wakes the chat
     /// as its parent's action does.
     pub(super) report: bool,
+    /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
+    /// rather than sit to a flush a parked machine never reaches.
+    pub(super) waited: bool,
     pub(super) at: u64,
     pub(super) text: String,
     /// Machine-readable report context; kept out of the visible words.
@@ -198,6 +217,10 @@ pub(super) struct Item {
     /// A fire notice that wakes the chat and never waits as an FYI: only with the surge preview
     /// on (`surge_inbox_on`); with it off a notice is its class alone, as before the surge inbox.
     pub(super) fire: bool,
+    /// The page rule's verdict, in a chat on the coordinator list (`inbox_page_rule.rs`): it
+    /// decides whether the item wakes the chat. None: not on the list, unreadable or restored,
+    /// so it wakes as before the rule (fail open).
+    pub(super) verdict: Option<page_rule::Verdict>,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -217,6 +240,7 @@ impl Item {
     pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
         Self {
             surge_held: false,
+            verdict: None,
             prompt_id: prompt_id.to_owned(),
             notice: None,
             answered: None,
@@ -227,6 +251,7 @@ impl Item {
             sender: crate::prompt_provenance::sender_record(None, None, None),
             class: PromptClass::Result,
             report: false,
+            waited: false,
             at: now_ms(),
             text: text.to_owned(),
             details: None,
@@ -243,9 +268,18 @@ impl Item {
 /// The waiting `session/prompt` of an inbox message.
 type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 
+impl Inbox {
+    /// The surge row's needYou as last journaled.
+    pub(super) fn surge_counts_need_you(&self) -> u64 {
+        self.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).need_you()
+    }
+}
+
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
+    /// The page rule's fold table (`inbox_page_rule.rs`): a program's repeated alarm text.
+    pub(super) folds: page_rule::Folds,
     surge_rate: surge::SurgeRate,
     surge_counts: Arc<StdMutex<surge::Counts>>,
     pub(super) items: Vec<Item>,
@@ -271,6 +305,9 @@ pub struct Inbox {
     /// The messages [`trim`] let go of (read, noticed and answered): a resend of one answers from
     /// the log (`logged_inbox`), never puts it back.
     pub(super) trimmed: std::collections::HashSet<String>,
+    /// The threads whose surge-held messages [`trim`] let go of. Those stay whole in the log
+    /// (`persist_surge_event`), so a thread read (`inbox_thread_whole`) reads them from there.
+    pub(super) held_evicted: std::collections::HashSet<String>,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -646,7 +683,12 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
-        _ => fallback.to_owned(),
+        // A session with a given name reads by it, with the name it was known by
+        // (`Mango · HOST/NAME`, `prompt_provenance::display_label`).
+        _ => crate::prompt_provenance::display_label(
+            sender.get("displayName").and_then(Value::as_str),
+            fallback,
+        ),
     }
 }
 
@@ -786,7 +828,16 @@ pub(crate) fn relay_body(text: &str) -> &str {
 /// sender's session, and the messages whole when the notice holds them; past that, the newest one
 /// whole (`newest`) while it is [`NEWEST_BYTES`] or less and the notice's newest ones stay within
 /// [`NEWEST_TOTAL_BYTES`]. Only the parts carry it: the agent's text keeps its previews.
+#[cfg(test)]
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
+    render_read(items, &reader::Summaries::new())
+}
+
+/// [`render`] with the inbox reader's `summaries` (`inbox_reader.rs`), by message id: a thread
+/// with no blocker whose newest message has one shows it in place of that message's preview, and
+/// such threads go by how much the reader says they matter to the chat's goal, then the newest
+/// first. A blocker's thread, and a notice that holds every message whole, read as before.
+pub(super) fn render_read(items: &[&Item], summaries: &reader::Summaries) -> (String, Value) {
     let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
     for item in items {
         match threads.iter_mut().find(|(k, _)| *k == item.thread) {
@@ -794,10 +845,19 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
             None => threads.push((&item.thread, vec![item])),
         }
     }
-    let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
+    // A folded repeat of a program's page (`inbox_page_rule.rs`) is no blocker again.
+    let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent() && !folded(i));
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
-    threads.sort_by_key(|(_, list)| (!blocker(list), std::cmp::Reverse(newest(list))));
     let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
+    let summary = |list: &[&Item]| {
+        let last = list.iter().max_by_key(|i| i.at)?;
+        summaries.get(&last.prompt_id).filter(|_| !whole && !blocker(list))
+    };
+    // Unread by the reader: in the middle, as background is not noise.
+    let score = |list: &[&Item]| summary(list).map_or(1, |s| s.score);
+    threads.sort_by_key(|(_, list)| {
+        (!blocker(list), std::cmp::Reverse(score(list)), std::cmp::Reverse(newest(list)))
+    });
     let n = threads.len();
     let mut text = format!(
         "[inbox] New messages from other agents in {n} thread{}.",
@@ -858,7 +918,11 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
                 }
             }
         } else {
-            let line = last.map(|i| preview(&i.text)).unwrap_or_default();
+            let line = match summary(list) {
+                // Marked, so the agent never takes the reader's words for the sender's.
+                Some(s) => format!("(summary) {}", s.line),
+                None => last.map(|i| preview(&i.text)).unwrap_or_default(),
+            };
             text.push_str(&format!("\n- {head}: {line} (thread {key})"));
         }
         let ids: Vec<&str> = list.iter().map(|i| i.prompt_id.as_str()).collect();
@@ -869,6 +933,10 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         });
         if let Some(last) = last.filter(|item| item.sender.is_object()) {
             part.set("sender", last.sender.clone());
+        }
+        if let Some(s) = summary(list) {
+            part.set("summary", json!(s.line));
+            part.set("relevance", json!(s.score));
         }
         if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
             part.set("fromSession", json!(session));
@@ -921,7 +989,24 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    item.fire || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+    match item.verdict {
+        Some(verdict) => verdict == page_rule::Verdict::Page,
+        None => {
+            item.fire
+                || wakes_as(
+                    meta,
+                    item.class,
+                    item.report || item.waited,
+                    item.from_session.as_deref(),
+                )
+        }
+    }
+}
+
+/// Whether `item` is a folded repeat of a program's page (`inbox_page_rule.rs`): it starts no
+/// flush of its own and goes with the next notice.
+fn folded(item: &Item) -> bool {
+    item.verdict == Some(page_rule::Verdict::Fold)
 }
 
 fn fire_notice(notice: Option<&Value>) -> bool {
@@ -929,15 +1014,29 @@ fn fire_notice(notice: Option<&Value>) -> bool {
 }
 
 fn ordinary_fyi(item: &Item) -> bool {
-    item.class == PromptClass::Fyi && !item.fire
+    item.class == PromptClass::Fyi && !item.fire && item.verdict != Some(page_rule::Verdict::Page)
 }
 
-/// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
+/// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
+/// report of work this chat gave, or a message that waited for this machine
+/// (`prompt_provenance::waited`).
 fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
         PromptClass::Fyi => false,
         PromptClass::Result => meta.turn_count == 0 || report || controls(meta, from),
+    }
+}
+
+/// Whether `item` steers into a running turn at once, bringing every new message with it: a
+/// blocker (a block or a question), or a message from the chat's parent or delegator, which
+/// directs the work the turn does, or a fire notice. Any other result waits [`STEER_COALESCE_MS`]
+/// for others to join it; an ordinary FYI waits for its flush.
+fn steers_at_once(meta: &SessionMeta, item: &Item) -> bool {
+    match item.class {
+        PromptClass::Block | PromptClass::Question => true,
+        PromptClass::Fyi => item.fire,
+        PromptClass::Result => controls(meta, item.from_session.as_deref()),
     }
 }
 
@@ -1149,6 +1248,14 @@ pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) ->
         && !super::digest::inbox_digest::is_digest(provenance)
         && !super::turn_cap::is_notice(provenance)
         && !super::subagent_retry::is_retry(provenance)
+        && !is_subagent_resume(provenance)
+}
+
+/// Whether a prompt is the Resume of a stopped subagent (`subagent_resume.rs`): acpmux's own ask
+/// of the chat's agent, never the person's words.
+fn is_subagent_resume(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
+        == Some(super::subagent_resume::PROVENANCE_KIND)
 }
 
 /// Whether the running turn is one the person's own prompt started: no notice and no other
@@ -1265,9 +1372,17 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
+        let waited = crate::prompt_provenance::waited(provenance);
         let surge_on = self.surge_inbox_on();
-        let wakes_now = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
-            || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
+        let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
+            || wakes_as(
+                &meta_now,
+                class,
+                is_report(provenance) || waited,
+                sender_session.as_deref(),
+            );
+        // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
+        let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1286,6 +1401,22 @@ impl Hub {
         );
         let thread_sender = thread_sender(provenance, sender);
         let tool_notice = tool_notice_of(provenance);
+        let notice_title = tool_notice
+            .as_ref()
+            .and_then(|n| n.get("title"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let page_message = page_rule_on.then(|| page_rule::Message {
+            class,
+            from: sender,
+            has_session: sender_session.is_some() || stamped_session.is_some(),
+            human: human_authenticated
+                || sender_identity.get("actorKind").and_then(Value::as_str)
+                    == Some("authenticated_human"),
+            fire: fire_notice(tool_notice.as_ref()) || page_rule::fire_text(&text),
+            title: notice_title.as_deref(),
+            text: &text,
+        });
         let thread = match &tool_notice {
             Some(notice) => surge_topic(explicit, &text, Some(notice), &thread_sender),
             None => thread_key(explicit, &thread_sender, &text),
@@ -1301,6 +1432,10 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::queue::closing_error());
             }
+            let now = now_ms();
+            let verdict =
+                page_message.as_ref().and_then(|m| page_rule::judge(&inbox.folds, m, now));
+            let wakes_now = verdict.map_or(wakes_before_rule, |v| v == page_rule::Verdict::Page);
             // A continuation that may still fire brings a turn, but no sooner notice for FYIs
             // alone (router review of #38603 at 8991049, F1).
             let strands = !wakes_now
@@ -1349,8 +1484,12 @@ impl Hub {
                     }
                     None => {
                         held = strands;
+                        if let (Some(m), Some(v)) = (page_message.as_ref(), verdict) {
+                            page_rule::record(&mut inbox.folds, m, v, now);
+                        }
                         inbox.items.push(Item {
                             surge_held: false,
+                            verdict,
                             prompt_id: prompt_id.to_owned(),
                             notice: None,
                             answered: None,
@@ -1361,7 +1500,8 @@ impl Hub {
                             sender: sender_identity.clone(),
                             class,
                             report: is_report(provenance),
-                            at: now_ms(),
+                            waited,
+                            at: now,
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
                             fire: surge_on && fire_notice(tool_notice.as_ref()),
@@ -1411,9 +1551,14 @@ impl Hub {
             if is_report(provenance) {
                 msg.set("report", json!(true));
             }
+            if waited {
+                msg.set(crate::prompt_provenance::WAITED, json!(true));
+            }
             let msg = crate::prompt_provenance::marked(msg, provenance);
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
+            let fire = surge_on && fire_notice(provenance.and_then(|p| p.get("notice")));
+            self.inbox_reader_prefetch(session, prompt_id, sender, class, fire, &text);
         }
         // `resent`: a resend of one it holds or a notice carries, not a message kept now
         // (`sender_harness::on_kept` writes no claim for it).
@@ -1475,6 +1620,7 @@ impl Hub {
             } else {
                 inbox.items.push(Item {
                     surge_held: false,
+                    verdict: None,
                     prompt_id: prompt_id.to_owned(),
                     notice: None,
                     answered: None,
@@ -1485,6 +1631,7 @@ impl Hub {
                     sender: sender_identity.clone(),
                     class: PromptClass::Result,
                     report: true,
+                    waited: false,
                     at,
                     text: text.to_owned(),
                     details: provenance.get("details").cloned(),
@@ -1588,7 +1735,19 @@ impl Hub {
                 let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
-                let fyi_only = new.iter().all(|i| ordinary_fyi(i));
+                // A folded repeat (`inbox_page_rule.rs`) waits as an FYI does.
+                let fyi_only = new.iter().all(|i| ordinary_fyi(i) || folded(i));
+                // A folded repeat starts no flush of its own in an idle chat.
+                let clocked = new.iter().filter(|i| !folded(i)).map(|i| i.at).min();
+                // Read before a Stop's `due_now` below takes the inbox mutably.
+                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
+                let coalesced = new
+                    .iter()
+                    .filter(|i| !ordinary_fyi(i) && !folded(i))
+                    .map(|i| i.at)
+                    .min()
+                    .unwrap_or(oldest)
+                    .saturating_add(STEER_COALESCE_MS);
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -1627,10 +1786,14 @@ impl Hub {
                                 // loop of refusals within a turn. An FYI-only batch steers in at
                                 // its flush, unless a message that is no FYI brings it sooner; a
                                 // Stop's `due_now` still lets it in at once.
-                                let flush = if fyi_only && !inbox.due_now {
+                                // Results alone wait [`STEER_COALESCE_MS`] after the oldest that
+                                // is no FYI, so a burst is one steer (module docs).
+                                let flush = if inbox.due_now || urgent {
+                                    0
+                                } else if fyi_only {
                                     oldest.saturating_add(FLUSH_MS)
                                 } else {
-                                    0
+                                    coalesced
                                 };
                                 let at = retry.max(flush);
                                 if at > now { Next::WakeAt(at) } else { Next::Steer }
@@ -1657,7 +1820,7 @@ impl Hub {
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
-                            let flush = oldest.saturating_add(FLUSH_MS);
+                            let flush = clocked.map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
@@ -1673,7 +1836,10 @@ impl Hub {
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
                             let at = due.max(retry);
-                            if continuing {
+                            if at == u64::MAX {
+                                // Only folded repeats are new: they go with the next notice.
+                                Next::Nothing
+                            } else if continuing {
                                 // The cut turn's continuation may still fire (`auto_resume.rs`):
                                 // a turn of its own now would supersede it. Looked at again
                                 // later; a continuation that runs ends its timer when its turn
@@ -1715,7 +1881,7 @@ impl Hub {
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
         let notice_id = format!("{NOTICE_ID_PREFIX}{}", uuid::Uuid::now_v7());
-        let (text, whole, parts, ids) = {
+        let (text, whole, parts, ids, reads) = {
             let mut inbox = session.inbox();
             if inbox.in_flight.is_some() {
                 return;
@@ -1723,6 +1889,13 @@ impl Hub {
             if inbox.items.iter().all(|i| i.noticed) {
                 return;
             }
+            // The reader's summaries that are cached (`inbox_reader.rs`): the notice never waits
+            // for one. `reads` are the ones no read started for yet (a message from before a
+            // restart), started once the lock is let go.
+            let (summaries, reads) = {
+                let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
+                reader::lookup(&session.id, &new)
+            };
             // The wake timer is done: this notice carries what it waited for.
             if let Some(timer) = inbox.timer.take() {
                 timer.abort();
@@ -1730,7 +1903,12 @@ impl Hub {
             inbox.held_by_person = false;
             inbox.due_now = false;
             let new: Vec<&Item> = inbox.items.iter().filter(|i| !i.noticed).collect();
-            let (mut text, parts) = render(&new);
+            let started = std::time::Instant::now();
+            let (mut text, parts) = render_read(&new, &summaries);
+            if !summaries.is_empty() {
+                let us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+                tracing::debug!(session = %session.id, summaries = summaries.len(), us, "inbox notice rendered");
+            }
             let mut whole = team_page::whole_notice(&new);
             if let Some(hint) = reply_hint(&new) {
                 for notice in [&mut text, &mut whole] {
@@ -1769,8 +1947,9 @@ impl Hub {
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
             let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
             inbox.carrying.push(carry);
-            (text, whole, parts, ids)
+            (text, whole, parts, ids, reads)
         };
+        self.inbox_read_jobs(session, reads);
         let provenance = json!({"kind": NOTICE_KIND, "noticeId": notice_id, "threads": parts});
         let opts = PromptOptions {
             prompt_id: Some(notice_id.clone()),
@@ -2144,6 +2323,7 @@ impl Hub {
                     };
                     let item = Item {
                         surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
+                        verdict: None,
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
                         answered: None,
@@ -2154,6 +2334,8 @@ impl Hub {
                         sender,
                         class,
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
+                        waited: e.msg.get(crate::prompt_provenance::WAITED)
+                            == Some(&Value::Bool(true)),
                         at: e.at,
                         text: field("text").to_owned(),
                         details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
@@ -2238,6 +2420,9 @@ impl Hub {
             inbox.items.push(item);
         }
         trim(&mut inbox);
+        // A needYou journaled before a restart is counted again by the pass (a rule may have
+        // changed what counts: program notices are fyi now).
+        surge_held |= inbox.surge_counts_need_you() > 0;
         drop(inbox);
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
@@ -2371,6 +2556,8 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        // Read before the inbox lock: the journal's read pruning takes it.
+        let held_now = self.surge_held_now(session);
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -2405,12 +2592,26 @@ impl Hub {
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // The held bar's "need you" filter: an unread message for the person.
+                    // A program's notice that is no FIRE never is, held before that rule or not.
+                    "needYou": unread.iter().any(|i| {
+                        crate::surge_triage::needs_person(
+                            i.class.as_str(), &i.text, super::presence::owner_name())
+                            && !crate::surge_triage::program_fyi(&json!({
+                                "fromSession": i.from_session, "sender": i.sender, "text": i.text}))
+                    }),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        let counts = {
+            let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((held, through)) = held_now {
+                counts.settle_held(held, through);
+            }
+            counts.json()
+        };
         json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 
@@ -2453,8 +2654,11 @@ impl Hub {
             (messages, marked, label_key)
         };
         if !marked.is_empty() {
-            let msg = json!({"threadId": thread, "promptIds": marked});
-            self.append(session, "mux", "inbox_read", msg);
+            let msg = json!({"threadId": thread, "promptIds": marked, "wholeThread": true});
+            self.append(session, "mux", super::surge_triage::READ_KIND, msg);
+        }
+        if mark_read {
+            self.surge_after_read(session, Some(thread));
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }
@@ -2553,7 +2757,9 @@ fn trim(inbox: &mut Inbox) {
             Some(i) => {
                 let item = inbox.items.remove(i);
                 // The archive reader and resend ledger still resolve an evicted held post.
-                if !item.surge_held {
+                if item.surge_held {
+                    inbox.held_evicted.insert(item.thread);
+                } else {
                     inbox.trimmed.insert(item.prompt_id);
                 }
             }

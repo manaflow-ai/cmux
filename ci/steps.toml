@@ -578,6 +578,69 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
+# ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
+# web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
+# web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
+# bases, and skips only feat-cmux-next's pull requests, where Web status counts that skip as fine. `inputs` is that
+# route, plus what the commands read outside it: the files web's sources import from outside web/
+# (workers/presence/src, images/cmux-vm/auto-roll.ts), the relay catalog the catalog check compares, and the
+# fixit-compile and retry wrappers (scripts/ci/oops). The same commands: the locked install, the relay catalog
+# check, and the type check through retry.py (one retry of a classified infrastructure failure) and
+# fixit_compile.py (on errors that each have one safe fix, the patch in $RUNNER_TEMP/fixit-compile, which
+# pr-pipeline.yml's linux job uploads on failure as a fixit-compile-* artifact for the cmuxterm-hq reconciler),
+# then one more run when the native compiler aborts. The patch names the pull request's head (the merge commit's
+# second parent), as the job's FIXIT_COMPILE_HEAD_SHA did. The job's always-uploaded ci_oops ledger artifact
+# (ci-oops-web-typecheck-RUN-ATTEMPT) is not kept: nothing reads it; retry.py still prints its verdict in the log.
+# 32 s cold on 2 CPUs through ci/run (an empty bun cache), 85 s when fixit-compile fixes an error and compiles again.
+[step.web-typecheck]
+job = "linux"
+timeout = 300
+title = "Web typecheck"
+about = "web's locked dependencies install, the managed relay catalog's generated copies match config/iroh, and web typechecks (tsgo)"
+needs = ["bun"]
+inputs = [
+  "web/**/*.ts",
+  "web/**/*.tsx",
+  "web/**/*.mts",
+  "web/**/*.cts",
+  "web/**/*.js",
+  "web/**/*.jsx",
+  "web/**/*.mjs",
+  "web/**/*.cjs",
+  "web/**/*.json",
+  "web/bun.lock",
+  "workers/presence/src/**",
+  "images/cmux-vm/auto-roll.ts",
+  "config/iroh/managed-relay-catalog.json",
+  "scripts/ci/oops/**",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+if head="$(git rev-parse -q --verify 'HEAD^2')"; then
+  export FIXIT_COMPILE_HEAD_SHA="$head"
+fi
+cd web
+bun install --frozen-lockfile
+status=0
+bun tools/generate-managed-iroh-relay-catalog.ts --check || status=1
+log="$(mktemp "$RUNNER_TEMP/web-typecheck.XXXXXX.log")"
+set +e
+python3 -I ../scripts/ci/oops/retry.py --job web-typecheck -- \
+  python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee "$log"
+typecheck=${PIPESTATUS[0]}
+set -e
+# The native TypeScript preview compiler can abort on a healthy runner: once more, then its status stands.
+if [ "$typecheck" -ne 0 ] && grep -Fq 'Aborted (core dumped)' "$log"; then
+  echo "::warning::native tsgo aborted during web typecheck; retrying once"
+  typecheck=0
+  bun run typecheck || typecheck=$?
+fi
+[ "$typecheck" -eq 0 ] || status=1
+exit "$status"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
@@ -840,7 +903,8 @@ esac
 '''
 
 # Webview and native UI changes carry the review loop from the aiforui course: a missing `## UI review`
-# section or `Verdict:` line warns. The changed paths come from the event's merge commit without blobs, as
+# section, `Verdict:` line or `Try:` line (the command that opens the pull request in a copy of cmux NEXT,
+# so a reviewer clicks through before reading the diff) warns. The changed paths come from the event's merge commit without blobs, as
 # pr-body-checks.yml reads them (no API call); the paginated REST file list is only the fallback.
 [step.ui-review]
 job = "advisory"
@@ -848,7 +912,7 @@ blocks = false
 class = "idle"
 timeout = 300
 title = "UI review"
-about = "a pull request that changes webview or native UI files has a ## UI review section with a Verdict: line"
+about = "a pull request that changes webview or native UI files has a ## UI review section with Verdict: and Try: lines"
 run = '''
 if [ ! -f scripts/ci/ui_review_advisory.py ]; then
   echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
@@ -876,7 +940,7 @@ if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l 
   exit 0
 fi
 printf '%s' "$BODY" > "$body_file"
-python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" \
+python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" --pr "${PR:-}" \
   || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
 '''
 
@@ -891,7 +955,7 @@ python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 540
 title = "split-plan advisory"
 about = "a pull request that spans many surfaces or commits gets split-plan triggers as a warning"
 run = '''
@@ -903,7 +967,8 @@ repo="$RUNNER_TEMP/split-plan"
 rm -rf "$repo"
 git init -q "$repo"
 git -C "$repo" remote add origin "$URL"
-fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
+# At most four fetches (the window, its fallback, the deepen, its fallback), each bounded, inside the step's 540 s.
+fetch() { timeout 120 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
 # A SHA fetch works on GitHub; the pull request's head ref and the base branch are the fallback. Either
 # can find no commit that new (a head or base older than 14 days): the whole history below answers that.
 fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \

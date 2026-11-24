@@ -768,7 +768,9 @@ impl Seed {
                     if failure.lines.iter().any(|line| line.contains("index.lock"))
                         && Instant::now() < deadline =>
                 {
-                    std::thread::sleep(Duration::from_millis(20));
+                    let pause = Duration::from_millis(20);
+                    std::thread::sleep(pause);
+                    super::git::count("sleep index.lock", pause);
                 }
                 result => return result,
             }

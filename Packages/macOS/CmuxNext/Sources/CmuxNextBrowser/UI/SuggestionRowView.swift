@@ -71,8 +71,11 @@ final class SuggestionRowView: NSView {
     /// Shows `suggestion` in this row, in place (Chromium
     /// `OmniboxResultView::SetMatch`): typing changes the rows' text, it
     /// never tears the card's views down. Touches only what changed.
-    func show(_ suggestion: BrowserSuggestion, force: Bool = false) {
-        guard force || suggestion != self.suggestion else { return }
+    /// - Parameter detail: the dimmed text, as the list decides it (``shownDetails(_:)``); nil: this row's own
+    ///   (``shownDetail(_:)``).
+    func show(_ suggestion: BrowserSuggestion, detail listDetail: String? = nil, force: Bool = false) {
+        let shown = listDetail ?? Self.shownDetail(suggestion)
+        guard force || suggestion != self.suggestion || shown != detail else { return }
         self.suggestion = suggestion
         let kind: IconName = switch suggestion.kind {
         case .navigate: .browser
@@ -104,7 +107,6 @@ final class SuggestionRowView: NSView {
             iconKind = kind
             icon.image = NSImage.icon(kind, size: OmnibarStyle.iconSide)
         }
-        let shown = Self.shownDetail(suggestion)
         setAccessibilityLabel([suggestion.title, shown].filter { !$0.isEmpty }.joined(separator: ", "))
         guard force || suggestion.title != title || shown != detail else { return }
         title = suggestion.title
@@ -128,6 +130,23 @@ final class SuggestionRowView: NSView {
             let host = BrowserURLDisplay.restingText(for: suggestion.url)
             return suggestion.title.lowercased().hasPrefix(host.lowercased()) ? "" : host
         case .answer, .keyword: return suggestion.detail
+        }
+    }
+
+    /// Each row's dimmed text, for the list as a whole: ``shownDetail(_:)``, except that page rows that would read the
+    /// same (one title, one host: a site's pages often share a title) show their address without the scheme, so each
+    /// row still says where it goes.
+    static func shownDetails(_ suggestions: [BrowserSuggestion]) -> [String] {
+        let details = suggestions.map(shownDetail)
+        let lines = zip(suggestions, details).map { "\($0.title)\u{0}\($1)" }
+        let repeated = Dictionary(lines.map { ($0, 1) }, uniquingKeysWith: +).filter { $0.value > 1 }
+        return suggestions.indices.map { index in
+            let suggestion = suggestions[index]
+            guard repeated[lines[index]] != nil, !details[index].isEmpty else { return details[index] }
+            switch suggestion.kind {
+            case .history, .bookmark, .switchToTab: return BrowserURLDisplay.displayText(for: suggestion.url)
+            case .search, .navigate, .answer, .keyword: return details[index]
+            }
         }
     }
 
@@ -202,12 +221,12 @@ final class SuggestionRowView: NSView {
             icon.contentTintColor = OmnibarStyle.resultsIcon
             let text = NSMutableAttributedString(string: title, attributes: [
                 .font: OmnibarStyle.font,
-                .foregroundColor: OmnibarStyle.textPrimary,
+                .foregroundColor: Palette.textPrimary,
             ])
             if !detail.isEmpty {
                 text.append(NSAttributedString(string: " – " + detail, attributes: [
                     .font: OmnibarStyle.rowDetailFont,
-                    .foregroundColor: OmnibarStyle.textSecondary,
+                    .foregroundColor: Palette.textSecondary,
                 ]))
             }
             label.attributedStringValue = text

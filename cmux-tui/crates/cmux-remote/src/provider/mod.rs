@@ -48,12 +48,13 @@ pub use iroh_config::{
 };
 #[cfg(unix)]
 pub use machine_pipe::{
-    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+    MACHINE_PIPE_METHOD, MachinePipeDialer, TERMINAL_REFUSALS, machine_pipe_reply,
+    machine_pipe_request,
 };
 pub use relay::{
-    RegistrationState, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
-    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
+    BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls,
+    register_relay_daemon, register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
 pub use ssh::{

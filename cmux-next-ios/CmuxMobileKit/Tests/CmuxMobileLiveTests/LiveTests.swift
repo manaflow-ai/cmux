@@ -509,6 +509,21 @@ struct MockDialer: MacLinkDialer {
         #expect(second.workspaces[0].lastActivityAt == earlier)
     }
 
+    /// The Feed's working-now strip counts a working agent's time from the Mac's report.
+    @Test func aWorkingTabCarriesTheMacsReportTimeAndOthersNone() throws {
+        let started = Date(timeIntervalSince1970: 2000)
+        var agents = AgentStates()
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude", updatedAt: started)
+        agents.bySurface[7] = AgentState(state: "blocked", agent: "claude", updatedAt: started)
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        #expect(tree.workspaces[0].tabs.map(\.workingSince) == [started, nil, nil, nil])
+        // An older Mac's report has no time: working, with no start time.
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
+        let older = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        #expect(older.workspaces[0].tabs[0].agentStatus == .working)
+        #expect(older.workspaces[0].tabs[0].workingSince == nil)
+    }
+
     @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
         var agents = AgentStates()
         agents.bySurface[1] = AgentState(state: "working", agent: "claude")

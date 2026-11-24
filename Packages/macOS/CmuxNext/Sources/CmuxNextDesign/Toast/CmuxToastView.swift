@@ -74,7 +74,7 @@ public final class CmuxToastView: NSView {
     /// The surface's corner radius now: the geometry's outer corner, at most half the height (a capsule's is
     /// always half).
     public var cornerRadius: CGFloat {
-        look.shape == .capsule ? bounds.height / 2 : geometry.outerRadius(fitting: bounds.size)
+        look.shape == .capsule ? bounds.height / 2 : look.flat ? Metrics.buttonCornerRadius : geometry.outerRadius(fitting: bounds.size)
     }
     private var pointerHover: PointerHover?
     /// Whether the pointer is on the toast now (as of the last refresh).
@@ -128,8 +128,10 @@ public final class CmuxToastView: NSView {
 
     /// The concentric geometry of a toast in `look` built with `tuning`.
     static func geometry(look: CmuxToastLook, tuning: CmuxToastTuning) -> ConcentricContainer {
-        // The tuned points follow the interface scale; a compact toast takes two thirds of the padding.
-        let padding = Metrics.scale(look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding)
+        // The tuned points are Default's: they follow the density's spacing grid as every card's spacing does (#49579), and
+        // the interface scale; a compact toast takes two thirds of the padding.
+        let points = look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding
+        let padding = Metrics.scale(Metrics.tokens.space(points))
         if look.shape == .capsule { return .capsule(controlHeight: CmuxToastButton.height, padding: padding) }
         switch look.corner {
         case .concentric: return Metrics.buttonContainer(padding: padding)
@@ -142,7 +144,7 @@ public final class CmuxToastView: NSView {
         let look = self.look
         let label = ThemedLabel(wrappingLabelWithString: toast.message)
         let twoLines = look.showsDetailLine && toast.detail != nil && toast.action?.revealsDetails != true
-        label.font = look.compact ? Typography.caption : twoLines ? Typography.bodyEmphasized : Typography.body
+        label.font = look.compact ? Typography.cardBody : twoLines ? Typography.cardTitle : Typography.cardMessage
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = tuning.messageWidth
         // A wrapping label resists compression at only `.defaultLow`, the same as the stack's
@@ -164,7 +166,7 @@ public final class CmuxToastView: NSView {
         var text: NSView = label
         if twoLines, let detail = toast.detail {
             let line = ThemedLabel(wrappingLabelWithString: detail)
-            line.font = Typography.caption
+            line.font = Typography.cardBody
             line.maximumNumberOfLines = 2
             line.preferredMaxLayoutWidth = tuning.messageWidth
             line.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -173,7 +175,7 @@ public final class CmuxToastView: NSView {
             let block = NSStackView(views: [label, line])
             block.orientation = .vertical
             block.alignment = .leading
-            block.spacing = 2
+            block.spacing = Metrics.cardTextGap
             block.setContentHuggingPriority(.defaultLow, for: .horizontal)
             text = block
         }
@@ -267,9 +269,10 @@ public final class CmuxToastView: NSView {
         content.frame = surface.contentView.bounds
         surface.contentView.addSubview(content)
         addSubview(surface)
+        if look.flat { addFlatFill(in: content) }
         if look.accentBar { addAccentBar(in: content) }
         if look.showsCountdown, toast.duration != CmuxToast.untilClosed { addCountdownRing(in: content) }
-        castShadow()
+        if !look.flat { castShadow() }
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -329,7 +332,7 @@ public final class CmuxToastView: NSView {
     private func addDetailLabel(_ detail: String, in content: NSView, below row: NSView) {
         let copy = CmuxToastDetailCopy.plain(detail)
         let label = ThemedLabel(wrappingLabelWithString: copy.text)
-        label.font = Typography.body
+        label.font = Typography.cardMessage
         label.maximumNumberOfLines = 0
         label.isSelectable = true
         label.focusRingType = .none
@@ -347,7 +350,7 @@ public final class CmuxToastView: NSView {
         var bottom = label.bottomAnchor.constraint(equalTo: document.bottomAnchor)
         if let code = copy.code {
             let line = ThemedLabel(wrappingLabelWithString: CmuxToastDetailCopy.codeLine(code))
-            line.font = Typography.caption
+            line.font = Typography.cardBody
             line.maximumNumberOfLines = 0
             line.isSelectable = true
             line.focusRingType = .none
@@ -475,6 +478,20 @@ public final class CmuxToastView: NSView {
 
     /// The accent bar's width (``CmuxToastLook/accentBar``).
     static let accentBarWidth: CGFloat = 4
+
+    /// The flat style's fill (``CmuxToastLook/flat``): the window's background color under the content, inside the
+    /// opaque surface's 1 px edge.
+    private func addFlatFill(in content: NSView) {
+        let fill = ThemeChangeView()
+        fill.wantsLayer = true
+        fill.frame = content.bounds
+        fill.autoresizingMask = [.width, .height]
+        fill.onThemeChange = { [weak fill] in
+            guard let fill else { return }
+            fill.layer?.backgroundColor = fill.performWithTheme { Palette.windowBackground.cgColor }
+        }
+        content.addSubview(fill, positioned: .below, relativeTo: nil)
+    }
 
     /// A bar in the tone's color along the leading edge, under the glass's rounded corner.
     private func addAccentBar(in content: NSView) {

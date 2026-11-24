@@ -285,6 +285,14 @@ public final class SidebarContainerView: NSView {
         snap()
     }
 
+    /// ``restore(width:presentation:)``, unless the sidebar already shows them (a launch window
+    /// opened at the record's or the layout cache's sidebar): nothing snaps or redraws.
+    public func restoreIfChanged(width: CGFloat?, presentation: SidebarPresentation) {
+        guard let width, abs(model.width - width) < 0.5, model.presentation == presentation else {
+            return restore(width: width, presentation: presentation)
+        }
+    }
+
     /// Starts inline rename of a workspace, showing the sidebar first when
     /// it is hidden (the rename field lives in the list).
     public func beginRename(workspace id: WorkspaceID) {

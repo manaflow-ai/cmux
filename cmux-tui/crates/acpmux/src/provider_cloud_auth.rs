@@ -318,7 +318,7 @@ impl LaunchEnv {
                 true,
             );
         }
-        let vault = crate::vault::env_for_children();
+        let vault = crate::login_env::vault_env();
         let machine = crate::login_env::machine_values();
         let daemon = crate::login_env::daemon_values().into_iter().collect();
         LaunchEnv::new(

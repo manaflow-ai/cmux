@@ -45,12 +45,22 @@ pub(crate) struct AppToken {
 /// token for `team`. `Err` names why there is none: no app answers, `not_signed_in`, or another
 /// refusal. Blocks up to the app's own mint limit; nothing here logs the token.
 pub(crate) fn app_token(team: &str) -> Result<AppToken, String> {
+    app_token_in(Some(team))
+}
+
+/// [`app_token`] for `team`, or for the app's current team when `None` (`cmux spill`'s Cloud
+/// machine whose row names no team).
+pub(crate) fn app_token_in(team: Option<&str>) -> Result<AppToken, String> {
     let global = GlobalArgs::default();
     let mut stream = super::app::connect_command(&global).map_err(|error| {
         error.get("code").and_then(Value::as_str).unwrap_or("app.unreachable").to_owned()
     })?;
-    let answer =
-        super::app::request(&mut stream, "auth.token", json!({"team": team}), AUTH_TOKEN_TIMEOUT)?;
+    let answer = super::app::request(
+        &mut stream,
+        "auth.token",
+        Value::Object(request(team)),
+        AUTH_TOKEN_TIMEOUT,
+    )?;
     let value = answer.map_err(|error| {
         error.get("code").and_then(Value::as_str).unwrap_or("refused").to_owned()
     })?;
