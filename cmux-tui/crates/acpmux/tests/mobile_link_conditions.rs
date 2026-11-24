@@ -45,6 +45,7 @@ use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message as RpcMessage, method};
 use acpmux::server::{AGENT_PANE_ORIGIN, Origin, serve_connection_with};
+use cmux_composer_send::chat::{self, PromptOutbox};
 use cmux_fault::Trace;
 use cmux_fault::shaper::{Disruption, LinkProfile, ProfileFile, Shaper};
 use futures_util::stream::SplitSink;
@@ -1668,6 +1669,11 @@ async fn chat_attach_under_link_conditions() {
                 last = last.max(seq);
             }
         }
+        // The uploader's own connection through the same shaped radio, for the queue leg.
+        let mut upload_link = match Link::open(addr, &listener.token, opened).await {
+            Ok(mut l) => l.attach(&session, None, opened).await.ok().map(|_| l),
+            Err(_) => None,
+        };
         let tag = std::process::id();
         for i in 0..sends {
             let k =
@@ -1711,6 +1717,60 @@ async fn chat_attach_under_link_conditions() {
             emit(&k, "text_behind_attach_visible_ms", text_visible);
             tokio::time::sleep(Duration::from_millis(400)).await;
             link.pending.clear();
+
+            // The same pair through the one Rust send queue (`cmux_composer_send::chat`): the
+            // image's bytes go up beside the queue (the uploader; here the same blob written on a
+            // second connection through the same shaped radio), and the text, tapped at the same
+            // instant, goes as soon as the queue hands it out. It shares the radio with the upload.
+            let Some(upload_link) = upload_link.as_mut() else { continue };
+            let image_id = format!("img-q-{row}-{tag}-{i}");
+            let text_id = format!("txt-q-{row}-{tag}-{i}");
+            let tap = Instant::now();
+            let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed_base + i);
+            let std_tap = tap.into_std();
+            outbox.set_link(true, std_tap);
+            outbox.push(&image_id, "photo", vec![image_id.clone()], false, std_tap, std_tap);
+            outbox.push(&text_id, "after", vec![], false, std_tap, std_tap);
+            let first = outbox.next_request(std::time::Instant::now()).map(|r| r.id);
+            assert_eq!(first.as_deref(), Some(text_id.as_str()), "the text waits on no upload");
+            outbox.wrote(&text_id);
+            let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
+            let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
+            let mut upload_last = last;
+            let (mut upload_written, mut text_written) = (None, None);
+            let (upload, text) = tokio::join!(
+                chat_send_with(
+                    upload_link,
+                    addr,
+                    &listener.token,
+                    &session,
+                    &image_id,
+                    &mut upload_last,
+                    tap,
+                    &build,
+                    &mut upload_written,
+                ),
+                chat_send_with(
+                    &mut link,
+                    addr,
+                    &listener.token,
+                    &session,
+                    &text_id,
+                    &mut last,
+                    tap,
+                    &text_build,
+                    &mut text_written,
+                ),
+            );
+            last = last.max(upload_last);
+            emit(&k, "queue_attach_visible_ms", upload.0);
+            emit(&k, "queue_text_beside_attach_visible_ms", text.0);
+            if text.0.is_none() {
+                emit_error(&k, "queue_text_beside_attach_visible_ms", "the text did not show");
+            }
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
+            upload_link.pending.clear();
         }
     }
 }
