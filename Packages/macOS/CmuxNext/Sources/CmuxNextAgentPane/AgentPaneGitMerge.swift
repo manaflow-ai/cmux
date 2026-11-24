@@ -24,13 +24,14 @@ extension AgentPaneGitPullRequest {
         """
 
     /// A merge's first read: the pull request as `gh pr view --json` names its fields (its checks
-    /// as `statusCheckRollup`), and the method to merge with.
-    struct MergeView {
+    /// as `statusCheckRollup`), and the method to merge with. Decoded JSON read once and never
+    /// mutated after, so it crosses from the main actor to the `@concurrent` merges.
+    nonisolated struct MergeView: @unchecked Sendable {
         var pullRequest: [String: Any]
         var method: String
     }
 
-    struct MergeRefusal: Error {
+    nonisolated struct MergeRefusal: Error {
         var message: String
     }
 
