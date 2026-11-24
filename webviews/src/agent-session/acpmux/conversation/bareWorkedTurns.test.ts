@@ -15,20 +15,20 @@ const sent = (n: number) => ({
   body: `Status ${n}: still running.`,
 });
 
+// Three calls each: a turn folds under "Worked for" only with three work rows or five seconds
+// (workedForSmallTurns.test.tsx), and these wakes are about turns that do.
 const run = (id: string, at: number): AcpmuxRow =>
   ({
     id,
     version: 1,
     at,
     kind: "activity",
-    toolCount: 1,
-    items: [
-      {
-        kind: "tool",
-        text: "ls",
-        tool: { id: `${id}-call`, title: "ls", kind: "execute", status: "completed", command: "ls" },
-      },
-    ],
+    toolCount: 3,
+    items: [0, 1, 2].map((call) => ({
+      kind: "tool",
+      text: "ls",
+      tool: { id: `${id}-call${call}`, title: "ls", kind: "execute", status: "completed", command: "ls" },
+    })),
   }) as AcpmuxRow;
 
 /// A wake the agent answered with one command and no words: a hidden prompt, or another agent's message.

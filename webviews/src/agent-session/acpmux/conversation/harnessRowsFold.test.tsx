@@ -145,7 +145,12 @@ test("a Report-from turn's work folds under the Worked for its report set going"
     report(0, false),
     row("t-2", "activity", 492, {
       inBackground: "r0",
-      items: [{ kind: "tool", text: "", tool: { id: "c2", title: "git log", kind: "execute", status: "completed" } }],
+      // Three calls: a fold hides something worth hiding from three work rows (workedForSmallTurns.test.tsx).
+      items: ["c2", "c3", "c4"].map((id) => ({
+        kind: "tool",
+        text: "",
+        tool: { id, title: "git log", kind: "execute", status: "completed" },
+      })),
     }),
     row("a-2", "assistant", 495, { text: "helper-0 landed its lane.", inBackground: "r0" }),
   ]);
