@@ -60,6 +60,7 @@ export function Dialog({
         <BaseDialog.Backdrop className={cx("ui-backdrop", backdropClassName)} />
         <BaseDialog.Popup
           className={cx("ui-dialog", className)}
+          data-surface-role="sheet"
           aria-label={label}
           style={style}
           initialFocus={initialFocus}

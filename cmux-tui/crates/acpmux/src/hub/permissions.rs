@@ -316,6 +316,21 @@ impl Hub {
                         .lock()
                         .await
                         .clone()
+                        .filter(|c| c.generation == agent && c.is_broken())
+                    {
+                        // Broken on an entry the store could not log: retried until it logs
+                        // (`reach_broken_link`), one retry per link; the hub's scope owns it.
+                        if child.claim_broken_retry() {
+                            let (hub, s) = (self.clone(), session.clone());
+                            self.scope.spawn_named("broken-link-reattach", async move {
+                                hub.reach_broken_link(&s, &child).await;
+                            });
+                        }
+                    } else if let Some(child) = session
+                        .child
+                        .lock()
+                        .await
+                        .clone()
                         .filter(|c| c.generation == agent && !c.is_broken())
                     {
                         // A lost link of a live host: reached again at once, and its open requests
@@ -553,6 +568,17 @@ impl Hub {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         retitled = m.title.as_deref() != Some(title);
+                        if retitled {
+                            super::title_log::record(
+                                session,
+                                &m.harness,
+                                None,
+                                "harness",
+                                m.title_source.as_deref(),
+                                title.split_whitespace().count(),
+                                0,
+                            );
+                        }
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                         // The ledger's copy (one map entry; a line only when a field changed).
