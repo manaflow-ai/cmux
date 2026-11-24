@@ -1,4 +1,6 @@
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 import Foundation
 
 /// 16-bit mono PCM WAV encoding, the format audio messages travel in here
@@ -32,6 +34,7 @@ public enum ConversationWAV {
         return data
     }
 
+    #if canImport(AVFoundation)
     /// Decodes any file AVFoundation reads into mono samples at `sampleRate`.
     public static func decode(contentsOf url: URL, sampleRate: Int = sampleRate) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
@@ -58,6 +61,7 @@ public enum ConversationWAV {
         guard let channel = output.floatChannelData?[0] else { return [] }
         return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
     }
+    #endif
 
     /// Peak level per `bucket` of samples, normalized so loud speech nears 1.
     public static func levels(_ samples: [Float], bucket: Int) -> [Float] {
@@ -129,6 +133,7 @@ public struct ConversationRecordedAudio: Sendable {
     public var info: ConversationAudioInfo
 }
 
+#if canImport(AVFoundation)
 /// Records an audio message: live levels for the composer's meter, pause
 /// for review, continue recording, then one WAV. The microphone is the
 /// default input; `CMUX_CONVERSATION_AUDIO_INPUT=synthetic` or a file path
@@ -517,3 +522,4 @@ public final class ConversationAudioPlayer: NSObject, AVAudioPlayerDelegate {
         }
     }
 }
+#endif  // canImport(AVFoundation)

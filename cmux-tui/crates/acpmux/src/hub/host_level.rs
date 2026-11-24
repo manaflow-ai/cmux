@@ -169,7 +169,7 @@ impl Hub {
                 })
             }) && !self.for_a_person(session)
         };
-        (below || started_below())
+        (session.respawn_when_quiet.load(Ordering::Relaxed) || below || started_below())
             && !self
                 .host_moved
                 .lock()
@@ -177,13 +177,21 @@ impl Hub {
                 .contains(&session.id)
     }
 
-    /// The idle period of `session`: [`MOVE_AFTER`] when its host moves, else `idle`.
+    /// The idle period of `session`: [`MOVE_AFTER`] when its host moves (`idle.rs`
+    /// `quiet_respawn` when it is marked to restart once quiet, `Session::respawn_when_quiet`),
+    /// else `idle`.
     pub(super) fn idle_period(
         &self,
         session: &Session,
         idle: std::time::Duration,
     ) -> std::time::Duration {
-        if self.host_moves(session) { MOVE_AFTER.min(idle) } else { idle }
+        if !self.host_moves(session) {
+            idle
+        } else if session.respawn_when_quiet.load(Ordering::Relaxed) {
+            super::idle::quiet_respawn().min(idle)
+        } else {
+            MOVE_AFTER.min(idle)
+        }
     }
 
     /// `session`'s move is done or given up: it waits for the normal idle period from now on.
