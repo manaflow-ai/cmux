@@ -490,58 +490,10 @@
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
-/* The chat's rolling summary and next action beside its name (ChatSummaryLine.tsx): muted metadata, never wider
-   than the room left, the next action a step brighter than the summary. */
-.acpmux-chat-summary {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-1);
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: min(52vw, 560px);
-  padding: 0 var(--ds-space-1);
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  line-height: var(--acpmux-header-control-height, 26px);
-  white-space: nowrap;
-  overflow: hidden;
-  cursor: default;
-  user-select: none;
-}
-/* In the tab row it is an accessory of the row (tabRow.ts TAB_ROW_ACCESSORY): one width while it shows, the room
-   useTabRowTools leaves it (never more than the half of the row the tabs give up, less the tools), so a new summary
-   moves nothing; its text keeps to the tools' side. No room: it hides whole, the tools stay where they are. */
-.acpmux-chat-summary--inline {
-  flex: none;
-  justify-content: flex-end;
-  box-sizing: border-box;
-  width: min(300px, var(--acpmux-tab-row-accessory-room, 0px));
-  max-width: none;
-}
+/* A row accessory (tabRow.ts TAB_ROW_ACCESSORY) with no room in the half of the row the tabs give up hides whole; the
+   tools stay where they are. */
 [data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
   display: none;
-}
-.acpmux-chat-summary__text {
-  flex: 0 1 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.acpmux-chat-summary__arrow {
-  flex: none;
-  color: var(--agent-soft);
-}
-.acpmux-chat-summary__arrow:dir(rtl) {
-  display: inline-block;
-  transform: scaleX(-1);
-}
-.acpmux-chat-summary__next {
-  flex: 0 2 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--agent-text);
 }
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}

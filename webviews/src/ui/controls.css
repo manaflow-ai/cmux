@@ -27,8 +27,8 @@
   gap: var(--ds-space-2);
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
-  border: 0;
-  border-radius: var(--ds-radius-control);
+  border: var(--cmux-button-border, 0);
+  border-radius: var(--cmux-button-radius, var(--ds-radius-control));
   color: var(--ds-color-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
@@ -42,12 +42,12 @@
 .ui-btn[data-size="sm"] {
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-2);
-  border-radius: var(--ds-radius-control);
+  border-radius: var(--cmux-button-radius, var(--ds-radius-control));
 }
 .ui-btn[data-size="lg"] {
   height: var(--ds-control-primary);
   padding-inline: var(--ds-space-4);
-  border-radius: var(--ds-radius-control);
+  border-radius: var(--cmux-button-radius, var(--ds-radius-control));
 }
 .ui-btn[data-icon] {
   width: var(--ds-control-row);
@@ -67,6 +67,16 @@
 .ui-btn[data-size="sm"] :where(svg) {
   width: var(--ds-icon-14);
   height: var(--ds-icon-14);
+}
+
+/* THEME HOOKS (docs/cmux-next/theme-recipes.md "Surface tokens"): a look's stylesheet sets
+   --cmux-button-radius, --cmux-button-border and --cmux-button-shadow, and --cmux-input-radius,
+   --cmux-input-border and --cmux-input-shadow (an inset well, say), to restyle every button and field
+   at once. Unset, each falls back to what these rules drew before, so nothing moves without a look
+   (test/surface-tokens.test.ts holds the fallbacks). The shadows sit at no specificity: a variant's
+   own edge, the outline field's hairline and every focus ring still win over a look's shadow. */
+:where(.ui-btn) {
+  box-shadow: var(--cmux-button-shadow, none);
 }
 
 /* ghost: nothing at rest, the hover fill under the pointer, the pressed fill while held or while
@@ -244,8 +254,8 @@
   min-width: 0;
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-md);
+  border: var(--cmux-input-border, 0);
+  border-radius: var(--cmux-input-radius, var(--ds-radius-md));
   background: transparent;
   color: var(--ds-color-fg);
   font-size: var(--text-body);
@@ -254,6 +264,9 @@
   -webkit-user-select: text;
   user-select: text;
   transition: box-shadow var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+:where(.ui-input) {
+  box-shadow: var(--cmux-input-shadow, none);
 }
 /* A placeholder names what the field takes, so it reads at 4.5:1: the secondary tier, as the chat
    composer's placeholder. The tertiary tier held 3.52:1 (light) and 3.94:1 (dark) on the filled field
@@ -264,12 +277,12 @@
 }
 .ui-input[data-size="sm"] {
   height: var(--ds-control-compact);
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--cmux-input-radius, var(--ds-radius-sm));
 }
 .ui-input[data-size="lg"] {
   height: var(--ds-control-primary);
   padding-inline: var(--ds-space-3);
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--cmux-input-radius, var(--ds-radius-lg));
 }
 .ui-input[data-variant="filled"] {
   background: var(--ds-color-hover);
