@@ -27,48 +27,40 @@ struct GoBackOneSessionTests {
         let places = [Self.chat("a"), Self.terminal("t"), Self.chat("b", workspace: "two"), Self.chat("c", window: "w2")]
         Self.visit(places, chats: ["a", "b", "c"], into: &sessions)
         #expect(sessions.entries.map(\.location.title) == ["a", "b", "c"], "the terminal is not a session step")
-        let step1Back = sessions.back()
-        let step1 = try #require(step1Back)
-        #expect(step1.location.title == "b")
+        let back1 = sessions.back()
+        #expect(try #require(back1).location.title == "b")
         // The chat it focuses settles: absorbed, not a new step.
-        let recorded = sessions.record(Self.chat("b", workspace: "two"), at: Date(timeIntervalSince1970: 100))
-        #expect(!recorded)
-        let step2Back = sessions.back()
-        let step2 = try #require(step2Back)
-        #expect(step2.location.title == "a")
-        let none1 = sessions.back()
-        #expect(none1 == nil, "no earlier session: the action refuses quietly")
+        let recorded2 = sessions.record(Self.chat("b", workspace: "two"), at: Date(timeIntervalSince1970: 100))
+        #expect(!recorded2)
+        let back3 = sessions.back()
+        #expect(try #require(back3).location.title == "a")
+        #expect(sessions.back() == nil, "no earlier session: the action refuses quietly")
     }
 
     @Test func twoChatsInOneWorkspaceAreTwoSteps() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b")], chats: ["a", "b"], into: &sessions)
-        let step3Back = sessions.back()
-        let step3 = try #require(step3Back)
-        #expect(step3.location.title == "a")
+        let back4 = sessions.back()
+        #expect(try #require(back4).location.title == "a")
     }
 
     @Test func aClosedOrEndedChatIsSkippedNotDropped() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b"), Self.chat("c")], chats: ["a", "b", "c"], into: &sessions)
         let open: Set<String> = ["a", "c"]
-        let step4Back = sessions.back { open.contains($0.key.tab) }
-        let step4 = try #require(step4Back)
-        #expect(step4.location.title == "a")
+        #expect(try #require(sessions.back { open.contains($0.key.tab) }).location.title == "a")
         #expect(sessions.entries.count == 3)
     }
 
     @Test func openingAnotherChatAfterGoingBackDropsTheLaterSteps() throws {
         var sessions = LocationTrail()
         Self.visit([Self.chat("a"), Self.chat("b"), Self.chat("c")], chats: ["a", "b", "c"], into: &sessions)
-        let step5Back = sessions.back()
-        let step5 = try #require(step5Back)
-        #expect(step5.location.title == "b")
+        let back5 = sessions.back()
+        #expect(try #require(back5).location.title == "b")
         sessions.record(Self.chat("b"), at: Date(timeIntervalSince1970: 100))
         sessions.record(Self.chat("d"), at: Date(timeIntervalSince1970: 200))
         #expect(sessions.entries.map(\.location.title) == ["a", "b", "d"])
-        let step6Back = sessions.back()
-        let step6 = try #require(step6Back)
-        #expect(step6.location.title == "b")
+        let back6 = sessions.back()
+        #expect(try #require(back6).location.title == "b")
     }
 }

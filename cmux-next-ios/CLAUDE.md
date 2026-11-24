@@ -85,6 +85,11 @@ signed in and paired with the same-tag Mac build, from one command at the pushed
 cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --approve-first | --no-auth]
 ```
 
+When the person is waiting on the phone right now, add `--urgent`: the iPhone step goes ahead of the
+simulator queue and the Mac build moves up the Mac queue, each logged with the reason. An agent's own
+end-of-task run does not use it. A step that ends because no sign-in session reached it from this Mac
+is sent once more by itself.
+
 The default is the rule for every dev build on a phone: signed in with the `personal` account and
 paired with the same-tag Mac at once, and still both after the person relaunches the app or the
 Mac. Those relaunches run the app's production persistence path: a launch with no
