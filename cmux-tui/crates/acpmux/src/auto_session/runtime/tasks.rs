@@ -55,7 +55,7 @@ impl<C> Clone for Ctx<C> {
 }
 
 /// The store's answer, or "no answer" once [`ANSWER_MS`] passed.
-async fn answered<T>(call: impl Future<Output = CloudResult<T>>) -> CloudResult<T> {
+pub(super) async fn answered<T>(call: impl Future<Output = CloudResult<T>>) -> CloudResult<T> {
     match tokio::time::timeout(Duration::from_millis(ANSWER_MS), call).await {
         Ok(result) => result,
         Err(_) => Err(AutoCloudError::transport("the Cloud did not answer in time")),
@@ -99,11 +99,11 @@ impl<C: AutoCloud + 'static> Ctx<C> {
         self.hub.scope.spawn_until_cancelled(name, task);
     }
 
-    fn fence(&self, epoch: u64) -> Fence {
+    pub(super) fn fence(&self, epoch: u64) -> Fence {
         Fence::new(self.me.clone(), epoch)
     }
 
-    fn session(&self, id: &str) -> Option<Arc<Session>> {
+    pub(super) fn session(&self, id: &str) -> Option<Arc<Session>> {
         self.hub.auto_session(id)
     }
 
@@ -229,9 +229,11 @@ impl<C: AutoCloud + 'static> Ctx<C> {
         self.tell(Command::Work { id, change, needs_run, settles: needs_run.then_some(settles) });
     }
 
-    /// A prompt for a chat another holder runs: into its Cloud inbox. The standby then renews
-    /// at once, which takes a parked chat home.
-    pub(super) async fn post(self, id: String, post: InboxPost, reply: Reply) {
+    /// A prompt for a chat this machine may not run now: into its Cloud inbox. `standby`: this
+    /// laptop stands by for the chat, and renews at once, which takes a parked chat home. A
+    /// holder in the middle of a give does not: whoever holds the chat after the give takes the
+    /// message from the inbox.
+    pub(super) async fn post(self, id: String, post: InboxPost, reply: Reply, standby: bool) {
         let result = answered(self.cloud.post_inbox(&id, &post)).await;
         let answer = match &result {
             Ok(posted) => Ok(json!({
@@ -244,7 +246,7 @@ impl<C: AutoCloud + 'static> Ctx<C> {
             Err(error) => Err(cloud_error(error)),
         };
         let _ = reply.send(answer);
-        if let Ok(posted) = result {
+        if let (Ok(posted), true) = (result, standby) {
             let view = Some(Box::new(posted.session));
             self.tell(Command::Step { id, event: Event::Wake, view });
         }

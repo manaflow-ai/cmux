@@ -10,6 +10,8 @@
 //! - [`signals`]: a hub event read as a change of the chat's work.
 //! - [`settle`]: work that ends with no hub event, read again when the hub says it settled.
 //! - [`effects`]: what the loop does for each effect, and what comes back of it.
+//! - [`give`]: a chat the person moved: its turn stopped, the store asked to take it, and what
+//!   the loop does when it stays.
 //! - [`tasks`]: the work that calls the store or reads the disk. Each runs as a task of its own
 //!   and comes back as a [`Command`], so a slow answer never holds another chat's renewal.
 //! - [`inbox`]: the Cloud inbox's messages into the chat's queue, each once.
@@ -29,6 +31,7 @@ mod away;
 mod chats;
 pub mod clock;
 mod effects;
+mod give;
 mod inbox;
 mod register;
 mod run;
@@ -52,7 +55,7 @@ use super::export::Copied;
 use super::export::snapshot::Failed;
 use super::record::Leftover;
 use super::{HolderHandle, ImportError, Imported, SessionImporter};
-use crate::hub::Hub;
+use crate::hub::{Hub, TurnStop};
 use crate::rpc::RpcError;
 
 /// What the holder loop runs with besides its transport.
@@ -115,6 +118,9 @@ pub(crate) enum Command {
     Kept { id: String, result: Result<SessionView, AutoCloudError>, reply: Option<Reply> },
     /// The chat's lane finished what it was doing. `drained`: it was the inbox.
     LaneDone { id: String, drained: bool },
+    /// A give's `StopTurn` ended (`give.rs`). `needs_run`: the chat's work as it is now, the
+    /// continuation of the turn that was stopped included.
+    TurnStopped { id: String, stop: TurnStop, needs_run: bool },
 }
 
 pub(crate) type Commands = mpsc::UnboundedSender<Command>;

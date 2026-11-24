@@ -22,6 +22,9 @@ pub use auto_background::AUTO_BACKGROUND_ENV;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
+// A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
+mod auto_give;
+pub(crate) use auto_give::TurnStop;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 // A create with no room here starts on the peer placement picks.

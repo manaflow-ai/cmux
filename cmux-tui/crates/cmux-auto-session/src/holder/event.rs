@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cloud::AutoCloudError;
+// Where the person wants the chat to run now is the store's own word (`move`): one type.
+pub use crate::wire::MoveTo;
 use crate::wire::{AssignmentKind, ErrorCode, Holder, LeaseAnswer, Role, SessionView};
 
 /// What changed in the chat's own work.
@@ -57,34 +59,6 @@ impl Verdict {
             Verdict::Standby => "standby",
             Verdict::Lost => "lost",
             Verdict::Closed => "closed",
-        }
-    }
-}
-
-/// Where the person wants the chat to run now (the store's `move`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MoveTo {
-    /// On the Cloud machine.
-    Cloud,
-    /// On a laptop.
-    Local,
-}
-
-impl MoveTo {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            MoveTo::Cloud => "cloud",
-            MoveTo::Local => "local",
-        }
-    }
-
-    /// The store's word for it; None for any other.
-    pub fn parse(text: &str) -> Option<MoveTo> {
-        match text {
-            "cloud" => Some(MoveTo::Cloud),
-            "local" => Some(MoveTo::Local),
-            _ => None,
         }
     }
 }
@@ -171,7 +145,8 @@ impl Answer {
         Answer { wish, ..self }
     }
 
-    /// A lease's answer.
+    /// A lease's answer. The wish in it (`move`) is the holder's to act on: the store tells it
+    /// to nobody else, and it is read from nobody else's answer.
     pub fn from_lease(answer: &LeaseAnswer) -> Answer {
         let verdict = if !answer.session.auto {
             Verdict::Closed
@@ -182,7 +157,8 @@ impl Answer {
                 Role::Lost => Verdict::Lost,
             }
         };
-        Answer::of(verdict, &answer.session)
+        let wish = answer.move_to.filter(|_| verdict == Verdict::Holder);
+        Answer::of(verdict, &answer.session).wishing(wish)
     }
 
     /// The session a `PUT /:id` answered, read as this machine (`me`).

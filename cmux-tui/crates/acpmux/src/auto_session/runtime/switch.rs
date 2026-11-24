@@ -209,26 +209,24 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// its Cloud inbox; a chat stopped here waits for the store first.
     pub(super) fn away(&mut self, id: &str, post: InboxPost, reply: Reply) {
         let state = self.chats.get(id).map(|tracked| tracked.chat.state);
-        match state {
-            Some(State::Standby { .. } | State::ComingHome { .. }) => {
-                let task = self.ctx.clone().post(id.to_owned(), post, reply);
-                self.ctx.start("auto-session inbox post", task);
-            }
-            Some(State::Stopped { .. }) => answer(Some(reply), Err(waits_for_network())),
-            // `Giving` and `Returning`: a move by hand is not run by the daemon yet, so no chat
-            // is in either.
+        // A chat in the middle of a give takes it through the inbox too: it runs once, where
+        // the chat lands, or here when the chat stays (the drain of a chat that may run again).
+        let standby = match state {
+            Some(State::Standby { .. } | State::ComingHome { .. }) => true,
+            Some(State::Giving { .. } | State::Returning { .. }) => false,
+            Some(State::Stopped { .. }) => return answer(Some(reply), Err(waits_for_network())),
             Some(
                 State::Off
                 | State::Registering
                 | State::Holding { .. }
-                | State::Giving { .. }
                 | State::Away
                 | State::Taking { .. }
-                | State::Serving { .. }
-                | State::Returning { .. },
+                | State::Serving { .. },
             )
-            | None => answer(Some(reply), Err(not_here())),
-        }
+            | None => return answer(Some(reply), Err(not_here())),
+        };
+        let task = self.ctx.clone().post(id.to_owned(), post, reply, standby);
+        self.ctx.start("auto-session inbox post", task);
     }
 }
 

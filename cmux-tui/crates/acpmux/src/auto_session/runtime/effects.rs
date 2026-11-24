@@ -75,13 +75,11 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Effect::DrainInbox => self.lane(id, LaneOp::Drain),
             Effect::Import { reason, epoch } => self.lane(id, LaneOp::Import { reason, epoch }),
             Effect::AckAssignment { epoch } => self.lane(id, LaneOp::Ack { epoch }),
-            // A move by hand is not run by the daemon yet. No answer it reads carries a wish, so
-            // the holder asks for none of these; a give that began anyway ends at the next
-            // renewal, whose answer has no wish.
-            Effect::StopTurn | Effect::Give { .. } | Effect::Stay | Effect::NotMoved { .. } => {
-                let effect = effect.kind();
-                tracing::warn!(session = %id, effect, "auto session: a move by hand is not run");
-            }
+            // A chat the person moved (`give.rs`).
+            Effect::StopTurn => self.stop_turn(id),
+            Effect::Give { epoch } => self.give(id, epoch),
+            Effect::Stay => self.stay(id),
+            Effect::NotMoved { to, why } => self.not_moved(id, to, why),
             // The row reads `Chat::blocked` when the record is written (`chats.rs`).
             Effect::ShowBlocked { .. } => {}
             Effect::ScheduleAt { at } => {
@@ -145,11 +143,14 @@ impl<C: AutoCloud + 'static> Loop<C> {
             self.step(id, Event::Wake).await;
         }
         let Some(chat) = self.chats.get(id).map(|tracked| tracked.chat) else { return };
-        let Some(epoch) = chat.epoch().filter(|_| chat.may_run()) else { return };
+        // A holder in the middle of a give still copies: the give waits for the copy that
+        // covers the chat's last event, which may be one asked for while another was sent.
+        let copies = chat.may_run() || chat.moving().is_some();
+        let Some(epoch) = chat.epoch().filter(|_| copies) else { return };
         match wanted {
             Some(copy) => self.copy(id, epoch, copy),
             // The copy is still owed, at the epoch the chat runs at now.
-            None if outdated => self.read_work(id, Some(Change::QueueChanged)),
+            None if outdated && chat.may_run() => self.read_work(id, Some(Change::QueueChanged)),
             None => {}
         }
     }
@@ -219,6 +220,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     // of this one (`settle.rs`).
                     tracked.settling = false;
                 }
+                self.give_forgotten(id);
                 Event::ImportDone { epoch: imported.epoch, snapshot: imported.snapshot }
             }
             Err(error) => {

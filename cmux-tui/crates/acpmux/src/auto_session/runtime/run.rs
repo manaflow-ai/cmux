@@ -171,6 +171,9 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::Closed { id, result } => self.closed(&id, result).await,
             Command::Kept { id, result, reply } => self.kept(&id, result, reply),
             Command::LaneDone { id, drained } => self.lane_done(&id, drained),
+            Command::TurnStopped { id, stop, needs_run } => {
+                self.turn_stopped(&id, stop, needs_run).await;
+            }
         }
     }
 
@@ -203,6 +206,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
             self.effect(id, session.as_ref(), effect).await;
         }
         self.sync(id);
+        // The turn a give stopped goes on here when the chat stayed, ahead of the inbox.
+        self.carried_settles(id);
         // A chat that may run here again takes what the Cloud holds for it and what an
         // earlier drain still owes it. The drain's end reads its work, which copies it.
         if !before.may_run() && chat.may_run() && chat.here() {

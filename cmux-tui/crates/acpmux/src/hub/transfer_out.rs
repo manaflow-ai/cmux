@@ -610,26 +610,7 @@ impl Hub {
             } else {
                 super::auto_resume::Cut::Move
             };
-            carried = self.log_continuation(session, &running, how);
-            // Its place at the head, as a record of its own: a guarded target drops the
-            // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
-            if let Some(id) = &carried {
-                let order: Vec<String> = std::iter::once(id.clone())
-                    .chain(
-                        session
-                            .queue
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .iter()
-                            .map(|q| q.prompt_id.clone()),
-                    )
-                    .collect();
-                self.append(session, "mux", "queue_order", json!({"promptId": id, "order": order}));
-            }
-            match &carried {
-                Some(id) => self.cancel_turn_for_replacement(session, &running, id).await,
-                None => self.cancel_turn(session, &running).await,
-            }
+            carried = self.cut_turn_to_move(session, &running, how).await;
         }
         let carried = carried.as_deref();
         let guard = match early {
@@ -987,7 +968,7 @@ impl Hub {
     /// (`transfer_begin`) joins the queue here, at its head, and runs, as it would have where
     /// the chat was going. Only that prompt is taken from the log, once: the rest of the live
     /// queue (an inbox digest's messages included) stays as it is.
-    fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
+    pub(super) fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         self.restore_queue_only(session, Some(prompt_id));
         self.reword_unmoved(session, prompt_id);
         let _ = self.move_queued(session, prompt_id, 0, None);

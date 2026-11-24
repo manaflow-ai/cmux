@@ -16,12 +16,12 @@ use super::steps::{SECOND, answered, auto_chat, comes_home, cut_mid_tool, laptop
 use super::world::{Agent, Daemon, World, device};
 
 /// An agent that keeps its sessions as Claude Code does, on a profile of the `claude` family.
-const CLAUDE: Agent = Agent { env: &[("FAKE_CLAUDE_STORE", "1")], family: Some("claude") };
+pub const CLAUDE: Agent = Agent { env: &[("FAKE_CLAUDE_STORE", "1")], family: Some("claude") };
 
 const LAST: &str = "one more from the phone";
 
 /// Where the agent of a chat in `folder` keeps the conversation `sid`.
-fn session_file(folder: &Path, sid: &str) -> PathBuf {
+pub fn session_file(folder: &Path, sid: &str) -> PathBuf {
     let home = PathBuf::from(std::env::var_os("HOME").expect("the test has a HOME"));
     let plain = |c: char| if c.is_ascii_alphanumeric() { c } else { '-' };
     let project: String = folder.to_string_lossy().chars().map(plain).collect();
@@ -29,13 +29,13 @@ fn session_file(folder: &Path, sid: &str) -> PathBuf {
 }
 
 /// The agent conversation the chat runs on `daemon`.
-fn conversation(daemon: &Daemon, id: &str) -> String {
+pub fn conversation(daemon: &Daemon, id: &str) -> String {
     let meta = daemon.hub.resolve(id).expect("the chat is here").meta();
     meta.agent_session_id.expect("the chat has an agent conversation")
 }
 
 /// Whether the chat's agent on `daemon` ever failed to resume its conversation.
-fn resume_failed(daemon: &Daemon, id: &str) -> bool {
+pub fn resume_failed(daemon: &Daemon, id: &str) -> bool {
     log_of(&daemon.hub, id).iter().any(|event| event.kind == "resume_failed")
 }
 

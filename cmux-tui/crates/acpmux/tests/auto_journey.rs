@@ -12,6 +12,8 @@
 //! - [`steps`]: the steps more than one test takes.
 //! - [`journey`]: the whole journey, step by step.
 //! - [`variants`]: a chat kept in the Cloud, and a chat started with no laptop.
+//! - [`moved`]: a chat the person moves by hand, to the machine and home, in the middle of a
+//!   turn each time.
 //! - [`native`]: the agent's own session file going with the copy, both ways.
 #![cfg(unix)]
 
@@ -24,6 +26,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 mod journey;
 #[path = "auto_journey/logs.rs"]
 mod logs;
+#[path = "auto_journey/moved.rs"]
+mod moved;
 #[path = "auto_journey/native.rs"]
 mod native;
 #[path = "auto_journey/steps.rs"]
