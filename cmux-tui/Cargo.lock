@@ -1408,6 +1408,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-config",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -2331,6 +2350,10 @@ dependencies = [
  "unicode-general-category",
  "unicode-normalization",
 ]
+
+[[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-pane-protocol"
