@@ -88,6 +88,8 @@ import {
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
+import { AutoIcon } from "./AutoWhere";
+import { AUTO_LOOK } from "./autoWhereModel";
 import { useSameValue } from "./session-info/sameValue";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -646,6 +648,9 @@ export function ComposerContext({
   useEffect(() => {
     if (arrivedId) arrive.current(arrivedId);
   }, [arrivedId]);
+  // Auto picked (autoWhereModel.ts): the Where chip says Auto in its look until the daemon says where.
+  const autoPicked = runMode?.auto?.picked === true && !readOnly;
+  const autoLook = runMode?.auto?.look ?? AUTO_LOOK;
   const newChats = started && onNewChat !== undefined;
   // What the folder chip opens (folderlessCloud.ts `folderMenu`): a Cloud chat's never lists this
   // Mac's folders or Add folder… once it runs on its machine, and is a label while its start is out.
@@ -978,27 +983,30 @@ export function ComposerContext({
     folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Other devices'.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
-  const whereName = sandboxPicked
-    ? t("composer.sandboxed")
-    : cloudSide
-      ? t("composer.cloud")
-      : offMac
-        ? t("composer.otherDevices")
-        : t("composer.thisMac");
+  const whereName = autoPicked
+    ? t("composer.auto")
+    : sandboxPicked
+      ? t("composer.sandboxed")
+      : cloudSide
+        ? t("composer.cloud")
+        : offMac
+          ? t("composer.otherDevices")
+          : t("composer.thisMac");
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
   const wherePlace =
     (offMac || savedPick !== undefined || (cloudSide && !cloudPicked && !pageOnCloud)) && placeName
       ? `${whereName} · ${placeName}`
       : whereName;
-  const whereIcon =
-    sandboxPicked || cloudSide ? (
-      <EnvironmentIcon kind="cloud" />
-    ) : offMac ? (
-      <DevicesIcon />
-    ) : (
-      <EnvironmentIcon kind="local" />
-    );
+  const whereIcon = autoPicked ? (
+    <AutoIcon look={autoLook} />
+  ) : sandboxPicked || cloudSide ? (
+    <EnvironmentIcon kind="cloud" />
+  ) : offMac ? (
+    <DevicesIcon />
+  ) : (
+    <EnvironmentIcon kind="local" />
+  );
   // The third chip: which machine while another machine is the pick; in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
@@ -1195,11 +1203,17 @@ export function ComposerContext({
                 label={t(CONTEXT_LABELS.environment)}
                 menu="Computer"
                 value={
-                  sandboxPicked || cloudPicked ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud") : placeName
+                  autoPicked
+                    ? t("composer.auto")
+                    : sandboxPicked || cloudPicked
+                      ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
+                      : placeName
                 }
                 face={
                   // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
-                  sandboxPicked || cloudPicked ? (
+                  autoPicked ? (
+                    <LocationFace icon={<AutoIcon look={autoLook} />} value={t("composer.auto")} chevron />
+                  ) : sandboxPicked || cloudPicked ? (
                     <LocationFace
                       icon={<EnvironmentIcon kind="cloud" />}
                       value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
@@ -1487,7 +1501,7 @@ function normalizeCwd(cwd?: string): string | undefined {
 /// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row. A folder's
 /// name (`middle`) is cut in the middle, so its end survives: "atl…web", never "atla…" (design
 /// panel, compact composer).
-function LocationFace({
+export function LocationFace({
   icon,
   value,
   chevron,

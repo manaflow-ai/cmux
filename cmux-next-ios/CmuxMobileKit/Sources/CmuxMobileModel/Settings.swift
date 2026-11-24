@@ -158,6 +158,8 @@ public final class SettingsStore {
     public var terminalFontSize: Int { didSet { save(terminalFontSize, "terminalFontSize") } }
     /// Read by the agent composer (`CmuxMobilePreferences`) through the same key.
     public var dismissKeyboardAfterSend: Bool { didSet { save(dismissKeyboardAfterSend, "dismissKeyboardAfterSend") } }
+    /// Read by every composer's text view (`CmuxMobilePreferences.swipeDownCollapsesComposer`) through the same key.
+    public var swipeDownCollapsesComposer: Bool { didSet { save(swipeDownCollapsesComposer, "swipeDownCollapsesComposer") } }
     /// Read by the agent composer: Steer sends a message typed while the
     /// agent works as acpmux `steer`, Queue sends it after the turn.
     public var followUp: FollowUpBehavior { didSet { save(followUp.rawValue, "followUp") } }
@@ -220,6 +222,8 @@ public final class SettingsStore {
         hapticsEnabled = bool("hapticsEnabled", true)
         terminalFontSize = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
+        swipeDownCollapsesComposer = defaults.object(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer")
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
