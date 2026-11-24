@@ -1907,7 +1907,15 @@ mod tests {
             429,
             br#"{"_tag":"QuotaExceeded","budget":"capacity","message":"VM capacity is exhausted for now; retry later"}"#
         )));
-        for budget in ["rate", "vms", "agent_vms", "agent_usd_per_hour"] {
+        for budget in [
+            "rate",
+            "vms",
+            "agent_vms",
+            "agent_usd_per_hour",
+            "agent_running_vms",
+            "agent_usd_per_day",
+            "agent_usd_per_month",
+        ] {
             let body = format!(r#"{{"_tag":"QuotaExceeded","budget":"{budget}","message":"no"}}"#);
             assert!(
                 !unconfirmed(&CliError::from_status(429, body.as_bytes())),
