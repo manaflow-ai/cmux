@@ -7,7 +7,7 @@
   flex: none;
   width: 6px;
   aspect-ratio: 1;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--ds-color-faint);
 }
 .ah-dot[data-tone="danger"] {
