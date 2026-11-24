@@ -63,7 +63,12 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
       ...(a.source ? { source: a.source } : {}),
     });
-    if (a.kind === "image")
+    if (a.kind === "image") {
+      const src = a.data ? `data:${a.mimeType};base64,${a.data}` : undefined;
+      // Its size from its bytes (the header the composer's tile read), so the sent row is laid out
+      // and drawn at its final shape from the send, never a square that reshapes once it decodes
+      // (Leo, 2026-11-07: "know beforehand the size we're going to go for").
+      const shape = src ? knownImageSize(src) : undefined;
       parts.push({
         kind: "image",
         id: a.id,
@@ -72,10 +77,11 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         mimeType: a.mimeType,
         name: a.name,
         ...placed,
-        ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
+        ...(src ? { src } : {}),
+        ...(shape ? { width: shape.width, height: shape.height } : {}),
         ...(a.source ? { source: a.source } : {}),
       });
-    else {
+    } else {
       const first = blocks[0];
       parts.push({
         kind,
