@@ -92,6 +92,7 @@ pub(super) fn names() -> BTreeSet<String> {
                 last_seen_at: Some(serde_json::json!(1)),
                 owner_user_id: Some("user".into()),
             }],
+            hub_version: 1,
         },
         SignalMessage::Presence {
             mac: MacPresence {
@@ -108,6 +109,7 @@ pub(super) fn names() -> BTreeSet<String> {
             session_id: "session".into(),
             payload: SignalPayload::Bye { reason: "closed".into() },
             from_user_id: Some("user".into()),
+            relay_ticket: Some("ticket".into()),
         }),
         SignalMessage::Mailbox {
             items: vec![MailboxItem {
@@ -151,6 +153,7 @@ pub(super) fn names() -> BTreeSet<String> {
             relayed: vec!["127.0.0.1:2".into()],
             relayed_tls: vec!["127.0.0.1:2".into()],
             version: WG_VERSION,
+            relay: Some("relay".into()),
         },
         SignalPayload::WgResp {
             public_key: "key".into(),
@@ -160,6 +163,7 @@ pub(super) fn names() -> BTreeSet<String> {
             relayed: vec!["127.0.0.1:2".into()],
             relayed_tls: vec!["127.0.0.1:2".into()],
             version: WG_VERSION,
+            relay: Some("relay".into()),
         },
         SignalPayload::WgEndpoints {
             generation: 1,
@@ -167,6 +171,7 @@ pub(super) fn names() -> BTreeSet<String> {
             relayed: vec!["127.0.0.1:2".into()],
             relayed_tls: vec!["127.0.0.1:2".into()],
         },
+        SignalPayload::WgRelay {},
         SignalPayload::Bye { reason: "closed".into() },
     ];
     let roam = [

@@ -157,6 +157,7 @@ class NoRunScopedCacheKeys(unittest.TestCase):
 BASE_REF = re.compile(
     r"refs/heads/(feat-cmux-next|main)\b|ref_name\s*==\s*'(feat-cmux-next|main)'|default_branch"
 )
+PR_REF = re.compile(r"github\.(base_ref|head_ref)\s*==")
 PER_REF_SAVERS = SAVES + ("Swatinem/rust-cache@",)
 PER_REF_BASELINE_FILE = ROOT / "tests" / "ci_per_ref_cache_saves_baseline.txt"
 UNRESTRICTED_EVENTS = {
@@ -226,6 +227,12 @@ def per_ref_saves() -> list[str]:
                 if str(inputs.get("path", "")).startswith(".same-tree/"):
                     continue
                 # A composite that takes its condition from an input leaves the ref to its callers.
+                # `github.base_ref == 'feat-cmux-next'` is true on every pull request into it, so a condition that ORs it
+                # with a base push still saves per pull request (ci-web.yml's agent-pane rust-cache, 53 GB in 6 h, 2026-11-24).
+                # Only the step's own gate: a job's `if:` routes pull requests in with `base_ref` and is no save gate.
+                if PR_REF.search(f"{step.get('if', '')} {inputs.get('save-if', '')}"):
+                    found.append(f"{_label(path)}: {job_id}: {step.get('name') or uses.split('@')[0]}")
+                    continue
                 if base_only or BASE_REF.search(condition) or (composite and "inputs." in condition):
                     continue
                 name = step.get("name") or uses.split("@")[0]

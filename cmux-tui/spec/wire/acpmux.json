@@ -292,6 +292,7 @@
     "method:_acpmux/subsession/send",
     "method:_acpmux/subsession/start",
     "method:_acpmux/subsession/stop",
+    "method:_acpmux/surgery",
     "method:_acpmux/tag",
     "method:_acpmux/tailnet/login",
     "method:_acpmux/tailnet/logout",
@@ -555,6 +556,7 @@
     "param:_acpmux/retry#sessionId",
     "param:_acpmux/retry#subagentId",
     "param:_acpmux/route/list#sessionId",
+    "param:_acpmux/secret_submit#keepAs",
     "param:_acpmux/secret_submit#secretId",
     "param:_acpmux/secret_submit#sessionId",
     "param:_acpmux/secret_submit#value",
@@ -571,6 +573,7 @@
     "param:_acpmux/sessions#peer",
     "param:_acpmux/sessions#pendingOnly",
     "param:_acpmux/sessions#status",
+    "param:_acpmux/sessions#topLevelOnly",
     "param:_acpmux/sessions#usage",
     "param:_acpmux/sessions#withTools",
     "param:_acpmux/set_tools#enabled",
@@ -1072,6 +1075,9 @@
       "notify:_acpmux/session_changed"
     ],
     "session-list-pending-v1": [
+      "method:_acpmux/sessions"
+    ],
+    "session-list-top-level-v1": [
       "method:_acpmux/sessions"
     ],
     "session-messages-v1": [
