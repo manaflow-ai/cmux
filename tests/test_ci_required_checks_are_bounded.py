@@ -27,7 +27,6 @@ from pathlib import Path
 
 import yaml
 
-from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +39,7 @@ if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import required_status_checks as _required_status_checks  # noqa: E402
 # A hung job wastes runners whether or not its check is required.
-ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
+ALWAYS_BOUNDED = ("ci-status", "web-validation")
 # pull_request workflows that end a superseded run themselves instead of with a
 # concurrency group, and why a group would be wrong there.
 OWN_SUPERSESSION = {
@@ -96,14 +95,6 @@ def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
 
 def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
     name = job.get("name") or job_id
-    if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
-        # Interpret only the validated routing contract. Unknown expressions
-        # must remain unmatched instead of silently dropping timeout coverage.
-        try:
-            validate_metadata_routing(workflow)
-        except (AssertionError, KeyError, TypeError):
-            return name
-        return REQUIRED_CHECK
     if isinstance(name, str) and "${{" in name:
         # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is the check's
         # name on a push. Unknown expressions stay unmatched rather than silently drop coverage.

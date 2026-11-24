@@ -117,6 +117,15 @@ public nonisolated struct GlassMenuMaterial {
     /// The radius in effect: the one surface radius, concentric with the panes (Lawrence
     /// 2026-11-04), which is ``defaultCornerRadius`` unless the person changed it.
     @MainActor public static var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
+
+    /// A ``GlassMenu``'s panel radius: the surface radius around its hover pill, which is the surface radius
+    /// ``MenuMetrics/highlightInset`` in from the panel's edge, so the pill and the panel are concentric (13 points by
+    /// default, the Codex and ChatGPT menus' rounder card; Lawrence 2026-11-23: "let's just match these
+    /// screenshots"). Square stays square: a person who set no radius gets none.
+    @MainActor public static var menuCornerRadius: CGFloat { menuCornerRadius(surface: cornerRadius) }
+
+    /// ``menuCornerRadius`` for a surface radius of `surface`.
+    public static func menuCornerRadius(surface: CGFloat) -> CGFloat { surface > 0 ? surface + MenuMetrics.highlightInset : 0 }
 }
 
 extension Glass {

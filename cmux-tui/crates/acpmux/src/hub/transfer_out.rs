@@ -265,6 +265,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_history.rs"]
+pub(super) mod transfer_history;
 #[path = "transfer_live.rs"]
 pub(super) mod transfer_live;
 #[path = "transfer_precopy.rs"]
@@ -367,8 +369,16 @@ impl Hub {
             }
             "hub" => self.transfer_hub(params).await,
             "prepare" => {
-                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"))
+                // `historyLater: {keepTurns}`: the history follows the chat (`transfer_history.rs`).
+                let keep = params.get("historyLater").filter(|l| !l.is_null());
+                let keep = keep.map(|l| l.get("keepTurns").and_then(Value::as_u64).unwrap_or(1));
+                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"), keep)
             }
+            "history_have" => self.transfer_history_have(params),
+            "history_export" => {
+                self.transfer_history_export(&self.resolve(text("sessionId"))?, params)
+            }
+            "history" => self.transfer_history(&self.resolve(text("sessionId"))?, params),
             "base" => self.transfer_base(params),
             "stage" => self.transfer_stage(params),
             "stage_finish" => self.transfer_stage_finish(params),
@@ -399,11 +409,14 @@ impl Hub {
             "commit" => {
                 let session = self.resolve(text("sessionId"))?;
                 let to = params.get("to").cloned().unwrap_or(Value::Null);
+                // What the client measured of the freeze (`{ms, bytes}`), for the receipt.
+                let freeze = params.get("freeze").filter(|f| f.is_object()).cloned();
                 self.transfer_commit_with_epoch(
                     &session,
                     text("transferId"),
                     to,
                     parse_epoch(params.get("epoch"))?,
+                    freeze,
                 )
                 .await
             }
@@ -416,6 +429,7 @@ impl Hub {
                     parse_epoch(params.get("epoch"))?,
                 )
             }
+            "preflight" => self.transfer_preflight(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
@@ -489,8 +503,12 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
+        self.refuse_while_history_awaited(session)?;
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
+        // The freeze begins when the chat is marked moving, just below: its length to this
+        // begin's answer is `frozenMs`, the share of a move's freeze this daemon can time.
+        let frozen_at = std::time::Instant::now();
         // This begin holds the move's watch until it starts it, below: a watch that ran now
         // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
         // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
@@ -531,6 +549,9 @@ impl Hub {
             );
             return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
         };
+        // The move fence is the freeze boundary. It is taken only after an optional
+        // `--after-turn` wait and before cancelling a running turn or exporting its bundle.
+        let freeze_started_at_ms = crate::store::now_ms();
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -629,7 +650,7 @@ impl Hub {
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
-        let prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
+        let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
                 drop(guard);
                 return Err(unfreeze(error, carried));
@@ -646,12 +667,22 @@ impl Hub {
                 carried,
             ));
         }
+        // A history-later prepare folded its prefix and copied the agent's files: the freeze
+        // reads only what came after (`transfer_precopy.rs` `PrefixFold`).
+        let mut folded = prefix.as_mut().and_then(|p| p.folded.take());
+        let grown = folded.as_ref().map(|f| (f.native_dir.as_path(), &f.native));
         let made = self
-            .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
+            .export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
-                let approved_waiting = self.held_prompts_with(prefix_seq, &bundle)?;
+                let approved_waiting = match folded.as_mut() {
+                    Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
+                    None => {
+                        let prefix_seq =
+                            prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                        self.held_prompts_with(prefix_seq, &bundle)?
+                    }
+                };
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),
@@ -675,7 +706,13 @@ impl Hub {
                 return Err(if logged { unfreeze(error, carried) } else { error });
             }
         };
-        if let Err(error) = self.restore_ownership_epoch(session) {
+        let restored = match (&folded, &prefix) {
+            (Some(f), Some(p)) => self
+                .ownership_epoch_after(&session.id, p.after_seq, f.epoch)
+                .map(|epoch| session.restore_ownership_epoch(epoch)),
+            _ => self.restore_ownership_epoch(session),
+        };
+        if let Err(error) = restored {
             drop(guard);
             return Err(unfreeze(
                 transfer_error("store", format!("ownership epoch unreadable: {error}")),
@@ -747,6 +784,8 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "freezeStartedAtMs": freeze_started_at_ms,
+            "frozenMs": u64::try_from(frozen_at.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
@@ -845,6 +884,7 @@ impl Hub {
         transfer_id: &str,
         to: Value,
         epoch: Option<u64>,
+        freeze: Option<Value>,
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
         let current = require_valid_epoch(session)?;
@@ -874,12 +914,12 @@ impl Hub {
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        self.append(
-            session,
-            "mux",
-            "transferred",
-            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
-        );
+        let mut moved =
+            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()});
+        if let Some(freeze) = freeze {
+            moved.set("freeze", freeze);
+        }
+        self.append(session, "mux", "transferred", moved);
         self.kill(session, false).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);

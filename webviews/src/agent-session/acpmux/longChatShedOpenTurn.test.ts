@@ -6,7 +6,7 @@
 // Leo, 2026-11-14: "the dream is infinite chats of infinite length with flat or no growth in cpu/memory/even disk".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -84,7 +84,7 @@ type Pane = {
   streamingAssistant?: string;
 };
 
-test("a turn that never ends stays open through every shed, and a send waits behind it", async () => {
+async function throughSheds(stream: (sessionId: string, seq: number) => EventRecord, count: number) {
   const { AcpmuxDirectClient, HELD_RECORDS } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const { forgetTail } = await import("./tailCache");
@@ -130,7 +130,7 @@ test("a turn that never ends stays open through every shed, and a send waits beh
           const kinds: string[] | undefined = params.kinds?.includes("transcript") ? undefined : params.kinds;
           const events: EventRecord[] = [];
           for (let seq = params.beforeSeq - 1; seq >= 1 && events.length < limit; seq -= 1) {
-            const event = neverEnding(target, seq);
+            const event = stream(target, seq);
             if (!kinds || kinds.includes(event.kind)) events.unshift(event);
           }
           return { events, hasMore: (events[0]?.seq ?? 1) > 1, lastSeq: total };
@@ -138,7 +138,7 @@ test("a turn that never ends stays open through every shed, and a send waits beh
         if (method === "_acpmux/events" && params.sessionId === target) {
           const events: EventRecord[] = [];
           for (let seq = Number(params.afterSeq ?? 0) + 1; seq <= total && events.length < 5_000; seq += 1)
-            events.push(neverEnding(target, seq));
+            events.push(stream(target, seq));
           return { events, hasMore: false, lastSeq: total };
         }
         // The daemon holds the prompt behind the running turn: it answers once that prompt runs, which in a turn
@@ -169,7 +169,7 @@ test("a turn that never ends stays open through every shed, and a send waits beh
     expect(await settle(() => target !== "", 10_000)).toBe(true);
     for (let index = 0; index < 20; index += 1) await tick();
     const deliver = (seq: number) =>
-      socket!.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: neverEnding(target, seq) });
+      socket!.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: stream(target, seq) });
     // A summary the daemon sends as the turn runs on (`session_changed`): still running, the same turn.
     const summarize = () =>
       socket!.deliver({
@@ -180,7 +180,7 @@ test("a turn that never ends stays open through every shed, and a send waits beh
     let sheds = 0;
     let oldest = 1;
     const failures: string[] = [];
-    for (let index = 0; index < 12_000; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       total += 1;
       deliver(total);
       if (index % 50 !== 49) continue;
@@ -197,7 +197,7 @@ test("a turn that never ends stays open through every shed, and a send waits beh
       if (snapshot.isWorking !== true) failures.push(`${where}: the snapshot says not working (no Stop)`);
       // The reply streams on: after the next chunk, the newest row is the streaming reply the pane writes into.
       let next = total + 1;
-      while (neverEnding(target, next).kind !== "agent_message_chunk") next += 1;
+      while (stream(target, next).kind !== "agent_message_chunk") next += 1;
       while (total < next) {
         total += 1;
         deliver(total);
@@ -233,7 +233,48 @@ test("a turn that never ends stays open through every shed, and a send waits beh
     client.close?.();
     AcpmuxDirectClient.scheduleFrame = undefined;
   }
-}, 300_000);
+}
+
+test(
+  "a turn that never ends stays open through every shed, and a send waits behind it",
+  () => throughSheds(neverEnding, 12_000),
+  300_000,
+);
+
+/// One turn that is one call for its whole length (a build, a watcher): a line of output per record, the append form
+/// pi sends (`_meta.terminal_output.data`), with the reply streaming beside it, as the typing bench's heavy load does.
+function oneCall(sessionId: string, seq: number): EventRecord {
+  if (seq === 1) return mux(sessionId, seq, "user_message", { text: "build it", promptId: "p-open" });
+  if (seq === 2) return mux(sessionId, seq, "turn_started", { promptId: "p-open", turnId: TURN_ID });
+  if (seq === 3)
+    return inbound(sessionId, seq, {
+      sessionUpdate: "tool_call",
+      toolCallId: "build",
+      kind: "execute",
+      title: "Run bun run build",
+      status: "in_progress",
+      rawInput: { command: "bun run build" },
+    });
+  if (seq % 4 === 0)
+    return inbound(sessionId, seq, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: `w${seq} ` },
+    });
+  return inbound(sessionId, seq, {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "build",
+    status: "in_progress",
+    _meta: { terminal_output: { data: `line ${seq}\n` } },
+  });
+}
+
+// The call's row and the reply beside it span every cut: the sheds that keep them across it (`planSplits`) keep the
+// turn open as the person sees it, its newest row the reply it streams into, and a send behind it.
+test(
+  "a turn that is one long call stays open through every shed, and a send waits behind it",
+  () => throughSheds(oneCall, 16_000),
+  300_000,
+);
 
 // The composer typing bench streams its load through the mock host (`streamLoadTurn`): the same stream, through the
 // same client, keeps its turn open after each shed. (A send is not checked here: this mock lists its queue without a
