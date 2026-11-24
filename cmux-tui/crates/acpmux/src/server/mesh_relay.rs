@@ -1006,6 +1006,17 @@ fn hub_relay(message: &InMessage, book_host: Option<&str>) -> Option<RelaySender
     RelaySender::of(&json!({"by": by, "machine": machine, "session": session}))
 }
 
+/// How a [`hub_relay`] record reads as the sender: `MACHINE/SESSION`, or `PROGRAM on MACHINE`
+/// for a program outside any session that named itself, or the machine alone.
+fn relay_name(relay: &RelaySender) -> String {
+    match &relay.session {
+        None if relay.by != HUB_RELAY => {
+            crate::prompt_provenance::relayed_label(&format!("{} on {}", relay.by, relay.machine))
+        }
+        _ => relay.name(),
+    }
+}
+
 /// The relay a [`hub_relay`] record names when the sending daemon carried none: the team hub.
 const HUB_RELAY: &str = "mesh-hub";
 
@@ -1063,7 +1074,7 @@ pub async fn deliver(
     // relay record names, so the label is verified rather than declared ([`hub_relay`]).
     let relay = hub_relay(message, book_host.as_deref());
     let from_name = match &relay {
-        Some(relay) if !team => relay.name(),
+        Some(relay) if !team => relay_name(relay),
         _ => sender_name(message, book_host.as_deref()),
     };
     // Team messages are information by default. Record them in the target
@@ -1235,6 +1246,27 @@ mod tests {
         assert_eq!(sender_name(&bare, None), "a session on hub daemon inst_a");
         bare.from.name = Some("hook".into());
         assert_eq!(sender_name(&bare, None), "hook on hub daemon inst_a");
+    }
+
+    /// gap:surface:naming: a 429 recovery send from `ACPMUX_FROM=glaeda-land` read only
+    /// "build-host". The program's own relay record names it on the machine the hub proved; a
+    /// record for another machine, or none, still reads as the machine alone.
+    #[test]
+    fn a_program_outside_any_session_is_named_on_the_proven_machine() {
+        let name = |m: &InMessage| hub_relay(m, Some("build-host")).map(|r| relay_name(&r));
+        let mut message = from("build-host", "glaeda-land");
+        message.from.daemon_id = Some("inst_a".into());
+        message.from.relay =
+            Some(serde_json::json!({"by": "glaeda-land", "machine": "build-host"}));
+        assert_eq!(name(&message).as_deref(), Some("glaeda-land on build-host"));
+        message.from.relay = Some(serde_json::json!({"by": "glaeda-land", "machine": "other"}));
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = None;
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = Some(
+            serde_json::json!({"by": "lane-gh", "machine": "build-host", "session": "lane-7"}),
+        );
+        assert_eq!(name(&message).as_deref(), Some("build-host/lane-7"));
     }
 
     /// An old peer that sends neither host, name nor a stamped daemon keeps today's text.
