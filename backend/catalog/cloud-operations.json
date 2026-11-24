@@ -37592,7 +37592,7 @@
           "count": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 8
+            "maximum": 100
           },
           "ttl_seconds": {
             "type": "integer",
@@ -37674,7 +37674,7 @@
               "count": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 8
+                "maximum": 100
               },
               "ttl_seconds": {
                 "type": "integer",
@@ -37769,7 +37769,7 @@
           "count": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 8
+            "maximum": 100
           },
           "ttl_seconds": {
             "type": "integer",
@@ -37793,7 +37793,7 @@
               "count": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 8
+                "maximum": 100
               },
               "ttl_seconds": {
                 "type": "integer",
