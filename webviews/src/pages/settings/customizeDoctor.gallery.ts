@@ -1,9 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample findings in the CLI's words), not shipped UI.
 // Settings > Personalization > Customization Problems (CustomizeDoctorCard) on the real page and
-// store, above the Customization Library, and its one-line notice in each of the three treatments
-// (design/customize-doctor.md): `chip` (shipped), the dot and line at the bottom of the Settings
-// sidebar; `banner`, a warning Notice across the top of the column; `inline`, the count and line in
-// the card's header. The route's `focus=card.customizeDoctor` scrolls the page to the card. With
+// store, above the Customization Library, and its one-line notice in each treatment
+// (design/customize-doctor.md): `inline` (shipped), the count and line in the card's header; `banner`,
+// a warning Notice across the top of the column. The sidebar draws none (Lawrence 2026-11-23). The route's `focus=card.customizeDoctor` scrolls the page to the card. With
 // nothing found the page draws no card and no notice (the `empty` variant waits for the library).
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { mockAllDoctor, mockDismissedDoctor, mockDoctor, mockEmptyDoctor, mockOverrideDoctor } from "./mockDoctor";
@@ -29,7 +28,7 @@ export default settingsPageEntry({
   anchors: [{ selector: '[data-card="customizeDoctor"]' }],
   variants: {
     "stale-layer-broken-file": variant({
-      note: "pr-45206 is still on, themes/night.json does not load (Restore last good) and the split divider opacity is 0 (Leo's case, Follow default): the card above the library with Recover…, the chip at the sidebar's bottom.",
+      note: "pr-45206 is still on, themes/night.json does not load (Restore last good) and the split divider opacity is 0 (Leo's case, Follow default): the card above the library with Recover…, its count and line in the card's header.",
     }),
     "recover-confirm": variant({
       steps: [shown, { selector: '[data-card="customizeDoctor"] [data-doctor-action="recover"]', action: "click" }],
@@ -70,13 +69,6 @@ export default settingsPageEntry({
       ],
       note: "Remove asks first, inline under its finding, with Cancel focused; it says a copy is kept.",
     }),
-    "treatment-chip": variant({
-      section: "general",
-      focus: undefined,
-      doctorTreatment: "chip",
-      steps: [{ selector: '[data-doctor-notice="chip"]', action: "wait" }],
-      note: "Chip (shipped): on any Settings page, a dot and the line at the sidebar's bottom; a click opens the card.",
-    }),
     "treatment-banner": variant({
       section: "general",
       focus: undefined,
@@ -87,7 +79,7 @@ export default settingsPageEntry({
     "treatment-inline": variant({
       doctorTreatment: "inline",
       steps: [{ selector: '[data-doctor-notice="inline"]', action: "wait" }],
-      note: "Inline: the count and the line in the card's header only; nothing outside Personalization.",
+      note: "Inline (shipped): the count and the line in the card's header only; nothing outside Personalization.",
     }),
   },
 });
