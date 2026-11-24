@@ -2458,6 +2458,54 @@
           }
         },
         {
+          "key": "sidebar.workspaceRow.statusPlacement",
+          "title": {
+            "key": "settings.workspaceRow.statusPlacement",
+            "text": "Status Position"
+          },
+          "help": {
+            "key": "settings.workspaceRow.statusPlacement.help",
+            "text": "Where the row's status mark draws: at the row's end, or before the name in the icon's place."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "WorkspaceRowStatusPlacement",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "trailing",
+              "title": {
+                "key": "settings.workspaceRow.statusPlacement.trailing",
+                "text": "At the End"
+              }
+            },
+            {
+              "value": "leading",
+              "title": {
+                "key": "settings.workspaceRow.statusPlacement.leading",
+                "text": "Before the Name"
+              }
+            }
+          ],
+          "default": "trailing",
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "status",
+            "spinner",
+            "leading",
+            "left",
+            "position"
+          ],
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.workspaceRow.lines",
           "title": {
             "key": "settings.workspaceRow.lines",
@@ -2510,7 +2558,7 @@
             "customize",
             "tokens"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2584,7 +2632,7 @@
             "agent",
             "browser"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2655,7 +2703,7 @@
             "claude",
             "codex"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
