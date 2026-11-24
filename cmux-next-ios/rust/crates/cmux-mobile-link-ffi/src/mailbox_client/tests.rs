@@ -85,7 +85,13 @@ fn spec(kind: &str, action: MailboxAction) -> MailboxItemSpec {
 }
 
 fn as_item(sealed: &MailboxSealedItem) -> MailboxItem {
-    MailboxItem { id: sealed.id.clone(), from: sealed.phone.clone(), sealed: sealed.sealed.clone(), at: None }
+    MailboxItem {
+        id: sealed.id.clone(),
+        from: sealed.phone.clone(),
+        sealed: sealed.sealed.clone(),
+        at: None,
+        seq: None,
+    }
 }
 
 #[test]
