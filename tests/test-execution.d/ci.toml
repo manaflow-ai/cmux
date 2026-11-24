@@ -240,6 +240,11 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_gh_attestation_has_gh.py yourself after changing the workflow or script it reads."
 
 [[test]]
+path = "tests/test_ci_ghosttykit_digest_routing.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ghosttykit_digest_routing.py"
+
+[[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 
@@ -258,11 +263,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_guard_tests_emit_no_workflow_commands.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_ghosttykit_digest_routing.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ghosttykit_digest_routing.py"
 
 [[test]]
 path = "tests/test_ci_guard_workflow_structure.py"
@@ -509,6 +509,10 @@ path = "tests/test_ci_package_result_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_paid_queue_pin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
@@ -744,6 +748,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 
 [[test]]
