@@ -290,3 +290,22 @@ test("a failed prompt removed or edited after a switch cleared it stays gone aft
     pane.client.close?.();
   }
 });
+
+// CMUX-682: Computer Use can stop being ready while a send's files upload, after the composer's check.
+// The client asks `sendHold` again at dispatch: a held prompt never reaches acpmux and fails with the
+// reason, its Retry intact; with nothing held it goes.
+test("a prompt held at dispatch never reaches acpmux and says why", async () => {
+  const pane = await paneWith(() => undefined);
+  try {
+    pane.client.sendHold = (text) => (text.includes("@computer-use") ? "Computer Use is not set up" : undefined);
+    await pane.client.send("open Notes with @computer-use").catch(() => undefined);
+    expect(pane.prompts).toEqual([]);
+    const bubble = pane.rows().find((row) => row.kind === "user" && row.text === "open Notes with @computer-use");
+    expect(bubble?.failed).toBe(true);
+    expect(bubble?.error).toContain("Computer Use is not set up");
+    await pane.client.send("plain words").catch(() => undefined);
+    expect(pane.prompts).toEqual(["plain words"]);
+  } finally {
+    pane.client.close?.();
+  }
+});

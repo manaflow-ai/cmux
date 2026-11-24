@@ -299,9 +299,13 @@ pub const SAVED: Argument = Argument { name: "saved", title: t("ScreenActions", 
 pub const ON: Argument = Argument { name: "on", title: t("Localizable", "argument.on", "On"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argument.app", "App"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// Open In ▸'s right-click choices: the most used editors of cmux-window-rules `EDITORS` (ids from that table);
+/// More… opens the palette's full list of installed ones.
+#[rustfmt::skip]
+pub const CASES_COMMON_EDITORS: &[EnumCase] = &[EnumCase { value: "vscode", title: Text::raw("Visual Studio Code") }, EnumCase { value: "cursor", title: Text::raw("Cursor") }, EnumCase { value: "zed", title: Text::raw("Zed") }, EnumCase { value: "xcode", title: Text::raw("Xcode") }];
 /// Open In ▸'s `app`: an installed code editor, listed by the App (cmux-window-rules `editors`), the default first.
 #[rustfmt::skip]
-pub const EDITOR: Argument = Argument { suggestions: Some(Suggestions { source: "editors", pinned: &[], other_title: None, allows_multiple: false }), ..APP };
+pub const EDITOR: Argument = Argument { suggestions: Some(Suggestions { source: "editors", pinned: CASES_COMMON_EDITORS, other_title: None, allows_multiple: false }), ..APP };
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -772,3 +776,13 @@ pub const BROWSER_TOOLBAR_BUTTON: Argument = Argument { name: "button", title: t
 /// pinnable actions, the pinned ones marked.
 #[rustfmt::skip]
 pub const TAB_BAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "tabBarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_LOW_MEDIUM: &[EnumCase] = &[EnumCase { value: "low", title: t("HomeActions", "argument.home.chief.effort.low", "Low") }, EnumCase { value: "medium", title: t("HomeActions", "argument.home.chief.effort.medium", "Medium") }, EnumCase { value: "high", title: t("HomeActions", "argument.home.chief.effort.high", "High") }, EnumCase { value: "xhigh", title: t("HomeActions", "argument.home.chief.effort.xhigh", "Extra High") }, EnumCase { value: "max", title: t("HomeActions", "argument.home.chief.effort.max", "Max") }, EnumCase { value: "default", title: t("HomeActions", "argument.home.chief.effort.default", "Default") }];
+#[rustfmt::skip]
+pub const LOCAL_CHIEF: Argument = Argument { name: "chief", title: t("HomeActions", "argument.home.chief.id", "Chief"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "localChiefs", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_MODEL: Argument = Argument { name: "model", title: t("HomeActions", "argument.home.chief.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_EFFORT: Argument = Argument { name: "effort", title: t("HomeActions", "argument.home.chief.effort", "Effort"), kind: ArgKind::Enumeration(CASES_LOW_MEDIUM), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const ADOPT_AGENT: Argument = Argument { name: "agent", title: t("HomeActions", "argument.home.chief.agent", "Agent"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "adoptableAgents", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

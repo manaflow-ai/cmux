@@ -94,7 +94,8 @@ Process {
   detail?       // the harness's own words on its end (Claude's summary)
   origin        // background | auto_backgrounded | user_backgrounded
                 // (auto_backgrounded: Claude Code moved it at its timeout,
-                // or acpmux did after a minute in the foreground)
+                // or acpmux did after five minutes in the foreground,
+                // or two when the person's message waits)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
   preview?      // {url, port}: the dev server it runs, while it runs
@@ -203,6 +204,7 @@ process's command line and its kill never leave the machine.
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
 | `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
 | `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
+| `_acpmux/process/census` (request, built) | `{callerSession?}`: the asker's session id, whose processes read owner `yours` instead of `live` and are never `orphaned` or a `gc` candidate, as `acpmux ps` run in that session reads them | What `acpmux ps --json` prints, built by the same code (`cli/process_census.rs`): `{product, home, summary, processes: [{pid, kind, owner, ownerPid, sessionId, sessionName, sessionStatus, state, reason, argv, ...}], state: {daemon, hostRecords, unreadableHostRecords, strayLiveLocks}, gc: {candidates, refused}}`. Each owner comes from the process's own environment and its agent host's live lock, never its command line; `state` is `in-use`, `idle`, `orphaned` (only these are `gc` candidates) or `unknown`. Session status is the daemon's own (`gone`: it has no such session). A census too large for one reply has its longest `argv` cut (8 arguments of 256 bytes each, then `"... (N bytes omitted)"`, counted in `omitted`); one that still does not fit is refused (`census.too_large`): run `acpmux ps --json`. Read-only; capability `process-census-v1` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 
 If a recent list's running rows cannot all fit its reply budget, or one row's identity cannot fit

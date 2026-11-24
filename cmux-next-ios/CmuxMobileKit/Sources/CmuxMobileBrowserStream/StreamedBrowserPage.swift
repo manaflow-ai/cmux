@@ -186,7 +186,7 @@ public struct StreamedBrowserPage: View {
     }
 
     private func linkChip(_ chip: ConnectionChip.Content) -> some View {
-        ConnectionChip(chip)
+        ConnectionChip(chip, downSince: model.waitingSince ?? ConnectionChip.justDropped)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")
@@ -249,20 +249,23 @@ public struct StreamedBrowserCard: View {
     let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
+    /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
+    let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false, lastKnown: CGImage? = nil) {
         self.model = model
         self.placeholder = placeholder
         self.fit = fit
+        self.lastKnown = lastKnown
     }
 
     public var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if fit, let image = model.snapshot?.image {
+            if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
-            } else if let image = model.snapshot?.image {
+            } else if let image = model.snapshot?.image ?? lastKnown {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,

@@ -39,6 +39,16 @@ function MachinesGallery({ snapshot = sampleSnapshot, asking, dial, layout }: Pr
 }
 
 const joinedOnly: MachinesSnapshot = { rows: [thisMac, ...joinedRows], style: "compact", busy: [], failed: {} };
+const linuxBox: MachineRow = {
+  id: "joined:m_box",
+  name: "lane-box",
+  kind: "joined",
+  isLocal: false,
+  isConnected: false,
+  isConnecting: false,
+  joined: { id: "m_box", name: "lane-box", state: "online", platform: "linux", mintedBy: "you@example.com" },
+};
+const linuxJoined: MachinesSnapshot = { ...joinedOnly, rows: [...joinedOnly.rows, linuxBox] };
 const waiting = { row: "joined:m_mini", answers: [{ state: "consent_required" }] } satisfies Props["dial"];
 const declined = { row: "joined:m_mini", answers: [{ state: "consent_declined" }] } satisfies Props["dial"];
 
@@ -140,6 +150,26 @@ export default componentEntry<Props>({
       props: {
         snapshot: joinedOnly,
         dial: { row: "joined:m_mini", answers: [{ state: "unavailable", reason: "service.unknown" }] },
+        layout: "caption",
+      },
+    },
+    "linux-joined-online": {
+      note: "Picked. lane-box, a Linux machine joined by a line or pair code, online and reached only through the hub: New Workspace is on, as on a joined Mac. Its join is its consent, so it opens with no card.",
+      props: { snapshot: linuxJoined },
+    },
+    "linux-dial-update": {
+      note: "lane-box's acpmux predates its join counting as consent (it still asks, and has no card): Update cmux on lane-box, with Retry.",
+      props: {
+        snapshot: linuxJoined,
+        dial: { row: "joined:m_box", answers: [{ state: "unavailable", reason: "service.outdated" }] },
+        layout: "caption",
+      },
+    },
+    "linux-dial-failed": {
+      note: "lane-box cannot be reached over the hub (carrier off): Could not reach lane-box, with Retry.",
+      props: {
+        snapshot: linuxJoined,
+        dial: { row: "joined:m_box", answers: [{ state: "unavailable", reason: "carrier.off" }] },
         layout: "caption",
       },
     },
