@@ -58,7 +58,12 @@ const RENEW_RETRIES: [Duration; 4] =
 
 /// Whether this process maps ports: unless `CMUX_MOBILE_PORTMAP=0`.
 pub fn enabled() -> bool {
-    std::env::var("CMUX_MOBILE_PORTMAP").map(|value| value.trim() != "0").unwrap_or(true)
+    enabled_by(std::env::var("CMUX_MOBILE_PORTMAP").ok().as_deref())
+}
+
+/// The kill switch's parse: on unless the value is `0`.
+fn enabled_by(value: Option<&str>) -> bool {
+    value.is_none_or(|value| value.trim() != "0")
 }
 
 /// Install the Mac's mapper into the link, unless turned off.
@@ -99,9 +104,14 @@ enum Known {
     Pcp,
     NatPmp,
     Upnp(Igd),
-    /// None answered: not asked again on this router.
-    Nothing,
+    /// None answered (at this instant): not asked again on this router
+    /// until [`NOTHING_RETRY`] passes, so a lost burst or UPnP turned on
+    /// later is found by a later session.
+    Nothing(std::time::Instant),
 }
+
+/// How long a router that mapped nothing stays unasked.
+pub const NOTHING_RETRY: Duration = Duration::from_secs(5 * 60);
 
 /// An IGD's WAN connection service.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,7 +144,9 @@ impl HostMapper {
         let router = (self.router)()?;
         let key = (router.gateway, router.local);
         let known = lock(&self.cache).get(&key).cloned();
-        if known == Some(Known::Nothing) {
+        if let Some(Known::Nothing(at)) = known
+            && at.elapsed() < NOTHING_RETRY
+        {
             return None;
         }
         let found = match known {
@@ -155,7 +167,7 @@ impl HostMapper {
             },
         };
         let Some((mapped, known)) = found else {
-            lock(&self.cache).insert(key, Known::Nothing);
+            lock(&self.cache).insert(key, Known::Nothing(std::time::Instant::now()));
             tracing::info!(gateway = %router.gateway, "the router maps no ports (no PCP, NAT-PMP or UPnP-IGD)");
             return None;
         };
@@ -178,7 +190,11 @@ impl PortMapper for HostMapper {
     fn map(&self, local_port: u16) -> MapFuture {
         let router = (self.router)();
         let mapper = Self { router: Box::new(move || router), cache: Arc::clone(&self.cache) };
-        Box::pin(async move { mapper.map_port(local_port).await })
+        // In its own task: a caller dropped mid-exchange (a roam, a close)
+        // can't strand a grant the router already made; the task finishes,
+        // and the lease it hands nobody is dropped, which deletes it.
+        let task = tokio::spawn(async move { mapper.map_port(local_port).await });
+        Box::pin(async move { task.await.ok().flatten() })
     }
 }
 
@@ -339,9 +355,13 @@ async fn delete(router: Router, spec: Spec) {
 }
 
 /// One UDP request to the gateway's PCP/NAT-PMP port, retried; the first
-/// answer `accept` takes.
+/// answer `accept` takes. An error answer to it (its opcode, a nonzero
+/// result code: a NAT-PMP-only router's UNSUPP_VERSION to PCP, a refused
+/// map) ends it at once, so the next protocol is not kept waiting.
 async fn exchange<T>(router: &Router, request: &[u8], accept: impl Fn(&[u8]) -> Option<T>) -> Option<T> {
-    let socket = UdpSocket::bind((router.local, 0)).await.or(UdpSocket::bind("0.0.0.0:0").await).ok()?;
+    // The local address the PCP request names as its client: never a
+    // wildcard socket whose source address could differ.
+    let socket = UdpSocket::bind((router.local, 0)).await.ok()?;
     let to = SocketAddr::new(IpAddr::V4(router.gateway), router.pmp_port);
     let mut buffer = [0u8; 1100];
     for wait in UDP_TRIES {
@@ -356,9 +376,18 @@ async fn exchange<T>(router: &Router, request: &[u8], accept: impl Fn(&[u8]) -> 
             if let Some(answer) = accept(&buffer[..len]) {
                 return Some(answer);
             }
+            if refused(request, &buffer[..len]) {
+                return None;
+            }
         }
     }
     None
+}
+
+/// An error answer to `request`: the same opcode with the answer bit, and
+/// a nonzero result code (PCP: byte 3, byte 2 reserved; NAT-PMP: bytes 2-3).
+fn refused(request: &[u8], answer: &[u8]) -> bool {
+    request.len() >= 2 && answer.len() >= 4 && answer[1] == 0x80 | request[1] && answer[2..4] != [0, 0]
 }
 
 // ---- PCP (RFC 6887) ----
@@ -476,7 +505,13 @@ async fn natpmp_map(router: &Router, internal: u16, external: u16, lifetime: u32
         let external = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
         return Some(Mapped { external, lifetime: 0, spec: Spec::NatPmp { internal, external: port } });
     }
-    let ip = exchange(router, &[0, 0], natpmp_address_answer).await?;
+    let Some(ip) = exchange(router, &[0, 0], natpmp_address_answer).await else {
+        // Granted, but no address to offer: give the port back now rather
+        // than leave it open at the router for its whole lease.
+        let delete = natpmp_request(internal, port, 0);
+        let _ = exchange(router, &delete, |buf| natpmp_map_answer(buf, internal)).await;
+        return None;
+    };
     Some(Mapped {
         external: SocketAddr::new(IpAddr::V4(ip), port),
         lifetime: granted,
@@ -517,8 +552,13 @@ pub fn ssdp_location(answer: &str) -> Option<String> {
 /// `http://host:port/path` as its address and path (IPv4 hosts only).
 pub fn split_url(url: &str) -> Option<(SocketAddr, String)> {
     let rest = url.strip_prefix("http://")?;
-    let (authority, path) = rest.split_once('/').map_or((rest, "/".to_owned()), |(a, p)| (a, format!("/{p}")));
-    let addr = if authority.contains(':') { authority.parse().ok()? } else { format!("{authority}:80").parse().ok()? };
+    let (authority, path) =
+        rest.split_once('/').map_or((rest, "/".to_owned()), |(a, p)| (a, format!("/{p}")));
+    let addr = if authority.contains(':') {
+        authority.parse().ok()?
+    } else {
+        format!("{authority}:80").parse().ok()?
+    };
     Some((addr, path))
 }
 
@@ -541,7 +581,9 @@ fn element<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
 }
 
 /// The IGD's WAN connection service in its description: its service type
-/// and control URL (relative to `base`, the description's address).
+/// and control URL (relative to `base`, the description's address). An
+/// absolute control URL must stay on that device: the SOAP POST never goes
+/// to another LAN or loopback host the description names.
 pub fn igd_service(description: &str, base: SocketAddr) -> Option<Igd> {
     for wanted in WAN_SERVICES {
         for block in description.split("<service>").skip(1) {
@@ -551,7 +593,11 @@ pub fn igd_service(description: &str, base: SocketAddr) -> Option<Igd> {
             }
             let control = element(block, "controlURL")?;
             let (host, path) = if control.starts_with("http://") {
-                split_url(control)?
+                let (host, path) = split_url(control)?;
+                if host.ip() != base.ip() {
+                    return None;
+                }
+                (host, path)
             } else {
                 let path = if control.starts_with('/') { control.to_owned() } else { format!("/{control}") };
                 (base, path)
@@ -614,7 +660,8 @@ async fn discover_igd(router: &Router) -> Option<Igd> {
     let deadline = tokio::time::Instant::now() + SSDP_WAIT;
     let mut buffer = [0u8; 2048];
     loop {
-        let (len, from) = tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await.ok()?.ok()?;
+        let (len, from) =
+            tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await.ok()?.ok()?;
         let from_router = from.ip() == IpAddr::V4(router.gateway) || from.ip() == router.ssdp.ip();
         if !from_router {
             continue;
@@ -731,7 +778,8 @@ pub fn linux_gateway(table: &str) -> Option<Ipv4Addr> {
     const RTF_GATEWAY: u32 = 0x2;
     table.lines().skip(1).find_map(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        let (destination, gateway, flags, mask) = (fields.get(1)?, fields.get(2)?, fields.get(3)?, fields.get(7)?);
+        let (destination, gateway, flags, mask) =
+            (fields.get(1)?, fields.get(2)?, fields.get(3)?, fields.get(7)?);
         let flags = u32::from_str_radix(flags, 16).ok()?;
         if *destination != "00000000" || *mask != "00000000" || flags & RTF_GATEWAY == 0 {
             return None;
@@ -789,7 +837,14 @@ fn macos_gateway() -> Option<Ipv4Addr> {
     let mut size: libc::size_t = 0;
     // SAFETY: sysctl with a null buffer only reports the size.
     let found = unsafe {
-        libc::sysctl(mib.as_mut_ptr(), mib.len() as u32, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0)
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as u32,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
     };
     if found != 0 || size == 0 {
         return None;

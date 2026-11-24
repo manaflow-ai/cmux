@@ -980,6 +980,34 @@ mod tests {
     }
 
     #[test]
+    fn wg_endpoints_mapped_label_old_and_new() {
+        // A new Mac's announcement: the mapped address is a plain endpoint
+        // plus the label, which an older phone (unknown fields) skips.
+        let new = SignalPayload::WgEndpoints {
+            generation: 5,
+            endpoints: vec!["192.168.1.9:4000".into(), "203.0.113.7:4000".into()],
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            mapped: vec!["203.0.113.7:4000".into()],
+            mapped_by: Some("upnp".into()),
+        };
+        let value = serde_json::to_value(&new).unwrap();
+        assert_eq!(value["mapped"], serde_json::json!(["203.0.113.7:4000"]));
+        assert_eq!(value["mappedBy"], "upnp");
+        assert_eq!(value["endpoints"][1], "203.0.113.7:4000");
+        assert_eq!(serde_json::from_value::<SignalPayload>(value).unwrap(), new);
+        // An older Mac's: nothing mapped, and nothing new written back.
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-endpoints","generation":1,"endpoints":["203.0.113.7:4000"]}))
+        .unwrap();
+        assert!(
+            matches!(&old, SignalPayload::WgEndpoints { mapped, mapped_by: None, .. } if mapped.is_empty())
+        );
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("mapped"), "{text}");
+    }
+
+    #[test]
     fn wg_versions_and_tls_relayed_addresses() {
         let resp: SignalPayload = serde_json::from_value(serde_json::json!(
             {"kind":"wg-resp","publicKey":"k","endpoints":["9.9.9.9:7"],"overlayIP":"10.77.0.1",

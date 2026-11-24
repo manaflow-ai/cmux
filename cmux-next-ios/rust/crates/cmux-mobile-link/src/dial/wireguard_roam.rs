@@ -708,9 +708,13 @@ impl Session {
         if let Some(task) = lock(&self.mapping).take() {
             task.abort();
         }
-        if let Some((old, _)) = lock(&self.own_mapped).take() {
+        if let Some((old, _)) = lock(&self.own_mapped).take()
+            && !std::mem::take(&mut *lock(&self.mapped_was_offered))
+        {
+            // Only the mapping offered it (not STUN as well).
             lock(&self.endpoints).retain(|endpoint| *endpoint != old);
         }
+        *lock(&self.mapped_was_offered) = false;
         let Ok(net) = self.net() else { return timeline };
         let socket = match bind_udp() {
             Ok(socket) => socket,
@@ -876,7 +880,8 @@ async fn run_control(
     channels: ControlChannels,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
-    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, peer_mapped, signal } = channels;
+    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, peer_mapped, signal } =
+        channels;
     // The latest announcement, for a resend through a new signaling socket.
     let mut latest: Option<RoamMessage> = None;
     let mut generation = 0u64;
@@ -1093,8 +1098,6 @@ pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     Some(session.roam().await)
 }
 
-/// Test support: the endpoints one side of `session_id` last told its peer.
-#[doc(hidden)]
 /// How a dialer's session uses its peer's router mapping now: the protocol
 /// that mapped the peer's offered endpoint, and whether the plain-UDP route
 /// goes to it (`link_stat` `portmap`). `None`: no such session, or the peer
@@ -1105,6 +1108,8 @@ pub fn portmap_use(session_id: &str) -> Option<portmap::PortmapUse> {
     lock(&session.peer_mapped).use_by(route)
 }
 
+/// Test support: the endpoints one side of `session_id` last told its peer.
+#[doc(hidden)]
 pub fn session_endpoints(session_id: &str, dialer: bool) -> Option<Vec<String>> {
     find(session_id, dialer).map(|session| lock(&session.endpoints).clone())
 }
@@ -1229,7 +1234,8 @@ mod tests {
         assert!(endpoints.contains(&"203.0.113.7:41000".to_owned()));
         // Old Mac -> new phone: no label, nothing mapped.
         let old = r#"{"t":"endpoints","generation":2,"endpoints":["203.0.113.7:40000"]}"#;
-        let RoamMessage::Endpoints { endpoints, mapped, mapped_by, .. } = serde_json::from_str(old).unwrap() else {
+        let RoamMessage::Endpoints { endpoints, mapped, mapped_by, .. } = serde_json::from_str(old).unwrap()
+        else {
             panic!("not endpoints")
         };
         assert!(mapped.is_empty() && mapped_by.is_none());
@@ -1240,7 +1246,7 @@ mod tests {
             &["203.0.113.7:41000".to_owned(), "198.51.100.1:1".to_owned()],
             Some("future-proto"),
         );
-        assert_eq!(peer.addresses, vec!["203.0.113.7:41000".parse().unwrap()]);
+        assert_eq!(peer.addresses, vec!["203.0.113.7:41000".parse::<SocketAddr>().unwrap()]);
         assert_eq!(peer.protocol, None);
     }
 }
