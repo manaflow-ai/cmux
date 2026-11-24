@@ -1431,6 +1431,31 @@ async fn bg_chat_once(
     let took = start.elapsed();
     if std::env::var_os("NETCOND_DEBUG").is_some() {
         // What came down, by message type, against the shaper's count.
+        // Each notification, with its biggest session fields, and what lands in the next 1.5 s.
+        let show = |when: &str, v: &Value| {
+            let mut fields: Vec<(String, usize)> = v["params"]["session"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, x)| (k.clone(), x.to_string().len())).collect())
+                .unwrap_or_default();
+            fields.sort_by(|a, b| b.1.cmp(&a.1));
+            fields.truncate(6);
+            eprintln!(
+                "netcond-debug {phase} {when} {} kind {} recordKind {} seq {} bytes {} top {:?}",
+                v["method"],
+                v["params"]["kind"],
+                v["params"]["recordKind"],
+                v["params"]["seq"],
+                v.to_string().len(),
+                fields
+            );
+        };
+        for (_, v) in &link.pending {
+            show("held", v);
+        }
+        let tail_end = Instant::now() + Duration::from_millis(1500);
+        while let Next::Frame(_, v) = link.frame(tail_end).await {
+            show("late", &v);
+        }
         let tapped = link.tap.take();
         let total: u64 = tapped.down.values().map(|(_, b)| b).sum();
         eprintln!(
