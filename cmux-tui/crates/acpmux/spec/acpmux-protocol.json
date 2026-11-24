@@ -2906,6 +2906,7 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,
