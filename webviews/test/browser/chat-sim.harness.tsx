@@ -298,7 +298,6 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   };
 }
 
-
 /** Plays `name` in real time (each step at its virtual time; a wait over `maxWaitMs` is cut to it) with
  *  the pane's motion as the page has it, while a per-frame watcher (chatChurnWatch.ts) reads every drawn
  *  row: the layout shifts above the reader's anchor and the rows drawn under a second. */
@@ -334,6 +333,5 @@ async function live(name: string, { maxWaitMs = 3_000 }: { maxWaitMs?: number } 
   await sleep(2_000);
   return watch.stop();
 }
-
 
 Object.assign(window, { __chatSim: { run, at, dump, watch, live } });
