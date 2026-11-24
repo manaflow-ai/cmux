@@ -352,6 +352,8 @@ impl Hub {
                         cmux_worktree_care::procs::open_inside(root)
                     }
                 }),
+                // A recorded session on the Desktop: no git there unasked (LAUNCH-NO-TCC-PROMPTS).
+                guarded: Arc::new(crate::protected_folders::in_protected_location),
                 settings: CareSettings::default(),
                 apply,
                 pressure: None,

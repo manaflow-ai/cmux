@@ -184,6 +184,7 @@ pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod page_replies;
 pub(crate) mod row_log;
+pub(crate) mod subagent_list;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
