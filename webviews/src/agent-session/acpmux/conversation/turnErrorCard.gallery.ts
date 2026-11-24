@@ -49,11 +49,14 @@ const compactCommand = { name: "compact", description: "Clear conversation histo
 const contextFull =
   'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}';
 
-const cloudFailed = (error: string) => {
-  const snapshot = chat([
-    user(prompt, 6, { id: "cloud-request" }),
-    summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
-  ]);
+const cloudFailed = (error: string, fields: Parameters<typeof chat>[1] = {}) => {
+  const snapshot = chat(
+    [
+      user(prompt, 6, { id: "cloud-request" }),
+      summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
+    ],
+    fields,
+  );
   if (snapshot.summary) {
     delete snapshot.summary.host;
     delete snapshot.summary.hostKind;
@@ -107,9 +110,14 @@ export default agentPaneEntry({
       snapshot: cloudFailed("HTTP 403 Forbidden"),
     },
     "cloud-expired-no-agent-login": {
-      note: "The same expired login on a machine whose acpmux runs no agent login (an older one): Switch model is the card's way on.",
+      note: "The same expired login on a machine whose acpmux runs no agent login (an older one) and whose chat names no login command: Switch model is the card's way on.",
       ready: { cloudMachineID: "gallery-vm" },
       snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
+    },
+    "cloud-expired-older-machine": {
+      note: "The same expired login on an older machine (no agent-login-v1) whose agent names its login: Sign in again leads, running that login in a terminal on the machine, and one sentence says why.",
+      ready: { cloudMachineID: "gallery-vm" },
+      snapshot: cloudFailed("OAuth token expired (HTTP 401)", { catalog: signedOutCatalog }),
     },
     "usage-limit-resets": {
       note: 'Claude Code\'s used-up subscription limit names its reset (`|epoch`): the card says when it resets, not "in a moment".',

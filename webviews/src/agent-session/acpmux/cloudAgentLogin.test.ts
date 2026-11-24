@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cloudAgentLogin, localAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localAgentLogin, localApiKeyLogin, terminalSignIn } from "./cloudAgentLogin";
 
 type Call = [string, ...unknown[]];
 
@@ -133,4 +133,26 @@ test("a chat on this Mac gets the in-place card for its built-in agent; a route 
   for (const route of ["claude-sr", "claude-cr"]) expect(localAgentLogin(options({}, route).login)).toBeUndefined();
   expect(localAgentLogin(options({ elsewhere: true }, "claude").login)).toBeUndefined();
   expect(localAgentLogin(options({ machineID: "m-1" }, "claude").login)).toBeUndefined();
+});
+
+// Sign in again (the agent's own login in a terminal on the chat's machine) stays where it was (a
+// chat off Cloud) and now also reaches an older Cloud machine, whose acpmux signs nothing in from the
+// card. A current machine keeps its card, and a team machine takes no personal login.
+test("Sign in again runs the agent's login in a terminal on an older Cloud machine, not a current or team one", () => {
+  const base = {
+    connected: true,
+    loginCommand: "claude /login",
+    card: undefined,
+    onCloud: true,
+    machineSignsIn: false,
+    teamMachine: false,
+  };
+  expect(terminalSignIn(base)).toEqual({ runs: true, onCloud: true });
+  expect(terminalSignIn({ ...base, machineSignsIn: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, teamMachine: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, loginCommand: undefined })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, connected: false })).toEqual({ runs: false, onCloud: false });
+  // Off Cloud: as before, whatever the machine signs in.
+  expect(terminalSignIn({ ...base, onCloud: false })).toEqual({ runs: true, onCloud: false });
+  expect(terminalSignIn({ ...base, onCloud: false, machineSignsIn: true })).toEqual({ runs: true, onCloud: false });
 });

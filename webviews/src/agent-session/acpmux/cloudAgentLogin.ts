@@ -319,6 +319,28 @@ export function refusedStartSignIn(options: {
   };
 }
 
+/// Whether a failed turn's Sign in again runs the agent's own login command in a terminal (the
+/// chat pane's terminal opens on the chat's machine): only where the card has no in-place sign-in.
+/// A chat on this Mac or an own machine keeps it as before. A Cloud chat gets it only when its
+/// machine's acpmux runs no `agent_login` (an older machine, built before `agent-login-v1`), which
+/// otherwise left the card with Switch model alone; never on a team Cloud machine, which takes no
+/// personal login. `onCloud`: the chat's machine is a Cloud one.
+export function terminalSignIn(options: {
+  connected: boolean;
+  loginCommand: string | undefined;
+  card: CloudSignIn | undefined;
+  onCloud: boolean;
+  machineSignsIn: boolean;
+  teamMachine: boolean;
+}): { runs: boolean; onCloud: boolean } {
+  const runs =
+    options.connected &&
+    options.loginCommand !== undefined &&
+    options.card === undefined &&
+    (!options.onCloud || (!options.machineSignsIn && !options.teamMachine));
+  return { runs, onCloud: runs && options.onCloud };
+}
+
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
 /// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
