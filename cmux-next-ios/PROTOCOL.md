@@ -1378,7 +1378,11 @@ way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
   (timeline mark `wg_silent_turn_tls`) and announces it as a roam does,
   through signaling too (`wg-endpoints`), so the peer sends there. Until its
   next roam that side takes TURN over TCP or TLS only. A side already on TURN
-  over TLS, or with no `turns:` or TCP `turn:` server, does nothing.
+  over TLS, or with no `turns:` or TCP `turn:` server, does nothing. Both
+  sides then send a handshake initiation at once (the escalating side on its
+  new allocation, the peer on the announcement); after answering the peer's,
+  a side waits up to 2 s for the peer's first data before it starts another
+  (cmux-wg `ANSWER_WAIT`), so the two crossing handshakes complete.
 
 Debug builds add Settings → Transport → Developer → "Proxy only" and "Drop
 WireGuard" (`DeveloperOptions.proxyOnlyKey`, `dropWireGuardKey`;
