@@ -205,6 +205,9 @@ async fn a_full_batch_of_kept_chats_neither_spins_the_reaper_nor_starves_the_res
     let now = std::time::Duration::from_nanos(hub.clock_now());
     let next = hub.next_evict_deadline().expect("candidates");
     assert!(next > now, "no deadline in the past: {next:?} <= {now:?}");
+    // The next pass comes after the held chats are due again (a slow host): the chats it never
+    // tried still go first.
+    std::thread::sleep(after * 2);
     let second = hub.evict_idle_chats();
     assert_eq!(first + second, 40, "the unheld chats all leave within two passes");
     assert_eq!(hub.eviction_counts().0, 40);
