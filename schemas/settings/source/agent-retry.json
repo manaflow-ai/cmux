@@ -108,7 +108,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 3,
+          "default": 1,
           "keywords": [
             "retry",
             "capacity",

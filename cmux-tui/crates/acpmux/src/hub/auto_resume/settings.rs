@@ -14,8 +14,13 @@ pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
 /// (`capacity_failover.rs`); 0 never switches.
 pub const SETTING_CAPACITY_FALLBACK: &str = "agents.autoRetry.capacityFallbackAfter";
 
-/// [`SETTING_CAPACITY_FALLBACK`]'s default: three capacity failures, then the smaller model.
-pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 3;
+/// [`SETTING_CAPACITY_FALLBACK`]'s default: the first capacity failure's continuation already
+/// runs on the smaller model. Measured by the 529-storm chaos test (cmux#54913: 24 chats, a 90 s
+/// storm): at 3 no chat failed over before the storm ended (the third attempt waits
+/// 10 + 60 + 300 s) and 1995 s were lost against base's 1841 s; at 1 every chat that hit it
+/// failed over (14 of 14), all came back to their model, and 1324 s were lost (-28%), none after
+/// the storm.
+pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 1;
 
 /// The capacity failover's attempt in force: `configured` (config.json's
 /// `capacityFallbackAfter`) when set, else the settings file's, else the default. Held to
