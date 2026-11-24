@@ -13,10 +13,11 @@ import type { StringKey } from "./i18n";
 /// The daemon request (acpmux rpc.rs `MUX_PLACE_CHAT`).
 export const PLACE_CHAT_METHOD = "_acpmux/place_chat";
 
-/// How Auto draws in the chip and the menu (autoWhere.css). `orbit` ships; the rest are the
-/// gallery's variants (AutoWhere.gallery.tsx).
-export type AutoLook = "orbit" | "constellation" | "aurora" | "plain";
-export const AUTO_LOOK: AutoLook = "orbit";
+/// How Auto draws in the chip and the menu (autoWhere.css). `split` ships (Leo 2026-11-24: "the auto
+/// icon i assume necessarily has to be the half and half computer/cloud icon with the angled slash");
+/// the rest are the gallery's variants (AutoWhere.gallery.tsx).
+export type AutoLook = "split" | "orbit" | "constellation" | "aurora" | "plain";
+export const AUTO_LOOK: AutoLook = "split";
 
 /// A place Auto may put the chat, with what is known of its room (place.rs `Headroom`). Data, so the
 /// list is not two places hard-coded: Cloud today, the person's own machines later.
