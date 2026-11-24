@@ -1424,6 +1424,11 @@ ui_cold_tests() {
 # cmux-duress link knob is the existing seeded cmux-fault shaper used by the
 # duress replay generator. `idle,link=PROFILE` gives a shaped, otherwise idle,
 # run when the caller asks for net= with duress=off.
+# Rust builds here run from inside cmux-tui: rustup picks the toolchain from the current
+# directory's rust-toolchain.toml (cmux-tui/rust-toolchain.toml), and --manifest-path does not
+# count. From the repo root a worker with no rustup default fails ("rustup could not choose a
+# version of cargo to run"; two Mac workers, 2026-11-24, steps 93ff6323 and
+# 83a54e14 lost every duress= UI pass).
 ui_cold_matrix() {
   local spec net effective slug dir t1
   local specs=() nets=()
@@ -1431,7 +1436,7 @@ ui_cold_matrix() {
   if [[ ${#net_profiles[@]} -gt 0 ]]; then nets=("${net_profiles[@]}"); else nets=(off); fi
   if [[ " ${specs[*]} " != " off " || " ${nets[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+    if ! (cd cmux-tui && cargo build --release --quiet -p cmux-duress --no-default-features) >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi
@@ -1482,7 +1487,7 @@ ui_duress_runs() {
   ui_action=test-without-building
   if [[ " ${duress_specs[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+    if ! (cd cmux-tui && cargo build --release --quiet -p cmux-duress --no-default-features) >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi
@@ -1999,7 +2004,7 @@ if [[ "$mode" == listperf ]]; then
           # One heavy coordinator's records from coord-sim (cmux-tui/crates/coord-sim, serde only: a few seconds to
           # build), written once, copied into this install's data container for CoordSimReplaySource.
           if [[ ! -s "$lp/coord-sim/coord-sim-chat.ndjson" ]]; then
-            cargo build --quiet --release --manifest-path cmux-tui/crates/coord-sim/Cargo.toml &&
+            (cd cmux-tui/crates/coord-sim && cargo build --quiet --release) &&
               cmux-tui/crates/coord-sim/target/release/coord-sim surface --target ios --out "$lp/coord-sim" \
                 --history "${COORD_SIM_HISTORY:-3000}" --rate "${COORD_SIM_RATE:-10}" --seconds 90 \
                 --max-event-bytes 65536 >"$lp/coord-sim.txt" 2>&1 ||
