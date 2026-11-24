@@ -137,7 +137,7 @@ fn heaviest_follows_the_rules_order() {
     assert_eq!(rules.heaviest([]), Kind::NoApp);
 }
 
-fn files(paths: &[&str]) -> Vec<(Status, String, Vec<(char, String)>)> {
+fn files(paths: &[&str]) -> Vec<SavedFile> {
     paths.iter().map(|p| (Status::Modified, p.to_string(), Vec::new())).collect()
 }
 
@@ -377,11 +377,7 @@ fn scratch(name: &str) -> Scratch {
     Scratch(std::fs::canonicalize(&dir).unwrap())
 }
 
-fn spawn(
-    root: &Path,
-    state: Option<PathBuf>,
-    live: Live,
-) -> (Sender<Wake>, std::sync::mpsc::Receiver<Value>) {
+fn spawn(root: &Path, state: Option<PathBuf>, live: Live) -> (Sender<Wake>, Receiver<Value>) {
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     let emit: Emit = Arc::new(move |payload| {

@@ -34,8 +34,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Mux;
-use route::{Action, Dispatch, Layer, Live, Saved};
+use route::{Action, Dispatch, Live, Saved};
 use rules::{FfiClosure, Rules, Status};
+
+/// One saved path: its status against HEAD, the path, and (Swift only) its
+/// `-U0` diff lines.
+pub type SavedFile = (Status, String, Vec<(char, String)>);
 
 /// A burst ends when no save came for this long.
 pub const QUIET: Duration = Duration::from_millis(8);
@@ -221,7 +225,7 @@ pub fn ffi_closure(root: &Path) -> Result<FfiClosure, String> {
 
 /// Each saved path's status against HEAD, and the `-U0` diff of the Swift
 /// ones (the only files whose verdict reads lines).
-fn saved_files(root: &Path, paths: &[String]) -> Vec<(Status, String, Vec<(char, String)>)> {
+fn saved_files(root: &Path, paths: &[String]) -> Vec<SavedFile> {
     let swift: Vec<&str> = paths
         .iter()
         .filter(|p| p.ends_with(".swift") && root.join(p).exists())
@@ -287,11 +291,7 @@ pub fn parse_diff(text: &str) -> HashMap<String, Vec<(char, String)>> {
 }
 
 /// Classifies and routes one burst: the pure part, with what runs given.
-pub fn plan(
-    rules: &Rules,
-    files: &[(Status, String, Vec<(char, String)>)],
-    live: Live,
-) -> Vec<Dispatch> {
+pub fn plan(rules: &Rules, files: &[SavedFile], live: Live) -> Vec<Dispatch> {
     let saved: Vec<Saved> = files
         .iter()
         .map(|(status, path, diff)| Saved {
@@ -457,7 +457,7 @@ fn receipt_event(
     let ms = entry
         .get("save_to_swapped_secs")
         .and_then(Value::as_f64)
-        .map(|secs| round_ms(secs))
+        .map(round_ms)
         .unwrap_or_else(|| round_ms(now - item.saved_at));
     // `server restart` (no app hand-off) ends the daemon's sessions; an
     // app hand-off and acpmux's restart keep them.
@@ -743,7 +743,7 @@ impl Watch {
 
     fn run(self, wake: Sender<Wake>, wakes: Receiver<Wake>) {
         // Armed first: a save while the rules load waits in the channel.
-        let sender = wake.clone();
+        let sender = wake;
         let mut watcher = match notify::recommended_watcher(move |event| {
             let _ = sender.send(Wake::Fs(event));
         }) {
@@ -893,7 +893,7 @@ impl Watch {
         for dispatch in &dispatches {
             match dispatch.action {
                 Action::Observed | Action::Report => {
-                    (self.emit)(event(&self.root, dispatch, trigger_ms))
+                    (self.emit)(event(&self.root, dispatch, trigger_ms));
                 }
                 Action::HandOff => handed.push(Pending {
                     worktree: self.root.clone(),
