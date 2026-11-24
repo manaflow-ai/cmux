@@ -47,6 +47,8 @@ GUARDED: dict[str, tuple[str, ...]] = {
     "cmux-next.yml": ("full-ci", "ready-to-land"),
     # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM
     # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
+    # Routes only the land handoff (scripts/ci/head_tier.py land rule): a ready-to-land head runs the full tier.
+    "pr-router.yml": ("ready-to-land",),
     "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
 }
 
