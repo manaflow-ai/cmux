@@ -1,5 +1,5 @@
 import Darwin
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 import os
 
