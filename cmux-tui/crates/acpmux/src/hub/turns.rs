@@ -2344,10 +2344,14 @@ impl Hub {
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
     pub(super) async fn drain_inbound(session: &Session) {
+        // No channel yet: nothing was ever sent to the chat, so nothing is left to handle.
+        let Some(channel) = session.inbound.get() else {
+            return;
+        };
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
+            channel.tx.send(crate::agent::Inbound::Barrier(done)),
         )
         .await;
         if matches!(queued, Ok(Ok(()))) {

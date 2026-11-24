@@ -315,8 +315,9 @@ pub struct Session {
     /// period instead of the idle one; its next prompt starts it on what is installed then.
     /// Cleared with `profile_respawn`, when its agent ends or starts.
     pub(super) respawn_when_quiet: AtomicBool,
-    pub(super) inbound_tx: mpsc::Sender<Inbound>,
-    pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
+    /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
+    pub(super) inbound: std::sync::OnceLock<InboundChannel>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
     /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
     pub(super) closed: tokio::sync::watch::Sender<bool>,
@@ -611,7 +612,34 @@ pub struct Session {
     pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
+/// A chat's inbound channel ([`Session::inbound`]).
+pub(super) struct InboundChannel {
+    pub(super) tx: mpsc::Sender<Inbound>,
+    pub(super) rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+}
+
+/// How many items a chat's inbound channel holds before its producers wait.
+const INBOUND_CAPACITY: usize = 1024;
+
 impl Session {
+    /// The chat's inbound channel, made now when this is its first use.
+    pub(super) fn inbound_channel(&self) -> &InboundChannel {
+        self.inbound.get_or_init(|| {
+            let (tx, rx) = mpsc::channel(INBOUND_CAPACITY);
+            InboundChannel { tx, rx: Mutex::new(Some(rx)) }
+        })
+    }
+
+    /// The chat's own sender ([`Session::inbound_channel`]).
+    pub(super) fn inbound_tx(&self) -> &mpsc::Sender<Inbound> {
+        &self.inbound_channel().tx
+    }
+
+    /// The receiver, while no inbound loop holds it ([`Session::inbound_channel`]).
+    pub(super) fn inbound_rx(&self) -> &Mutex<Option<mpsc::Receiver<Inbound>>> {
+        &self.inbound_channel().rx
+    }
+
     /// The chat's inbox, restored from its log first when its log is read and nothing has read
     /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
     /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
