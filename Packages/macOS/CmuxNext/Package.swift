@@ -2391,6 +2391,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDictation",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalFind",
                 "CmuxNextTestSupport",
             ],
             swiftSettings: uiSwiftSettings,

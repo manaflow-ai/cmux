@@ -33,6 +33,8 @@ public final class TerminalSession {
     public let view: TerminalHostView
     /// The find bar over this terminal and the search it drives.
     public let find = TerminalFindController()
+    /// The daemon's whole-history search for this terminal (set by its owner); nil searches only the screen.
+    public var historyFind: (any TerminalFindHistory)?
     public weak var delegate: (any TerminalSessionDelegate)? {
         didSet { linkCheck = delegate?.terminalSessionLinkCheck(self) }
     }

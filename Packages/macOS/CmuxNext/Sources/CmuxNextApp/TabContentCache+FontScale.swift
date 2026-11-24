@@ -11,6 +11,8 @@ extension TabContentCache {
     /// A session for `tab` that follows its record's font scale.
     func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
         let session = TerminalSession(io: io, ownsGeometry: true)
+        // Cmd-F searches the daemon's whole history, not just the screen this mirror holds.
+        session.historyFind = DaemonHistoryFind(daemon: daemon, surface: tab.surface)
         let key = tab.id
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
