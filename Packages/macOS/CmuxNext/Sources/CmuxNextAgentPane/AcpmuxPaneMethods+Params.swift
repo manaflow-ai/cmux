@@ -64,9 +64,10 @@ nonisolated extension AcpmuxPaneMethods {
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
@@ -122,6 +123,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // Which of the page's requests the daemon still runs (AcpmuxRequestIds.requestStateMethod).
+        "_acpmux/request_state": ([], []),
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
         // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
         // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
