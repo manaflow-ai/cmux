@@ -56,9 +56,13 @@ ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$work/app/cmux NIGHT
 hdiutil detach "$mnt" >/dev/null; mnt=""
 "$side" make "$name" --from "$work/app/cmux NIGHTLY.app" --label "cmux ext rows" --customize >&2 || exit 3
 app="$("$side" path "$name")"
+config="$CMUX_SIDE_ROOT/$name/config/cmux-next.json"
+if [[ ",${rows:-mcp_tools}," == *,mcp_tools,* ]]; then
+  echo '{"agents":{"cmuxMcp":"on"}}' > "$config" || exit 3
+fi
 "$side" launch "$name" >&2 || exit 3
 python3 scripts/measure/ext-rows-nightly.py --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
-  --control-socket "$("$side" socket "$name")" \
+  --control-socket "$("$side" socket "$name")" --mcp-config "$config" \
   --customize "$CMUX_SIDE_ROOT/$name/customize" --out "$out" ${rows:+--rows "$rows"} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 "$side" stop "$name" >&2 || true
