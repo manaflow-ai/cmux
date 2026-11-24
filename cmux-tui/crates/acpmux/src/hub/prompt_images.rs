@@ -23,7 +23,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -189,9 +189,16 @@ pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize>
             continue;
         }
         crate::home_fs::create_dirs(dir())?;
-        let tmp = dir().join(format!(".{id}.moving"));
-        crate::home_fs::write(&tmp, &bytes)?;
-        std::fs::rename(&tmp, &dest)?;
+        // Written aside under a name of its own and renamed, as `keep_indexed` does: two moves
+        // arriving with one image never write the same partial file, and the rename goes
+        // through the folder this daemon holds (`home_fs`).
+        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+        let written = write_owner_only(&partial, &bytes)
+            .and_then(|()| crate::home_fs::rename(&partial, &dest));
+        if let Err(e) = written {
+            let _ = crate::home_fs::remove_file(&partial);
+            return Err(e);
+        }
         kept += 1;
     }
     Ok(kept)

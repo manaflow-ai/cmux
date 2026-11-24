@@ -19,7 +19,8 @@ pub struct AppOpenArgs {
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct MoveSessionsArgs {
-    /// The chats to move (ids or names); none with --all-idle.
+    /// The chats to move (ids or names). Use HOST/CHAT for a chat on another hub machine,
+    /// with --machine local to bring it here. Omit with --all-idle.
     #[arg(required_unless_present = "all_idle")]
     pub sessions: Vec<String>,
     /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
@@ -217,6 +218,10 @@ pub enum Command {
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
     Ledger(crate::cli::ledger::LedgerArgs),
+    /// The harness-magic scorecard of this machine's turns: tokens and leo-units per settled pull
+    /// request, steering rate, time to the first useful result, firstModelMs, requests per turn,
+    /// cache-hit ratio and every harnessMagic counter, by the features the turns ran with.
+    Scorecard(crate::cli::scorecard::ScorecardArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -669,6 +674,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// Download one large file over parallel range requests (16 by default), for a path where
+    /// one stream is slow (a Cloud VM's IPv4 from GitHub). Follows redirects; checks the length
+    /// and, with --sha256, the hash before the file appears at -o.
+    Fetch(crate::cli::fetch::FetchArgs),
     /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
     /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
     #[command(subcommand)]
@@ -799,6 +808,14 @@ pub enum Command {
         #[arg(long)]
         refresh: bool,
     },
+    /// A Cloud machine: make the reserved folder of its first home chat and warm an agent in it
+    /// (`hub/pool/reserved.rs`). The Cloud app runs it right after keying a spare machine.
+    #[command(name = "warm-home", hide = true)]
+    WarmHome {
+        /// Answer once the agent is ready, not when it starts.
+        #[arg(long)]
+        wait: bool,
+    },
     #[command(hide = true)]
     Info {
         session: String,
@@ -815,6 +832,8 @@ pub enum Command {
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
+        #[command(flatten)]
+        close: CloseArgs,
     },
     #[command(hide = true)]
     RestartAgent { session: String },
@@ -830,6 +849,7 @@ pub enum Command {
         held: bool,
         fleet: bool,
         allow: Vec<String>,
+        set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
     },
@@ -995,6 +1015,9 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// `daemon felt`: the felt-latency histograms (the net graph).
+    #[command(hide = true)]
+    DaemonFelt,
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1309,8 +1332,10 @@ pub enum SessionCmd {
     },
     /// Cancel the running turn.
     Cancel { session: String },
-    /// Stop the agent process. The session stays resumable.
-    #[command(alias = "kill")]
+    /// Stop the agent process. The session stays resumable. The stop is recorded with who asked,
+    /// `--reason` and `--outcome` (`ls --closed --json` rows' `close`); a lane with work stopped
+    /// with no `--outcome` is recorded `unfinished`.
+    #[command(alias = "kill", alias = "close")]
     Stop {
         session: String,
         #[command(flatten)]
@@ -1320,6 +1345,8 @@ pub enum SessionCmd {
         purge: bool,
         #[command(flatten)]
         condition: StopIf,
+        #[command(flatten)]
+        close: CloseArgs,
     },
     /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
     /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
@@ -1331,18 +1358,24 @@ pub enum SessionCmd {
     /// Hold a session: it takes no turn until the person asks for it. Every other agent's
     /// message, tool notice or background task's end waits in its inbox; its idle agent is
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
-    /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
+    /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them.
+    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
+    /// `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
         /// Hold this machine's whole fleet of sessions.
         #[arg(long)]
         fleet: bool,
-        /// With `--fleet`: names that keep running, comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
+        /// With `--fleet`: names added to the allowlist (it keeps the ones already there),
+        /// comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
         #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
+        /// With `--fleet`: replace the whole allowlist with these names (then `--allow` adds to
+        /// it); `--set-allow ''` empties it.
+        #[arg(long, value_delimiter = ',', num_args = 0..=1)]
+        set_allow: Option<Vec<String>>,
         /// With `--fleet`: why, shown in each refusal.
         #[arg(long)]
         reason: Option<String>,
@@ -1790,6 +1823,10 @@ pub enum DaemonCmd {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// The felt-latency histograms of the running daemon (the net graph): p50, p90 and p99 of what a
+    /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
+    /// start. Numbers and names only.
+    Felt,
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -1891,27 +1928,48 @@ pub struct StopIf {
     pub expect_revision: Option<u64>,
 }
 
+/// Why `session stop` closes the session (`close_why.rs`): recorded, never a condition.
+#[derive(Args, Clone, Debug, Default, PartialEq, Eq)]
+pub struct CloseArgs {
+    /// How the session's work ended: `done` or `dropped`. Left out on a lane with work (a
+    /// `lane.reportsTo` or `goal` tag), the close is recorded `unfinished`.
+    #[arg(long, value_parser = ["done", "dropped"])]
+    pub outcome: Option<String>,
+    /// Why it is closed, in a few words; kept with the close.
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
+}
+
 /// Map the grouped spellings onto the flat handlers.
 pub fn flatten(c: Command) -> Command {
     match c {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
-                Command::Kill { session, purge, condition }
+            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, condition, close }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, reason, status } => {
-                Command::SessionHold { session, held: true, fleet, allow, reason, status }
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+                Command::SessionHold {
+                    session,
+                    held: true,
+                    fleet,
+                    allow,
+                    set_allow,
+                    reason,
+                    status,
+                }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
                 fleet,
                 allow: Vec::new(),
+                set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
             },
@@ -2013,6 +2071,7 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
+            DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },

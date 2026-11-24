@@ -112,6 +112,12 @@ import CmuxNextCompat
         return now() - last <= Self.lifetime
     }
 
+    /// A focus-changing presentation uses a recent event, like the shared page host.
+    func consume(within seconds: TimeInterval) -> Bool {
+        guard let last, now() - last <= seconds else { return false }
+        return consume()
+    }
+
     /// Uses the gesture for a prompt the person sent: true once per recorded gesture, however old.
     /// Only a send with no key press or click of the person's left is refused, never one for its
     /// age: on a loaded Mac the page's prompt reaches the host well past ``lifetime`` after the

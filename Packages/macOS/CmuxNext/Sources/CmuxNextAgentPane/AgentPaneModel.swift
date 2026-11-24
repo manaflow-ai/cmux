@@ -226,6 +226,7 @@ public final class AgentPaneModel {
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
     @ObservationIgnored public var remoteChat = false
+    @ObservationIgnored var repositoryClone = AgentPaneRepositoryClone()
     /// The origin the pane's page is served from, which its granted media URLs use (the page's CSP
     /// plays media only from its own origin): the pane's own host, or the shared page host's
     /// (``AgentPaneMediaGrants/pageOrigin``), set by the view that hosts the page there.
@@ -250,7 +251,7 @@ public final class AgentPaneModel {
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
-    @ObservationIgnored public let tabRow = AgentPaneTabRow()
+    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard)
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
@@ -601,7 +602,6 @@ public final class AgentPaneModel {
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .addAccount(let account): return await account.reply(in: self)
         case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
-        case .restartStuckAcpmux: return await AgentPaneHandshakeReply.restartStuckAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
@@ -634,8 +634,9 @@ public final class AgentPaneModel {
                 AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
             }
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled, let copy):
+        case .painted(let fromKeptTail, let settled, let copy, let live):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            if settled, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.painted_settled") }
             // The page's own app drew the chat (not the inert saved copy): what the relaunch bench times as
             // the chat drawn live (scripts/ci/relaunch_restore_check.py `page_painted_ms`, goal restart-to-chat).
             if !copy, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.page_painted") }
@@ -650,8 +651,10 @@ public final class AgentPaneModel {
             markPainted()
             let reloadWaiters = reloadPaintWaiters
             for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
-            // acpmux's settled view is on screen: a remote chat's `agent.chat.live_paint`, once per chat.
-            if settled, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
+            // The chat on screen is the live one: acpmux's settled view, or the page's attach to the chat
+            // answered (`live`, a chat's first open, which has no settled view yet). A remote chat's
+            // `agent.chat.live_paint`, once per chat.
+            if settled || live, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
         case .runAttach(let request): return await request.attach(in: self)
@@ -995,6 +998,8 @@ public final class AgentPaneModel {
             return await beginSendUpload(stage, ticket: ticket)
         case .gitHub(.checkout(let repo, let candidates, let key)):
             return await AgentPaneGitWriteReply.gitHubCheckout(repo: repo, candidates: candidates, key: key, userGesture: userGesture, in: self)
+        case .gitHub(.cloneURL(let url, let key)):
+            return await AgentPaneRepositoryClone.reply(url: url, key: key, userGesture: userGesture, in: self)
         case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }
