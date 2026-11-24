@@ -55,13 +55,17 @@ const READ_METHODS: &[&str] = &[
 /// `acpmux last` of it worked).
 const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, method::MUX_WAIT];
 
-/// The changes a read message carries too: each renames one session, so running it twice (the
+/// The changes a read message carries too: each changes one session so that running it twice (the
 /// hub may lease a message again) leaves it as once. The receiver runs one only for a sender its
 /// `controlFrom` trusts with a lifecycle op, never one granted `read` alone. Leo, 2026-11-23:
 /// "the renaming paradigm still hasn't hit yet" (`acpmux rename HOST/ID NAME [--handle]` from a
 /// lane VM answered no_session for every session only the hub reaches, while `acpmux info` of
-/// the same `HOST/ID` worked).
-const WRITE_METHODS: &[&str] = &[method::MUX_RENAME];
+/// the same `HOST/ID` worked). A retry of a failed turn too (`_acpmux/retry`): a second delivery
+/// finds the first's turn under way (`retry.busy`) or the turn no longer failed
+/// (`retry.nothing_failed`), so it sends nothing twice. 2026-11-24: `acpmux retry HOST/NAME` of
+/// a lane only the hub reaches, cut by the SR2 pool's 503, answered "the mesh hub does not carry
+/// _acpmux/retry", so nothing could resume it from here.
+const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
@@ -80,6 +84,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
         method::MUX_HISTORY => &["limit"],
         method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
         method::MUX_RENAME => &["newName", "to", "newHandle"],
+        method::MUX_RETRY => &["subagentId"],
         _ => &[],
     }
 }
