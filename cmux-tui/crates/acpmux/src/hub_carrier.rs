@@ -6,7 +6,7 @@
 //! Nothing here is a second relay or a second handshake. The relay is the Cloud carrier's
 //! (cmux `relays/cloudflare-do`, Worker `cmux-remote-relay-<env>`), reached with cmux-remote's
 //! relay client ([`RelayProvider`] to dial, [`spawn_relay_daemon_registration`] to serve), and
-//! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link`],
+//! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link_pipelined`],
 //! [`accept_secure_link`]) with each machine's node key (`node.wg.key`, whose public half the hub
 //! already holds as the machine's `daemonId`). The relay and the platform see ciphertext only.
 //!
@@ -80,7 +80,7 @@ use bytes::Bytes;
 use cmux_remote::crypto::{
     AuthGrant, AuthKind, AuthRequest, ClientAuthMode, ClientHandshake, ConnectionAttemptId,
     CryptoError, InboundAuthEvidence, NetworkPeer, ServerAuthenticator, ServiceAuthority,
-    StaticIdentity, accept_secure_link, initiate_secure_link, public_key_fingerprint,
+    StaticIdentity, accept_secure_link, initiate_secure_link_pipelined, public_key_fingerprint,
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
@@ -149,6 +149,12 @@ pub enum CircuitService {
     /// "control for my other machines signed in to this account" on that machine
     /// ([`SessionGate`], `cmux_tui_service.rs`); refused by default.
     CmuxTuiSession,
+    /// Calls this machine's acpmux daemon runs for another of the person's machines, one JSON
+    /// line each way per call (`machine_call_service.rs`): Computer Use here for an agent whose
+    /// loop runs on that machine. Hello `{"service":"machine-call"}`. Reached only while the
+    /// person granted "control for my other machines signed in to this account" on this machine
+    /// ([`MachineCallGate`]); refused by default.
+    MachineCall,
     /// The pages of a chat this machine is moving to the dialer (`hub/transfer_pull.rs`):
     /// length-prefixed JSON requests `read` and `renew`, served by [`TransferGate`] for a move
     /// whose target is the dialer's Noise-proven key. Hello `{"service":"acpmux-transfer"}`.
@@ -170,9 +176,13 @@ pub trait TransferGate: Send + Sync + 'static {
     async fn serve(&self, from: String, io: tokio::io::DuplexStream);
 }
 
+/// The service name a hello gives [`CircuitService::MachineCall`].
+pub const MACHINE_CALL_SERVICE: &str = "machine-call";
+
 /// Which of a pair's two kept circuits a stream rides (RFD 0039 cut 5, H13): a cheap read never
 /// waits behind bulk bytes in one circuit's TCP. A plain port pipe (`remote.pipe`: ssh, scp,
-/// rsync, a forwarded port) is bulk; the acpmux and cmux-tui session services are cheap.
+/// rsync, a forwarded port) is bulk; the acpmux and cmux-tui session services are cheap, and so is
+/// a machine call (one bounded line each way, which a click must not wait behind a copy for).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CircuitLane {
     Cheap,
@@ -182,8 +192,11 @@ pub enum CircuitLane {
 impl CircuitLane {
     pub fn of(service: CircuitService) -> Self {
         match service {
-            CircuitService::CmuxTui { .. } => Self::Bulk,
-            CircuitService::Acpmux | CircuitService::CmuxTuiSession => Self::Cheap,
+            // A move's pages are bulk bytes, as a port pipe's are.
+            CircuitService::CmuxTui { .. } | CircuitService::TransferSource => Self::Bulk,
+            CircuitService::Acpmux
+            | CircuitService::CmuxTuiSession
+            | CircuitService::MachineCall => Self::Cheap,
         }
     }
 
@@ -203,6 +216,9 @@ pub const SESSION_TARGET: &str = "session";
 pub const SERVICE_HELLO: &[u8] = b"\0cmux-circuit/1\n";
 /// The service name a hello gives [`CircuitService::CmuxTui`].
 pub const CMUX_TUI_SERVICE: &str = "cmux-tui";
+/// The service name a kept circuit's stream gives [`CircuitService::Acpmux`]. A plain circuit
+/// to the acpmux listener still sends no hello, so a daemon from before this name reads it.
+pub const ACPMUX_SERVICE: &str = "acpmux";
 /// The longest hello or answer record.
 const MAX_HELLO_BYTES: usize = 1024;
 
@@ -242,21 +258,41 @@ pub trait SessionGate: Send + Sync + 'static {
     async fn admit(&self, from: &str) -> Result<std::path::PathBuf, ServiceRefusal>;
 }
 
-/// The hello record of `service`; None for the acpmux listener, whose circuits send none.
+/// Whether this machine runs calls for another of the person's machines
+/// ([`CircuitService::MachineCall`]), and the stream its handler answers on.
+#[async_trait]
+pub trait MachineCallGate: Send + Sync + 'static {
+    /// This machine's end of the circuit, its handler already reading the other end, for a
+    /// circuit from the machine whose hub `daemonId` is `from` (as the Noise handshake proved
+    /// it), or why it may not.
+    async fn open(&self, from: &str) -> Result<HubStream, ServiceRefusal>;
+}
+
+/// The hello record of `service`; None for the acpmux listener, whose plain circuits send none.
 fn service_hello(service: CircuitService) -> Option<Bytes> {
+    match service {
+        CircuitService::Acpmux => None,
+        named => Some(hello_record(named)),
+    }
+}
+
+/// The hello record that names `service`, the acpmux listener included (a kept circuit's
+/// stream always names its service).
+fn hello_record(service: CircuitService) -> Bytes {
     let body = match service {
-        CircuitService::Acpmux => return None,
+        CircuitService::Acpmux => serde_json::json!({"service": ACPMUX_SERVICE}),
         CircuitService::CmuxTui { port } => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port})
         }
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
+        CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
         CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
-    Some(Bytes::from(record))
+    Bytes::from(record)
 }
 
 /// The service a circuit's first record names: None when it names none (the acpmux listener's
@@ -282,8 +318,14 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
         }
+        (Some(MACHINE_CALL_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::MachineCall)
+        }
         (Some(TRANSFER_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::TransferSource)
+        }
+        (Some(ACPMUX_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::Acpmux)
         }
         _ => Err(unknown()),
     })
@@ -475,6 +517,8 @@ pub struct HubCarrier {
     cmux_tui: RwLock<Option<Arc<dyn CmuxTuiGate>>>,
     /// Whether a circuit may reach this machine's own cmux-tui session daemon; none refuses it.
     session: RwLock<Option<Arc<dyn SessionGate>>>,
+    /// Who may have this machine run calls for them; None refuses every such circuit.
+    machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
     /// Whether a circuit may read the pages of a move this machine began; none refuses it.
     transfer: RwLock<Option<Arc<dyn TransferGate>>>,
     /// Why this machine's own registration cannot heal by retrying alone, while it cannot
@@ -487,6 +531,9 @@ pub struct HubCarrier {
     /// Whether this machine serves kept circuits; off only to stand in for an acpmux that
     /// predates them ([`Self::serve_kept_circuits`]).
     serves_kept: std::sync::atomic::AtomicBool,
+    /// Whether acpmux links ride kept circuits as streams, dialed and served
+    /// ([`Self::acpmux_streams`]).
+    acpmux_streams: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -516,11 +563,13 @@ impl HubCarrier {
             key_check: None,
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
             serves_kept: std::sync::atomic::AtomicBool::new(true),
+            acpmux_streams: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -548,11 +597,13 @@ impl HubCarrier {
             key_check: Some(check),
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
+            machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
             serves_kept: std::sync::atomic::AtomicBool::new(true),
+            acpmux_streams: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -637,6 +688,15 @@ impl HubCarrier {
         self.session.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Let this machine run calls for the person's other machines as `gate` decides.
+    pub fn set_machine_call_gate(&self, gate: Arc<dyn MachineCallGate>) {
+        *self.machine_call.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn machine_call_gate(&self) -> Option<Arc<dyn MachineCallGate>> {
+        self.machine_call.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// Let circuits read the pages of this machine's moves as `gate` decides.
     pub fn set_transfer_gate(&self, gate: Arc<dyn TransferGate>) {
         *self.transfer.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
@@ -677,9 +737,7 @@ impl HubCarrier {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
         let Some(hello) = service_hello(service) else {
-            let (secure, stages) = self.open_circuit(daemon).await?;
-            stages.log(daemon, "plain");
-            return Ok(self.carry_plain(secure));
+            return self.dial_acpmux(daemon, lane).await;
         };
         match self.kept_open(daemon, lane, hello.clone()).await {
             KeptOpen::Stream(stream) => return Ok(stream),
@@ -695,6 +753,42 @@ impl HubCarrier {
         }
     }
 
+    /// An acpmux link to `daemon`: a stream on the pair's kept circuit, so the peer link and its
+    /// hub probe share one circuit; else a plain circuit with no hello, as every acpmux dial was
+    /// before. A machine whose kept circuits predate acpmux streams refuses the stream
+    /// (`service.unknown`); the dialer then goes plain to it for [`mux::NO_MUX_ASK_AGAIN`]
+    /// without asking again. A machine that keeps no circuits at all gets plain ones too.
+    async fn dial_acpmux(&self, daemon: &str, lane: CircuitLane) -> Result<HubStream, String> {
+        if self.acpmux_streams.load(Ordering::SeqCst) {
+            let slot = self.kept.slot(daemon, lane);
+            let refused_until = slot.lock().await.no_acpmux_until;
+            if !refused_until.is_some_and(|until| Instant::now() < until) {
+                match self.kept_open(daemon, lane, hello_record(CircuitService::Acpmux)).await {
+                    KeptOpen::Stream(stream) => return Ok(stream),
+                    KeptOpen::Refused(refusal) => {
+                        tracing::debug!(
+                            "hub carrier: the machine takes no acpmux streams: {refusal}"
+                        );
+                        if refusal.reason == "service.unknown" {
+                            slot.lock().await.no_acpmux_until =
+                                Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
+                        }
+                    }
+                    // The circuit did not open: a plain one would not either, and a second
+                    // dial here would double the dials of a host whose links all dropped.
+                    KeptOpen::Failed(e) => return Err(e),
+                    KeptOpen::Plain(why) => {
+                        tracing::debug!("hub carrier: a plain circuit for this acpmux dial: {why}");
+                    }
+                }
+            }
+        }
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
+        let (secure, stages) = self.open_circuit(daemon).await?;
+        stages.log(daemon, "plain");
+        Ok(self.carry_plain(secure))
+    }
+
     /// A plain circuit to `daemon` whose `hello` was answered: the circuit, else the refusal
     /// (its circuit closed).
     async fn plain_service(
@@ -702,6 +796,7 @@ impl HubCarrier {
         daemon: &str,
         hello: Bytes,
     ) -> Result<Result<cmux_remote::crypto::SecureLink, ServiceRefusal>, String> {
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, mut stages) = self.open_circuit(daemon).await?;
         let answered = Instant::now();
         let answer = Self::ask_service(&secure, hello, self.timings.handshake).await;
@@ -828,6 +923,7 @@ impl HubCarrier {
         &self,
         daemon: &str,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
+        crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
         let (secure, stages) = self.open_circuit(daemon).await?;
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
@@ -845,6 +941,14 @@ impl HubCarrier {
     #[doc(hidden)]
     pub fn serve_kept_circuits(&self, on: bool) {
         self.serves_kept.store(on, Ordering::SeqCst);
+    }
+
+    /// `false` dials and serves acpmux links as a daemon from before they rode kept circuits:
+    /// dials go plain with no hello, and a kept circuit's acpmux stream is refused
+    /// `service.unknown`. Tests use it to check that new and old daemons still talk both ways.
+    #[doc(hidden)]
+    pub fn acpmux_streams(&self, on: bool) {
+        self.acpmux_streams.store(on, Ordering::SeqCst);
     }
 
     /// Whether a kept circuit to `daemon` is open now, and how many streams ride its kept
@@ -947,7 +1051,9 @@ impl HubCarrier {
             .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
         stages.peer_join = step.elapsed();
         let step = Instant::now();
-        let secure = initiate_secure_link(
+        // The service hello rides behind the last Noise message; its first receive checks the
+        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
+        let secure = initiate_secure_link_pipelined(
             link,
             ClientHandshake {
                 identity: self.identity(),
@@ -1260,6 +1366,44 @@ impl Incoming {
         Ok(daemon)
     }
 
+    /// This machine's end of a machine-call circuit from `from`, or why it may not have one.
+    async fn machine_call(&self, from: Option<String>) -> Result<HubStream, ServiceRefusal> {
+        match (self.carrier.machine_call_gate(), from) {
+            (Some(gate), Some(from)) => gate.open(&from).await,
+            (None, _) => Err(ServiceRefusal::new(
+                "service.off",
+                "this machine runs no calls for its other machines",
+            )),
+            (Some(_), None) => Err(ServiceRefusal::new(
+                "service.unknown_machine",
+                "the circuit's machine key is not one this machine admitted",
+            )),
+        }
+    }
+
+    /// This machine's end of a move's page circuit from `from` and the transfer gate's serving
+    /// of the other end (the caller runs it beside the stream), or why it may not have one.
+    async fn transfer(
+        &self,
+        from: Option<String>,
+    ) -> Result<(HubStream, impl Future<Output = ()> + Send + use<>), ServiceRefusal> {
+        match (self.carrier.transfer_gate(), from) {
+            (Some(gate), Some(from)) => {
+                gate.admit(&from).await?;
+                let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
+                Ok((ours, async move { gate.serve(from, theirs).await }))
+            }
+            (None, _) => Err(ServiceRefusal::new(
+                "service.off",
+                "this machine serves no move pages to its other machines",
+            )),
+            (Some(_), None) => Err(ServiceRefusal::new(
+                "service.unknown_machine",
+                "the circuit's machine key is not one this machine admitted",
+            )),
+        }
+    }
+
     /// The session socket a circuit from `from` (its proven key) may reach, as the session gate
     /// admits.
     async fn admit_session(
@@ -1335,6 +1479,27 @@ impl RelayIncoming for Incoming {
             }
             let stats = self.carrier.stats.clone();
             mux::serve(Box::new(link), self, from, stats).await;
+            return;
+        }
+        if named_service(&first) == Some(Ok(CircuitService::MachineCall)) {
+            // A machine-call circuit is answered in this process; the acpmux listener's
+            // connection closes unused.
+            drop(listener);
+            let local = match self.machine_call(from).await {
+                Ok(local) => local,
+                Err(refusal) => {
+                    tracing::info!("hub carrier: a machine-call circuit was refused: {refusal}");
+                    let _ = link.send(service_answer(&Err(refusal))).await;
+                    let _ = link.close().await;
+                    return;
+                }
+            };
+            if link.send(service_answer(&Ok(()))).await.is_err() {
+                let _ = link.close().await;
+                return;
+            }
+            self.carrier.stats.accepted.fetch_add(1, Ordering::Relaxed);
+            pump(Box::new(link), local, &self.carrier.stats).await;
             return;
         }
         if named_service(&first) == Some(Ok(CircuitService::CmuxTuiSession)) {
@@ -1414,9 +1579,11 @@ impl RelayIncoming for Incoming {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
                     // Served above; never reaches a TCP target.
-                    Ok(CircuitService::CmuxTuiSession | CircuitService::TransferSource) => {
-                        Err(ServiceRefusal::new("service.unknown", "no such service"))
-                    }
+                    Ok(
+                        CircuitService::CmuxTuiSession
+                        | CircuitService::MachineCall
+                        | CircuitService::TransferSource,
+                    ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
                     Err(refusal) => Err(refusal),
                 };
                 match reached {
@@ -1458,6 +1625,8 @@ async fn pump<S>(link: Box<dyn FrameLink>, io: S, stats: &Stats)
 where
     S: AsyncRead + AsyncWrite + Send + Unpin,
 {
+    // Held while the circuit is carried: `gauges.links.hubPlainOpen`.
+    let _open = crate::gauges::Held::on(&crate::gauges::links().hub_plain_open);
     let link: Arc<dyn FrameLink> = Arc::from(link);
     let (mut read, mut write) = tokio::io::split(io);
     let chunk = link.maximum_frame_bytes().clamp(1, CHUNK_BYTES);
@@ -1820,6 +1989,8 @@ pub async fn start_configured(
     carrier.set_cmux_tui_gate(Arc::new(crate::cmux_tui_service::ConfiguredGate::new(hub)));
     // Off unless the person on this machine allowed its other signed-in machines in.
     carrier.set_session_gate(Arc::new(crate::session_service::ConfiguredSessionGate::new(hub)));
+    // Off under the same grant: this machine runs Computer Use calls for those machines.
+    carrier.set_machine_call_gate(Arc::new(crate::machine_call_service::ConfiguredGate::new(hub)));
     // A move's pages, only to the machine its move names (`hub/transfer_pull.rs`); and this
     // machine's own way to the source of a move it pulls. A move needs `move` in
     // `meshRelay.controlFrom` on the target, off by default.

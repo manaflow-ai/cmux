@@ -1980,6 +1980,24 @@ fn older_params(id: &str, before: u64) -> Value {
            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
 }
 
+/// The first `beforeSeq` whose older page is full: the seq after the chat's oldest page of
+/// [`older_params`]' kinds and bytes, read forward from the start. A chat that holds less than one
+/// such page has none: `last + 1`, its newest page, which is all of it.
+fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
+    let oldest = rpc.call(
+        "_acpmux/events",
+        json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
+               "maxBytes": OLDER_PAGE_BYTES,
+               "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
+    );
+    rpc.notes.clear();
+    oldest
+        .ok()
+        .filter(|page| page["hasMore"].as_bool() == Some(true))
+        .and_then(|page| page["events"].as_array()?.iter().filter_map(|e| e["seq"].as_u64()).max())
+        .map_or(last + 1, |newest| newest + 1)
+}
+
 /// `4G`, `100M`, `1M`, `512K` or bytes.
 fn parse_size(text: &str) -> u64 {
     let text = text.trim();
@@ -2303,17 +2321,25 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Moving 2,000 raw sequences every round exhausted the 1 MB baseline (empty pages and
     // future forward cursors) while large chats still returned content. Keep each workload
     // nonempty and report its returned record counts alongside its latency distribution.
+    // Every depth reads a full page where the chat holds one: a 1 MB chat's page before
+    // `last / 20` held 30 records (595 us) against 1,180 in a 100 MB or 1 GB chat (19 to 22 ms),
+    // a 36x that was the page's size, not the chat's. A cursor nearer the start than a full
+    // page reaches reads the oldest full page instead (`full_page_before`).
+    let full_from = full_page_before(&mut rpc, &id, last);
+    let depth = |seq: u64| seq.max(full_from).min(last + 1);
+    let (recent_before, mid_before, deep_before) =
+        (depth(last * 9 / 10), depth(last / 2), depth(last / 20));
     let (recent_us, _, recent_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, (last * 9 / 10).max(2))
+            older_params(&id, recent_before)
         });
     let (mid_us, _, mid_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, (last / 2).max(2))
+            older_params(&id, mid_before)
         });
     let (deep_us, _, deep_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, (last / 20).max(2))
+            older_params(&id, deep_before)
         });
     // The rail's prompt index (direct.ts `readPromptIndex`).
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
@@ -2405,6 +2431,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
         "scrollMidUs": mid_us, "scrollMidError": mid_error,
         "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "fullPageFromSeq": full_from,
+        "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,

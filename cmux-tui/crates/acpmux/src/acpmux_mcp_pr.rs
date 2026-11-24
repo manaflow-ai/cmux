@@ -81,13 +81,13 @@ pub(super) fn wait_tool() -> Value {
 
 /// Which pull request a call names: what gh is given for it, and the repo when a URL names one.
 #[derive(Debug, PartialEq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     pub selector: String,
     pub repo: Option<String>,
 }
 
 /// `pr` and `repo` as gh takes them, or why they are refused.
-pub(super) fn target(args: &Value) -> Result<Target, String> {
+pub(crate) fn target(args: &Value) -> Result<Target, String> {
     let repo = arg(args, "repo").map(str::to_owned);
     if let Some(repo) = &repo
         && !valid_repo(repo)

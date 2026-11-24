@@ -894,7 +894,7 @@ class ScriptBehavior(unittest.TestCase):
                              "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.outputs()["merge"], git(work, "rev-parse", "HEAD"))
-        self.assertEqual(self.outputs()["checks"], "false")  # ci-web runs them on this same merge
+        self.assertEqual(self.outputs()["checks"], "false")  # it changes no input of the webviews checks
         self.assertEqual(self.outputs()["ratchet"], "false")  # cmux-tui-spec's clippy job ran it on this merge
         self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
 
@@ -1115,10 +1115,14 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("not the pull request head", result.stderr)
 
-    def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
-        # ci-web runs them only for a webviews/ change; check:catalog-keys and typecheck read these.
+    def test_a_webviews_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
+        # check:catalog-keys and acpmux-protocol:check read the catalogs and the spec. A webviews/ change too, though
+        # ci-web's webview suite runs them on the same merge: land-judge's merged-tree carry lands a base merge on this
+        # status and not on that suite, so cmux#49052's base merge would have landed its `foldsPrompt` type error
+        # (cmuxterm-hq#19108) with the type check run only inside a suite nothing waited for.
         seed = self.seed
-        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
+        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+                     "webviews/src/agent-session/acpmux/conversation/turns.ts"):
             with self.subTest(path=path):
                 git(seed, "checkout", "-q", "pr")
                 head = commit(seed, {path: f"{path}\n"}, f"change {path}")
@@ -1239,7 +1243,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"web lint"})
         self.assertIn("web lint: skipped (no web path changed)", result.stdout)
 
-    def test_a_pull_request_event_skips_the_webviews_checks(self):
+    def test_checks_false_skips_the_webviews_checks(self):
         work, out = self.prepared()
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "false")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

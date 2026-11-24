@@ -712,12 +712,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // laying out the hosted stack from here aborts in AttributeGraph
             // (step a9eaae4e), so the spring starts on the next main-queue turn.
             springTarget = target
+            // The stack's own spring: 0.35 s for its other changes, `ComposerLineMotion` for a
+            // line the draft gained or lost, so the transcript and the composer move as one.
+            let motion = surface.stackMotion
+            let began = CACurrentMediaTime()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.springTarget == target else { return }
                 self.springTarget = nil
-                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                UIView.animate(springDuration: motion.seconds, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.applyStackHeight(target)
                     self.view.layoutIfNeeded()
+                } completion: { [weak self] finished in
+                    guard finished else { return }
+                    self?.noteStackMotionSettled(motion, since: began)
                 }
             }
             return
@@ -725,6 +732,35 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         springTarget = nil
         applyStackHeight(height)
     }
+
+    /// The transcript settled after the stack's height change: its length, from the first drawn
+    /// frame of the stack's change to the transcript's spring completing (the composer's line
+    /// motion end to end). Under `-CmuxMobileFrameLog` a `STACKMOTION` line in the log; in DEBUG
+    /// with `-cmux-mobile-motion-probe`, the value of the `chat.stackMotion` element, which
+    /// ComposerLineMotionUITests reads.
+    private func noteStackMotionSettled(_ motion: AgentChatSurface.StackMotion, since began: CFTimeInterval) {
+        let ms = Int(((CACurrentMediaTime() - began) * 1000).rounded())
+        let line = "kind=\(motion.rawValue) spring_ms=\(Int((motion.seconds * 1000).rounded())) settled_ms=\(ms)"
+        if FrameLogSwitch.isEnabled { print("STACKMOTION \(line)") }
+        #if DEBUG
+        if Self.motionProbeEnabled {
+            if motionProbe == nil {
+                let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+                probe.isAccessibilityElement = true
+                probe.accessibilityIdentifier = "chat.stackMotion"
+                probe.alpha = 0.02
+                probe.isUserInteractionEnabled = false
+                view.addSubview(probe)
+                motionProbe = probe
+            }
+            motionProbe?.accessibilityValue = line
+        }
+        #endif
+    }
+    #if DEBUG
+    private static let motionProbeEnabled = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-motion-probe")
+    private var motionProbe: UIView?
+    #endif
 
     private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
