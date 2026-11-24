@@ -1727,14 +1727,16 @@ async fn chat_attach_under_link_conditions() {
             let text_id = format!("txt-q-{row}-{tag}-{i}");
             let tap = Instant::now();
             let mut outbox = PromptOutbox::new(chat::DEFAULT_HOLD, seed_base + i);
-            outbox.push(&image_id, "photo", vec![image_id.clone()], false, tap, tap);
-            outbox.push(&text_id, "after", vec![], false, tap, tap);
-            let first = outbox.next_request(Instant::now()).map(|r| r.id);
+            let std_tap = tap.into_std();
+            outbox.push(&image_id, "photo", vec![image_id.clone()], false, std_tap, std_tap);
+            outbox.push(&text_id, "after", vec![], false, std_tap, std_tap);
+            let first = outbox.next_request(std::time::Instant::now()).map(|r| r.id);
             assert_eq!(first.as_deref(), Some(text_id.as_str()), "the text waits on no upload");
             outbox.wrote(&text_id);
             let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
             let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
             let mut upload_last = last;
+            let (mut upload_written, mut text_written) = (None, None);
             let (upload, text) = tokio::join!(
                 chat_send_with(
                     upload_link,
@@ -1745,7 +1747,7 @@ async fn chat_attach_under_link_conditions() {
                     &mut upload_last,
                     tap,
                     &build,
-                    &mut None,
+                    &mut upload_written,
                 ),
                 chat_send_with(
                     &mut link,
@@ -1756,7 +1758,7 @@ async fn chat_attach_under_link_conditions() {
                     &mut last,
                     tap,
                     &text_build,
-                    &mut None,
+                    &mut text_written,
                 ),
             );
             last = last.max(upload_last);
