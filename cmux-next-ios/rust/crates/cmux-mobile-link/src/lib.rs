@@ -26,6 +26,7 @@ pub mod link;
 pub mod link_stat;
 mod liveness;
 pub mod local;
+pub mod local_dns;
 pub mod local_hub;
 pub mod media;
 pub mod names;
