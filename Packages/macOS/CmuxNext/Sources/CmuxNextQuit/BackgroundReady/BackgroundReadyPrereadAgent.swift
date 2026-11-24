@@ -37,13 +37,11 @@ struct BackgroundReadyPrereadAgent {
     var isBundled: @MainActor () -> Bool
     var service: Service
 
-    static var isBundled: Bool {
-        FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appending(path: "Contents/Library/LaunchAgents/\(plistName)").path)
-    }
-
     static func app() -> BackgroundReadyPrereadAgent {
         BackgroundReadyPrereadAgent(
-            isBundled: { Self.isBundled },
+            // SMAppService reads the bundle's Contents/Library/LaunchAgents itself: a build without the plist
+            // answers .notFound, so the main actor never stats the bundle.
+            isBundled: { SMAppService.agent(plistName: plistName).status != .notFound },
             service: Service(status: { SMAppService.agent(plistName: plistName).status },
                              register: { try SMAppService.agent(plistName: plistName).register() },
                              unregister: { try SMAppService.agent(plistName: plistName).unregister() },
