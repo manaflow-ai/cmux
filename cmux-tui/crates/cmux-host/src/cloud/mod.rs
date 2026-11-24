@@ -31,7 +31,8 @@
 //! [`carrier_ticket`] (the session host's relay Register ticket),
 //! `carrier_server` (the thread and socket that answer it off the poll loop),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
-//! same socket), `github_minter` (the thread that answers both off the poll
+//! same socket), [`mcp_call`] (cmux Cloud's hosted MCP server for the machine's agent
+//! sessions, the bearer kept here), `github_minter` (the thread that answers both off the poll
 //! loop),
 //! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
 //! choice), `additions_thread` (its listing and send, off the poll loop),
@@ -73,6 +74,9 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod mcp_call;
+#[cfg(all(test, unix))]
+mod mcp_call_tests;
 pub mod page_cache;
 #[cfg(target_os = "linux")]
 pub mod role;
