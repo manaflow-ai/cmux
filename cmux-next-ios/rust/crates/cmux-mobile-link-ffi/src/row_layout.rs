@@ -36,7 +36,7 @@ pub enum RowLayoutDiff {
 }
 
 /// Heights kept and how the last diffs went (the probe's log and tests).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Record)]
 pub struct RowLayoutStats {
     pub rows: u64,
     pub unchanged: u64,
