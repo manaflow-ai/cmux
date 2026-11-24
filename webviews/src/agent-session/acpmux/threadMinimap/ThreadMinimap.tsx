@@ -24,6 +24,7 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
+  scrollRunning,
   settleScroll,
   stopScroll,
 } from "./scrollMotion";
@@ -1348,7 +1349,9 @@ function ThreadMinimapView({
   const [rested, setRested] = useState(0);
   const [restTimer] = useState(() => trailingTimer(() => setRested((count) => count + 1)));
   useEffect(() => () => restTimer.stop(), [restTimer]);
-  /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES). The rail is
+  /// When the wheel last drove the transcript. A wheel's motion is a fling (FLING_MOVES), and so is any
+  /// other fast run of offset writes that is not a glide or jump of ours (a scrollbar drag, a script's
+  /// fling: the frame-pacing bench's debug fling paid the rail's list placement every frame). The rail is
   /// inside the scroller, and a wheel over its own list browses the rail, not the chat.
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
   useEffect(() => {
@@ -1399,7 +1402,7 @@ function ThreadMinimapView({
       const fast =
         was &&
         since < FLING_REST_MS &&
-        now - wheelAt.current < FLING_REST_MS &&
+        (now - wheelAt.current < FLING_REST_MS || (scroller.current !== null && !scrollRunning(scroller.current))) &&
         Math.abs(reader - was.top) >= FLING_SPEED * Math.max(1, since)
           ? was.fast + 1
           : 0;
