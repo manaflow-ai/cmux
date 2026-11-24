@@ -6041,7 +6041,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             planKept={hatKept}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
-            tuckSide={hatHandle}
+            // The open hat's tuck stands where the person put the handle (middle by default), never where
+            // the tucked pill steps aside for Jump to latest: it is the hat's own control, on the hat's
+            // own axis, clear of the header's split icon and chevron (Leo, 2026-11-24).
+            tuckSide={trayHandle}
             onHold={setHatHeld}
             onSeen={setHatSeen}
           />
