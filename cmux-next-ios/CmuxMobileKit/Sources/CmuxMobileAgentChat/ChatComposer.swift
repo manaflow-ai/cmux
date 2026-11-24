@@ -333,6 +333,10 @@ struct ChatComposer: View {
         // card (user report 2026-11-12, the same rule as the terminal composer).
         .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        // The card is one container element that holds its own identifier: on the bare
+        // content the identifier went to every element inside, and the composer field
+        // read `chat.composer.card` instead of `chat.composer.field`.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.composer.card")
         .padding(.horizontal, collapsed ? 20 : 12)
     }
