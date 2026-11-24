@@ -28,6 +28,11 @@ struct TerminalComposer: View {
     private let voice = AgentVoiceLauncher.shared
 
     var body: some View {
+        #if DEBUG
+        let _ = InputLatencyTrace.shared?.count("composer_body")
+        // The before rows: the body read the draft (onChange, the send button), as on base.
+        let _ = ComposerReturnTextView.measuresWholeDraft ? model.composerText.isEmpty : false
+        #endif
         VStack(alignment: .leading, spacing: 6) {
             if let notice = model.composerNotice {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
@@ -79,7 +84,6 @@ struct TerminalComposer: View {
         // intrinsic size) the frame is the card's own height.
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .bottom)
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
-        .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
@@ -218,7 +222,7 @@ struct TerminalComposer: View {
     /// Send, or with "In Send Button" and nothing to send, voice mode (the
     /// ChatGPT composer): one circle, never a disabled send beside a mic.
     @ViewBuilder private var primaryButton: some View {
-        let empty = model.composerText.isEmpty && model.attachments.isEmpty
+        let empty = !model.composerHasText && model.attachments.isEmpty
         if voice.placement == .sendButton, let source = voiceSource,
            (empty && !model.isUploading) || voice.isActive(source.voiceSourceID) {
             sendCircleVoiceButton(source)
@@ -245,7 +249,7 @@ struct TerminalComposer: View {
     }
 
     private var sendButton: some View {
-        let canSend = !(model.composerText.isEmpty && model.attachments.isEmpty)
+        let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
             send()
