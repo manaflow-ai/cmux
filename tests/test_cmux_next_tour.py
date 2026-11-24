@@ -725,7 +725,16 @@ class StopTests(unittest.TestCase):
         chief = self.run_from(bundle, "optchat-chief")
         stubborn = self.run_from(bundle, "acpmux", ignore_term=True)
         bystander = self.start(["/bin/sh", "-c", f"sleep 600; : '{bundle}/Contents/Resources/bin/optchat-chief'"])
-        time.sleep(0.5)
+        # Until each has settled into its sleep (ps state S: exec'd and waiting) or exited, 10 s at most.
+        def settled(process: subprocess.Popen) -> bool:
+            if process.poll() is not None:
+                return True
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(process.pid)], capture_output=True, text=True)
+            return state.stdout.strip().startswith("S")
+
+        deadline = time.monotonic() + 10
+        while not all(settled(p) for p in (chief, stubborn, bystander)) and time.monotonic() < deadline:
+            time.sleep(0.05)
         self.assertTrue(all(process.poll() is None for process in (chief, stubborn, bystander)))
         return chief, stubborn, bystander
 
@@ -988,7 +997,7 @@ class WindowVideoTests(unittest.TestCase):
             native.start.return_value = False
             native.stop.return_value = False
             def step(*args):
-                time.sleep(0.1)
+                time.sleep(0.1)  # sleep-ok: a step that takes 0.1 s, the timing the stills must measure
                 return {"status": "ok"}
             with mock.patch.object(tour, "App", return_value=app), \
                     mock.patch.object(tour, "WindowVideo", return_value=native), \

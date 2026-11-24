@@ -21,7 +21,7 @@
 //! `cr use team claude` records it, when the image says the team has one
 //! (`Machine::gateway_access`), and answers `{gateway: true, restarted}`; else `no_gateway`.
 
-use super::{Conn, Origin};
+use super::{Conn, ConnAuth, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, Machine, reason};
 use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::hub::{Control, Hub};
@@ -56,9 +56,10 @@ pub(super) fn error(e: LoginError) -> RpcError {
 fn agent_of(params: &Value) -> Result<Agent, RpcError> {
     let name = params.get("agent").and_then(Value::as_str).unwrap_or_default();
     Agent::parse(name).ok_or_else(|| {
+        let names: Vec<_> = Agent::ALL.iter().map(|a| a.name()).collect();
         error(LoginError::new(
             reason::UNSUPPORTED_AGENT,
-            format!("agent must be \"claude\", \"codex\", \"gemini\" or \"grok\", not {name:?}"),
+            format!("agent must be one of {}, not {name:?}", names.join(", ")),
         ))
     })
 }
@@ -67,12 +68,13 @@ fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty())
 }
 
-/// Whether `conn` may run a sign-in here (module docs).
-fn allowed(conn: &Conn, params: &Value) -> bool {
-    let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
-    match conn.origin {
+/// Whether a connection of `origin` that presented `auth` may run a sign-in here (module docs).
+/// The one owner rule for every sign-in on this machine: `account_sign_in.rs` asks it too.
+pub(super) fn allowed(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
+    let control = super::remote_guard::control_of(origin, auth, params);
+    match origin {
         Origin::Local | Origin::LocalApp => control == Control::Local,
-        Origin::Peer => crate::hub::vm_boundary::owner(conn.auth, control, params),
+        Origin::Peer => crate::hub::vm_boundary::owner(auth, control, params),
         Origin::Web => false,
     }
 }
@@ -100,6 +102,8 @@ pub(super) fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfil
         }),
         // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
         Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
+        // `opencode acp`: its env (XDG_DATA_HOME) says where its `auth.json` is.
+        Agent::OpenCode => p.kind == HarnessKind::Acp && opencode_launch(&p.argv),
         // gh is no harness: always `gh` on the login PATH.
         Agent::Github => false,
     };
@@ -121,12 +125,22 @@ pub(super) fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfil
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github => None,
+        Agent::Claude
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude | Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::Github => Vec::new(),
+        Agent::Claude
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }
@@ -136,6 +150,12 @@ fn cursor_launch(argv: &[String]) -> bool {
     let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
     matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
         && argv.get(1).is_some_and(|a| a == "acp")
+}
+
+/// Whether `argv` runs OpenCode's CLI: `opencode`, then `acp`.
+fn opencode_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    program.and_then(|p| p.to_str()) == Some("opencode") && argv.get(1).is_some_and(|a| a == "acp")
 }
 
 async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
@@ -232,7 +252,7 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    if !allowed(conn, params) {
+    if !allowed(conn.origin, conn.auth, params) {
         return Err(RpcError::new(
             -32000,
             "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",
@@ -261,6 +281,14 @@ pub(super) async fn handle(
     match m {
         method::MUX_AGENT_LOGIN_START => {
             let agent = agent_of(params)?;
+            // A key-only agent (Gemini, OpenCode) has no sign-in page: say so before looking for
+            // its CLI, so the answer is `unsupported` whether or not it is installed here.
+            if !agent.signs_in_by_link() {
+                return Err(error(LoginError::new(
+                    reason::UNSUPPORTED,
+                    format!("{} signs in on this machine with an API key", agent.name()),
+                )));
+            }
             let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
             let mut reply = json!({

@@ -5,24 +5,41 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 #[test]
-fn only_an_all_text_prompt_is_carried() {
+fn a_prompt_reaches_the_app_with_its_images_and_files() {
     let blocks = [
-        json!({"type": "text", "text": "one"}),
-        json!({"type": "image", "data": "..."}),
-        json!({"type": "text", "text": "two"}),
+        json!({"type": "text", "text": "look"}),
+        json!({"type": "image", "mimeType": "image/png", "data": "iVBOR"}),
+        json!({"type": "resource_link", "uri": "file:///tmp/a.rs", "name": "a.rs"}),
+        json!({"type": "resource", "resource": {"uri": "file:///tmp/b.txt", "text": "bee"}}),
     ];
-    assert_eq!(text_of(&blocks), None, "an image would be lost: refused, not cut");
-    let texts = [json!({"type": "text", "text": "one"}), json!({"type": "text", "text": "two"})];
-    assert_eq!(text_of(&texts).as_deref(), Some("one\n\ntwo"));
-    assert_eq!(text_of(&[json!({"type": "text", "text": "  "})]), None);
+    let content = content_of(&blocks).unwrap();
+    assert_eq!(
+        content.text,
+        "look\n\n@/tmp/a.rs\n\n<context ref=\"file:///tmp/b.txt\">\nbee\n</context>"
+    );
+    assert_eq!(content.images, vec![("image/png".to_owned(), "iVBOR".to_owned())]);
+    let only_image = [json!({"type": "image", "mimeType": "image/png", "data": "x"})];
+    assert_eq!(content_of(&only_image).unwrap().text, "");
+    assert!(content_of(&[json!({"type": "text", "text": "  "})]).is_err());
+    assert!(content_of(&[json!({"type": "image", "data": "..."})]).is_err(), "no media type");
+    let blob = json!({"type": "resource", "resource": {"uri": "file:///z.bin", "blob": "AA", "mimeType": "application/zip"}});
+    assert!(content_of(&[blob]).is_err(), "a binary file is refused, not cut");
+    // The inbox message: content blocks, the text first.
+    let wire = claude_content("look", &content.images);
+    assert_eq!(wire[0], json!({"type": "text", "text": "look"}));
+    assert_eq!(
+        wire[1]["source"],
+        json!({"type": "base64", "media_type": "image/png", "data": "iVBOR"})
+    );
+    assert_eq!(claude_content("plain", &[]), json!("plain"));
 }
 
 #[test]
 fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
-    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi").unwrap();
-    let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi");
+    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi", false).unwrap();
+    let again = deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi", false);
     assert!(again.is_err(), "one id, one send");
-    assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
+    assert_eq!(delivered("s1", "u-find"), Some(("u-find".into(), "p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
     assert_eq!(delivered("s1", "u-find"), None, "an answered delivery is shown already");
@@ -33,7 +50,7 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
 /// A resend waiting on a delivery the inbox refused fails with it, never answers as a turn.
 #[tokio::test]
 async fn a_resend_of_a_delivery_that_failed_fails_too() {
-    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi", "hi").unwrap();
+    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi", "hi", false).unwrap();
     let waiting = tokio::spawn(turn_of(rx));
     let gone = deliveries().by_uuid.remove("u-fail").unwrap();
     gone.turn.send_replace(Some(Err("refused".into())));
@@ -148,6 +165,7 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -193,6 +211,89 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+/// A prompt with a context block (the `@` tools' note, `tool_mentions.rs`) to a watched desktop
+/// chat: the app gets the note, the chat's transcript shows only the person's words.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_bridged_prompts_context_reaches_the_app_but_never_the_transcript() {
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let config = scratch("context");
+    let transcript = config.join("sid-ctx.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let pong = |_: usize| {
+        json!({"type": "assistant", "message": {"role": "assistant",
+            "stop_reason": "end_turn", "content": [{"type": "text", "text": "PONG"}]}})
+    };
+    let (_, got) = fake_claude_answering(&config, "sid-ctx", transcript.clone(), pong);
+
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_surge_inbox(Some(true));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-ctx".into());
+        meta.tags.insert(
+            "bridge".into(),
+            crate::store::Tag { value: "claude".into(), expires_at: None },
+        );
+        meta.watching =
+            Some(Watching { family: "claude".into(), file: transcript, ..Default::default() });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+
+    let mut blocks = vec![json!({"type": "text", "text": "open the docs with @browser-use"})];
+    crate::tool_mentions::add_note(&mut blocks);
+    assert_eq!(blocks.len(), 2, "the note is a context block");
+    let opts = PromptOptions { prompt_id: Some("p-ctx".into()), ..Default::default() };
+    let reply = tokio::time::timeout(
+        Duration::from_secs(20),
+        hub.prompt_with(&session, blocks, "test", false, opts),
+    )
+    .await
+    .expect("answered within 20 s")
+    .unwrap();
+    assert_eq!(reply["_meta"]["acpmux"]["answered"], true, "{reply}");
+
+    let sent = got.lock().unwrap()[0].clone();
+    assert!(sent.starts_with("open the docs with @browser-use"), "{sent}");
+    assert!(sent.contains(crate::tool_mentions::TAG), "the app gets the note: {sent}");
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let user = events.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
+    assert_eq!(user.msg["text"], "open the docs with @browser-use");
+    let started = events.iter().find(|e| e.kind == "turn_started").expect("the turn starts");
+    assert_eq!(started.msg["prompt"], "open the docs with @browser-use");
+    assert!(
+        !events.iter().any(|e| e.msg.to_string().contains("cmux-tools-context")),
+        "no record shows the note"
+    );
+}
+
+#[test]
+fn the_visible_text_leaves_out_every_context_block() {
+    let blocks = [
+        json!({"type": "text", "text": "one"}),
+        json!({"type": "text", "text": "<cmux-tools-context>n</cmux-tools-context>", "_meta": {"acpmux": {"context": true}}}),
+        json!({"type": "text", "text": "two"}),
+    ];
+    assert_eq!(visible_text(&blocks).as_deref(), Some("one\n\ntwo"));
+    assert!(
+        content_of(&blocks).unwrap().text.contains("cmux-tools-context"),
+        "the app still gets it"
+    );
+}
+
 /// A peer's outbox sends an open delivery again under its own prompt id on every link of the
 /// peer (`open_delivery.rs`) and relies on the target to answer a resend with the first outcome.
 /// A daemon that restarted since the delivery (or kept so many newer ones that it let it go) has
@@ -235,6 +336,7 @@ async fn a_resend_after_the_daemon_forgot_the_delivery_is_not_delivered_again() 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -298,6 +400,7 @@ async fn a_watched_chat_with_no_live_app_is_still_read_only() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -335,6 +438,7 @@ async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -411,6 +515,7 @@ async fn a_registered_chat_with_no_token_from_its_process_waits_for_register() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     crate::hub::register::mark_registered_for_test(&session.id);
@@ -476,6 +581,7 @@ async fn a_registered_chat_two_processes_claim_names_the_contest() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     crate::hub::register::mark_registered_for_test(&session.id);
@@ -528,6 +634,7 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -538,22 +645,23 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
 
 #[test]
 fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed() {
-    assert_eq!(with_reply_hint("hi", None, None, false, false, true), "hi");
-    assert_eq!(with_reply_hint("hi", Some("  "), None, false, true, true), "hi");
+    assert_eq!(with_reply_hint("hi", None, None, None, false, false, true), "hi");
+    assert_eq!(with_reply_hint("hi", Some("  "), None, None, false, true, true), "hi");
     let hinted =
-        with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false, false, true);
+        with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, None, false, false, true);
     assert!(
         hinted.starts_with(
             "From another agent (cosmic-gray/claude-sr2-coord), not the person:\nhi\n\n"
         ),
         "{hinted}"
     );
-    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false, false, true);
+    let named =
+        with_reply_hint("hi", Some("desktop-zoe"), None, Some("claude"), false, false, true);
     assert!(named.starts_with("From another agent (desktop-zoe, claude), not the person:\nhi"));
-    let claimed = with_reply_hint("hi", Some("bot"), None, true, false, true);
+    let claimed = with_reply_hint("hi", Some("bot"), None, None, true, false, true);
     assert!(claimed.starts_with("From a program that calls itself bot, not the person:\nhi"));
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
-    let quoted = with_reply_hint("hi", Some("it's"), None, false, false, true);
+    let quoted = with_reply_hint("hi", Some("it's"), None, None, false, false, true);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
 }
 
@@ -563,37 +671,56 @@ fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed()
 #[test]
 fn a_claude_code_session_gets_the_sender_and_the_answer_in_one_line() {
     let named =
-        with_reply_hint("PR is green", Some("gcp/lane-12"), Some("codex"), false, true, true);
+        with_reply_hint("PR is green", Some("gcp/lane-12"), None, Some("codex"), false, true, true);
     assert_eq!(
         named,
         "From another agent (gcp/lane-12, codex), not the person. Answer with `acpmux send 'gcp/lane-12' '<your reply>'`, not SendMessage:\nPR is green"
     );
     assert!(!named.contains("cannot reach it"), "{named}");
     // A program acpmux could not verify says so too.
-    let claimed = with_reply_hint("hi", Some("bot"), None, true, true, true);
+    let claimed = with_reply_hint("hi", Some("bot"), None, None, true, true, true);
     assert_eq!(
         claimed,
         "From a program that calls itself bot, not the person. Answer with `acpmux send 'bot' '<your reply>'`, not SendMessage:\nhi"
     );
-    let quoted = with_reply_hint("hi", Some("it's"), None, false, true, true);
+    let quoted = with_reply_hint("hi", Some("it's"), None, None, false, true, true);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
+}
+
+/// Leo: "the send/recieve messages are still only the older names". A sender's given name
+/// heads its line; the answer command keeps the HOST/NAME a reply reaches.
+#[test]
+fn an_app_chat_names_the_sender_by_its_given_name() {
+    let named = with_reply_hint(
+        "hi",
+        Some("studio-mac/coord-old"),
+        Some("Mango"),
+        Some("claude"),
+        false,
+        true,
+        true,
+    );
+    assert_eq!(
+        named,
+        "From another agent (Mango · studio-mac/coord-old, claude), not the person. Answer with `acpmux send 'studio-mac/coord-old' '<your reply>'`, not SendMessage:\nhi"
+    );
 }
 
 /// `acpmux send` to a program's label or a relay's bare machine name fails with `no_session`,
 /// so the hint never prints that command: it says nothing reads a reply instead.
 #[test]
 fn a_sender_with_no_inbox_gets_no_answer_command() {
-    let claude = with_reply_hint("hi", Some("merge-audit"), None, false, true, false);
+    let claude = with_reply_hint("hi", Some("merge-audit"), None, None, false, true, false);
     assert_eq!(
         claude,
         "From another agent (merge-audit), not the person. merge-audit has no inbox acpmux can deliver to, so nothing reads a reply: act on it yourself, or tell whoever coordinates you:\nhi"
     );
-    let other = with_reply_hint("hi", Some("lane-vm-2"), None, false, false, false);
+    let other = with_reply_hint("hi", Some("lane-vm-2"), None, None, false, false, false);
     assert!(other.starts_with("From another agent (lane-vm-2), not the person:\nhi\n\n"));
     assert!(other.ends_with(
         "so nothing reads a reply: act on it yourself, or tell whoever coordinates you.]"
     ));
-    let claimed = with_reply_hint("hi", Some("bot"), None, true, true, false);
+    let claimed = with_reply_hint("hi", Some("bot"), None, None, true, true, false);
     assert!(
         claimed
             .starts_with("From a program that calls itself bot, not the person. bot has no inbox")
@@ -677,6 +804,7 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let mut prompt = fresh();
@@ -699,13 +827,54 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
 
 #[test]
 fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
-    deliveries().claim("u-c1".into(), "sc", "pc1", "hi", "hi\n\n[hint]").unwrap();
-    deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]").unwrap();
+    deliveries().claim("u-c1".into(), "sc", "pc1", "hi", "hi\n\n[hint]", false).unwrap();
+    deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]", false).unwrap();
     assert_eq!(delivered_text("sc", "hi"), None, "the app got the hinted text");
     assert_eq!(delivered_text("other", "hi\n\n[hint]"), None);
-    assert_eq!(delivered_text("sc", " hi\n\n[hint] "), Some(("pc1".into(), "hi".into())));
-    assert_eq!(delivered_text("sc", "hi\n\n[hint]"), Some(("pc2".into(), "hi".into())));
+    assert_eq!(
+        delivered_text("sc", " hi\n\n[hint] "),
+        Some(("u-c1".into(), "pc1".into(), "hi".into()))
+    );
+    assert_eq!(
+        delivered_text("sc", "hi\n\n[hint]"),
+        Some(("u-c2".into(), "pc2".into(), "hi".into()))
+    );
     assert_eq!(delivered_text("sc", "hi\n\n[hint]"), None, "each line shows one delivery");
+}
+
+/// A queue line may be a delivery's only by its exact text (review P1-F1, P2-F3): one that merely
+/// contains a delivery's text is the terminal's own.
+#[test]
+fn a_queue_line_may_be_a_deliverys_only_by_exact_text() {
+    deliveries().claim("u-q1".into(), "sq", "pq1", "test", "test", false).unwrap();
+    assert!(!may_be_delivery("sq", "please test the migration"), "containment is not it");
+    assert!(!may_be_delivery("other", "test"));
+    assert!(may_be_delivery("sq", " test "));
+    // Taken in by a turn as not the person's, with no uuid acpmux sent: shown once, under its id.
+    assert_eq!(delivered_queued("sq", "test"), Some(("u-q1".into(), "pq1".into(), "test".into())));
+    assert_eq!(delivered_queued("sq", "test"), None);
+    assert!(!may_be_delivery("sq", "test"), "shown: any later line is typed");
+}
+
+/// A delivery taken back in the terminal before it ran ends with why at once (review P2-F2).
+#[test]
+fn a_delivery_taken_back_in_the_terminal_ends_with_why() {
+    let rx = deliveries().claim("u-t1".into(), "st", "pt1", "later", "later", false).unwrap();
+    assert!(!taken_back("st", "other text"));
+    assert!(taken_back("st", "later"));
+    assert!(matches!(&*rx.borrow(), Some(Err(why)) if why.contains("taken back")));
+    assert!(!taken_back("st", "later"), "once");
+}
+
+/// A batch the journal refused gives back what it claimed, so the batch read again shows the
+/// delivery (review P1-F2).
+#[test]
+fn a_refused_batch_gives_its_claims_back() {
+    deliveries().claim("u-r1".into(), "sr", "pr1", "hi", "hi", false).unwrap();
+    let shown = delivered("sr", "u-r1").unwrap();
+    assert!(delivered("sr", "u-r1").is_none());
+    unclaim(&[Claim::Shown(shown.0)]);
+    assert!(delivered("sr", "u-r1").is_some(), "given back: it shows by its line");
 }
 
 /// The Codex loop: a prompt to a watched Codex desktop chat is queued for its thread through
@@ -762,6 +931,7 @@ async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -837,6 +1007,7 @@ async fn a_watched_codex_chat_with_no_live_thread_is_still_read_only() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
@@ -881,6 +1052,7 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_app() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy",
@@ -930,6 +1102,7 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_codex_thread() 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     let guest = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy",
@@ -978,6 +1151,7 @@ async fn a_prompt_the_dispatch_gate_refuses_never_reaches_the_app() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     session.web_control_ended.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1005,6 +1179,106 @@ fn the_reply_goes_to_the_verified_senders_chat_by_name() {
     let agent = Some(label.to_owned());
     let opts = PromptOptions { agent, provenance: Some(unverified), ..Default::default() };
     assert_eq!(reply_name(&opts).as_deref(), Some(label));
+}
+
+/// A Codex chat handed to a cmux terminal (`release_to_watch.rs`): the terminal's `codex resume`
+/// (originator `codex-tui`, which no listing names) holds the thread, and the chat's prompt goes
+/// into its queue (`thread/queue/add`), which a terminal Codex runs after its turn (measured with
+/// Codex 0.164 on 2026-11-14), with no bridge setting and no tag. Once that terminal's process is
+/// gone the chat is a watch as any other.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_codex_chat_its_terminal_drives_takes_prompts_into_that_terminals_queue() {
+    use crate::codex_desktop::tests as codex;
+    let thread = "01a1bf30-0000-7000-8000-00000000fe11";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex-tui", "/w", false)]);
+    let _lock = codex::hold(&home, thread);
+    let rollout = home.join("rollout.jsonl");
+    std::fs::write(&rollout, "").unwrap();
+    let written = rollout.clone();
+    let added = codex::fake_daemon(&home, move |params| {
+        let text = params["input"][0]["text"].as_str().unwrap();
+        let user =
+            json!({"type": "event_msg", "payload": {"type": "user_message", "message": text}});
+        let answer =
+            json!({"type": "event_msg", "payload": {"type": "agent_message", "message": "OK"}});
+        let end = json!({"type": "event_msg", "payload": {"type": "task_complete"}});
+        let mut f = std::fs::OpenOptions::new().append(true).open(&written).unwrap();
+        writeln!(f, "{user}\n{answer}\n{end}").unwrap();
+    });
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.set_terminal_chat_writable(true).await;
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    let pid = std::process::id();
+    let terminal = crate::store::TerminalDriver {
+        pid,
+        started: crate::adopt_live::pid_start_ms(pid),
+        store: home.clone(),
+        input: None,
+    };
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: rollout,
+            terminal: Some(terminal.clone()),
+            ..Default::default()
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+    let opts = PromptOptions { prompt_id: Some("p-term".into()), ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "from the chat"})];
+    let reply = tokio::time::timeout(
+        Duration::from_secs(20),
+        hub.prompt_with(&session, blocks, "test", false, opts),
+    )
+    .await
+    .expect("answered within 20 s")
+    .unwrap();
+    assert_eq!(reply["_meta"]["acpmux"]["answered"], true, "{reply}");
+    let sent = added.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "queued once");
+    assert_eq!(sent[0]["threadId"], thread);
+    assert_eq!(sent[0]["input"][0]["text"], "from the chat", "as typed: no reply hint");
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let users: Vec<_> = events.iter().filter(|e| e.kind == "user_message").collect();
+    assert_eq!(users.len(), 1, "shown once");
+    assert_eq!(users[0].msg["promptId"], "p-term");
+
+    // A paired device never sends into the terminal: its agent asks for permission there, outside
+    // the remote floor, whatever mode the chat had.
+    let web = PromptOptions { control: crate::hub::Control::Web, ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "from a phone"})];
+    let refused = hub.prompt_with(&session, blocks, "test", false, web).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "remote.terminal_session", "{refused:?}");
+    assert_eq!(added.lock().unwrap().len(), 1, "nothing from the phone reached the terminal");
+
+    // A later process under the terminal's pid is not it: the binding's start time says so.
+    {
+        let mut meta = session.meta.lock().unwrap();
+        let w = meta.watching.as_mut().unwrap();
+        w.terminal = Some(crate::store::TerminalDriver {
+            started: terminal.started.map(|s| s.saturating_sub(60_000)),
+            ..terminal
+        });
+    }
+    let blocks = vec![json!({"type": "text", "text": "late"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, PromptOptions::default()).await;
+    assert!(err.unwrap_err().message.contains("watch.read_only"));
+    assert_eq!(added.lock().unwrap().len(), 1, "nothing more reached the terminal");
 }
 
 /// What Claude Code writes when the provider refuses a turn on the account's rate limit
@@ -1067,6 +1341,7 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);

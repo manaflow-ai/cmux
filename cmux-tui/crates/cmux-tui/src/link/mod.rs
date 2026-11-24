@@ -143,6 +143,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("project") {
         return sync_cli::project::run(args.get(1..).unwrap_or_default());
     }
+    // `offload`: one local command run on a machine over this folder's view, its writes
+    // published back (sync_cli/offload.rs, RFD 0007 step 7).
+    if args.first().map(String::as_str) == Some("offload") {
+        return sync_cli::offload::run(args.get(1..).unwrap_or_default());
+    }
     // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
     if args.first().map(String::as_str) == Some("memory") {
         return sync_cli::memory::run(args.get(1..).unwrap_or_default());
@@ -175,6 +180,16 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
         print!("{}", help_text());
+        return 0;
+    }
+    // `cmux link init --help`: that action's own lines. Before, `flags` read `--help` as an
+    // unknown option and exited 2 (the Cloud and remote command matrix, cmux#48221).
+    if let Some(text) = args
+        .split_first()
+        .filter(|(_, rest)| asks_help(rest))
+        .and_then(|(action, _)| verb_help(action))
+    {
+        print!("{text}");
         return 0;
     }
     match run_link(args) {
@@ -223,6 +238,71 @@ fn help_text() -> String {
     let text = format!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
     // The cmux app's `link …` verbs too (cli/app_action_help.rs).
     crate::cli::app_action_help::append("link", &text).unwrap_or(text)
+}
+
+/// The actions [`run_link`] parses itself, each with its own `--help` ([`verb_help`]).
+const OWN_ACTIONS: &[&str] = &[
+    "init",
+    "show",
+    "peer",
+    "serve",
+    "ensure",
+    "stop",
+    "archive",
+    "status",
+    "install-agent",
+    "uninstall-agent",
+];
+
+/// `-h` or `--help` among an action's words.
+fn asks_help(rest: &[String]) -> bool {
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "-h" | "--help"))
+}
+
+/// `cmux link <action> --help`: the usage line with the action named, the action's own lines of
+/// `cmux link --help` (its entry and the lines indented under it), and the closing note every
+/// action shares. `None` for a word that is not one of [`OWN_ACTIONS`].
+fn verb_help(action: &str) -> Option<String> {
+    verb_help_from(action, catalog().remote_client.link_help, enrollment::help())
+}
+
+fn verb_help_from(action: &str, help: &str, enrollment: &str) -> Option<String> {
+    if !OWN_ACTIONS.contains(&action) {
+        return None;
+    }
+    let mut lines = help.lines();
+    // `USAGE: cmux link <init|show|…> [OPTIONS]` becomes `USAGE: cmux link init [OPTIONS]`.
+    let first = lines.next()?;
+    // `split_once` keeps this free of byte-index slicing (the panic ratchet).
+    let usage = match first.split_once('<') {
+        Some((head, rest)) => match rest.split_once('>') {
+            Some((_, tail)) => format!("{head}{action}{tail}"),
+            None => first.to_owned(),
+        },
+        None => first.to_owned(),
+    };
+    let mut own = String::new();
+    let mut inside = false;
+    for line in lines {
+        if let Some(entry) = line.strip_prefix("  ").filter(|entry| !entry.starts_with(' ')) {
+            let word = entry.split_whitespace().next().unwrap_or_default();
+            inside = word == action;
+        } else if !line.starts_with("   ") {
+            inside = false;
+        }
+        if inside {
+            own.push_str(line);
+            own.push('\n');
+        }
+    }
+    if own.is_empty() {
+        return None;
+    }
+    let note = help.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
+    let enrollment = if action == "init" { format!("\n{enrollment}") } else { String::new() };
+    Some(format!("{usage}\n\n{own}{enrollment}\n{note}\n"))
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
