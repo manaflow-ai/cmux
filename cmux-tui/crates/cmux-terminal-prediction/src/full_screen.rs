@@ -123,7 +123,13 @@ impl FullScreenEcho {
         if self.pending.len() >= limit {
             return self.withdraw_all();
         }
-        let column = self.column + i32::try_from(self.pending.len()).unwrap_or(i32::MAX);
+        // After the newest key still in flight on this row, else at the
+        // cursor: one left elsewhere (typed before the screen was placed)
+        // says nothing about this row.
+        let column = match self.pending.last() {
+            Some(last) if last.row == self.row => last.column + 1,
+            _ => self.column,
+        };
         let display = display && self.is_armed();
         self.pending.push(Pending {
             row: self.row,
@@ -410,17 +416,19 @@ impl FullScreenEcho {
         };
         let pending = self.pending[index];
         if character == Some(pending.character) {
-            self.pending.remove(index);
-            // Spaces typed before it on its row were never printed (see
-            // `observe`); the key after them landing in its cell settles them.
+            // Keys typed before it are done too. A space was never printed
+            // (see `observe`); any other key drawn but not printed in its
+            // cell went somewhere else, which is a mismatch.
+            let older: Vec<Pending> = self.pending.drain(..=index).collect();
             let (row, column) = (pending.row, pending.column);
-            self.pending.retain(|p| {
-                let skipped = p.character == b' ' && p.row == row && p.column < column;
-                if skipped {
-                    result.confirmed.push(now.saturating_sub(p.typed_at));
+            for earlier in &older[..index] {
+                if earlier.character == b' ' && earlier.row == row && earlier.column < column {
+                    result.confirmed.push(now.saturating_sub(earlier.typed_at));
+                } else if earlier.is_displayed {
+                    self.mismatch(result);
+                    return;
                 }
-                !skipped
-            });
+            }
             self.streak = self.streak.saturating_add(1);
             result.confirmed.push(now.saturating_sub(pending.typed_at));
             if pending.is_displayed {
@@ -434,12 +442,14 @@ impl FullScreenEcho {
         } else if character != Some(b' ') {
             // A blank there is an older frame repainted; anything visible
             // that is not the key means the key lands somewhere else.
-            self.streak = 0;
-            result.mismatched = true;
-            result.withdrew_displayed |= self.pending.iter().any(|p| p.is_displayed);
-            self.pending.clear();
-            self.held.clear();
+            self.mismatch(result);
         }
+    }
+
+    fn mismatch(&mut self, result: &mut Reconciled) {
+        self.streak = 0;
+        result.mismatched = true;
+        result.withdrew_displayed |= self.withdraw_all();
     }
 }
 

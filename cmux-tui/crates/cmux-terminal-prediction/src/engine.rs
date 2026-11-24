@@ -696,8 +696,13 @@ impl TerminalPredictionEngine {
         self.learn_prompt();
         self.arm_at_known_prompt();
         if self.is_alternate_screen && !was_alternate_screen {
-            // A full-screen application starts: its cells start unknown.
+            // A full-screen application starts: its cells start unknown. The
+            // rest of this chunk is its first frame, which places the cursor:
+            // the model reads the chunk (nothing is in flight to settle).
             self.full_screen = FullScreenEcho::new();
+            if self.configuration.predict_in_full_screen_apps {
+                self.full_screen.observe(bytes, now);
+            }
         }
         changed || (moved_cursor && self.any_on_screen())
     }

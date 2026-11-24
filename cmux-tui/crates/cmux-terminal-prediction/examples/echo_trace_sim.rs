@@ -18,6 +18,8 @@
 //! is that key), else one frame after its echo arrives.
 //!
 //! Reported per row: key-to-paint p50, p95, max and the keys over 100 ms,
+//! the p95 of the keys the overlay drew before their echo (one whole frame
+//! after the key, and at the next vsync after it, the screen's own cadence),
 //! the share of keys predicted, visible withdrawals, the speculative glyphs
 //! left once every echo is in (must be 0), and why the engine was not
 //! predicting when a key was pressed (its `Status`).
@@ -102,6 +104,9 @@ struct Row {
     paint_ms: Vec<f64>,
     /// Key-to-paint of the keys the overlay drew.
     predicted_ms: Vec<f64>,
+    /// The same keys painted at the next vsync after the overlay drew them,
+    /// instead of one whole frame later.
+    predicted_vsync_ms: Vec<f64>,
     predicted: usize,
     withdrawals: usize,
     left_over: usize,
@@ -241,8 +246,10 @@ fn replay(trace: &Trace, profile: &Profile, full_screen: bool, seed: u64, row: &
         let painted = shown_at[key].map_or(painted_by[key], |shown| shown.min(painted_by[key]));
         let ms = (painted - typed_at[key]) as f64 / 1000.0 + frame_ms;
         row.paint_ms.push(ms);
-        if shown_at[key].is_some() {
+        if let Some(shown) = shown_at[key].filter(|&shown| shown <= painted_by[key]) {
             row.predicted_ms.push(ms);
+            let vsync = 1_000_000 + (shown - 1_000_000).div_ceil(FRAME_US) * FRAME_US;
+            row.predicted_vsync_ms.push((vsync - typed_at[key]) as f64 / 1000.0);
         }
         row.predicted += usize::from(shown_at[key].is_some());
     }
@@ -260,9 +267,9 @@ fn main() {
         std::process::exit(2);
     }
     println!(
-        "| program | link | full-screen apps | keys | paint p50 ms | p95 | max | keys >100 ms | predicted p95 | predicted | withdrawals | wrong left | status at key press |"
+        "| program | link | full-screen apps | keys | paint p50 ms | p95 | max | keys >100 ms | predicted p95 | at next vsync | predicted | withdrawals | wrong left | status at key press |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for trace in &traces {
         for full_screen in [false, true] {
             for profile in &PROFILES {
@@ -276,13 +283,17 @@ fn main() {
                         &mut row,
                     );
                 }
-                let mut predicted_ms = row.predicted_ms.clone();
-                predicted_ms.sort_by(f64::total_cmp);
-                let predicted_p95 = if predicted_ms.is_empty() {
-                    "-".to_owned()
-                } else {
-                    format!("{:.1}", percentile(&predicted_ms, 95.0))
+                let p95 = |values: &[f64]| {
+                    let mut sorted = values.to_vec();
+                    sorted.sort_by(f64::total_cmp);
+                    if sorted.is_empty() {
+                        "-".to_owned()
+                    } else {
+                        format!("{:.1}", percentile(&sorted, 95.0))
+                    }
                 };
+                let predicted_p95 = p95(&row.predicted_ms);
+                let vsync_p95 = p95(&row.predicted_vsync_ms);
                 let mut sorted = row.paint_ms.clone();
                 sorted.sort_by(f64::total_cmp);
                 let over = sorted.iter().filter(|&&ms| ms > 100.0).count();
@@ -293,7 +304,7 @@ fn main() {
                     .collect::<Vec<_>>()
                     .join(", ");
                 println!(
-                    "| {} | {} | {} | {} | {:.1} | {:.1} | {:.1} | {} | {} | {:.0}% | {} | {} | {} |",
+                    "| {} | {} | {} | {} | {:.1} | {:.1} | {:.1} | {} | {} | {} | {:.0}% | {} | {} | {} |",
                     trace.name,
                     profile.name,
                     if full_screen { "on" } else { "off" },
@@ -303,6 +314,7 @@ fn main() {
                     sorted[sorted.len() - 1],
                     over,
                     predicted_p95,
+                    vsync_p95,
                     row.predicted as f64 * 100.0 / sorted.len() as f64,
                     row.withdrawals,
                     row.left_over,

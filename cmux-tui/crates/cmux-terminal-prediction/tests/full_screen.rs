@@ -402,3 +402,26 @@ fn a_space_the_application_only_moves_past_keeps_the_run() {
     tui.after(2000);
     assert_eq!(tui.status(), Status::Predicting);
 }
+
+#[test]
+fn the_frame_that_enters_the_screen_places_keys_typed_ahead_of_their_echo() {
+    let configuration = PredictionConfiguration {
+        predict_in_full_screen_apps: true,
+        ..PredictionConfiguration::default()
+    };
+    let mut engine = TerminalPredictionEngine::new(configuration, true, true);
+    // One chunk: enter the screen, draw the box, park the cursor in it.
+    engine.observed_output(b"\x1b[?1049h\x1b[H\x1b[2J\x1b[30;1H> \x1b[30;3H", ms(0));
+    // Four keys go out before the first echo is back (a slow, lossy link).
+    for (i, key) in b"abcd".iter().enumerate() {
+        engine.typed(Some(*key), ms(10 + 10 * i as u64));
+    }
+    for (i, key) in b"abcd".iter().enumerate() {
+        let column = 3 + i;
+        let echo = format!("\x1b[30;{column}H{}\x1b[30;{}H", char::from(*key), column + 1);
+        engine.observed_output(echo.as_bytes(), ms(300 + 10 * i as u64));
+    }
+    engine.typed(Some(b'e'), ms(400));
+    assert_eq!(engine.status(ms(400)), Status::Predicting, "every key confirmed in its cell");
+    assert_eq!(engine.glyphs().len(), 1);
+}
