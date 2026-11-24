@@ -16,6 +16,7 @@ import { setToolCards } from "./toolCards/toolCardStore";
 import { setPlanScopeDrift } from "./planScopeDriftStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setWhatsNew } from "./newtab/whatsNew";
 import { setReadAloudState } from "./conversation/readAloud";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { setLinkPlaces, updateLinkPlaces } from "./chips/cmuxLinkPlaces";
@@ -178,6 +179,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "whatsNew":
+      // The New Tab page's What's New corner (newtab/whatsNew.ts), kept like nowPlaying.
+      return setWhatsNew(event.value);
     case "readAloud":
       // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
       return setReadAloudState(event.value);
