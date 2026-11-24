@@ -250,7 +250,7 @@ fn a_pack_extended_from_its_sealed_end_is_the_whole_pack() {
     std::fs::write(&head, &bytes[..cut]).unwrap();
     let grown = Store::new(dir.path().join("grown"));
     let (first, _) = pack(&grown, "s", &[head], &params(), false).unwrap();
-    let sealed = first.segments.iter().filter(|s| s.sealed).last().unwrap();
+    let sealed = first.segments.iter().rfind(|s| s.sealed).unwrap();
     let (after, sealed_raw) = (
         sealed.line + sealed.lines,
         first.segments.iter().filter(|s| s.sealed).map(|s| s.raw).sum::<u64>() as usize,
@@ -258,7 +258,9 @@ fn a_pack_extended_from_its_sealed_end_is_the_whole_pack() {
     let tail = dir.path().join("tail.ndjson");
     std::fs::write(&tail, &bytes[sealed_raw..]).unwrap();
     assert!(
-        pack_after(&grown, "s", after + 1, &[tail.clone()], &params()).unwrap().is_none(),
+        pack_after(&grown, "s", after + 1, std::slice::from_ref(&tail), &params())
+            .unwrap()
+            .is_none(),
         "a line past the sealed end packs nothing"
     );
     let (m, stats) = pack_after(&grown, "s", after, &[tail], &params()).unwrap().unwrap();

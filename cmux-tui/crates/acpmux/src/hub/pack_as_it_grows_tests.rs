@@ -58,7 +58,7 @@ fn grow(
 ) -> Vec<Duration> {
     let mut times = Vec::new();
     let mut n = 0u64;
-    while n % 256 != 0 || log_bytes(sessions, &session.id) < bytes {
+    while !n.is_multiple_of(256) || log_bytes(sessions, &session.id) < bytes {
         let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {
             "sessionId": session.id, "update": {"sessionUpdate": "agent_message_chunk",
             "content": {"type": "text", "text": text.next()}}}});

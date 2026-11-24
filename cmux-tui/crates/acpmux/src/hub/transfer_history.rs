@@ -439,7 +439,8 @@ impl Hub {
         let packed = written.and_then(|(last, digest)| {
             anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
             let params = pack::Params::default();
-            let packed = pack::pack(store, &session.id, &[lines.clone()], &params, false);
+            let packed =
+                pack::pack(store, &session.id, std::slice::from_ref(&lines), &params, false);
             Ok((packed.map_err(pack_error)?, digest))
         });
         let _ = crate::home_fs::remove_file(&lines);
