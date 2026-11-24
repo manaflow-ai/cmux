@@ -1,6 +1,6 @@
 # Calm
 
-Quiet cmux: few interruptions, nothing flashes or bounces. Touches only how cmux gets your attention.
+Quiet cmux: few interruptions, nothing flashes. Touches only how cmux gets your attention. The Dock bounce is yours to set in Settings; a setup may not change it.
 
 One axis: **interruption**. Nothing here is a default; it changes only what you install.
 
@@ -9,7 +9,6 @@ One axis: **interruption**. Nothing here is a default; it changes only what you 
 | `notifications.desktop` | `"unlessFocused"` |
 | `notifications.attention.flash` | `false` |
 | `notifications.attention.flashOnTyping` | `false` |
-| `notifications.dockBounce` | `"off"` |
 | `notifications.dockBadge` | `true` |
 | `notifications.sounds.volume` | `0.3` |
 | `notifications.suppressWhileTypingSeconds` | `5` |

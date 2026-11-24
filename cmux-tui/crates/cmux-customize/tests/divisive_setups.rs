@@ -1,8 +1,11 @@
 //! The divisive-defaults setups (`examples/setups`, cmuxterm-hq `docs/design/divisive-defaults.md`):
-//! six opt-in bundles, one axis each. Nothing in them is a default. The stacking rule the design
-//! states is checked here so the files cannot drift from it: rivals (the same axis) share a key,
-//! every other pair shares none, so setups on different axes stack freely; installing a rival after
-//! the other wins on the keys they share; and removing a setup gives back the person's own values.
+//! four opt-in bundles, one axis each. Nothing in them is a default. The design's Safe agents and
+//! Autopilot are not here: every agent-autonomy key (`agents.defaultPermissionMode`,
+//! `agents.autoRetry.enabled`, ...) is one only the person can change, so no setup may set it
+//! (`a_setup_cannot_set_agent_autonomy`). The stacking rule the design states is checked here so
+//! the files cannot drift from it: rivals (the same axis) share a key, every other pair shares
+//! none, so setups on different axes stack freely; installing a rival after the other wins on the
+//! keys they share; and removing a setup gives back the person's own values.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -12,9 +15,8 @@ use cmux_customize::setup::{self, Receipt, Reference, SetupSource};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
-const SETUPS: [&str; 6] =
-    ["calm", "dense", "chat-first", "terminal-first", "safe-agents", "autopilot"];
-const RIVALS: [(&str, &str); 2] = [("chat-first", "terminal-first"), ("safe-agents", "autopilot")];
+const SETUPS: [&str; 4] = ["calm", "dense", "chat-first", "terminal-first"];
+const RIVALS: [(&str, &str); 1] = [("chat-first", "terminal-first")];
 
 fn dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/setups").join(name)
@@ -111,7 +113,7 @@ fn rivals_share_a_key_and_every_other_pair_shares_none() {
 fn setups_on_different_axes_stack_and_each_removes_alone() {
     let home = tempfile::tempdir().unwrap();
     let customize = Customize::open(Roots::under(home.path()));
-    let stack = ["dense", "terminal-first", "safe-agents"];
+    let stack = ["dense", "terminal-first", "calm"];
     for (at, name) in stack.iter().enumerate() {
         install(&customize, name, 10 + at as u64);
     }
@@ -123,7 +125,7 @@ fn setups_on_different_axes_stack_and_each_removes_alone() {
     }
     remove(&customize, "terminal-first", 20);
     let live = settings(home.path());
-    for name in ["dense", "safe-agents"] {
+    for name in ["dense", "calm"] {
         for (key, want) in &read(name).profile.settings {
             assert_eq!(
                 value(&live, key).as_ref(),
@@ -154,22 +156,40 @@ fn removing_a_setup_gives_back_your_own_values() {
     fs::create_dir_all(home.path().join("config")).unwrap();
     fs::write(
         home.path().join("config/cmux-next.json"),
-        "{\n  // mine\n  \"agents\": { \"defaultPermissionMode\": \"standard\" },\n  \"terminal\": { \"fontSize\": 15 }\n}\n",
+        "{\n  // mine\n  \"appearance\": { \"density\": \"compact\" },\n  \"terminal\": { \"fontSize\": 15 }\n}\n",
     )
     .unwrap();
     let customize = Customize::open(Roots::under(home.path()));
-    install(&customize, "autopilot", 10);
-    assert_eq!(
-        value(&settings(home.path()), "agents.defaultPermissionMode"),
-        Some(json!("fullAccess"))
-    );
-    remove(&customize, "autopilot", 20);
+    install(&customize, "dense", 10);
+    assert_eq!(value(&settings(home.path()), "appearance.density"), Some(json!("ultraCompact")));
+    remove(&customize, "dense", 20);
     let live = settings(home.path());
-    assert_eq!(
-        value(&live, "agents.defaultPermissionMode"),
-        Some(json!("standard")),
-        "yours is back"
-    );
+    assert_eq!(value(&live, "appearance.density"), Some(json!("compact")), "yours is back");
     assert_eq!(value(&live, "terminal.fontSize"), Some(json!(15)), "your other keys stay");
-    assert_eq!(value(&live, "agents.promptSuggestions"), None, "the setup's own key comes off");
+    assert_eq!(value(&live, "tabs.barPosition"), None, "the setup's own key comes off");
+}
+
+/// Why the design's Safe agents and Autopilot are not setups: a profile may not grant or take an
+/// agent's autonomy; the person picks it (first run, Settings). If this starts passing an install,
+/// the security rule changed and the two can come back.
+#[test]
+fn a_setup_cannot_set_agent_autonomy() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(setup::SETUP_FILE),
+        r#"{"cmuxSetup": 1, "id": "manaflow-ai/autopilot-setup", "name": "Autopilot", "cmuxProfile": 1,
+            "settings": {"agents.defaultPermissionMode": "fullAccess"}}"#,
+    )
+    .unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(home.path()));
+    let refused = setup::read_dir(root.path()).map_err(|e| e.to_string()).and_then(|read| {
+        customize.plan_setup(&read, "manaflow-ai", "0.0.0").map_err(|e| e.to_string())?;
+        customize
+            .install_setup(&read, "setup autopilot", "cli", 10)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+    let error = refused.expect_err("a setup set agents.defaultPermissionMode");
+    assert!(error.contains("only you can change"), "{error}");
 }
