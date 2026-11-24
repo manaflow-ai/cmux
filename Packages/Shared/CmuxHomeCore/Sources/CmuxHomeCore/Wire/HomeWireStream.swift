@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// One subscribed `cmux.wire/1` stream over a WebSocket that dials again
 /// after every drop (cmux-tui-cloud-conversations `stream.rs`, client side):

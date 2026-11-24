@@ -64,6 +64,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var challengeRead = false
         var challenge: AcpmuxPersonChallenge?
         var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
+        /// Who waits for the close (``untilClosed()``): a person proof acpmux holds until its key.
+        var closeWaiters: [CheckedContinuation<Void, Never>] = []
 
         /// The page stopped draining (``AgentPaneTransport/pageStalled``): its stream waits within
         /// ``AgentPaneTransport/Limits/hiddenQueuedBytes`` and is shed past it, never pushed as a backlog.
@@ -435,7 +437,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             .flatMap { $0 as? [String: Any] }
             .flatMap { c -> AcpmuxPersonChallenge? in
                 guard let nonce = c["nonce"] as? String, let connection = c["connection"] as? String else { return nil }
-                return AcpmuxPersonChallenge(nonce: nonce, connection: connection)
+                return AcpmuxPersonChallenge(nonce: nonce, connection: connection, reprove: c["reprove"] as? Bool ?? false)
             }
         resolveChallenge(challenge)
     }
@@ -453,6 +455,19 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// The person challenge of this connection, once the `initialize` reply arrived; nil when it
     /// had none or the socket closed first. Only the local WebSocket has one (not a remote wire).
+    /// Returns once this connection closed (at once when it already has): the end of a person
+    /// proof acpmux holds until its key lands (`hub/person.rs` `proves_when_keyed`).
+    func untilClosed() async {
+        await withCheckedContinuation { waiter in
+            let closed = state.withLock { state -> Bool in
+                if state.closed != nil { return true }
+                state.closeWaiters.append(waiter)
+                return false
+            }
+            if closed { waiter.resume() }
+        }
+    }
+
     func personChallenge() async -> AcpmuxPersonChallenge? {
         guard wire == nil else { return nil }
         return await withCheckedContinuation { waiter in
@@ -694,15 +709,18 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {
-        let (opening, session, wake) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool) in
+        let (opening, session, wake, closeWaiters) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool, [CheckedContinuation<Void, Never>]) in
             let opening = state.opening
             state.opening = nil
-            guard state.closed == nil else { return (opening, nil, false) }
+            let closeWaiters = state.closeWaiters
+            state.closeWaiters = []
+            guard state.closed == nil else { return (opening, nil, false, closeWaiters) }
             state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
             state.signaled = true
-            return (opening, state.session, true)
+            return (opening, state.session, true, closeWaiters)
         }
         opening?.resume(throwing: AgentPaneTransportError.connectFailed)
+        for waiter in closeWaiters { waiter.resume() }
         session?.finishTasksAndInvalidate()
         resolveChallenge(nil)
         if wake { signal() }

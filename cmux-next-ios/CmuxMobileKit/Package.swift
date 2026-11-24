@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 // CmuxMobileKit: every module of the cmux-next-ios app. See ../PLAN.md.
@@ -279,3 +280,25 @@ let package = Package(
     ],
     swiftLanguageModes: [.v6]
 )
+
+#if os(Linux)
+// The Linux package job (swift-linux-packages.yml, group ios-kit) builds and tests the modules that need no
+// UI framework, and no binary target (the gitignored CmuxMobileLinkFFI.xcframework, libghostty, WebRTC).
+// Only that job sets CMUX_SWIFTPM_TARGET_LINUX: the fleet reads this manifest on Linux hosts to build for
+// iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    let linuxModules: Set<String> = [
+        "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
+    ]
+    let linuxTests = Set(linuxModules.map { $0 + "Tests" })
+    package.products.removeAll { !linuxModules.contains($0.name) }
+    package.targets.removeAll { !linuxModules.contains($0.name) && !linuxTests.contains($0.name) }
+    for target in package.targets {
+        target.dependencies.removeAll {
+            if case .targetItem(name: "CmuxMobileLinkFFI", condition: _) = $0 { return true }
+            return false
+        }
+    }
+    package.dependencies = [.package(path: "../../Packages/Shared/CMUXAuthCore")]
+}
+#endif
