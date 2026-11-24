@@ -161,6 +161,7 @@ pub(super) mod idle;
 mod idle_census;
 mod paused_fs;
 mod person_prompt_at;
+pub(crate) mod soft_delete;
 pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
@@ -1023,6 +1024,8 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// The chats that left memory, each a compact row (`evict.rs`).
     pub(crate) evicted: evict::Tier,
+    /// The deleted chats inside their grace, out of the map (`soft_delete.rs`).
+    pub(crate) deleted: soft_delete::Deleted,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
@@ -1649,6 +1652,7 @@ impl Hub {
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             evicted: Default::default(),
+            deleted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
@@ -2054,6 +2058,8 @@ impl Hub {
         }
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         let unsaved = self.settle_legacy_grants(&mut metas);
+        // A deleted chat stays out of the map through its grace (`soft_delete.rs`).
+        self.hold_deleted(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
         // A first start with no ledger file: each session's running totals (`hub/ledger`).
         if self.ledger.wants_seed() {

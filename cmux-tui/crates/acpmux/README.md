@@ -1828,7 +1828,7 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
   kind. A client treats a kind it does not know as a plain error.
 - `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
   holds /home/me/.acpmux: 0.9 GB free of 252 GB. acpmux's chats in /home/me/.acpmux/sessions
-  use 3.0 GB; `cmux agent session stop <session> --purge` removes a chat you no longer need."
+  use 3.0 GB; `cmux agent session stop <session> --purge --now` removes a chat you no longer need."
   acpmux never deletes anything itself.
 - `details`: only the keys that apply: `path`, `freeBytes`, `totalBytes`, `peer` (its name in
   `acpmux machine ls`), `lastSeenAt` (RFC 3339), `binary`, `cwd`, `exitCode`,

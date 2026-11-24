@@ -144,7 +144,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge, condition, close } => {
+        Command::Kill { session, purge, now, condition, close } => {
             let client = connect(true).await?;
             // An older daemon would ignore the condition and stop a busy session.
             if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
@@ -158,6 +158,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let id = crate::cli::resolve::control_id(&client, &session).await?;
             let mut params = json!({"sessionId": id, "purge": purge});
+            // A delete keeps the chat 7 days, restorable, unless `--now` (`hub/soft_delete.rs`).
+            // An older daemon ignores `grace` and deletes at once; the line below says which.
+            if purge && !now {
+                cmux_json::JsonSet::set(&mut params, "grace", json!(true));
+            }
             if condition.if_idle {
                 cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
             }
@@ -175,9 +180,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if json_out {
                 print_json(&v)
             } else {
-                println!("{}", if purge { "purged" } else { "closed" })
+                println!("{}", crate::cli::soft_delete::kill_line(purge, now, &v))
             }
             Ok(())
+        }
+        Command::Undelete { session } => {
+            let client = connect(true).await?;
+            crate::cli::soft_delete::undelete(&client, &session, json_out).await
+        }
+        Command::Deleted => {
+            let client = connect(true).await?;
+            crate::cli::soft_delete::deleted(&client, json_out).await
         }
         Command::PauseAgent { session } => {
             let client = connect(true).await?;

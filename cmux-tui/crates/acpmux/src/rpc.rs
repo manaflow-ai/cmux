@@ -684,6 +684,12 @@ pub mod method {
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// A deleted chat back inside its grace (`hub/soft_delete.rs`): `{sessionId}` (its id, or
+    /// its name) -> its summary with `undeleted: true`.
+    pub const MUX_UNDELETE: &str = "_acpmux/undelete";
+    /// The deleted chats inside their grace (`hub/soft_delete.rs`): `{}` -> `{sessions:
+    /// [{sessionId, name, title, deletedAt, restorableUntil}]}`.
+    pub const MUX_DELETED: &str = "_acpmux/deleted";
     /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";

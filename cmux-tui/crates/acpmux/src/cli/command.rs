@@ -829,12 +829,21 @@ pub enum Command {
         session: String,
         #[arg(long)]
         purge: bool,
+        /// With `--purge`: delete now, with no grace to restore it.
+        #[arg(long, requires = "purge")]
+        now: bool,
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
         #[command(flatten)]
         close: CloseArgs,
     },
+    /// `session undelete`.
+    #[command(hide = true)]
+    Undelete { session: String },
+    /// `session deleted`.
+    #[command(hide = true)]
+    Deleted,
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
@@ -1340,14 +1349,25 @@ pub enum SessionCmd {
         session: String,
         #[command(flatten)]
         mesh: crate::cli::mesh_control::RouteArgs,
-        /// Also delete the log.
+        /// Also delete the chat and its log. It is kept 7 days first: `session deleted` lists
+        /// it, `session undelete` brings it back with its whole log. A daemon older than that
+        /// deletes it at once, and the command says so.
         #[arg(long)]
         purge: bool,
+        /// With `--purge`: delete now, with no grace to restore it.
+        #[arg(long, requires = "purge")]
+        now: bool,
         #[command(flatten)]
         condition: StopIf,
         #[command(flatten)]
         close: CloseArgs,
     },
+    /// Bring back a chat deleted with `session stop --purge` inside its 7 days, closed, with its
+    /// whole log. SESSION is its id or its name; when a chat took the name meanwhile, it comes
+    /// back as NAME-2.
+    Undelete { session: String },
+    /// The deleted chats that may still be brought back, and until when.
+    Deleted,
     /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
     /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
     /// or `session wake` resumes the same conversation. Refused (exit 6) while it is busy.
@@ -1946,9 +1966,11 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
-                Command::Kill { session, purge, condition, close }
+            SessionCmd::Stop { session, purge, now, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, now, condition, close }
             }
+            SessionCmd::Undelete { session } => Command::Undelete { session },
+            SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
