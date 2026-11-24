@@ -522,7 +522,9 @@ impl TurnCarrier {
         server: &TurnServer,
         options: &DialOptions,
     ) -> Result<(Arc<dyn Conn + Send + Sync>, watch::Receiver<bool>), String> {
-        let tcp = TcpStream::connect(server.address.as_str()).await.map_err(|e| e.to_string())?;
+        // The remembered literals when DNS is down (`route_literals`); TLS still names the host.
+        let targets = options.routes.resolve(&server.address, 0).await.map_err(|e| e.to_string())?;
+        let tcp = TcpStream::connect(&targets[..]).await.map_err(|e| e.to_string())?;
         let _ = tcp.set_nodelay(true);
         let keepalive =
             socket2::TcpKeepalive::new().with_time(STREAM_KEEPALIVE).with_interval(STREAM_KEEPALIVE / 2);
@@ -545,6 +547,14 @@ impl TurnCarrier {
     }
 
     async fn allocate_inner(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
+        // UDP: the server's IPv4 literal (the socket is IPv4), resolved here rather than in the
+        // `turn` crate so a dial with DNS down reaches it at its remembered literal.
+        let udp_target = if server.transport == TurnTransport::Udp {
+            let found = options.routes.resolve(&server.address, 0).await.map_err(|e| e.to_string())?;
+            Some(found.into_iter().find(SocketAddr::is_ipv4).ok_or("no IPv4 address for the TURN server")?)
+        } else {
+            None
+        };
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
             .transport
         {
@@ -559,7 +569,7 @@ impl TurnCarrier {
         // The server address the client compares against: the stream's peer.
         let turn_serv_addr = match (&dead, conn.remote_addr()) {
             (Some(_), Some(peer)) => peer.to_string(),
-            _ => server.address.clone(),
+            _ => udp_target.map_or_else(|| server.address.clone(), |target| target.to_string()),
         };
         // Watch the server's replies for the realm and nonce a CreatePermission
         // of ours needs (the `turn` crate keeps them to itself).
@@ -604,6 +614,9 @@ impl TurnCarrier {
         };
         let relayed = relay.local_addr().map_err(|e| e.to_string())?;
         let server_addr: Option<SocketAddr> = turn_serv_addr.parse().ok();
+        if let Some(reached) = server_addr {
+            options.routes.confirm(&server.host, reached.ip());
+        }
         let queue = Arc::new(ClassQueue::default());
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_QUEUE);
         let (permits, permit_requests) = mpsc::unbounded_channel();

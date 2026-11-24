@@ -133,6 +133,10 @@ pub struct DialOptions {
     /// over TLS (a test TURN server's self-signed certificate).
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
+    /// Where TURN and STUN names resolve: DNS raced against the literals they last resolved
+    /// to ([`crate::route_literals`]), so a dial with DNS down still reaches them. The
+    /// process's memory by default; a test's own (with its own resolver) otherwise.
+    pub routes: std::sync::Arc<crate::route_literals::RouteLiterals>,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -255,6 +259,7 @@ impl Default for DialOptions {
             relay_only: false,
             block_udp: false,
             turn_tls_roots: None,
+            routes: crate::route_literals::RouteLiterals::shared(),
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,

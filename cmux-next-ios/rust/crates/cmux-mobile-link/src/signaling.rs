@@ -398,6 +398,36 @@ fn encode_segment(value: &str) -> String {
 }
 
 /// A failed upgrade as a [`SignalingError`]: a 401 is [`SignalingError::Unauthorized`].
+type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Open the WebSocket at `request`'s host, connecting to the address DNS names or, when DNS
+/// is down, the literal the host last resolved to (`route_literals`). TLS still names and
+/// verifies the host.
+async fn connect_socket(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+) -> Result<
+    (Socket, tokio_tungstenite::tungstenite::handshake::client::Response),
+    tokio_tungstenite::tungstenite::Error,
+> {
+    use tokio_tungstenite::tungstenite::Error;
+    let uri = request.uri();
+    let host = uri.host().unwrap_or_default().to_owned();
+    let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
+    let routes = crate::route_literals::RouteLiterals::shared();
+    let targets: Vec<std::net::SocketAddr> = routes
+        .resolve_host(&host)
+        .await
+        .map_err(Error::Io)?
+        .into_iter()
+        .map(|ip| (ip, port).into())
+        .collect();
+    let tcp = tokio::net::TcpStream::connect(&targets[..]).await.map_err(Error::Io)?;
+    if let Ok(peer) = tcp.peer_addr() {
+        routes.confirm(&host, peer.ip());
+    }
+    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, None).await
+}
+
 fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError {
     match &error {
         tokio_tungstenite::tungstenite::Error::Http(response)
@@ -451,7 +481,7 @@ impl SignalingClient {
         // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
         // would otherwise hold the reconnect, and the Mac stays offline, with no end.
         let connecting = crate::liveness::spawn(async move {
-            match tokio::time::timeout(CONNECT_WAIT, tokio_tungstenite::connect_async(request)).await {
+            match tokio::time::timeout(CONNECT_WAIT, connect_socket(request)).await {
                 Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
                 Err(_) => Err(SignalingError::Connect(format!(
                     "no answer to the upgrade within {}s",
