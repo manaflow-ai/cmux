@@ -196,3 +196,11 @@ pub mod wire;
     )
 ))]
 mod tests;
+
+pub fn dbgl(msg: String) {
+    let us = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0);
+    eprintln!("WGDBG {} {}", us, msg);
+}

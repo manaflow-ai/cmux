@@ -444,7 +444,23 @@ impl Pacer {
         // Old sequence space past what the peer acknowledged: TCP sends it
         // again. A keepalive repeats the byte before `snd_una`, so it is not.
         let end = segment.seq.wrapping_add(segment.len);
+        if segment.len > 0 {
+            crate::dlog!(
+                "tcp tx sport={} seq={} len={} fresh={fresh} una={:?} srtt={:?}",
+                segment.source.1,
+                segment.seq,
+                segment.len,
+                connection.snd_una,
+                connection.srtt
+            );
+        }
         if !fresh && segment.len > 0 && connection.snd_una.is_some_and(|una| after(end, una)) {
+            crate::dlog!(
+                "tcp RESEND sport={} seq={} len={}",
+                segment.source.1,
+                segment.seq,
+                segment.len
+            );
             self.resent += 1;
         }
         connection.queue.push_back(packet);
@@ -469,7 +485,24 @@ impl Pacer {
         if opens_again(&segment, connection.rcv_max) {
             connection.restart();
         }
+        if segment.len > 0 {
+            crate::dlog!(
+                "tcp rx-data sport={} seq={} len={} ack={:?} win={}",
+                segment.source.1,
+                segment.seq,
+                segment.len,
+                segment.ack,
+                segment.window
+            );
+        }
         if let Some(ack) = segment.ack {
+            if segment.len == 0 {
+                crate::dlog!(
+                    "tcp rx-ack dport={} ack={ack} win={}",
+                    segment.destination.1,
+                    segment.window
+                );
+            }
             connection.acked(ack, segment.seq, segment.window, now);
         }
         let end = segment.seq.wrapping_add(segment.len);
