@@ -183,7 +183,8 @@ test("a personal steer keeps reply A and final reply B expanded while the work a
         { id: "interim", version: 1, at: 2_500, kind: "assistant", text: "Checking retries next." },
         { ...source[2]!, id: "t2", at: 2_600 },
         source[3]!,
-        source[4]!,
+        // Six seconds: a turn of two calls under five seconds draws flat (turns.ts `worthFolding`).
+        { ...source[4]!, durationMs: 6_000 },
       ],
       expanded,
       { now: 10_000 },

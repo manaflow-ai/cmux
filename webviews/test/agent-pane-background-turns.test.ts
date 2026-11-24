@@ -1148,13 +1148,12 @@ test("a background turn's long reply is the agent's own turn, never the subagent
       const prev = view[at - 1]!;
       expect(transcriptGap(gridMark(prev, view[at - 2]), gridMark(row, prev))).toBe(TRANSCRIPT_TURN_GAP);
     }
-    // The subagent's end is the first turn's work, a tool call's end: it folds under that turn's
-    // "Worked for" (Leo, 2026-11-24: "we can indeed treat them as tool calls"), and opens to it.
-    const worked = view[own[0]!.at - 1]!;
-    expect(worked.kind).toBe(WORKED);
-    expect(view.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(false);
-    const opened = drawn([...withSubagentLines(rows(), new Map())], [worked.id]);
-    expect(opened.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(true);
+    // The subagent's end is the first turn's work, a tool call's end (Leo, 2026-11-24: "we can indeed
+    // treat them as tool calls"). One call and a short reply is too little to fold, so the wake draws
+    // flat, its end in place, with no "Worked for 0s" over it (turns.ts `worthFolding`; Leo: "honestly
+    // in these cases should we just... not do our folding situation?").
+    expect(view.some((entry) => entry.kind === WORKED)).toBe(false);
+    expect(view.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(true);
   } finally {
     client.close();
   }

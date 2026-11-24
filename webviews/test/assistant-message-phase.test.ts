@@ -122,7 +122,9 @@ test("the completed summary retains the actual turn start after the live clock c
 test("an intervening turn_end does not change the frozen work duration", async () => {
   const history = records(CHAT, [
     ...opening,
-    event("progress", "Checking the caller.", "commentary"),
+    // Six seconds of work (a record a second): a turn under five seconds with nothing else to hide
+    // draws flat, with no Worked for to read the duration from (turns.ts `worthFolding`).
+    ...[1, 2, 3, 4, 5].map((step) => event("progress", `Checking the caller, step ${step}. `, "commentary")),
     event("answer", "The fix is ready.", "final_answer"),
   ]);
   const daemon = await fakeClient(history);
@@ -133,15 +135,15 @@ test("an intervening turn_end does not change the frozen work duration", async (
       )?.durationMs;
     const reply = daemon.rows().find((row) => row.assistantPhase === "final_answer")!;
     expect(reply.turnStartedAtMs).toBe(history[1]!.at);
-    expect(duration()).toBe(2_000);
+    expect(duration()).toBe(6_000);
     daemon.push([["mux", "turn_end", { turnId: "turn" }]]);
     await settle();
-    expect(duration()).toBe(2_000);
+    expect(duration()).toBe(6_000);
     daemon.push([["mux", "turn_result", { turnId: "turn", status: "completed" }]]);
     await settle();
     const final = daemon.rows().find((row) => row.assistantPhase === "final_answer")!;
     expect(final.turnStartedAtMs).toBe(reply.turnStartedAtMs);
-    expect(duration()).toBe(2_000);
+    expect(duration()).toBe(6_000);
   } finally {
     daemon.client.close();
   }

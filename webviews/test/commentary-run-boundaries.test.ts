@@ -20,7 +20,8 @@ const prompt = row("prompt", "user", { text: "Check the two callers" });
 const first = read("first");
 const second = read("second");
 const final = row("final", "assistant", { text: "Both callers are correct.", assistantPhase: "final_answer" });
-const summary = row("summary", "turnSummary", { status: "completed" });
+// Six seconds: a two-call turn of no known time draws flat, with no fold (turns.ts `worthFolding`).
+const summary = row("summary", "turnSummary", { status: "completed", durationMs: 6_000 });
 const foldId = `${WORKED}-prompt`;
 
 function expectSeparate(rows: AcpmuxRow[], text: string) {

@@ -90,15 +90,18 @@ test("a turn's end alone draws the fold its result draws", async () => {
     daemon.touch(id, { status: "running", turn: { turnId } });
     daemon.emit(id, { mux: "user_message", msg: { text: "Fold the retry work", promptId: `p-${turnId}` } });
     daemon.emit(id, { mux: "turn_started", msg: { turnId, promptId: `p-${turnId}` } });
-    daemon.emit(id, {
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "c1",
-        kind: "execute",
-        title: "run tests",
-        status: "completed",
-      },
-    });
+    // Three calls: a turn with less to hide draws flat, with no fold (turns.ts `worthFolding`).
+    for (const toolCallId of ["c1", "c2", "c3"]) {
+      daemon.emit(id, {
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          kind: "execute",
+          title: "run tests",
+          status: "completed",
+        },
+      });
+    }
     daemon.emit(id, {
       update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done: the tests pass." } },
     });
