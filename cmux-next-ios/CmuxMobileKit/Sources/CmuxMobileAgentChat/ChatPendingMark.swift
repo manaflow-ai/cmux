@@ -15,11 +15,24 @@ public enum ChatPendingMarkStyle: String, CaseIterable, Sendable {
 
     /// The style the transcript draws.
     public static let shipped: ChatPendingMarkStyle = .glyph
+
+    /// The shipped style, or in DEBUG a gallery variant (`-cmux-mobile-pending-mark-variant
+    /// glyph|edge|caption`, PendingMarkGalleryUITests).
+    static let current: ChatPendingMarkStyle = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-cmux-mobile-pending-mark-variant"), args.indices.contains(i + 1),
+           let style = ChatPendingMarkStyle(rawValue: args[i + 1]) {
+            return style
+        }
+        #endif
+        return shipped
+    }()
 }
 
 struct ChatPendingMark: ViewModifier {
     let look: AgentPromptLook?
-    var style: ChatPendingMarkStyle = .shipped
+    var style: ChatPendingMarkStyle = .current
 
     @ViewBuilder
     func body(content: Content) -> some View {
