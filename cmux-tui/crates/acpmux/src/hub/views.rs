@@ -523,6 +523,12 @@ impl Hub {
         });
     }
 
+    /// [`Self::seed_time_breakdown`] for a server test that needs a chat with a breakdown.
+    #[cfg(test)]
+    pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
+        self.seed_time_breakdown(session, false);
+    }
+
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
     /// reducer current at the append seam. A chat with no usable copy is folded from its whole
     /// log only when `backfill` says so (or its store holds no files to read): an open never
@@ -534,12 +540,6 @@ impl Hub {
     /// turn's end asked for the fold while it ran (`backfill_asked`): an open's seed that installs
     /// nothing runs that fold before it ends, so the ask is never lost to the order the two came
     /// in (review of #42481, F2).
-    /// [`Self::seed_time_breakdown`] for a server test that needs a chat with a breakdown.
-    #[cfg(test)]
-    pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
-        self.seed_time_breakdown(session, false);
-    }
-
     pub(super) fn seed_time_breakdown(&self, session: &Session, backfill: bool) {
         let mut backfill = backfill;
         loop {
