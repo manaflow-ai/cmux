@@ -149,7 +149,8 @@ names another target:
   --timeout, --timings, --attach or --name) starts here at once while its
   machine starts, then moves there between turns (log: the hybrid-start folder
   beside cmux's sessions). CMUX_HYBRID_START=1 turns that on whatever the plan,
-  CMUX_HYBRID_START=0 off; `cmux cloud hybrid-status --json` says which.
+  CMUX_HYBRID_START=0 off; with neither, cloud.autoCloud set to true in
+  cmux-next.json turns it on. `cmux cloud hybrid-status --json` says which.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
