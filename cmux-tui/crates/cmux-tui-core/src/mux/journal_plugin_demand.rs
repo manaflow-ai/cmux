@@ -14,17 +14,22 @@
 //! report (`AgentChanged`, `AgentPresenceChanged`) starts it at once. The rule
 //! names no agent vendor, as the plugin runtime does not.
 //!
-//! The watch is event-driven: it sleeps on the mux event bus (output, title,
-//! program status and agent events, coalesced per surface) and wakes on a
-//! timer only for a terminal it saw: a program's confirmation, or one more
-//! look [`RECHECK`] after an event that found the shell (a typed command's
-//! echo comes before the shell forks it). It
-//! checks one terminal at most once per [`RECHECK`], with one PTY query and
-//! one process-name read, never a process scan. Once the plugin is demanded
-//! the watch ends; the plugin then runs for the daemon's life.
+//! The watch is event-driven. While the plugin is held, a [`DemandTap`]
+//! hands it each terminal output (from the output reader: `SurfaceOutput` is
+//! published once until a renderer takes the output, so it misses a terminal
+//! nobody draws) and each mux event it wakes on; at any other time the tap
+//! costs one atomic load per output and per event. The watch wakes on a timer
+//! only for a terminal it saw: a program's confirmation, or one more look
+//! [`RECHECK`] after output that found the shell (a typed command's echo
+//! comes before the shell forks it). It checks one terminal at most once per
+//! [`RECHECK`], with one PTY query and one process-name read, never a process
+//! scan. Once the plugin is demanded the watch ends; the plugin then runs for
+//! the daemon's life.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use super::*;
@@ -35,6 +40,9 @@ const CONFIRM: Duration = Duration::from_secs(2);
 /// The least time between two checks of one terminal.
 const RECHECK: Duration = Duration::from_secs(1);
 
+/// Wakes queued for the watch before the tap counts a miss.
+const TAP_CAPACITY: usize = 256;
+
 /// Shells (by basename, a login shell's leading `-` removed): a terminal whose
 /// PTY child is one of these and holds its own foreground runs no program.
 const SHELLS: [&str; 15] = [
@@ -42,7 +50,7 @@ const SHELLS: [&str; 15] = [
     "elvish", "login", "busybox",
 ];
 
-fn wakes(event: &MuxEvent) -> bool {
+pub(crate) fn wakes(event: &MuxEvent) -> bool {
     matches!(
         event,
         MuxEvent::SurfaceOutput(_)
@@ -76,6 +84,69 @@ pub(crate) fn wake_of(event: &MuxEvent) -> Wake {
         | MuxEvent::ProgramStatusChanged { surface, .. } => Wake::Surface(*surface),
         MuxEvent::TerminalRegistryChanged { .. } => Wake::All,
         _ => Wake::None,
+    }
+}
+
+/// Open taps in this process: the output reader's and `Mux::emit`'s gate.
+static OPEN_TAPS: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether a held plugin's watch listens: one load, on every terminal output
+/// and every mux event.
+pub(crate) fn demand_tapped() -> bool {
+    OPEN_TAPS.load(Ordering::Relaxed) != 0
+}
+
+/// Where terminal output and mux events reach the watch while it runs.
+#[derive(Default)]
+pub(crate) struct DemandTap {
+    inner: Arc<TapInner>,
+}
+
+#[derive(Default)]
+struct TapInner {
+    sender: Mutex<Option<SyncSender<Wake>>>,
+    /// A wake was dropped on a full queue: the watch checks every terminal.
+    missed: AtomicBool,
+}
+
+/// An open [`DemandTap`]; closing it (on drop) stops the sends.
+pub(crate) struct OpenTap {
+    inner: Arc<TapInner>,
+}
+
+impl DemandTap {
+    pub(crate) fn open(&self) -> (OpenTap, Receiver<Wake>) {
+        let (sender, wakes) = std::sync::mpsc::sync_channel(TAP_CAPACITY);
+        let mut slot = self.inner.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.replace(sender).is_none() {
+            OPEN_TAPS.fetch_add(1, Ordering::Relaxed);
+        }
+        (OpenTap { inner: self.inner.clone() }, wakes)
+    }
+
+    pub(crate) fn send(&self, wake: Wake) {
+        let slot = self.inner.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = slot.as_ref()
+            && let Err(TrySendError::Full(_)) = sender.try_send(wake)
+        {
+            self.inner.missed.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+impl OpenTap {
+    /// Whether a wake was dropped since the last call.
+    pub(crate) fn take_missed(&self) -> bool {
+        self.inner.missed.swap(false, Ordering::Relaxed)
+    }
+}
+
+impl Drop for OpenTap {
+    fn drop(&mut self) {
+        let mut slot = self.inner.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.take().is_some() {
+            OPEN_TAPS.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -209,6 +280,19 @@ impl Mux {
         }
     }
 
+    /// Output of the terminal shown as `surface`, for the watch (the reader
+    /// calls it when [`demand_tapped`]).
+    pub(crate) fn note_journal_plugin_demand_output(&self, surface: SurfaceId) {
+        self.journal_plugin_demand.send(Wake::Surface(surface));
+    }
+
+    /// A mux event, for the watch (`Mux::emit` calls it when [`demand_tapped`]).
+    pub(crate) fn note_journal_plugin_demand_event(&self, event: &MuxEvent) {
+        if wakes(event) {
+            self.journal_plugin_demand.send(wake_of(event));
+        }
+    }
+
     /// The PTY child pids of every live terminal.
     fn terminal_pids(&self) -> Vec<u32> {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -225,13 +309,12 @@ impl Mux {
 }
 
 /// Watch while the plugin is held. Returns true to wait for the next hold
-/// (the plugin is no longer `on_demand`, or the event stream overflowed and
-/// a new subscription sweeps again), false when the watch is over (released,
-/// or the daemon is gone).
+/// (the plugin is no longer `on_demand`), false when the watch is over
+/// (released, or the daemon is gone).
 fn watch_held(mux: &Weak<Mux>) -> bool {
     let Some(strong) = mux.upgrade() else { return false };
-    // Subscribe before the first sweep so no event between them is lost.
-    let events = strong.subscribe_matching(wakes);
+    // Open before the first sweep so no output between them is lost.
+    let (tap, events) = strong.journal_plugin_demand.open();
     drop(strong);
     let mut watch = DemandWatch::default();
     let mut sweep = true;
@@ -260,19 +343,22 @@ fn watch_held(mux: &Weak<Mux>) -> bool {
             Some(timeout) => match events.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return true,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return false,
             },
             None => match events.recv() {
                 Ok(event) => Some(event),
-                Err(_) => return true,
+                Err(_) => return false,
             },
         };
+        if tap.take_missed() {
+            sweep = true;
+        }
         let Some(event) = event else { continue };
         let Some(strong) = mux.upgrade() else { return false };
         if !strong.journal_plugin.held() {
             continue;
         }
-        match wake_of(&event) {
+        match event {
             Wake::Agent => {
                 release(&strong, "an agent reported its state");
                 return false;
