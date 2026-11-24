@@ -28,7 +28,7 @@ extension UpdaterService {
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
-        useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
+        useIdleGate(idle.answer, nextCheck: idle.nextCheck)
         // Restart to Update is a plain quit and relaunch: the windows leave as the quit starts, the relaunched app
         // restores them the normal way; a failed install brings them back (`UpdateWindowHandoff`).
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
