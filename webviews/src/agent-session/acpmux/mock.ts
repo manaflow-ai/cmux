@@ -271,10 +271,12 @@ export type LoadStreamOptions = {
     elapsedMs: number;
     maxGapMs: number;
     maxScheduleOffsetMs: number;
-    /// This chunk's own gap from the one before and its lateness against its due time, so a reader
-    /// can take the maxima over a window of its own (a bench's typing window) instead of the run's.
-    gapMs: number;
-    scheduleOffsetMs: number;
+    /// This chunk's time (`performance.now()`), the one before it and its due time (the chunk before's
+    /// with no fixed schedule), so a reader can take the maxima over a window of its own (a bench's
+    /// typing window) instead of the run's.
+    atMs: number;
+    previousAtMs: number;
+    dueAtMs: number;
   }) => void;
 };
 
@@ -548,13 +550,12 @@ export class MockAcpmuxSocket {
       } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
-      const gapMs = now - previous;
-      maxGapMs = Math.max(maxGapMs, gapMs);
+      const previousAtMs = previous;
+      const dueAtMs = options.fixedSchedule ? nextChunkAt : previous;
+      maxGapMs = Math.max(maxGapMs, now - previous);
       previous = now;
-      let scheduleOffsetMs = 0;
       if (options.fixedSchedule) {
-        scheduleOffsetMs = Math.max(0, now - nextChunkAt);
-        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, scheduleOffsetMs);
+        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, Math.max(0, now - nextChunkAt));
         nextChunkAt = started + (deltas + 2) * options.chunkMs;
       }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
@@ -582,8 +583,9 @@ export class MockAcpmuxSocket {
         elapsedMs: now - started,
         maxGapMs,
         maxScheduleOffsetMs,
-        gapMs,
-        scheduleOffsetMs,
+        atMs: now,
+        previousAtMs,
+        dueAtMs,
       });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });

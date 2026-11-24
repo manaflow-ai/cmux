@@ -15,6 +15,7 @@ type LoadReceipt = {
   /// The maxima since the `mark` taken when the typing window opened (see runComposerLoad).
   windowMaxGapMs: number;
   windowMaxScheduleOffsetMs: number;
+  windowMaxGapEndMs: number;
   error?: string;
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -215,6 +216,7 @@ export async function runComposerLoad(
       max_schedule_offset_ms: receipt.maxScheduleOffsetMs,
       window_max_gap_ms: receipt.windowMaxGapMs,
       window_max_schedule_offset_ms: receipt.windowMaxScheduleOffsetMs,
+      window_max_gap_end_ms: receipt.windowMaxGapEndMs,
     };
   });
   const samples = result.typing.samples as {
@@ -300,6 +302,8 @@ export async function runComposerLoad(
     task_observation_threshold_ms: result.watch.task_observation_threshold_ms,
     keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
     driver_late_p95_ms: quantile(late, 0.95),
+    driver_late_max_ms: Math.max(0, ...late),
+    driver_late_max_key: late.indexOf(Math.max(0, ...late)),
     load_rates: loadRates,
     budget_p95_ms: 16,
     budget_p99_ms: 33,

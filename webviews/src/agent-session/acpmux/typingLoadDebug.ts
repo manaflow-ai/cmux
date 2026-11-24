@@ -15,6 +15,8 @@ let active:
   | {
       stopped: boolean;
       done: Promise<unknown>;
+      /// When the window opened (`mark`); a gap or lateness that began before it counts from here.
+      markAtMs: number;
       receipt: {
         running: boolean;
         started_epoch_ms: number;
@@ -26,6 +28,8 @@ let active:
         maxScheduleOffsetMs: number;
         windowMaxGapMs: number;
         windowMaxScheduleOffsetMs: number;
+        /// Where the window's longest gap ended, in ms after the mark: when the stream stalled.
+        windowMaxGapEndMs: number;
         error?: string;
       };
     }
@@ -48,8 +52,10 @@ export async function typingLoad(
   }
   if (options.mark) {
     if (!active) return { error: "no typing load" };
+    active.markAtMs = performance.now();
     active.receipt.windowMaxGapMs = 0;
     active.receipt.windowMaxScheduleOffsetMs = 0;
+    active.receipt.windowMaxGapEndMs = 0;
     return snapshot(active.receipt);
   }
   // With no rate, read the receipt without starting or resetting the generator.
@@ -73,6 +79,7 @@ export async function typingLoad(
   const state = {
     stopped: false,
     done: Promise.resolve<unknown>(undefined),
+    markAtMs: performance.now(),
     receipt: {
       running: true,
       started_epoch_ms: performance.timeOrigin + performance.now(),
@@ -84,6 +91,7 @@ export async function typingLoad(
       maxScheduleOffsetMs: 0,
       windowMaxGapMs: 0,
       windowMaxScheduleOffsetMs: 0,
+      windowMaxGapEndMs: 0,
       error: undefined as string | undefined,
     },
   };
@@ -97,10 +105,16 @@ export async function typingLoad(
       fixedSchedule: true,
       toolLinesPerSecond: lines,
       stopped: () => state.stopped,
-      progress: ({ gapMs, scheduleOffsetMs, ...counts }) => {
+      progress: ({ atMs, previousAtMs, dueAtMs, ...counts }) => {
         Object.assign(state.receipt, counts);
-        state.receipt.windowMaxGapMs = Math.max(state.receipt.windowMaxGapMs, gapMs);
-        state.receipt.windowMaxScheduleOffsetMs = Math.max(state.receipt.windowMaxScheduleOffsetMs, scheduleOffsetMs);
+        // Only the part of a gap (or of a chunk's lateness) after the mark is in the window.
+        const gap = atMs - Math.max(previousAtMs, state.markAtMs);
+        const late = atMs - Math.max(dueAtMs, state.markAtMs);
+        if (gap > state.receipt.windowMaxGapMs) {
+          state.receipt.windowMaxGapMs = gap;
+          state.receipt.windowMaxGapEndMs = atMs - state.markAtMs;
+        }
+        state.receipt.windowMaxScheduleOffsetMs = Math.max(state.receipt.windowMaxScheduleOffsetMs, late, 0);
       },
     })
     .catch((error: unknown) => {
