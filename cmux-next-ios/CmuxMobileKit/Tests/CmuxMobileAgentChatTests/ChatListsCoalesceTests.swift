@@ -649,8 +649,9 @@ import Testing
         #expect(worstStorage <= AgentEventJournal.limit + 64,
                 "held storage reached \(worstStorage) slots for a journal of \(AgentEventJournal.limit)")
         #expect(rows.heldCount <= journal.count, "held \(rows.heldCount), the journal keeps \(journal.count)")
+        #expect(rows.heldDroppedBodies(journal) == 0, "held slots keep \(rows.heldDroppedBodies(journal)) records the journal dropped")
         #expect(rows.heldBytes <= journal.keptBytes,
-                "held slots keep \(rows.heldBytes) bytes, the journal \(journal.keptBytes): dropped bodies were kept")
+                "held records keep \(rows.heldBytes) bytes, the journal \(journal.keptBytes)")
         rows.setHolding(false, journal: journal)
         #expect(rows.rows(journal).map(\.id) == brute(journal, ""))
     }

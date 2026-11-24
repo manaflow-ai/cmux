@@ -352,8 +352,14 @@ final class EventInspectorRows {
     var heldCount: Int { held.count - heldHead }
     /// Slots in `held`, kept or emptied (tests: bounded by the journal, not by the arrivals).
     var heldStorage: Int { held.count }
-    /// The bytes of every slot of `held` (tests: emptied slots keep no body).
-    var heldBytes: Int { held.reduce(0) { $0 + $1.line.utf8.count } }
+    /// The bytes of the records `held` still keeps (tests: at most the journal's). Emptied slots
+    /// hold the one shared placeholder (`AgentEventJournal.emptied`), no body of their own.
+    var heldBytes: Int { held.reduce(0) { $0 + ($1.id < 0 ? 0 : $1.line.utf8.count) } }
+    /// Slots of `held` that are not the shared placeholder but are before the journal's first
+    /// kept record (tests: none; a dropped record's body is let go at once).
+    func heldDroppedBodies(_ journal: AgentEventJournal) -> Int {
+        held.reduce(0) { $0 + ($1.id >= 0 && $1.id < journal.firstID ? 1 : 0) }
+    }
     /// Records that arrived while holding and match the shown query, counted as they come and
     /// never lowered when the journal later drops one (the pill's real count; what lands is the
     /// kept ones, `heldCount`).
