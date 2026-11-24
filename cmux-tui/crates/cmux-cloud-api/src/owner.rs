@@ -324,12 +324,13 @@ async fn github_app(http: &Http, args: &Map<String, Value>) -> Result<Value, Fai
         .send(Method::GET, url, None, None, Duration::from_secs(15), &path_text(&segments))
         .await;
     let Ok(reply) = reply else { return Ok(json!({ "state": "unknown" })) };
-    let mut answer = json!({ "state": github_app_state(reply.status, &reply.body) });
+    let mut answer = Map::new();
+    answer.insert("state".into(), json!(github_app_state(reply.status, &reply.body)));
     if args.get("raw").and_then(Value::as_bool) == Some(true) {
-        answer["status"] = json!(reply.status);
-        answer["body"] = reply.json().unwrap_or(Value::Null);
+        answer.insert("status".into(), json!(reply.status));
+        answer.insert("body".into(), reply.json().unwrap_or(Value::Null));
     }
-    Ok(answer)
+    Ok(Value::Object(answer))
 }
 
 /// `team` when it is a team id (`team_` and up to 120 letters, digits, `_` or `-`): the only
@@ -452,9 +453,12 @@ async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value,
         Some(_) => return Err(Failure::Transport("not an idempotency key".into())),
         None => uuid::Uuid::new_v4().to_string(),
     };
-    let mut params = json!({ "provider": "github" });
+    let mut params = Map::new();
+    params.insert("provider".into(), json!("github"));
     match optional_text(args, "returnTo") {
-        Some(link) if is_return_link(link) => params["return_to"] = json!(link),
+        Some(link) if is_return_link(link) => {
+            params.insert("return_to".into(), json!(link));
+        }
         Some(_) => return Err(Failure::Transport("not a return link".into())),
         None => {}
     }
