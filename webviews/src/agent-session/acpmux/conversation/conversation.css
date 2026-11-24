@@ -22,7 +22,9 @@
   --cv-exit-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
-  --cv-text-dim: var(--agent-soft); /* progress rows */
+  /* Progress rows, times, command meta: text, so the theme's secondary ink, which holds 4.5:1 on every fill.
+     The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
+  --cv-text-dim: var(--agent-muted);
   /* Background activity follows Claude Code's secondary reading level. */
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
   --cv-fg: var(--agent-text);

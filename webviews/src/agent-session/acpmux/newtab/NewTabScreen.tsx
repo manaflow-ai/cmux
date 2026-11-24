@@ -1,4 +1,5 @@
 import { SignInContext, useSignIn } from "../signIn";
+import { runResumed, submitResumed } from "../composer/resumedSend";
 import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
@@ -8,12 +9,12 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
@@ -33,9 +34,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
+  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
-  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -92,6 +93,7 @@ import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices } from "./startedProject";
 import {
+  exactMatch,
   canonicalAddress,
   defaultSelection,
   isAddress,
@@ -140,6 +142,8 @@ import { NEW_TAB_STASH } from "../composer/draftStash";
 import { StashedChip } from "../composer/StashedChip";
 import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
+import { mentionQuery } from "../mentionMenuModel";
+import { toolMentionsIn } from "../toolMentions";
 import {
   applyCommand,
   insertsText,
@@ -150,6 +154,7 @@ import {
   withSkillDollars,
   type SlashCommand,
   type SlashTrigger,
+  matchCommands,
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
@@ -163,6 +168,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import type { ComputerUsePlace } from "../computerUse/computerUseState";
 import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -205,6 +211,13 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSearch(text: string, how?: NewTabOpenHow): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
+  /// True: `text` may not start a chat in `place` now (`@computer-use` while Computer Use is not ready
+  /// on this Mac, or a chat off this Mac: App.tsx `holdsForComputerUseSetup`); the pane opened setup or
+  /// said why. Asked on the Return, Cmd-Return or Ask row's own key press or click, before anything
+  /// waits (files being read, the handshake) or makes something (a project, a worktree), so that
+  /// gesture still opens the setup window and the prompt stays (CMUX-682).
+  /// `late`: the send resumed after a wait (files read, dictation ended, setup done): hold and say why only.
+  holdsSend?(text: string, place: ComputerUsePlace, late?: boolean): boolean;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
@@ -466,6 +479,12 @@ export function NewTabScreen(props: Props) {
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
+  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
+  const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
+  /// The `@word` the prompt's caret is in, read in the caret's own line of the field (MarkdownField
+  /// `mentionWord`, any paragraph), and the draft it was read on. Another draft (one set from outside,
+  /// or none read yet): the word the text ends in.
+  const [promptMention, setPromptMention] = useState<{ text: string; query: string | undefined }>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -743,12 +762,16 @@ export function NewTabScreen(props: Props) {
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
   /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
   /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
+  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend`).
+  const sendResuming = useRef(false);
+  const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
   const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
   // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
   // again on each key. `onSetup` is read when it runs.
   const onSetup = useRef(props.onSetup);
   const openSetup = useCallback((empty = false) => {
-    if (onSetup.current) onSetup.current((agent) => continueAfterSetup.current(agent, undefined, empty === true));
+    if (onSetup.current)
+      onSetup.current((agent) => resumeSend(() => continueAfterSetup.current(agent, undefined, empty === true)));
     else openHarnessesPage();
   }, []);
   const wholeSelection = useRef(false);
@@ -920,6 +943,10 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    // Held for Computer Use before anything starts (an Ask row's click too): the prompt stays.
+    // cmux's own commands first (`/import @computer-use` opens its picker), and an address is no prompt.
+    if (command.intercept(prompt, agent, attachments.length, true)) return false;
+    if (prompt && !isAddress(prompt, home) && holdsSend(prompt)) return false;
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
@@ -1037,6 +1064,16 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  /// Where a chat this page starts runs, for `@computer-use` (`holdsSend`): only one on this Mac has
+  /// cmux's Computer Use tools.
+  const computerUsePlace = (): ComputerUsePlace =>
+    props.runMode?.mode === "cloud" && props.onCloud
+      ? "cloud"
+      : (props.runMode?.mode === "sandboxed" && props.onSandbox) || remoteTarget || elsewhere.current
+        ? "machine"
+        : "here";
+  const holdsSend = (prompt: string) =>
+    props.holdsSend?.(prompt, computerUsePlace(), sendResuming.current || submitResumed()) === true;
   // Match screenActions: an inherited tab folder is not the host's chat start folder.
   const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
@@ -1094,16 +1131,47 @@ export function NewTabScreen(props: Props) {
   // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
   // word typed again opens the list again, as in the chat composer (Composer `edit`).
   if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
-  const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  const slashOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // An `@word` the text ends in lists the plugins, as Codex's @ does (Lucas 2026-11-21: "@ is for
+  // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
+  // writes its own text. In the same menu as `/`, never in the address rows below the field.
+  const fieldMention = promptMention?.text === text ? promptMention : undefined;
+  // An address (a path, a URL) is never a prompt: no plugin picker over `My @computer-use notes.md`.
+  const atWord: { query: string; start?: number } | undefined =
+    shell || commandAt || profilePick || isAddress(withoutInlineTokens(text).trim(), home)
+      ? undefined
+      : fieldMention
+        ? fieldMention.query === undefined
+          ? undefined
+          : { query: fieldMention.query }
+        : mentionQuery(text, text.length);
+  const atMatches = atWord ? matchCommands((snapshot.commands ?? []).filter(insertsText), atWord.query, false) : [];
+  const atOpen = !slashOpen && atWord !== undefined && commandDismissed !== text && atMatches.length > 0;
+  const commandsOpen = slashOpen || atOpen;
+  const menuMatches = atOpen ? atMatches : commandMatches;
+  const menuQuery = atOpen ? atWord?.query : commandQuery;
+  // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
+  // or the list closing forgets it (adjusted while rendering, before any key reads it).
+  if (commandArrowedAt !== undefined && (!commandsOpen || menuQuery !== commandArrowedAt))
+    setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
-  const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
-  const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
+  const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
+  const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
   const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
   /// The Codex skills picked into this draft, by shown name.
   const pickedSkills = useRef(new Set<string>());
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
+    // From the @ menu: its text over the whole `@word` at the caret (the letters after the caret
+    // too), the text around it kept, as one edit the field reports. The field keeps focus while the
+    // menu is open (a row's press never takes it), and its caret goes just after what the row wrote.
+    if (atOpen && atWord && insertsText(command)) {
+      if (field.current?.insertMention(command.insert)) return;
+      // No editor yet: over the `@word` the draft ends in.
+      if (atWord.start !== undefined) setText(text.slice(0, atWord.start) + command.insert);
+      return;
+    }
     // A saved prompt's text, its variables filled, goes over the typed `/word`; the first one left
     // open is selected for the person to type.
     if (command.source === "saved") {
@@ -1212,7 +1280,20 @@ export function NewTabScreen(props: Props) {
           (words) => withoutInlineTokens(words),
         )
       : [];
-  const rows = text !== dismissed ? suggested : NO_ROWS;
+  // A prompt that names a plugin (`@computer-use`, toolMentions.ts) is for an agent: only its Ask rows
+  // stay, never a web search or an address for the same words.
+  // Return reads `offered` too once the rows are dismissed, so Escape never brings back a Run or a search.
+  // A prompt naming a plugin lists its Ask rows, no web search; an open tab or workspace named exactly
+  // what was typed (`QA @computer-use`) stays, so Return still goes there.
+  // The ranking's own exact match (a workspace or tab named what was typed, read unescaped, a full tab
+  // title too): Return still goes there.
+  const exactRow = exactMatch(typed.trim(), suggested, omnibar);
+  // An address (a path, a URL) is never a prompt: its rows stay whatever the text names.
+  const offered =
+    toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home) && !profilePick
+      ? suggested.filter((row) => row.type === "ask" || row === exactRow)
+      : suggested;
+  const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -1241,7 +1322,7 @@ export function NewTabScreen(props: Props) {
   // What Return does when it is not the prompt (a command, an address, a tab, a search): said beside
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
-  const returns = returnRow(rows, suggested, current, {
+  const returns = returnRow(rows, offered, current, {
     address: isAddress(typed.trim(), home),
     attachments: attachments.length,
   });
@@ -1581,7 +1662,9 @@ export function NewTabScreen(props: Props) {
     // A dictation session still running ends first, keeping its words; this goes once they land.
     if (listening && props.dictation && !dictationEnded.current) {
       // The session is over even if this render has not heard so yet.
-      props.dictation.finish(() => withDictationEnded(dictationEnded, () => submitNow.current(beside)));
+      props.dictation.finish(() =>
+        withDictationEnded(dictationEnded, () => resumeSend(() => submitNow.current(beside))),
+      );
       return;
     }
     // The profile search: Return opens the address in the highlighted profile (the first one).
@@ -1592,16 +1675,26 @@ export function NewTabScreen(props: Props) {
     }
     const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
+    // Held for Computer Use before anything waits or spends the gesture, when Return asks an agent (not
+    // when it goes to a tab or workspace the text names): the prompt stays.
+    const navigates = (() => {
+      const chosen = returnRow(rows, offered, current, {
+        address: isAddress(prompt, home),
+        attachments: attachments.length,
+      });
+      return (chosen.takes && chosen.row !== undefined && chosen.row.type !== "ask") || isAddress(prompt, home);
+    })();
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
+    if (!shell && !navigates && holdsSend(prompt)) return;
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
-    if (holdForAttachments(() => submitNow.current(beside))) return;
+    if (holdForAttachments(() => resumeSend(() => submitNow.current(beside)))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     // Navigation keeps staged files in chat. An explicit creation command keeps its own action.
-    const { row, takes: keeps } = returnRow(rows, suggested, current, {
+    const { row, takes: keeps } = returnRow(rows, offered, current, {
       address: isAddress(typed.trim(), home),
       attachments: attachments.length,
     });
@@ -1633,7 +1726,7 @@ export function NewTabScreen(props: Props) {
   const askNow = useRef(() => {});
   const askTyped = () => {
     if (listening && props.dictation && !dictationEnded.current) {
-      props.dictation.finish(() => withDictationEnded(dictationEnded, () => askNow.current()));
+      props.dictation.finish(() => withDictationEnded(dictationEnded, () => resumeSend(() => askNow.current())));
       return;
     }
     // Shell mode's field is a command: Cmd-Return runs it, as Return does.
@@ -1642,7 +1735,8 @@ export function NewTabScreen(props: Props) {
     if (!prompt && attachments.length === 0) return;
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     if (pairingLinkRefused(typed)) return props.onOpen(prompt);
-    if (holdForAttachments(() => askNow.current())) return;
+    if (holdsSend(prompt)) return;
+    if (holdForAttachments(() => resumeSend(() => askNow.current()))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     if (!harness) {
       openSetup();
@@ -1693,7 +1787,8 @@ export function NewTabScreen(props: Props) {
   const continueAfterSetupNow = (agent: string, model?: string, empty = false): void => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent, model, empty)) || created.current) return;
+    if (holdForAttachments(() => resumeSend(() => continueAfterSetup.current(agent, model, empty))) || created.current)
+      return;
     created.current = true;
     const prompt = empty || shell ? "" : typed.trim();
     const asked = askChat(
@@ -1812,16 +1907,22 @@ export function NewTabScreen(props: Props) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         setCommandActive(
-          (commandIndex + (event.key === "ArrowDown" ? 1 : commandMatches.length - 1)) % commandMatches.length,
+          (commandIndex + (event.key === "ArrowDown" ? 1 : menuMatches.length - 1)) % menuMatches.length,
         );
+        setCommandArrowedAt(menuQuery);
         return;
       }
       // As in chat (slashCommands.ts returnPicks): Tab and a plain Return pick the highlighted row
       // (Return runs a whole command name that takes no arguments). Shift-Return, Cmd-Return and any
       // other Return keep their meaning (a line, a send).
       const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-      const match = commandMatches[commandIndex];
-      if (plain && (event.key === "Tab" || (event.key === "Enter" && returnPicks(match, commandQuery ?? "")))) {
+      const match = menuMatches[commandIndex];
+      if (
+        plain &&
+        (event.key === "Tab" ||
+          (event.key === "Enter" &&
+            returnPicks(match, menuQuery ?? "", commandArrowedAt !== undefined, atOpen ? undefined : commandAt?.mark)))
+      ) {
         event.preventDefault();
         pickCommand(match!.command);
         return;
@@ -2529,7 +2630,8 @@ export function NewTabScreen(props: Props) {
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
                 <SlashMenu
-                  matches={commandMatches}
+                  mark={atOpen ? "@" : (commandAt?.mark ?? "/")}
+                  matches={menuMatches}
                   active={commandIndex}
                   empty={t("composer.noMatchingCommands")}
                   onHover={setCommandActive}
@@ -2601,7 +2703,12 @@ export function NewTabScreen(props: Props) {
                 onBeforeInput={(data, state) =>
                   !shell && state.paste && !state.composing ? pastedChips.take(data) : false
                 }
+                onCaret={() => {
+                  const current = field.current;
+                  if (current) setPromptMention({ text: current.value(), query: current.mentionWord() });
+                }}
                 onChange={(value) => {
+                  setPromptMention({ text: value, query: field.current?.mentionWord() });
                   // The editor canonicalizes escaping while mounting; that is still the untouched
                   // location, not a typed draft or a reason to show suggestions or hold a web swap.
                   if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {
