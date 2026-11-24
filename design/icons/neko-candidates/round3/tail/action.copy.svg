@@ -1,6 +1,0 @@
-<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>
-  <title>Neko round 3: tail copy</title>
-  <rect x='3.375' y='3.375' width='12.375' height='12.375' rx='2.25'/>
-  <path d='M8.25 15.75V18.375C8.25 19.41 9.09 20.25 10.125 20.25H14.5'/>
-  <path d='M15.75 8.25H18.375C19.41 8.25 20.25 9.09 20.25 10.125V16.75C20.25 18.9 19.1 20.5 17.5 20.5C16.4 20.5 15.75 19.85 15.75 19C15.75 18.3 16.25 17.85 16.9 17.95'/>
-</svg>

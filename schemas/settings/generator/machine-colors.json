@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/machine-colors.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+MachineColors.generated.swift",
-  "type": "MachineColorsSettingsSchema",
-  "lists": {
-    "machineColors": ["descriptors", null]
-  }
-}

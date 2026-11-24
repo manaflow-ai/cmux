@@ -1,2 +1,0 @@
-# Build output of scripts/gen-chief-vm-source.ts (scripts/ci/generated-files.json).
-src/chief-brain-cc/chief-vm-source.ts

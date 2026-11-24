@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/agent-guidance.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentGuidance.generated.swift",
-  "type": "AgentGuidanceSettingsSchema",
-  "lists": {
-    "agentGuidance": ["descriptors", "AgentGuidanceSettings"]
-  }
-}

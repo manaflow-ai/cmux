@@ -1,5 +1,0 @@
-# The gates whose tests write the design doc's row 4 (`v2.pr04.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-core v2_pr04_chat_stopped_reader
-acpmux-v2-connection v2_pr04_stopped_readers
-acpmux-v2-connection v2_pr04_offer_256_subscriptions
-acpmux-v2-connection v2_pr04_list_resume_end

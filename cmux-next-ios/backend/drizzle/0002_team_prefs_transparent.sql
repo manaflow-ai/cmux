@@ -1,1 +1,0 @@
-ALTER TABLE "team_prefs" ADD COLUMN "transparent" boolean DEFAULT false NOT NULL;

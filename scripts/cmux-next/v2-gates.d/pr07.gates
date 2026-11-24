@@ -1,2 +1,0 @@
-# The gates whose tests write the design doc's row 7 (`v2.pr07.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-acpmux-lib sidebar_mirror_connect_gate

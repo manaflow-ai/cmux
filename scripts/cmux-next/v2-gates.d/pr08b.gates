@@ -1,2 +1,0 @@
-# The gates whose tests write the design doc's row 8b (`v2.pr08b.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-core pr08b_serve_page

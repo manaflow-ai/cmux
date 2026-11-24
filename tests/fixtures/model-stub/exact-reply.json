@@ -1,1 +1,0 @@
-{"version": 1, "steps": [{"text": "{{prompt~reply with exactly the text (\\S+?)[.,]? and nothing else}}"}]}

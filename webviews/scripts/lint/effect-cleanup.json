@@ -1,5 +1,0 @@
-{
-  "jsPlugins": ["./effect-cleanup.mjs"],
-  "categories": { "correctness": "off" },
-  "rules": { "cmux-lifecycle/effect-interval-cleanup": "error" }
-}

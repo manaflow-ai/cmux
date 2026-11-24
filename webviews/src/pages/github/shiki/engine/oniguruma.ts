@@ -1,1 +1,0 @@
-export { createOnigurumaEngine } from "../index";

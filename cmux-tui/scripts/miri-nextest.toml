@@ -1,9 +1,0 @@
-# cargo-nextest settings for scripts/miri.sh. Miri interprets each test, 10 to 100 times slower
-# than a native run: acpmux-client's slowest tests took 60 to 120 s (2026-11-17), so a test is
-# ended only after 10 minutes. Every test runs once and every failure is listed.
-
-[profile.default]
-retries = 0
-fail-fast = false
-slow-timeout = { period = "120s", terminate-after = 5, grace-period = "5s" }
-failure-output = "immediate-final"
