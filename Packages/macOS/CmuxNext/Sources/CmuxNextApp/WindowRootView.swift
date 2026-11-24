@@ -180,6 +180,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         }
         placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in
+            self?.followContentAreaMotion()
             self?.updateMainPaneShade()
             self?.onMainPaneMove?()
         }
@@ -253,6 +254,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// The sidebar's slide starts (true) or lands (false, after the landing's layout, before content hears it settled):
     /// the window marks the layouts it resizes as in motion meanwhile (`WindowController.observeSidebarHidden`).
     var onContentAreaMotionChange: ((Bool) -> Void)?
+    /// The content the sidebar's slide holds at one size (`WindowRootView+ContentAreaMotion`); nil when none is held.
+    var contentHold: ContentAreaHold?
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a
