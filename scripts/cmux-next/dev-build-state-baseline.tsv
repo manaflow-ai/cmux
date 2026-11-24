@@ -52,7 +52,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsCustomizeLibrary.swift	1	c
 Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SimulatorHIDTransport.swift	1	a CoreDevice service name, not a Keychain item
 Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineSecrets.swift	2	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteVNCCredentialStore.swift	1	debug VNC credentials of a remote Mac the person typed (CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE in tests), an input like the dev sign-in
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
+Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift	4	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment); the other three are Classic's cmux.json, an input read only after the person consents to the Classic import, redirected by BuildStatePaths.classicImportDirectory
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+ConfigFiles.swift	1	an input of this Mac read by every build on purpose: the dev sign-in or a third-party app's config (Ghostty), never written
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultFiles.swift	1	reads classic cmux's and Ghostty's own config files (input, never written); classic's path is per bundle id
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
@@ -78,6 +78,7 @@ cmux-tui/crates/acpmux/src/server/secrets.rs	1	text only (help, a description, a
 cmux-tui/crates/acpmux/src/user_settings.rs	4	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-action-catalog/src/catalog/cloud.rs	1	text only (help, a description, an error message), no path is read
 cmux-tui/crates/cmux-automations/src/store.rs	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
+cmux-tui/crates/cmux-classic-import/src/ghostty.rs	1	Classic's own config folder, an input: listed only so the consented import does not copy includes that point back into Classic
 cmux-tui/crates/cmux-cloud-codex-holder/src/broker_files.rs	5	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-cloud-codex-holder/src/target.rs	2	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-cloud-config/src/auth.rs	3	an input of this Mac read by every build on purpose: the dev sign-in or a third-party app's config (Ghostty), never written
@@ -90,6 +91,7 @@ cmux-tui/crates/cmux-host/src/gitlab_cli.rs	1	the host's git-host tokens (cmux h
 cmux-tui/crates/cmux-remote/src/secrets/files.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-server-core/src/layout.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
 cmux-tui/crates/cmux-tui-core/src/apps/local_reload.rs	2	an inline test module's temporary home, not product state
+cmux-tui/crates/cmux-tui-core/src/state/classic_import_router.rs	2	Classic's cmux.json, an input: the probe stats it under the import's probe home (a fixture in tests), never reads or writes it; the other is the test fixture's settings folder
 cmux-tui/crates/cmux-tui-util/src/user_settings.rs	2	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-tui/src/claude_wrapper.rs	2	read-only input of the Cloud Claude launcher: agent-auth.sh selects this isolated profile across builds, so refusal must be read there; the second site is a temporary test fixture, never a build's state
 cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/share.rs	1	an input of this Mac read by every build on purpose: the team build cache URL (app-share.json) the HQ menu bar app writes once per Mac, never written by a build
