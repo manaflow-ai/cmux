@@ -364,22 +364,29 @@ for (const [fontSize, room] of [
     const menu = popup();
     menu.style.fontSize = `${fontSize}px`;
     menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
-    menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
+    // The menu opens no wider than its room.
+    const open = Math.min(700, room);
+    menu.getBoundingClientRect = () => ({ left: 5, right: 5 + open, width: open }) as DOMRect;
     menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
     const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
     const direction = grip.dataset.edge === "start" ? -1 : 1;
     // The chip-aligned edge stays pinned; only the opposite edge moves.
     if (direction === -1)
-      menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
+      menu.getBoundingClientRect = () => ({ left: room + 5 - open, right: room + 5, width: open }) as DOMRect;
     await act(async () => {
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
       grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
     });
-    // The drawn width stops at the room; the kept width never goes under the floor.
-    const minimum = Math.min(room, 318);
-    expect(menu.style.width).toContain(`${minimum}px`);
-    expect(modelMenuWidth()).toBe(318);
+    // A pane narrower than the floor has no narrower width to keep: the menu stays as it opened,
+    // as wide as its room, and the person's kept width is left alone.
+    if (room < 318) {
+      expect(menu.style.width).toBe("");
+      expect(modelMenuWidth()).toBeUndefined();
+    } else {
+      expect(menu.style.width).toContain("318px");
+      expect(modelMenuWidth()).toBe(318);
+    }
     expect(modelMenuHeight()).toBeUndefined();
     expect(menu.style.minWidth).toContain(`${room}px`);
     await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
