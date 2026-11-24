@@ -160,6 +160,18 @@ pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
 /// continuation never runs out of attempts: past the configured waits it waits this long.
 pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 
+/// Whether a continuation for `reason` never runs out of attempts: a capacity outage (the
+/// provider's 529, the SR2 gateway's 503 "no non-exhausted accounts ... next account frees up in
+/// Nm") and an account's rate limit (HTTP 429) both end by themselves, so the chat waits them out
+/// (Leo, 2026-11-24: "didn't we build auto retries for this? why do they fail instead of waiting
+/// it out?"). On 2026-11-23 18 lanes on one machine sat failed for 18 h: the 503s ran out of
+/// their four attempts (before #53115), and the 429s ran out at their fifth strike, one short of
+/// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
+/// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
+pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
+    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit) && !delays.is_empty()
+}
+
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
 /// [`CAPACITY_MAX_WAIT_MS`] (a longer configured wait would hold a chat past capacity's return);
 /// past the configured waits the last one doubling per attempt, at most the same. Jittered per
@@ -698,9 +710,10 @@ impl Hub {
             let delays = if context { compact_first::waits(&delays) } else { delays };
             // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
             let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
-            // A capacity outage is waited out, however long it lasts: never used up.
+            // A capacity outage or an account's rate limit is waited out, however long it
+            // lasts: never used up ([`waits_it_out`]).
             let index = done.saturating_sub(moves);
-            let unbounded = reason == RetryReason::Capacity && !delays.is_empty();
+            let unbounded = waits_it_out(reason, &delays);
             let delay = if unbounded {
                 Some(capacity_wait(index, &delays, &session.id))
             } else {
