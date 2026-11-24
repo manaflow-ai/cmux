@@ -144,6 +144,38 @@ impl Sender {
     }
 }
 
+impl Sender {
+    /// The manifest positions `want` asks for, each distinct chunk once (at its first position), in
+    /// manifest order. With [`Self::chunks_message`] a sender streams its answer one batch at a time
+    /// instead of holding every sealed chunk at once ([`Self::on_want`]).
+    pub fn wanted(&self, want: &[u8]) -> Result<Vec<usize>> {
+        let (root, bits) = parse(want, WANT)?;
+        if root != self.root || bits.len() != self.manifest.chunks.len().div_ceil(8) {
+            return Err(Error::Malformed("want"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        Ok(self
+            .manifest
+            .chunks
+            .iter()
+            .enumerate()
+            .filter(|(i, c)| bits[i / 8] & (1 << (i % 8)) != 0 && seen.insert(c.id))
+            .map(|(i, _)| i)
+            .collect())
+    }
+
+    /// One chunks message carrying the chunks at manifest `positions` (from [`Self::wanted`]).
+    pub fn chunks_message(&self, positions: &[usize], store: &dyn Store) -> Result<Vec<u8>> {
+        let mut out = head(CHUNKS, &self.root, 0);
+        for &i in positions {
+            let c = self.manifest.chunks.get(i).ok_or(Error::Malformed("chunk position"))?;
+            let sealed = store.get(&c.id)?.ok_or(Error::Missing(c.id))?;
+            encode_records([(&c.id, sealed.as_slice())], &mut out);
+        }
+        Ok(out)
+    }
+}
+
 /// The receiving side of one bundle.
 #[derive(Debug)]
 pub struct Receiver {
@@ -267,6 +299,31 @@ mod tests {
         assert_eq!(got, file);
         assert_eq!(resent, 0, "a re-sent attachment moves no chunk bytes");
         assert_eq!(rtts, 1);
+    }
+
+    #[test]
+    fn a_streamed_answer_carries_what_on_want_carries() {
+        let key = PairKey::derive(&[1; 32]);
+        let mut file = data(1 << 20, 7);
+        file.extend_from_within(..300_000);
+        let (mut tx, rx) = (MemStore::default(), MemStore::default());
+        let s = Sender::new(&key, Kind::Attachment, &file, &mut tx).unwrap();
+        let r = Receiver::on_offer(&key, &s.offer()).unwrap();
+        let want = r.want(&rx);
+        let positions = s.wanted(&want).unwrap();
+        let distinct: std::collections::HashSet<_> =
+            s.manifest().chunks.iter().map(|c| c.id).collect();
+        assert_eq!(positions.len(), distinct.len(), "each distinct chunk once");
+        let mut rx = rx;
+        let mut done = false;
+        for batch in positions.chunks(3) {
+            done = r.on_chunks(&s.chunks_message(batch, &tx).unwrap(), &mut rx).unwrap();
+        }
+        assert!(done);
+        assert_eq!(r.assemble(&rx).unwrap(), file);
+        assert!(s.wanted(&r.want(&rx)).unwrap().is_empty());
+        assert!(s.wanted(b"nope").is_err());
+        assert!(s.chunks_message(&[usize::MAX], &tx).is_err());
     }
 
     #[test]
