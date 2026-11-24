@@ -161,7 +161,7 @@ extension LayoutRootView {
     /// only at rest (`WindowOverlayLayer`: divider catcher panels over pages, the pressed one keeps the drag), and
     /// hears the end once, after the landing frame's (or with no spring the release's) last sync (`setLayoutInMotion`).
     public var isInLayoutMotion: Bool {
-        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && ($0.hasMotion || $0.activeDrag != nil) }
+        isLayoutInMotion || isInChromeMotion || screenViews.values.contains { !$0.isHidden && ($0.hasMotion || $0.activeDrag != nil) }
     }
 
     /// A divider, column-edge or row-edge drag runs on a shown screen (its catcher panel keeps the resize cursor).

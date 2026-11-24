@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextLiveCode
 import CmuxNextPages
 
@@ -18,6 +19,20 @@ extension WindowController {
         // own (a hide sizes it once at the start): every move of the card, its last frame
         // included, has its header re-read the traffic lights (no change, no work).
         root.onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
+        // Every frame of the slide resizes the layouts in the content area as a spring would: they hold what waits
+        // for a still layout (divider catcher panels over pages, still work) until the landing, which clears the
+        // ones marked at the start, a layout switched out meanwhile included.
+        root.onContentAreaMotionChange = { [weak self] moving in
+            guard let self else { return }
+            if moving {
+                chromeMotionLayouts = LayoutRootView.shown(in: root.contentHost).map { WeakLayoutRoot(view: $0) }
+                for layout in chromeMotionLayouts { layout.view?.setChromeMotion(true) }
+            } else {
+                let marked = chromeMotionLayouts
+                chromeMotionLayouts = []
+                for layout in marked { layout.view?.setChromeMotion(false) }
+            }
+        }
         // The host pressure indicator, then extensions' status items (cmux.status/1), join the top row after the band and badge (cmuxterm-hq#2995).
         let topRowChanged = { [weak self] in
             self?.root.needsLayout = true
@@ -74,5 +89,26 @@ extension WindowController {
                 (services.pages.existingView(key)?.content as? PageWebView)?.windowDidChangeChrome()
             }
         }
+    }
+}
+
+/// A layout the sidebar's slide marked (`WindowController.chromeMotionLayouts`), held weakly: a workspace closed
+/// mid-slide goes with its layout.
+struct WeakLayoutRoot {
+    weak var view: LayoutRootView?
+}
+
+extension LayoutRootView {
+    /// The layouts shown in `host`'s subtree, not under a hidden view (the workspace on screen, and with
+    /// `sidebar.multiView` the ones beside it). A layout's own subtree is not walked: one has no layout in it.
+    static func shown(in host: NSView) -> [LayoutRootView] {
+        var found: [LayoutRootView] = []
+        func walk(_ view: NSView) {
+            guard !view.isHidden else { return }
+            if let layout = view as? LayoutRootView { return found.append(layout) }
+            for subview in view.subviews { walk(subview) }
+        }
+        walk(host)
+        return found
     }
 }

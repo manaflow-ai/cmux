@@ -250,6 +250,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     var onToolbarBandPresenceChange: (() -> Void)?
     /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
     var onMainPaneMove: (() -> Void)?
+    /// The sidebar's slide starts (true) or lands (false, after the landing's layout, before content hears it settled):
+    /// the window marks the layouts it resizes as in motion meanwhile (`WindowController.observeSidebarHidden`).
+    var onContentAreaMotionChange: ((Bool) -> Void)?
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a
@@ -271,6 +274,12 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
 
     override func layout() {
         defer { onHintGeometryChange?() }
+        // One avoider re-check per pass: every frame of a sidebar slide moves the card (`onMainPaneMove`) and the
+        // band (`onToolbarBandPresenceChange`), and each asked the window to re-check every avoider on its own.
+        WindowControlsAvoiders.batching(in: window) { layoutChrome() }
+    }
+
+    private func layoutChrome() {
         if let window { TrafficLightsLine.apply(in: window) } // First: the rest reads the lights, now on the top row's line.
         // Before the pass solves the constraints: the lights' frame does not depend on it, and a top set after
         // `super.layout()` showed only on the next pass (bottom tab bars' card sat under the lights until a relayout).

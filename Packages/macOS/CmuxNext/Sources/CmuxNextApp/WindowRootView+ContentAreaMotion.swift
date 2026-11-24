@@ -20,11 +20,13 @@ extension WindowRootView {
     /// held its grid and would otherwise hold it for good.
     func wireContentAreaMotion() {
         sidebar.onWidthMotionChange = { [weak self] animating in
-            guard !animating, let self else { return }
+            guard let self else { return }
+            guard !animating else { return onContentAreaMotionChange?(true) ?? () }
             // Flush layout at the landed width before content hears the motion ended: the
             // workspace sizes its layout in `layout()` (an empty autoresizing mask), so the subtree is
             // laid out now, or a terminal would settle at a stale width and report a stale grid.
             layoutSubtreeIfNeeded()
+            onContentAreaMotionChange?(false)
             notifyPaneMotionSettled()
         }
     }
