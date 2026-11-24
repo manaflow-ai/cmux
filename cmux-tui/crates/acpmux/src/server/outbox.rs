@@ -940,8 +940,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // back-off ran out (RFD 0049 R1).
                 let own = retry_sleep(&delivery, secs, crate::store::now_ms());
                 let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
-                let behind_gate =
-                    !delivery.projection_only() && relayed && hub.mesh.gate().shut();
+                let behind_gate = !delivery.projection_only() && relayed && hub.mesh.gate().shut();
                 let wait = match hub.mesh.gate().reopens_at().filter(|_| behind_gate) {
                     Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
                     None => own,
