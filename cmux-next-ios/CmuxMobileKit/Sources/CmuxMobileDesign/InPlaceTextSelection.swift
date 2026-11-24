@@ -88,15 +88,18 @@ public final class InPlaceTextSelection: NSObject {
         overlay.onResign = nil
         overlay.delegate = nil
         if overlay.isFirstResponder { _ = overlay.resignFirstResponder() }
+        // A table cell caches its accessibility children: the removed stand-in stayed in that
+        // cache, so VoiceOver and UI tests still found a selection after it ended (Feed rows,
+        // 2026-11-24). Hidden first, a cached reference to it is skipped.
+        overlay.isAccessibilityElement = false
+        overlay.accessibilityElementsHidden = true
         overlay.removeFromSuperview()
         outsideTap.view?.removeGestureRecognizer(outsideTap)
         heldLabel?.alpha = 1
         let shown = heldLabel
         heldLabel = nil
         if Self.current === self { Self.current = nil }
-        // A table cell keeps its accessibility children until told its layout changed: without
-        // this, VoiceOver (and UI tests) still found the removed stand-in after the selection
-        // ended (Feed rows, 2026-11-24). Focus goes to the text that shows again.
+        // The cell's elements changed: VoiceOver goes to the text that shows again.
         UIAccessibility.post(notification: .layoutChanged, argument: shown)
         onChange?(false)
     }
