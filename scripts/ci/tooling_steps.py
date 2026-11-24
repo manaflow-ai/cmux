@@ -42,8 +42,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402
 from workflow_paths_cover_inputs import (  # noqa: E402
-    INTERPRETERS, Repo, Walker, glob_regex, is_test, literal_env, load_yaml, mapping, python_facts, run_targets,
-    shell_words,
+    INTERPRETERS, Repo, Walker, declared_runs, glob_regex, is_test, literal_env, load_yaml, mapping, python_facts,
+    rooted_run, run_targets, shell_words,
 )
 
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
@@ -53,7 +53,7 @@ SETUP_ID = "setup-"
 # walker cannot resolve may be a repository module it missed, so the step runs.
 THIRD_PARTY = {"yaml", "pytest", "_pytest", "xdist", "PIL"}
 EXPR = "$__EXPR"
-POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+)\})")
+POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+|@:[0-9]+(?::[0-9]+)?)\})")
 # `git ls-files` with no pathspec, in a Python argument list (`["git", "-C", root, "ls-files", "-z"]`) or a shell
 # command (`git ls-files | grep`): the whole tracked tree is an input.
 WHOLE_TREE_LIST = re.compile(r"""["']ls-files["']\s*(?:,\s*["']-[\w=-]+["']\s*)*[\])]"""
@@ -140,7 +140,19 @@ def reach_of(repo: Repo, walker: Walker, rel: str) -> Reach:
     directory (an os.walk, iterdir or `git ls-files DIR` reads any file below it), a shell word naming a directory,
     and a shell command run from a variable (`bash "$t"` in a `for t in DIR/*` loop)."""
     reach = Reach()
+    try:
+        own_text = Path(repo.abs(rel)).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        own_text = ""
+    declared = declared_runs(repo, own_text) is not None
+    shell = rel.endswith((".sh", ".bash")) or walker.shebang(rel) == "shell"
+    here = rel.rpartition("/")[0]
     for what in sorted(walker.unknown.get(rel, ())):
+        if what.startswith("runs ") and (declared or (shell and here)):
+            continue  # declared, or read below as reaching the script's own directory
+        if what.startswith("source $") and shell and here:
+            reach.dirs.append(here)  # a library found by a computed name, as a command run from a variable
+            continue
         if what.startswith("lists "):
             reach.globs.append(what[len("lists "):])
         elif what.split(".")[0] not in THIRD_PARTY:
@@ -164,11 +176,24 @@ def reach_of(repo: Repo, walker: Walker, rel: str) -> Reach:
             targets = list(run_targets(words))
             for index, word in enumerate(words[:-1]):
                 if word in ("source", ".", "exec") or INTERPRETERS.match(word.rsplit("/", 1)[-1]):
+                    if words[index + 1] in ("-c", "-e", "-E", "-m", "-s"):  # a module, a program in the argument or on stdin
+                        continue
                     rest = [w for w in words[index + 1:] if not w.startswith("-")]
                     targets.extend(rest[:1])
             for target in targets:
+                if "\n" in target:  # a quoted string over several lines is text, not a path
+                    continue
+                if declared or rooted_run(repo, target):
+                    continue
                 if ("$" in target or "`" in target) and not POSITIONAL.fullmatch(target):
-                    reach.unknown.append(f"runs {target}")
+                    # A command from a variable runs a system tool or a file the script finds by a computed name,
+                    # in practice a sibling (`"$dir/$name.sh"`, `bash "$t"` over `$tests/*`): it reaches the
+                    # script's own directory. A script that runs files elsewhere declares them
+                    # (`# tooling-steps runs:`); a script at the repository root stays unresolved.
+                    if here:
+                        reach.dirs.append(here)
+                    else:
+                        reach.unknown.append(f"runs {target}")
             for word in words:
                 if "$" in word or word.startswith("-"):
                     continue
@@ -189,7 +214,7 @@ def read_text(repo: Repo, rel: str) -> str:
 
 
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
-               changed: set[str]) -> tuple[bool, str]:
+               changed: set[str], added_deleted: set[str] | None = None) -> tuple[bool, str]:
     """(run, reason) for one selectable step."""
     workdir = str(step.get("working-directory") or workdir)
     if "$" in workdir:
@@ -231,9 +256,12 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
                     return True, f"{path} reads directory {directory}, which holds {name}"
     # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
     # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
-    for path in code:
-        if WHOLE_TREE_LIST.search(read_text(repo, path)):
-            return True, f"{path} lists every tracked file"
+    # A diff that only edits files leaves that list as it was, so the rule needs the added and deleted files
+    # (renames are an add and a delete under --no-renames); with no such list it holds for every diff.
+    if added_deleted is None or added_deleted:
+        for path in code:
+            if WHOLE_TREE_LIST.search(read_text(repo, path)):
+                return True, f"{path} lists every tracked file"
     # A path the walker does not follow: a changed file any input of the closure spells out by path or file name,
     # a data file (scripts/ci/check-paths.txt naming a script) as much as code.
     for path in sorted(inputs):
@@ -244,7 +272,8 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     return False, f"none of its {len(inputs)} inputs changed ({', '.join(tests[:2])}{' ...' if len(tests) > 2 else ''})"
 
 
-def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str) -> Decision:
+def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str,
+          added_deleted: list[str] | None = None) -> Decision:
     repo = Repo.load(root)
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
@@ -279,7 +308,8 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
         if not key:
             verdicts.append(StepVerdict(key, name, True, "no id: it carries no selection and always runs"))
             continue
-        run, reason = judge_step(repo, walker, step, env, workdir, changed_set)
+        run, reason = judge_step(repo, walker, step, env, workdir, changed_set,
+                                 None if added_deleted is None else set(added_deleted))
         verdicts.append(StepVerdict(key, name, run, reason))
     return Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
 
@@ -311,6 +341,9 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--workflow", required=True)
     cmd.add_argument("--job", required=True)
     cmd.add_argument("--changed-files", type=Path)
+    cmd.add_argument("--added-deleted", type=Path,
+                     help="the diff's added and deleted files (git diff --no-renames --diff-filter=AD); "
+                          "given, a step that lists every tracked file runs only when this list is non-empty")
     cmd.add_argument("--event", required=True)
     cmd.add_argument("--github-output", type=Path)
     cmd.add_argument("--summary", type=Path)
@@ -320,7 +353,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.changed_files and args.changed_files.is_file():
         changed = [line.strip() for line in args.changed_files.read_text(encoding="utf-8").splitlines()
                    if line.strip()]
-    decision = route(Path(args.root), args.workflow, args.job, changed, args.event)
+    added_deleted = None
+    if args.added_deleted and args.added_deleted.is_file():
+        added_deleted = [line.strip() for line in args.added_deleted.read_text(encoding="utf-8").splitlines()
+                         if line.strip()]
+    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted)
     write_outputs(decision, args.github_output, args.summary, args.job)
     if args.json:
         print(json.dumps({"all": decision.all, "reason": decision.reason,
