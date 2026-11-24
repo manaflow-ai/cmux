@@ -702,8 +702,9 @@ fn fresh(
         source_session_id: begun["source_session"].as_str().map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
-        source_tab: begun["tab"]
-            .as_str()
+        source_tab: begun
+            .get("tab")
+            .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
             .or_else(|| pinned.as_ref().and_then(|pinned| pinned.source_tab.clone())),
         begin_token: pinned.and_then(|pinned| pinned.begin_token),
@@ -1269,7 +1270,7 @@ fn pin_begin(args: &Args, records: &Records, token: Option<String>) -> Option<Re
     let session = answer["session"].as_str().filter(|id| !id.is_empty())?;
     let record = Record {
         source_session_id: Some(session.to_owned()),
-        source_tab: answer["tab"].as_str().map(str::to_owned),
+        source_tab: answer.get("tab").and_then(serde_json::Value::as_str).map(str::to_owned),
         to_socket: args.to.clone(),
         cwd: args.cwd.clone(),
         begin_token: Some(token.or_else(new_begin_token)?),
