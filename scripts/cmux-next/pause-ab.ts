@@ -23,7 +23,7 @@
  *
  * Per machine it also records the daemon's capabilities as the platform stored them from its last status report
  * (`cloud.machine.connect_info` daemon.capabilities: is `activity-turn-end` advertised?), the guest's build commit
- * (self-update state.json, start and end) and the effective pause policy (a refused `turn_end` falls back to
+ * (`sudo -n cmux host update status --json`, start and end: binary, applied commit, channel commit, updater outcome) and the effective pause policy (a refused `turn_end` falls back to
  * `aggressive` with policy_refused set).
  *
  * The model stub listens on loopback. cmux-host's workload probe (cloud/workload.rs) counts any listening socket as
@@ -117,8 +117,8 @@ export type MachineResult = {
   capabilities: string[] | null;
   turn_end_advertised: boolean | null;
   daemon_version: string | null;
-  build_commit_start: string | null;
-  build_commit_end: string | null;
+  guest_update_start: GuestUpdate | null;
+  guest_update_end: GuestUpdate | null;
   turns_ok: number;
   turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string }[];
   samples: Sample[];
@@ -192,7 +192,73 @@ function stubStartCommand(nonce: string): string {
     `echo "@@port $port"; python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\np.parent.mkdir(parents=True, exist_ok=True)\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
 }
 
-const BUILD_COMMIT = `python3 -c 'import json; d=json.load(open("/var/lib/cmux/self-update/state.json")); print("@@commit", d.get("applied_commit") or d.get("commit") or "?")' 2>/dev/null || echo "@@commit unknown"`;
+// The guest updater's own status (cmux-host updater/role.rs `status --json`), as root: errors are kept, not hidden.
+const GUEST_UPDATE = `out=$(sudo -n cmux host update status --json 2>&1); echo "@@exit $?"; printf '%s\n' "$out"`;
+
+/** One reading of the guest updater, its parts kept apart: the binary running, what the updater applied, the
+ * channel's published commit, and the updater's last outcome. `error` holds a failed read verbatim. */
+export type GuestUpdate = {
+  exit: number | null; error: string | null;
+  cmux_tui: string | null; current_generation: unknown; applied_commit: string | null;
+  last_outcome: string | null; last_at: number | null; off: unknown; pending: unknown;
+  channel_url: string | null; channel_commit: string | null; channel_error: string | null;
+};
+
+export function parseGuestUpdate(stdout: string): GuestUpdate {
+  const exit = Number(/@@exit (\d+)/.exec(stdout)?.[1] ?? NaN);
+  const body = stdout.replace(/^[\s\S]*?@@exit \d+\n?/, "").trim();
+  const g: GuestUpdate = {
+    exit: Number.isFinite(exit) ? exit : null, error: null, cmux_tui: null, current_generation: null, applied_commit: null,
+    last_outcome: null, last_at: null, off: null, pending: null, channel_url: null, channel_commit: null, channel_error: null,
+  };
+  const line = body.split("\n").find((l) => l.trim().startsWith("{"));
+  let v: any = null;
+  try { v = line ? JSON.parse(line) : null; } catch { v = null; }
+  if (g.exit !== 0 || !v) { g.error = body.slice(0, 500) || `no output (exit ${g.exit})`; if (!v) return g; }
+  g.cmux_tui = v.cmux_tui == null ? null : String(v.cmux_tui);
+  g.current_generation = v.current ?? null;
+  g.applied_commit = v.state?.applied_commit ?? null;
+  g.last_outcome = v.state?.last ?? null;
+  g.last_at = typeof v.state?.last_at === "number" ? v.state.last_at : null;
+  g.off = v.off ?? null;
+  g.pending = v.pending ?? null;
+  g.channel_url = typeof v.channel === "string" ? v.channel : null;
+  return g;
+}
+
+/** The channel's published commit, read by the runner from the URL the guest names (the signed envelope's payload). */
+async function channelCommit(url: string): Promise<{ commit: string | null; error: string | null }> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return { commit: null, error: `HTTP ${res.status}` };
+    const env: any = await res.json();
+    const payload = JSON.parse(Buffer.from(String(env?.payload ?? ""), "base64").toString("utf8"));
+    const commit = payload?.commit ?? payload?.cmux_tui?.commit ?? payload?.build?.commit ?? null;
+    return commit ? { commit: String(commit), error: null } : { commit: null, error: `no commit in payload keys ${Object.keys(payload ?? {}).join(",")}` };
+  } catch (e) {
+    return { commit: null, error: String(e).slice(0, 200) };
+  }
+}
+
+async function readGuestUpdate(exec: Exec): Promise<GuestUpdate> {
+  let g: GuestUpdate;
+  try {
+    g = parseGuestUpdate((await exec(GUEST_UPDATE, 60_000)).stdout);
+  } catch (e) {
+    g = parseGuestUpdate("");
+    g.error = `exec: ${String(e).slice(0, 300)}`;
+  }
+  if (g.channel_url) {
+    const c = await channelCommit(g.channel_url);
+    g.channel_commit = c.commit;
+    g.channel_error = c.error;
+  }
+  return g;
+}
+
+export const guestLine = (name: string, g: GuestUpdate | null): string => !g ? `${name}: not read` :
+  `${name}: binary ${g.cmux_tui ?? "?"}; applied ${g.applied_commit ?? "none"}; channel ${g.channel_commit ?? `? (${g.channel_error ?? "no url"})`}; ` +
+  `updater ${g.last_outcome ?? "no outcome"}${g.off ? `, off ${JSON.stringify(g.off)}` : ""}${g.pending ? ", pending" : ""}${g.error ? `; ERROR ${g.error.slice(0, 160)}` : ""}`;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -225,7 +291,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   const results: MachineResult[] = arms.flatMap((arm) => Array.from({ length: perArm }, (_, i) => ({
     arm, name: `${NAME_PREFIX}${tag}-${arm}-${i + 1}`, id: null, effective_policy: null, policy_refused: null, capabilities: null,
-    turn_end_advertised: null, daemon_version: null, build_commit_start: null, build_commit_end: null, turns_ok: 0, turns: [], samples: [],
+    turn_end_advertised: null, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: 0, turns: [], samples: [],
     awake_s: null, paused_s: null, pauses: null, error: null,
   } as MachineResult)));
   let usageBefore: number | null = null;
@@ -247,7 +313,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     writeFileSync(path.join(outDir, "summary.md"), `# Pause-policy A/B (${backend.name})\n\n` +
       `${perArm} machine(s) per arm, ${turnCount} stub turns, seed ${seed}, gaps ${gaps.join(", ")} s, tail ${tailS} s. ` +
       `Awake/paused from \`cloud.machine.get\` status every ${pollMs / 1000} s. Account VM seconds over the run (all machines, cross-check): ${usage ?? "n/a"}.\n\n` +
-      `${markdownTable(rows)}\n\n## Steps\n\n| status | step | ms | detail |\n|---|---|---|---|\n${steps}\n`);
+      `${markdownTable(rows)}\n\n## Guest updater (\`sudo -n cmux host update status --json\`)\n\n` +
+      results.map((r) => `- start ${guestLine(r.name, r.guest_update_start)}\n- end ${guestLine(r.name, r.guest_update_end)}`).join("\n") +
+      `\n\n## Steps\n\n| status | step | ms | detail |\n|---|---|---|---|\n${steps}\n`);
   };
 
   const cleanup = sharedCleanup(async () => {
@@ -408,7 +476,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }));
       return { value: null, detail: results.map((r) => `${r.name}: ${r.effective_policy}${r.policy_refused ? " (asked policy refused)" : ""}`).join("; ") };
     });
-    await J.step("model stub and build commit", async () => {
+    await J.step("model stub and guest update status", async () => {
       await Promise.all(results.map(async (r) => {
         for (const [p, data] of [[`${STUB_DIR}/pab-model-stub.py`, readFileSync(MODEL_STUB_PY)], [`${STUB_DIR}/pab-model-stub.json`, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
           const w = await api.raw("POST", `/v1/cloud/machines/${r.id}/fs/write`, { path: p, dataBase64: data.toString("base64"), mode: 0o644 });
@@ -417,9 +485,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const exec = directExec(api, r.id!, J);
         const s = await exec(stubStartCommand(nonce), 60_000);
         if (!s.stdout.includes("stub-ready")) throw new Error(`${r.name} stub: ${s.stdout.slice(-200)} ${s.stderr.slice(-200)}`);
-        r.build_commit_start = /@@commit (\S+)/.exec((await exec(BUILD_COMMIT)).stdout)?.[1] ?? null;
+        r.guest_update_start = await readGuestUpdate(exec);
       }));
-      return { value: null, detail: results.map((r) => `${r.name} commit ${r.build_commit_start}`).join("; ") };
+      return { value: null, detail: results.map((r) => guestLine(r.name, r.guest_update_start)).join(" | ") };
     });
 
     // Status sampler: one cloud.machine.get per machine every poll interval for the whole window.
@@ -451,6 +519,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         r.turn_end_advertised = r.capabilities!.includes(TURN_END_CAPABILITY);
       }
     }));
+    await J.step("guest update status (end)", async () => {
+      await Promise.all(results.map(async (r) => { r.guest_update_end = await readGuestUpdate(directExec(api, r.id!, J)); }));
+      return { value: null, detail: results.map((r) => guestLine(r.name, r.guest_update_end)).join(" | ") };
+    }).catch(() => undefined);
     usageAfter = await api.read("cloud.plan.get", {}).then((p) => Number(p?.usage?.vm_hours_used_by_you ?? NaN)).then((n) => (Number.isFinite(n) ? n : null)).catch(() => null);
     J.record({ step: "result", status: results.every((r) => r.turns_ok === r.turns.length) ? "pass" : "fail", ms: windowEnd - windowStart, detail: markdownTable(aggregate(results, arms)).split("\n").slice(2).join(" ") });
   } catch {

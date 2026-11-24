@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregate, gapSchedule, integrate, markdownTable, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { aggregate, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -23,7 +23,7 @@ describe("integrate", () => {
 
 const machine = (arm: string, awake: number, paused: number, resumes: (number | null)[], adv: boolean): MachineResult => ({
   arm, name: `pause-ab-x-${arm}-1`, id: "vm", effective_policy: arm, policy_refused: null, capabilities: adv ? ["activity-turn-end"] : [],
-  turn_end_advertised: adv, daemon_version: null, build_commit_start: null, build_commit_end: null, turns_ok: resumes.length,
+  turn_end_advertised: adv, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: resumes.length,
   turns: resumes.map((ms, i) => ({ turn: i + 1, gap_s: 20, resumed: ms !== null, resume_ms: ms, reply_ms: 1000 })),
   samples: [], awake_s: awake, paused_s: paused, pauses: 0, error: null,
 });
@@ -49,5 +49,25 @@ describe("stalePauseAbMachines", () => {
       { id: "d", name: `pause-ab-${old}-aggressive-2`, status: "running", last_active_at: now - 60_000 },
     ];
     expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["a"]);
+  });
+});
+
+describe("parseGuestUpdate", () => {
+  test("keeps binary, applied commit, outcome and channel apart", () => {
+    const status = { channel: "https://example.test/ch.json", off: null, current: 3, cmux_tui: "/opt/cmux/store/abc/cmux-tui",
+      pending: null, state: { applied_commit: "cf0a8e7", last: "up to date", last_at: 1795550000 } };
+    const g = parseGuestUpdate(`@@exit 0\n${JSON.stringify(status)}\n`);
+    expect(g).toMatchObject({ exit: 0, error: null, cmux_tui: "/opt/cmux/store/abc/cmux-tui", applied_commit: "cf0a8e7",
+      last_outcome: "up to date", channel_url: "https://example.test/ch.json", current_generation: 3 });
+    expect(guestLine("m", g)).toContain("applied cf0a8e7");
+  });
+  test("a refused sudo is an error, not unknown", () => {
+    const g = parseGuestUpdate("@@exit 1\nsudo: a password is required\n");
+    expect(g.exit).toBe(1);
+    expect(g.error).toContain("password is required");
+    expect(guestLine("m", g)).toContain("ERROR");
+  });
+  test("no output at all says so", () => {
+    expect(parseGuestUpdate("").error).toContain("no output");
   });
 });
