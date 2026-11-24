@@ -47,7 +47,7 @@ impl LiveKind {
 
 /// One frame a Chief publishes.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
+#[serde(tag = "type")]
 pub(crate) enum LiveFrame {
     /// Text appended to a talk or thought step; `final` ends the step (its
     /// step row with the whole text follows on the run).

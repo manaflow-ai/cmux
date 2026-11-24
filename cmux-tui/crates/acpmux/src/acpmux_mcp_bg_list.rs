@@ -5,6 +5,10 @@
 //! 395,433 characters, which Claude Code wrote to a file for the agent to read again, 6 times in
 //! 24 h on one VM). `limit`, `offset` and `state` pick the page; `full` adds each task's whole
 //! command and output tail; `all` still widens it to other callers' tasks.
+//!
+//! A row carries only what the caller cannot work out: the chat's `sessionId` and `cwd` are the
+//! same on every task, so the page says each once, and `summary`, `status` and the fields a task
+//! leaves null or at their default are left off ([`Page::trimmed`]).
 
 use serde_json::{Map, Value, json};
 
@@ -19,6 +23,8 @@ const STATES: [&str; 7] = ["running", "exited", "stopped", "killed", "lost", "ok
 const KEYS: [&str; 5] = ["state", "limit", "offset", "full", "all"];
 /// The keys the daemon or the server itself reads, which are not a page's and not a mistake.
 const PASSED_ON: [&str; 4] = ["sessionId", "callerSubagent", "description", "_meta"];
+/// Row fields every task of one chat carries the same value for: the page says each once.
+const SHARED: [&str; 2] = ["sessionId", "cwd"];
 
 /// The page a call asks for, taken out of its arguments (the daemon lists the whole chat).
 #[derive(Debug, PartialEq)]
@@ -124,7 +130,8 @@ impl Page {
         let page: Vec<Value> = matching.into_iter().skip(self.offset).take(self.limit).collect();
         let more = total.saturating_sub(self.offset + page.len());
         let mut lines: Vec<String> = page.iter().map(|t| self.line(t, now_ms)).collect();
-        let page: Vec<Value> = page.into_iter().map(|t| self.trimmed(t)).collect();
+        let mut page: Vec<Value> = page.into_iter().map(|t| self.trimmed(t)).collect();
+        let shared = self.hoisted(&mut page);
         let what = self.state.map_or(String::new(), |s| format!(" {s}"));
         if total == 0 && self.state.is_some() {
             lines.push(format!("No{what} tasks."));
@@ -142,6 +149,9 @@ impl Page {
         }
         lines.extend(self.notes.iter().map(|n| format!("({n})")));
         if let Some(o) = r.as_object_mut() {
+            for (key, value) in shared {
+                o.insert(key, value);
+            }
             o.insert("tasks".into(), json!(page));
             o.insert("total".into(), json!(total));
             o.insert("offset".into(), json!(self.offset));
@@ -179,8 +189,16 @@ impl Page {
         if self.full { format!("{line}\n{}", s("tail").trim_end()) } else { line }
     }
 
-    /// A task as the structured page carries it: without its tail and with its command cut,
-    /// unless `full`.
+    /// A task as the structured page carries it: without its tail, with its command cut, and
+    /// without what the row only repeats, unless `full`. A row used to carry 713 bytes of which
+    /// about two fifths were the same fact twice (measured over 3,742 rows in 224 answers,
+    /// 2026-11-24: `summary` 14.3% of a page's bytes, `sessionId` 7.4%, `cwd` 3.8%, `status`
+    /// 2.2%, and the null or default `outputError`, `resultLine`, `startedBy`, `signal`,
+    /// `keptFromByte`, `notify` 2.0-2.8% each), so a 30-row page spent thousands of tokens
+    /// saying what the caller already had. `summary` and `status` are
+    /// [`crate::bg_run::outcome`] read off the row's own `state`, `exitCode` and `description`,
+    /// which the text line prints; a task that prints its own outcome keeps the `summary` and
+    /// drops the `lastLine` it labels, so neither is lost.
     fn trimmed(&self, mut t: Value) -> Value {
         if self.full {
             return t;
@@ -191,8 +209,50 @@ impl Page {
                 let short = cut(command, COMMAND_CHARS * 2);
                 o.insert("command".into(), json!(short));
             }
+            o.remove("status");
+            match o.get("lastLine").and_then(Value::as_str) {
+                Some(line) if !line.trim().is_empty() => o.remove("lastLine"),
+                _ => o.remove("summary"),
+            };
+            o.retain(|k, v| !is_default(k, v));
         }
         t
+    }
+
+    /// The [`SHARED`] fields out of every row and into the page once, when the page's rows all
+    /// agree on one (they are one chat's tasks, so they do); a row that differs keeps its own.
+    fn hoisted(&self, page: &mut [Value]) -> Vec<(String, Value)> {
+        if self.full || page.is_empty() {
+            return Vec::new();
+        }
+        let mut shared = Vec::new();
+        for key in SHARED {
+            let first = page[0].get(key).cloned().unwrap_or(Value::Null);
+            if first.is_null() || page.iter().any(|t| t.get(key) != Some(&first)) {
+                continue;
+            }
+            for t in page.iter_mut() {
+                if let Some(o) = t.as_object_mut() {
+                    o.remove(key);
+                }
+            }
+            shared.push((key.to_owned(), first));
+        }
+        shared
+    }
+}
+
+/// A row field whose value is the one every task starts with, so the row says nothing by
+/// carrying it: an end that has not happened (`endedAt`, `exitCode`, `signal`), a spool that
+/// did not fail (`outputError`), the lead agent (`startedBy`), no output dropped
+/// (`keptFromByte`), and `notify` and `resultLine` as `bg_start` leaves them.
+fn is_default(key: &str, v: &Value) -> bool {
+    match key {
+        "endedAt" | "exitCode" | "signal" | "outputError" | "startedBy" => v.is_null(),
+        "resultLine" => v == &json!(false),
+        "notify" => v == &json!(true),
+        "keptFromByte" => v == &json!(0),
+        _ => false,
     }
 }
 
@@ -355,6 +415,86 @@ mod tests {
             "the daemon's keys stay, the stray one goes"
         );
         assert_eq!(taken.notes.len(), 1, "{:?}", taken.notes);
+    }
+
+    /// A row as the daemon builds it (`hub/bg_tasks.rs` `bg_view`): the chat's session and
+    /// folder on every one, `summary` and `status` read off the row itself, and the fields a
+    /// task that has not ended leaves null or at their default.
+    fn as_the_daemon_lists(n: usize) -> Value {
+        let tasks: Vec<Value> = (0..n)
+            .map(|i| {
+                json!({"id": format!("t{i}"), "sessionId": "00000000-0000-4000-8000-000000000001",
+                    "cwd": "/tmp/checkout/one-chat", "command": "cargo test",
+                    "description": "run the suite", "notify": true, "resultLine": false,
+                    "state": "running", "pid": 2_990_758 + i, "startedAt": NOW - 7_200_000,
+                    "endedAt": Value::Null, "exitCode": Value::Null, "signal": Value::Null,
+                    "totalBytes": 0, "keptFromByte": 0, "tail": "", "outputError": Value::Null,
+                    "startedBy": Value::Null,
+                    "summary": "Background command running: run the suite", "status": "running"})
+            })
+            .collect();
+        json!({"tasks": tasks, "otherOwners": 0})
+    }
+
+    /// A row carries neither what every row of the page shares nor a fact read off the row: the
+    /// chat's `sessionId` and `cwd` are the page's, once, and `summary`, `status` and the null or
+    /// default fields are gone, so a 30-row page is well under half the bytes it used to be.
+    /// A `full` page is unchanged — it is the one that asks for everything.
+    #[test]
+    fn a_listing_row_carries_neither_what_every_row_shares_nor_what_it_derives() {
+        let (s, _) = page(json!({})).apply(as_the_daemon_lists(30), NOW);
+        let rows = s["tasks"].as_array().unwrap();
+        assert_eq!(rows.len(), 30);
+        for row in rows {
+            let o = row.as_object().unwrap();
+            for key in [
+                "sessionId",
+                "cwd",
+                "summary",
+                "status",
+                "endedAt",
+                "exitCode",
+                "signal",
+                "outputError",
+                "startedBy",
+                "keptFromByte",
+                "notify",
+                "resultLine",
+                "tail",
+            ] {
+                assert!(!o.contains_key(key), "{key} is still on the row: {row}");
+            }
+            // What the caller cannot derive stays.
+            for key in ["id", "command", "description", "state", "pid", "startedAt", "totalBytes"] {
+                assert!(o.contains_key(key), "{key} was dropped: {row}");
+            }
+        }
+        assert_eq!(s["sessionId"], json!("00000000-0000-4000-8000-000000000001"));
+        assert_eq!(s["cwd"], json!("/tmp/checkout/one-chat"));
+        let before = as_the_daemon_lists(30)["tasks"].to_string().len();
+        let after = s["tasks"].to_string().len()
+            + s["sessionId"].to_string().len()
+            + s["cwd"].to_string().len();
+        assert!(after * 2 < before, "{after} of {before} bytes: less than half was cut");
+        // full: true is the call that asks for everything, and still gets it.
+        let (whole, _) = page(json!({"full": true})).apply(as_the_daemon_lists(2), NOW);
+        assert_eq!(whole["tasks"], as_the_daemon_lists(2)["tasks"]);
+        assert!(whole.get("sessionId").is_none(), "nothing hoisted out of a full page");
+    }
+
+    /// A task that prints its own outcome keeps the `summary` that labels its last line and
+    /// drops the `lastLine`: one of the two, never both, and never neither.
+    #[test]
+    fn a_result_line_task_keeps_its_summary_and_not_the_line_under_it() {
+        let mut listed = as_the_daemon_lists(1);
+        listed["tasks"][0]["resultLine"] = json!(true);
+        listed["tasks"][0]["lastLine"] = json!("Checks of o/r#3 failed: build");
+        listed["tasks"][0]["summary"] = json!("Checks of o/r#3 failed: build");
+        let (s, _) = page(json!({})).apply(listed, NOW);
+        let row = s["tasks"][0].as_object().unwrap();
+        assert_eq!(row.get("summary"), Some(&json!("Checks of o/r#3 failed: build")));
+        assert!(!row.contains_key("lastLine"), "{:?}", row);
+        assert_eq!(row.get("resultLine"), Some(&json!(true)), "not the default, so it stays");
     }
 
     #[test]
