@@ -75,13 +75,15 @@ import Testing
         renderers.used[4] = 100 * Self.mb
         await gc.check()
         #expect(renderers.collected == [4])
-        // Once closes stop, the quiet check collects it.
+        // Once closes stop, the quiet check collects it, twice (the second returns what the first unhooked).
         await gc.check(quiet: true)
-        #expect(renderers.collected == [4, 4])
+        #expect(renderers.collected == [4, 4, 4])
+        #expect(gc.stats["quiet_collections"] == 1)
+        #expect(gc.stats["quiet_second_collections"] == 1)
         // Less than the quiet floor of garbage: nothing.
         renderers.used[4] = 50 * Self.mb
         await gc.check(quiet: true)
-        #expect(renderers.collected == [4, 4])
+        #expect(renderers.collected == [4, 4, 4])
     }
 
     @Test func readsUsedSizeAndTheScheme() async {
