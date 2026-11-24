@@ -172,6 +172,33 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
 }
 
 #[test]
+fn a_move_target_lists_the_optional_bundle_files_its_acpmux_takes() {
+    // 2026-11-24: an older target refused a whole move over `composers.json`; the pump now
+    // leaves out what identify does not list, so identify must list what this build takes.
+    let acpmux_ids: Vec<&str> =
+        acpmux::capabilities::OPTIONAL_BUNDLE_FILES.iter().map(|(id, _)| *id).collect();
+    assert_eq!(super::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES, acpmux_ids.as_slice());
+    let fake = FakeAcpmux::start("xfiles");
+    let home = Home::new("files");
+    let mux = mux_with(&fake, "atx-files");
+    let listed = |mux: &Arc<Mux>| -> Vec<String> {
+        run(mux, json!({"cmd":"identify"}))["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .filter(|id| acpmux_ids.contains(&id.as_str()))
+            .collect()
+    };
+    assert!(listed(&mux).is_empty(), "no host: no receive, so no bundle file is taken");
+    mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: false, home: home.path.clone() }));
+    assert_eq!(listed(&mux), acpmux_ids);
+    for id in &acpmux_ids {
+        assert!(super::super::native_owner::carries(id), "the native carrier drops {id}");
+    }
+}
+
+#[test]
 fn without_a_host_every_target_verb_is_unavailable() {
     let fake = FakeAcpmux::start("xnohost");
     let home = Home::new("nohost");
@@ -1100,6 +1127,26 @@ fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
     let read = client.request(json!({"cmd":"agent-transfer-source","surface":999_999}));
     assert_code(&read, "agent_transfer.unknown_tab");
     fake.no_frame();
+}
+
+#[test]
+fn verbs_ignore_a_field_a_newer_client_adds() {
+    let fake = FakeAcpmux::start("xnewer");
+    let home = Home::new("newer");
+    let mux = transfer_mux(&fake, "atx-newer", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xnewer");
+    let read = client
+        .request(json!({"cmd":"agent-transfer-source","surface":surface,"future_field":{"v":2}}));
+    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    // Every verb answers as it would without the field, never a bad request.
+    for frame in every_verb(surface, &home.text("work/project")) {
+        let mut frame = frame;
+        frame.as_object_mut().unwrap().remove("id");
+        frame["future_field"] = json!(true);
+        let reply = client.request(frame.clone());
+        assert_ne!(reply["error_code"], json!("agent_transfer.bad_request"), "{frame}: {reply}");
+    }
 }
 
 // MARK: A landed chat in a tab of this machine
