@@ -2284,17 +2284,20 @@ function monoAdvance(): number {
   if (typeof document === "undefined" || !document.body) return MONO_ADVANCE;
   const family = chatDisplayVariables(display)["--cv-mono"] ?? "var(--cv-mono)";
   const probe = document.createElement("span");
-  probe.style.cssText = "position:absolute;left:-10000px;top:0;visibility:hidden;white-space:pre;font-size:100px";
+  probe.style.cssText = "position:absolute;left:-10000px;top:0;visibility:hidden;white-space:pre";
   probe.style.fontFamily = family;
   probe.textContent = "0".repeat(50);
   document.body.append(probe);
+  // The probe takes the page's own size (no size of its own, webviews/src/ui/README.md Type scale): the
+  // advance is a share of whatever size it drew at.
   const width = probe.getBoundingClientRect().width;
+  const size = Number.parseFloat(document.defaultView?.getComputedStyle(probe).fontSize ?? "");
   probe.remove();
   const styled =
     (document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--cv-mono").trim() ?? "") !==
     "";
-  if (!styled || !(width > 0) || document.fonts?.status === "loading") return MONO_ADVANCE;
-  const advance = width / 5_000;
+  if (!styled || !(width > 0) || !(size > 0) || document.fonts?.status === "loading") return MONO_ADVANCE;
+  const advance = width / (50 * size);
   monoAdvanceRead.set(key, advance);
   return advance;
 }
