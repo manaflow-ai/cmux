@@ -94,6 +94,17 @@ impl ResumeRing {
         }
     }
 
+    /// The terminal ended: no viewer resumes a dead stream (`attach.rs` refuses
+    /// one first), so its bytes go now, not when the tab closes. A parked tab
+    /// keeps its dead runtime for as long as it stays, so a ring held until
+    /// then grows the daemon with every tab a day's shows relaunched and the
+    /// freeing tier parked again (docs/findings 2026-11-24-parked-tui-heap-windows).
+    /// The stamp (nonce, epoch, end) stays.
+    pub(crate) fn release(&self) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.bytes = VecDeque::new();
+    }
+
     /// A change a viewer holding the old epoch cannot resume across.
     pub(crate) fn bump_epoch(&self) {
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).epoch += 1;
@@ -138,6 +149,16 @@ mod tests {
         assert_eq!(ring.missing_after(held, 2).unwrap().0, b"cd");
         assert_eq!(ring.missing_after(held, 4).unwrap().0, b"");
         assert!(ring.missing_after(held, 5).is_none());
+        {
+            let released = ResumeRing::with_budget(8);
+            released.append(b"abcd");
+            let before = released.stamp();
+            released.release();
+            assert_eq!(released.stamp(), before);
+            assert_eq!(released.inner.lock().unwrap().bytes.capacity(), 0);
+            assert_eq!(released.missing_after((before.nonce, before.epoch), 4).unwrap().0, b"");
+            assert!(released.missing_after((before.nonce, before.epoch), 2).is_none());
+        }
         ring.append(b"efghij");
         // Ten bytes written, the last eight kept: offsets 2.. resume.
         assert_eq!(ring.missing_after(held, 2).unwrap().0, b"cdefghij");
