@@ -1567,15 +1567,40 @@ async fn dial(
     request: &ConnectRequest,
     timeline: &Timeline,
 ) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
-    // A Mac found nearby (its ad matches the Mac the phone paired with) is dialed through its own
-    // hub first: no service round trip, and a link even with no route out. Else the dial goes on
-    // as it always has.
-    if !request.device_id.trim().is_empty()
-        && !request.mac_device_id.trim().is_empty()
-        && let Some(ok) = local_link::dial_local(request, timeline).await
-    {
-        return Ok(ok);
+    // A Mac found nearby (its ad matches the Mac the phone paired with) is also dialed through its
+    // own hub: no service round trip, and a link even with no route out. The two race from the
+    // same instant and the first link up wins (the loser is dropped), so an ad that outlived its
+    // network (Wi-Fi gone, the Mac asleep) costs the service dial nothing.
+    let local = local_link::dial_local(request, timeline);
+    let service = dial_service(pool, request, timeline);
+    tokio::pin!(local, service);
+    let mut local_done = false;
+    loop {
+        tokio::select! {
+            result = &mut local, if !local_done => {
+                local_done = true;
+                if let Some(ok) = result {
+                    return Ok(ok);
+                }
+            }
+            result = &mut service => {
+                return match result {
+                    Ok(ok) => Ok(ok),
+                    Err(error) if local_done => Err(error),
+                    // No service (no route out, no account): the hub is the only way left.
+                    Err(error) => local.await.map(Ok).unwrap_or(Err(error)),
+                };
+            }
+        }
     }
+}
+
+/// `dial` through the service: its signaling socket and ICE servers.
+async fn dial_service(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
     for (name, value) in [
         ("base_url", &request.base_url),
         ("team_id", &request.team_id),

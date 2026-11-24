@@ -4,7 +4,7 @@
 //! what it sees: an instance name, its TXT pairs and the addresses it resolved to. Everything
 //! else is here: whether the ad is a cmux ad and the Mac the phone paired with, which addresses
 //! to try and in what order ([`cmux_mobile_link::local`]), and when a dial goes through the Mac's
-//! local hub instead of the Worker (`dial` in lib.rs asks [`dial_local`] first).
+//! local hub as well as the Worker (`dial` in lib.rs races [`dial_local`] with the service dial).
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
@@ -188,8 +188,13 @@ pub async fn dial_hub(
     }
 }
 
-/// `dial`'s first try: when Mac `request.mac_device_id` is nearby, dial it through its hub. `None`
-/// when it is not nearby or the hub dial failed (the Worker path then runs as it always has).
+/// The longest a hub dial (hub socket and link) may take: a LAN answers in tens of ms (p95 115 ms
+/// in netlab), so a hub that has not linked by then is not on this network. With no route out it
+/// is the only path, so the bound leaves a slow Wi-Fi room.
+pub const LOCAL_DIAL_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// One of `dial`'s two racers: when Mac `request.mac_device_id` is nearby, dial it through its hub. `None`
+/// when it is not nearby or the hub dial failed (then the service dial it races with decides).
 pub async fn dial_local(
     request: &ConnectRequest,
     timeline: &Timeline,
@@ -198,11 +203,15 @@ pub async fn dial_local(
     if request.relay_only || request.block_udp {
         return None;
     }
+    if request.device_id.trim().is_empty() || request.mac_device_id.trim().is_empty() {
+        return None;
+    }
     let addresses = nearby(&request.mac_device_id);
     if addresses.is_empty() {
         return None;
     }
-    match dial_hub(request, &addresses, timeline).await {
+    let bounded = tokio::time::timeout(LOCAL_DIAL_BOUND, dial_hub(request, &addresses, timeline));
+    match bounded.await.unwrap_or_else(|_| Err(CmuxMobileError::Timeout)) {
         Ok(ok) => {
             timeline.mark("local_link");
             Some(ok)
