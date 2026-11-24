@@ -58,6 +58,14 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", {
   configurable: true,
   get: () => boxWidth,
 });
+// The scroller is a laid-out box: the transcript ignores a resize of a box with no client rects (a hidden
+// view), and jsdom gives every element none.
+const layoutBox = () => ({ x: 0, y: 0, top: 0, left: 0, right: boxWidth, bottom: 600, width: boxWidth, height: 600 });
+const noRects = dom.window.HTMLElement.prototype.getClientRects;
+dom.window.HTMLElement.prototype.getClientRects = function (this: HTMLElement) {
+  if (!this.classList.contains("acpmux-scroll")) return noRects.call(this);
+  return Object.assign([layoutBox()], { item: () => layoutBox() }) as unknown as DOMRectList;
+};
 installJsdomScroller(dom.window as never, () => 600);
 dom.window.HTMLElement.prototype.animate = function () {
   return { cancel() {}, finish() {} } as unknown as Animation;
