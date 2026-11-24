@@ -629,11 +629,11 @@ fn hop_address(
         .filter(|addr| {
             // Both endpoints send UDP directly to the advertised relay port.
             let ip = addr.ip();
-            addr.port() != 0
-                && !ip.is_unspecified()
-                && !ip.is_multicast()
-                && (options.include_loopback || !ip.is_loopback())
-                && !(options.exclude_cgnat && super::is_cgnat(ip))
+            !(addr.port() == 0
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || (ip.is_loopback() && !options.include_loopback)
+                || (options.exclude_cgnat && super::is_cgnat(ip)))
         })
 }
 
