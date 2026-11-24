@@ -22,8 +22,8 @@ use crate::wire::{
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::clock::ClockEstimator;
-use cmux_rd_core::input::InputSender;
-use cmux_rd_core::ledger::StageLedger;
+use cmux_rd_core::input::{seq_at_or_before, InputSender};
+use cmux_rd_core::ledger::{StageLedger, SCHEMA as LEDGER_SCHEMA};
 use cmux_rd_core::reassembly::Reassembler;
 use cmux_rd_core::service::caps;
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
@@ -227,6 +227,7 @@ struct Viewer {
     h264_gate: cmux_encode::h264_profile::ProfileGate,
     h264_gate_said: bool,
     sender: InputSender,
+    input_ack: u32,
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
     marker_at_ns: u64,
@@ -289,6 +290,8 @@ struct Viewer {
     /// Linux `--present :N`: every decoded frame drawn in a window on that X display.
     #[cfg(target_os = "linux")]
     presenter: Option<crate::present::Presenter>,
+    /// The conversion the stream's last SPS asks for (untagged until the first SPS).
+    color: cmux_encode::color::Yuv,
     present_errors: u64,
     /// Every frame's stage times (D8), from the host's `FrameTimes` and this viewer.
     ledger: StageLedger,
@@ -459,6 +462,9 @@ impl Viewer {
                     }
                     let t1;
                     // A block, so the decoder's borrowed picture ends before saw_marker.
+                    if let Some(vui) = cmux_encode::color::sps_vui(&frame.body.access_unit) {
+                        self.color = vui.yuv();
+                    }
                     if let Err(why) = self.h264_gate.check(&frame.body.access_unit) {
                         self.decode_errors += 1;
                         if !std::mem::replace(&mut self.h264_gate_said, true) {
@@ -476,7 +482,7 @@ impl Viewer {
                                 {
                                     self.last_shown_ns = 0;
                                     if let Some(p) = self.presenter.as_mut() {
-                                        if p.show(&yuv).is_err() {
+                                        if p.show(&yuv, self.color).is_err() {
                                             self.present_errors += 1;
                                         } else {
                                             self.last_shown_ns = now_ns();
@@ -505,8 +511,23 @@ impl Viewer {
                                 // converts every frame: use --snapshot for pictures, not timing.
                                 if self.want_snapshot {
                                     let (w, h) = yuv.dimensions();
-                                    let mut rgb = vec![0u8; w * h * 3];
-                                    yuv.write_rgb8(&mut rgb);
+                                    // The stream's own matrix and range (openh264's
+                                    // write_rgb8 is BT.601 whatever the stream says).
+                                    let mut bgrx = vec![0u8; w * h * 4];
+                                    cmux_encode::color::i420_to_bgrx(
+                                        yuv.y(),
+                                        yuv.u(),
+                                        yuv.v(),
+                                        yuv.strides(),
+                                        w,
+                                        h,
+                                        self.color,
+                                        &mut bgrx,
+                                    );
+                                    let rgb: Vec<u8> = bgrx
+                                        .chunks_exact(4)
+                                        .flat_map(|p| [p[2], p[1], p[0]])
+                                        .collect();
                                     self.snapshot = Some((w, h, rgb));
                                 }
                                 read_marker(scale, yuv.y(), yuv.strides().0, self.marker_origin)
@@ -548,8 +569,11 @@ impl Viewer {
                 }
             }
             DatagramKind::InputAck if payload.len() >= 4 => {
-                self.sender
-                    .ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
+                let ack = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                self.sender.ack(ack);
+                if seq_at_or_before(self.input_ack, ack) {
+                    self.input_ack = ack;
+                }
             }
             _ => {}
         }
@@ -678,6 +702,52 @@ impl Viewer {
             self.send_input()?;
         }
         Ok(())
+    }
+
+    /// One sample's frame from the stage ledger, under the names scripts/screen-share-vs.py
+    /// reads (`sample_times[].ledger`), every time in µs on the host's clock. Without a clock
+    /// estimate only the viewer's times are given, on this Mac's clock, so spans between them
+    /// (Reassembly, Decode) still read right. A time never known is left out, never zero.
+    fn sample_ledger(&self, frame: u32, sent_ns: u64) -> Option<serde_json::Value> {
+        // The newest row of the frame (a host that started over numbers frames again).
+        let row = self
+            .ledger
+            .rows()
+            .filter(|r| r.frame == frame && r.viewer.decoded_us.is_some())
+            .last()?;
+        let offset = self.clock.as_ref().and_then(ClockEstimator::estimate).map(|e| e.offset_us);
+        let mut out = serde_json::Map::new();
+        out.insert("schema".into(), json!(LEDGER_SCHEMA));
+        let clock = if offset.is_some() { "host monotonic" } else { "viewer monotonic" };
+        out.insert("clock".into(), json!(clock));
+        out.insert("frame".into(), json!(frame));
+        let viewer = [
+            ("input_sent_us", Some(sent_ns / 1000)),
+            ("first_shard_us", row.viewer.first_shard_us),
+            ("last_shard_us", row.viewer.last_shard_us),
+            ("released_us", row.viewer.released_us),
+            ("decoded_us", row.viewer.decoded_us),
+            ("presented_us", row.viewer.presented_us),
+        ];
+        for (key, us) in viewer {
+            let host = us.and_then(|us| offset.map_or(Some(us), |o| us.checked_add_signed(o)));
+            if let Some(us) = host {
+                out.insert(key.into(), json!(us));
+            }
+        }
+        if let (Some(h), Some(_)) = (row.host, offset) {
+            let host = [
+                ("display_us", h.display_us),
+                ("encode_start_us", h.encode_start_us),
+                ("bitstream_ready_us", h.encoded_us),
+                ("first_datagram_sent_us", h.first_sent_us),
+                ("last_datagram_sent_us", h.last_sent_us),
+            ];
+            for (key, us) in host.into_iter().filter(|(_, us)| *us > 0) {
+                out.insert(key.into(), json!(us));
+            }
+        }
+        Some(serde_json::Value::Object(out))
     }
 
     fn send_input(&mut self) -> Res<()> {
@@ -882,7 +952,15 @@ fn bench_decodes_with_openh264(decoder: Option<&str>) -> bool {
     }
 }
 
+fn session_mode(opts: &Opts) -> Res<&str> {
+    match opts.get("mode").unwrap_or("control") {
+        mode @ ("view" | "control") => Ok(mode),
+        other => Err(format!("--mode expects view or control, got {other:?}").into()),
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
+    let mode = session_mode(opts)?;
     // The first decoder session in a process is the slow one: create a throwaway one now,
     // in parallel with connecting, so the first IDR does not pay for it.
     #[cfg(target_os = "macos")]
@@ -941,11 +1019,18 @@ pub fn run(opts: &Opts) -> Res<()> {
     };
     let mut v = Viewer {
         io,
-        reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
+        reassembler: {
+            let mut r = Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000);
+            // `--rtt-nack-retry 1`: NACK retries a measured repair round trip apart
+            // instead of every 50 ms (design D6). Off by default.
+            r.set_rtt_nack_retry(opts.num_or("rtt-nack-retry", 0u8)? == 1);
+            r
+        },
         decoder: Decoder::new()?,
         h264_gate: Default::default(),
         h264_gate_said: false,
         sender: InputSender::new(),
+        input_ack: 0,
         arrivals: Vec::new(),
         marker: None,
         marker_at_ns: 0,
@@ -1004,6 +1089,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         scaled_stream: None,
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
+        color: cmux_encode::color::UNTAGGED.yuv(),
         present_errors: 0,
         ledger: StageLedger::new(),
         clock: None,
@@ -1037,10 +1123,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
-        // `video.scaled` (the resolution ladder).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks. `--caps A,B` offers more, such as `video.scaled` (the
+        // resolution ladder).
         caps: {
-            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            let mut offered =
+                vec![caps::CLOCK.into(), caps::LEDGER.into(), caps::FEC_BLOCKS.into()];
             // Decoding with OpenH264 (Linux's only H.264 decoder, `--decoder openh264` on macOS):
             // ask an H.264 host for Constrained Baseline, the profile it shows correctly.
             if bench_decodes_with_openh264(opts.get("decoder")) {
@@ -1057,7 +1145,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     })?;
     v.io.send_control(&Control::Start {
         key: format!("bench-{pid}-{}", now_ns()),
-        mode: "control".into(),
+        mode: mode.into(),
     })?;
     // `--input none` (a passive window): no marker on screen, so wait for the first frame.
     if input == "none" {
@@ -1124,28 +1212,32 @@ pub fn run(opts: &Opts) -> Res<()> {
     let mut capture_to_decoded = Vec::new();
     // Each shown sample on this Mac's clock (ns) with the host's capture time (µs), for a
     // breakdown against the host's CMUX_RD_TIMING_LOG (scripts/screen-share-vs.py).
-    let mut sample_times = Vec::new();
+    let mut sample_times: Vec<serde_json::Value> = Vec::new();
     let mut lost = 0usize;
+    let initial_changes = v.marker_changes;
+    let mut last_input = None;
     while g2g.len() + lost < samples && v.ended.is_none() {
         let expected = v.marker.unwrap_or(0).wrapping_add(1);
+        let sampled = sample_times.len();
         let t0 = now_ns();
-        match input.as_str() {
+        let last_seq = match input.as_str() {
             // The cloud browser's marker page counts mousedown and wheel as well as keydown.
             "click" => {
                 v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 v.sender.push(InputEvent::Button { button: 0, down: true });
-                v.sender.push(InputEvent::Button { button: 0, down: false });
+                v.sender.push(InputEvent::Button { button: 0, down: false })
             }
             "scroll" => {
                 v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 let dy = if g2g.len() % 2 == 0 { -300 } else { 300 };
-                v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false });
+                v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false })
             }
             _ => {
                 v.sender.push(InputEvent::Key { usage: KEY_A, down: true });
-                v.sender.push(InputEvent::Key { usage: KEY_A, down: false });
+                v.sender.push(InputEvent::Key { usage: KEY_A, down: false })
             }
-        }
+        };
+        last_input = Some(last_seq);
         // Send at once; pump() resends until the host acknowledges.
         v.send_input()?;
         loop {
@@ -1178,9 +1270,20 @@ pub fn run(opts: &Opts) -> Res<()> {
                 break;
             }
         }
+        let shown = (sample_times.len() > sampled).then_some(v.marker_frame);
         let gap_end = now_ns() + rng.range(40, 160) * 1_000_000;
         while now_ns() < gap_end {
             v.pump(gap_end.saturating_sub(now_ns()).max(1_000_000))?;
+        }
+        // The frame's ledger row once the gap has passed: the host's `FrameTimes` follow its
+        // last shard, so they are in by now.
+        if let Some(frame) = shown {
+            let ledger = v.sample_ledger(frame, t0);
+            if let (Some(ledger), Some(sample)) =
+                (ledger, sample_times.last_mut().and_then(serde_json::Value::as_object_mut))
+            {
+                sample.insert("ledger".into(), ledger);
+            }
         }
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
@@ -1188,6 +1291,10 @@ pub fn run(opts: &Opts) -> Res<()> {
         "addr": addr.to_string(),
         "carrier": carrier,
         "input": input,
+        "mode": mode,
+        "input_sent": g2g.len() + lost,
+        "input_acked": last_input.is_some_and(|seq| seq_at_or_before(seq, v.input_ack)),
+        "marker_changes": v.marker_changes - initial_changes,
         "welcome": v.welcome,
         "first_frame_ms": first_frame_ms,
         "first_frame_times": first_frame_times,
@@ -1217,6 +1324,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// The fine bucket of [`run_passive`]'s `series_100ms`.
+const FINE_NS: u64 = 100_000_000;
+
 /// `--input none --duration-s N`: sends no input and only receives for N seconds, reporting
 /// the bytes, frames and newest host stats of every second against the wall clock (Unix ms),
 /// so a script can cut the run into the phases a workload on the host logged on the same clock
@@ -1234,6 +1344,13 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    // `--type TEXT`: send TEXT as one text event (the viewer's text route) once the
+    // picture is up, to check a host types it as its characters (CMUX-572).
+    if let Some(text) = opts.get("type") {
+        v.sender.push(InputEvent::Text(text.to_owned()));
+        v.send_input()?;
+        eprintln!("passive: typed {} characters as text", text.chars().count());
+    }
     let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
@@ -1255,8 +1372,19 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
     let mut bucket_start = t_begin;
     let mut decoded = v.decoded_frames;
     let mut next = t_begin + 1_000_000_000;
+    // Every 100 ms: [ms since the window began, bytes received in it, newest host target kbps],
+    // so the time to a rate reads below the 1 s buckets (the host's stats come as often as
+    // its `--stats-every-ms`).
+    let mut fine = Vec::new();
+    let (mut fine_bytes, mut next_fine) = (v.bytes, t_begin + FINE_NS);
     while now_ns() - t_begin < duration_ns && v.ended.is_none() {
-        v.pump(next.saturating_sub(now_ns()).max(1_000_000))?;
+        v.pump(next.min(next_fine).saturating_sub(now_ns()).max(1_000_000))?;
+        if now_ns() >= next_fine {
+            let kbps = v.stats.last().and_then(|s| s.get("kbps")).cloned();
+            fine.push(json!([(now_ns() - t_begin) / 1_000_000, v.bytes - fine_bytes, kbps]));
+            fine_bytes = v.bytes;
+            next_fine += FINE_NS;
+        }
         if now_ns() < next {
             continue;
         }
@@ -1297,6 +1425,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "marker_changes": v.marker_changes - marker_changes_start,
         "marker_fps": (v.marker_changes - marker_changes_start) as f64 / secs.max(f64::EPSILON),
         "series": series,
+        "series_100ms": fine,
         "marker_log": v.marker_log.as_ref(),
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,
@@ -1445,6 +1574,23 @@ mod link_line_tests {
             link_line(100, 150, 10_150, Some(reason)),
             json!({"link": {"answer_us": 100, "first_send_us": 150, "failed_us": 10_150, "failed": reason}})
         );
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn bench_session_mode_defaults_to_control_and_accepts_only_wire_modes() {
+        let parse = |args: &[&str]| {
+            Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+        };
+        assert_eq!(session_mode(&parse(&[])).unwrap(), "control");
+        for mode in ["view", "control"] {
+            assert_eq!(session_mode(&parse(&["--mode", mode])).unwrap(), mode);
+        }
+        assert!(session_mode(&parse(&["--mode", "viewer"])).is_err());
     }
 }
 
