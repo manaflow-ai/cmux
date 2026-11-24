@@ -102,20 +102,13 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       const next = selectionReplyTarget(doc);
       if (!next) setTarget(undefined);
     };
-    const scrolled = () => {
-      if (shown.current) setTarget(selectionReplyTarget(doc));
-    };
     doc.addEventListener("pointerup", ended);
     doc.addEventListener("keyup", keyUp);
     doc.addEventListener("selectionchange", changed);
-    view?.addEventListener("scroll", scrolled, true);
-    view?.addEventListener("resize", scrolled);
     return () => {
       doc.removeEventListener("pointerup", ended);
       doc.removeEventListener("keyup", keyUp);
       doc.removeEventListener("selectionchange", changed);
-      view?.removeEventListener("scroll", scrolled, true);
-      view?.removeEventListener("resize", scrolled);
     };
   }, [doc, enabled]);
 
@@ -130,16 +123,28 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   useEffect(() => {
     if (!enabled || !showing) return;
     const view = doc.defaultView as (Window & typeof globalThis) | null;
+    const scrolled = () => setTarget(selectionReplyTarget(doc));
+    view?.addEventListener("scroll", scrolled, true);
+    view?.addEventListener("resize", scrolled);
     const selection = doc.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
     const root = transcriptRoot(doc, range?.endContainer ?? null);
-    if (!view?.ResizeObserver || !root) return;
+    if (!view?.ResizeObserver || !root)
+      return () => {
+        view?.removeEventListener("scroll", scrolled, true);
+        view?.removeEventListener("resize", scrolled);
+      };
     const place = () =>
       setTarget((previous) => {
         const next = selectionReplyTarget(doc);
         return previous && next && sameReplyTarget(previous, next) ? previous : next;
       });
-    return watchTranscriptRows(view, root, place);
+    const stopWatchingRows = watchTranscriptRows(view, root, place);
+    return () => {
+      stopWatchingRows();
+      view.removeEventListener("scroll", scrolled, true);
+      view.removeEventListener("resize", scrolled);
+    };
   }, [doc, enabled, showing]);
 
   // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
