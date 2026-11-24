@@ -57,6 +57,16 @@ impl RemoteRows {
 
     /// Inserts a row its writer shares too (a peer's list announces the rows it changed).
     pub(crate) fn insert_shared(&mut self, key: String, row: Arc<RemoteSession>) {
+        // The usual change (a turn, a status) keeps every index key: replace the row alone, not
+        // a take and re-add that path-copies every index twice.
+        if let Some(old) = self.rows.get_mut(&key)
+            && Self::same_index(old, &row)
+        {
+            *old = row;
+            self.stale_from.remove(&key);
+            self.writes += 2;
+            return;
+        }
         self.take(&key);
         self.writes += 1;
         if let Some(pair) = row.summary.pair() {
@@ -66,6 +76,15 @@ impl RemoteRows {
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
         self.names.add(&key, &row);
         self.rows.insert(key, row);
+    }
+
+    /// Whether two rows file under the same index keys (`Names::entries`, `by_pair`, `by_peer`).
+    fn same_index(a: &RemoteSession, b: &RemoteSession) -> bool {
+        a.peer == b.peer
+            && a.receipt.mux_session_id == b.receipt.mux_session_id
+            && a.summary.name() == b.summary.name()
+            && a.summary.alias() == b.summary.alias()
+            && a.summary.same_pair(&b.summary)
     }
 
     pub(crate) fn remove(&mut self, key: &str) -> Option<RemoteSession> {
@@ -400,6 +419,32 @@ mod tests {
         assert!(rows.is_empty());
         assert!(rows.by_peer.is_empty(), "no empty entry is left behind");
         assert!(rows.names.is_empty(), "no name entry is left behind");
+    }
+
+    #[test]
+    fn a_row_replaced_in_place_keeps_its_index_and_a_rename_moves_it() {
+        let mut rows = RemoteRows::default();
+        let named = |name: &str, status: &str| {
+            let (key, mut r) = row("a", "s1", status);
+            r.summary =
+                json!({"sessionId": "s1", "peer": "a", "status": status, "name": name}).into();
+            (key, r)
+        };
+        let (key, r) = named("a/one", "running");
+        rows.insert(key.clone(), r);
+        let writes = rows.writes;
+        let (_, r) = named("a/one", "ready");
+        rows.insert(key.clone(), r);
+        assert_eq!(rows.writes, writes + 2, "a replace counts as the take and insert it was");
+        assert_eq!(rows.find_mux("a", "s1").unwrap().1.summary.status(), Some("ready"));
+        assert_eq!(rows.names.by_name.get("a/one").map(|k| k.len()), Some(1));
+
+        let (_, r) = named("a/two", "ready");
+        rows.insert(key.clone(), r);
+        assert!(rows.names.by_name.get("a/one").is_none(), "the old name is dropped");
+        assert_eq!(rows.names.by_name.get("a/two").map(|k| k.len()), Some(1));
+        rows.take(&key);
+        assert!(rows.names.is_empty() && rows.by_peer.is_empty());
     }
 
     #[test]

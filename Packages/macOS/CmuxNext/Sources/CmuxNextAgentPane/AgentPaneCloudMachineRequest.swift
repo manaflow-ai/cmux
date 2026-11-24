@@ -100,6 +100,11 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
 /// own instance. Unset, every method is refused.
 @MainActor
 public final class AgentPaneCloudMachines {
+    /// How old the App's machine list may be when a picker reads it: an open picker reads every
+    /// few seconds, the server's list at most this often (the store also follows each machine's
+    /// own link between reads).
+    public static let listAge: Duration = .seconds(60)
+
     /// One Cloud machine as the picker lists it.
     public struct Machine: Equatable, Sendable {
         public var id: String

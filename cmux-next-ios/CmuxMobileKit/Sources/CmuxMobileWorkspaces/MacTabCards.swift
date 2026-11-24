@@ -1,0 +1,356 @@
+#if os(iOS)
+import Foundation
+import Observation
+import UIKit
+
+/// What a Mac's `tabs` service last said of one tab (the `cmux-tab-snapshots` crate's row).
+/// Hashes are lowercase SHA-256 hex: the names its blobs are stored under.
+public struct MacCardInfo: Codable, Equatable, Sendable {
+    public var title: String
+    /// `browser`, `terminal`, `agent`, or a kind a newer Mac names.
+    public var kind: String
+    public var faviconHash: String?
+    public var thumbHash: String?
+    /// A terminal's screen as text, `screenColumns` by `screenRows`.
+    public var screenHash: String?
+    public var screenColumns: Int
+    public var screenRows: Int
+    public var capturedAtMs: Int64
+
+    public init(title: String, kind: String, faviconHash: String? = nil, thumbHash: String? = nil,
+                screenHash: String? = nil, screenColumns: Int = 0, screenRows: Int = 0, capturedAtMs: Int64 = 0) {
+        self.title = title
+        self.kind = kind
+        self.faviconHash = faviconHash
+        self.thumbHash = thumbHash
+        self.screenHash = screenHash
+        self.screenColumns = screenColumns
+        self.screenRows = screenRows
+        self.capturedAtMs = capturedAtMs
+    }
+
+    /// The blobs the card shows.
+    var hashes: [String] { [faviconHash, thumbHash, screenHash].compactMap { $0 } }
+}
+
+/// What one Mac folder holds, read in one pass off the main thread.
+struct MacCardDisk: Sendable {
+    var cards: [String: MacCardInfo] = [:]
+    var names: [String] = []
+}
+
+/// The Mac's blobs and rows on disk: one folder per account and Mac beside the phone's own
+/// pictures, so what the Mac is told the phone holds (`have`) and what the phone deletes when
+/// the Mac's rows stop naming it are only ever the Mac's blobs, never a picture the phone drew.
+extension TabSnapshotStore {
+    static func isHash(_ name: String) -> Bool {
+        name.utf8.count == 64 && name.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) }
+    }
+
+    func macDirectory(accountID: String, macID: String) -> URL {
+        // The key's own encoding, so no id reaches a path unencoded.
+        let name = TabSnapshotKey(accountID: accountID, macID: macID, tabID: "").fileComponent
+        return directory.appendingPathComponent("mac-\(name)", isDirectory: true)
+    }
+
+    func macBlobURL(_ hash: String, accountID: String, macID: String) -> URL? {
+        guard Self.isHash(hash) else { return nil }
+        return macDirectory(accountID: accountID, macID: macID).appendingPathComponent("blob-\(hash)")
+    }
+
+    public func macBlob(_ hash: String, accountID: String, macID: String) -> Data? {
+        macBlobURL(hash, accountID: accountID, macID: macID).flatMap { try? Data(contentsOf: $0) }
+    }
+
+    /// `data` hashes to `hash` (the feed's Rust checked it).
+    public func putMacBlob(_ data: Data, hash: String, accountID: String, macID: String) {
+        guard let url = macBlobURL(hash, accountID: accountID, macID: macID) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    public func removeMacBlobs(_ hashes: [String], accountID: String, macID: String) {
+        for hash in hashes {
+            if let url = macBlobURL(hash, accountID: accountID, macID: macID) { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+
+    func macCardsURL(accountID: String, macID: String) -> URL {
+        macDirectory(accountID: accountID, macID: macID).appendingPathComponent("cards.json")
+    }
+
+    public func macCards(accountID: String, macID: String) -> [String: MacCardInfo] {
+        guard let data = try? Data(contentsOf: macCardsURL(accountID: accountID, macID: macID)) else { return [:] }
+        return (try? JSONDecoder().decode([String: MacCardInfo].self, from: data)) ?? [:]
+    }
+
+    public func putMacCards(_ cards: [String: MacCardInfo], accountID: String, macID: String) {
+        let url = macCardsURL(accountID: accountID, macID: macID)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(cards) { try? data.write(to: url, options: .atomic) }
+    }
+
+    func macDisk(accountID: String, macID: String) -> MacCardDisk {
+        let folder = macDirectory(accountID: accountID, macID: macID)
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        let names = files.compactMap { $0.hasPrefix("blob-") ? String($0.dropFirst(5)) : nil }.filter(Self.isHash)
+        return MacCardDisk(cards: macCards(accountID: accountID, macID: macID), names: names)
+    }
+
+    /// The tab's newest picture: the phone's own capture or the Mac's thumbnail.
+    public func newestPicture(_ key: TabSnapshotKey) -> (data: Data, capturedAtMs: Int64)? {
+        let own = record(key).flatMap { record in blob(record.thumbHash).map { (data: $0, capturedAtMs: record.capturedAtMs) } }
+        let card = macCards(accountID: key.accountID, macID: key.macID)[key.tabID]
+        let mac = card.flatMap { card in
+            card.thumbHash.flatMap { macBlob($0, accountID: key.accountID, macID: key.macID) }
+                .map { (data: $0, capturedAtMs: card.capturedAtMs) }
+        }
+        guard let own else { return mac }
+        guard let mac, mac.capturedAtMs > own.capturedAtMs else { return own }
+        return mac
+    }
+}
+
+/// One tab as the Mac last described it, decoded: what its card reads besides its picture
+/// (`TabSnapshotEntry`). Observed per tab. A favicon or a screen stays until its replacement
+/// is here, so a card never blanks between two versions.
+@MainActor
+@Observable
+public final class MacCardEntry {
+    public fileprivate(set) var info: MacCardInfo?
+    public fileprivate(set) var favicon: UIImage?
+    /// A terminal's screen as text, `info.screenColumns` by `info.screenRows`.
+    public fileprivate(set) var screen: String?
+    @ObservationIgnored fileprivate var shownFavicon: String?
+    @ObservationIgnored fileprivate var shownScreen: String?
+    @ObservationIgnored fileprivate var shownThumb: String?
+}
+
+/// Every tab of every linked Mac as its `tabs` service pushes it: title, kind, favicon,
+/// thumbnail and terminal screen, kept on disk so the grid opens filled on a cold launch,
+/// before any link is up (Leo, 2026-11-22: "if the phone is simply browsing the opened tabs on
+/// the mac, there should be no reason for there to be so many blank favicons and blank previews
+/// and blank pages"). The feed (`MacTabsFeed`) writes here through the shell; cards read
+/// `entry`. Thumbnails are shown through `TabCardSnapshots`, which bounds decoded pictures.
+@MainActor
+public final class MacTabCards {
+    public static let shared = MacTabCards()
+
+    public var store: TabSnapshotStore
+    let snapshots: TabCardSnapshots
+    private var entries: [TabSnapshotKey: MacCardEntry] = [:]
+    /// The Mac's blobs on disk by Mac id, for the signed-in account.
+    private var held: [String: Set<String>] = [:]
+    private var heldAccount: String?
+    private var warmed: Set<String> = []
+    /// Bytes just received, until their file is written.
+    private var arriving: [String: Data] = [:]
+    /// Disk reads finished (tests).
+    public private(set) var loads = 0
+
+    public init(store: TabSnapshotStore = .standard, snapshots: TabCardSnapshots = .shared) {
+        self.store = store
+        self.snapshots = snapshots
+    }
+
+    /// The signed-in account, and what was known of another account forgotten.
+    private func account() -> String? {
+        guard let account = snapshots.accountID?(), !account.isEmpty else { return nil }
+        if heldAccount != account {
+            heldAccount = account
+            held = [:]
+            warmed = []
+            arriving = [:]
+            entries = [:]
+        }
+        return account
+    }
+
+    /// The account signed out and its files went (`TabCardSnapshots.signedOut`): nothing of
+    /// it is held, so the same account signing in again never tells a Mac it has those blobs.
+    public func signedOut() {
+        heldAccount = nil
+        held = [:]
+        warmed = []
+        arriving = [:]
+        entries = [:]
+    }
+
+    public func entry(_ key: TabSnapshotKey) -> MacCardEntry {
+        if let entry = entries[key] { return entry }
+        let entry = MacCardEntry()
+        entries[key] = entry
+        return entry
+    }
+
+    /// The blobs of `macID` on disk. From memory: empty until `warm(macID:)` has read the
+    /// folder, which only costs the Mac sending what the phone had.
+    public func heldBlobs(macID: String) -> [String] {
+        guard account() != nil else { return [] }
+        return Array(held[macID] ?? [])
+    }
+
+    /// Reads what the disk holds of `macID` (once per launch), off the main thread: its rows,
+    /// then the favicon and screen of every card. Called when a Mac's workspaces are listed,
+    /// so the cards are filled before the grid opens and before the link is up.
+    @discardableResult
+    public func warm(macID: String) -> Task<Void, Never>? {
+        guard let account = account(), !macID.isEmpty, warmed.insert(macID).inserted else { return nil }
+        let store = store
+        // task-owner: this store; one read per Mac and launch.
+        return Task { [weak self] in
+            let disk = await Task.detached(priority: .userInitiated) { store.macDisk(accountID: account, macID: macID) }.value
+            await self?.restored(disk, accountID: account, macID: macID)?.value
+        }
+    }
+
+    private func restored(_ disk: MacCardDisk, accountID: String, macID: String) -> Task<Void, Never>? {
+        loads += 1
+        guard account() == accountID else { return nil }
+        held[macID, default: []].formUnion(disk.names)
+        var keys: [TabSnapshotKey] = []
+        for (tabID, info) in disk.cards {
+            let key = TabSnapshotKey(accountID: accountID, macID: macID, tabID: tabID)
+            let entry = entry(key)
+            // Rows the link sent meanwhile are newer than the file.
+            if entry.info == nil { entry.info = info }
+            keys.append(key)
+        }
+        // Thumbnails come from disk through the picture cache, which bounds what is decoded
+        // and keeps the phone's own capture when that is newer.
+        let pictured = keys.filter { key in
+            guard let entry = entries[key], let hash = entry.info?.thumbHash, entry.shownThumb == nil else { return false }
+            entry.shownThumb = hash
+            return true
+        }
+        snapshots.warm(pictured)
+        return fill(keys, macID: macID)
+    }
+
+    /// The Mac's tabs in its order (a manifest or a delta). A tab it no longer lists loses its
+    /// row; its blobs go when the feed says no row names them (`remove`).
+    public func cards(_ cards: [(tabID: String, info: MacCardInfo)], macID: String) {
+        guard let account = account(), !macID.isEmpty else { return }
+        let listed = Set(cards.map(\.tabID))
+        for key in entries.keys where key.macID == macID && !listed.contains(key.tabID) { entries[key] = nil }
+        var keys: [TabSnapshotKey] = []
+        for card in cards {
+            let key = TabSnapshotKey(accountID: account, macID: macID, tabID: card.tabID)
+            entry(key).info = card.info
+            keys.append(key)
+        }
+        fill(keys, macID: macID)
+        let store = store
+        let rows = Dictionary(cards.map { ($0.tabID, $0.info) }, uniquingKeysWith: { _, last in last })
+        Task.detached(priority: .utility) { store.putMacCards(rows, accountID: account, macID: macID) }
+    }
+
+    /// Bytes that hash to `hash`: held from now on, written off the main thread.
+    public func save(_ bytes: Data, hash: String, macID: String) {
+        guard let account = account(), TabSnapshotStore.isHash(hash), !macID.isEmpty else { return }
+        held[macID, default: []].insert(hash)
+        arriving[hash] = bytes
+        let store = store
+        Task.detached(priority: .utility) { [weak self] in
+            store.putMacBlob(bytes, hash: hash, accountID: account, macID: macID)
+            await self?.written(hash, bytes)
+        }
+    }
+
+    private func written(_ hash: String, _ bytes: Data) {
+        // A cheap identity check: equal hashes are equal bytes.
+        if arriving[hash]?.count == bytes.count { arriving[hash] = nil }
+    }
+
+    /// A blob of these cards is held: they draw it.
+    @discardableResult
+    public func blobArrived(hash: String, tabIDs: [String], macID: String) -> Task<Void, Never>? {
+        guard let account = account() else { return nil }
+        return fill(tabIDs.map { TabSnapshotKey(accountID: account, macID: macID, tabID: $0) }, macID: macID)
+    }
+
+    /// Blobs no row names any more.
+    public func remove(blobs: [String], macID: String) {
+        guard let account = account(), !blobs.isEmpty else { return }
+        held[macID]?.subtract(blobs)
+        for hash in blobs { arriving[hash] = nil }
+        let store = store
+        Task.detached(priority: .utility) { store.removeMacBlobs(blobs, accountID: account, macID: macID) }
+    }
+
+    private struct Part: Sendable {
+        enum Slot: Sendable { case favicon, screen, thumb }
+        let key: TabSnapshotKey
+        let slot: Slot
+        let hash: String
+        let capturedAtMs: Int64
+        var bytes: Data?
+    }
+
+    private struct Loaded: @unchecked Sendable {
+        let part: Part
+        var image: UIImage?
+        var text: String?
+    }
+
+    /// Shows, for each of `keys`, the held blobs its row names and its card does not show yet.
+    /// Bytes are read and pictures decoded off the main thread; a blob not held yet changes
+    /// nothing (what the card showed stays).
+    @discardableResult
+    private func fill(_ keys: [TabSnapshotKey], macID: String) -> Task<Void, Never>? {
+        let held = held[macID] ?? []
+        var wanted: [Part] = []
+        for key in keys {
+            guard let entry = entries[key], let info = entry.info else { continue }
+            func want(_ hash: String?, shown: String?, _ slot: Part.Slot) {
+                guard let hash, hash != shown, held.contains(hash) else { return }
+                wanted.append(Part(key: key, slot: slot, hash: hash, capturedAtMs: info.capturedAtMs, bytes: arriving[hash]))
+            }
+            if info.faviconHash == nil, entry.favicon != nil { entry.favicon = nil; entry.shownFavicon = nil }
+            if info.screenHash == nil, entry.screen != nil { entry.screen = nil; entry.shownScreen = nil }
+            want(info.faviconHash, shown: entry.shownFavicon, .favicon)
+            want(info.screenHash, shown: entry.shownScreen, .screen)
+            want(info.thumbHash, shown: entry.shownThumb, .thumb)
+        }
+        guard !wanted.isEmpty else { return nil }
+        let parts = wanted
+        let store = store
+        // task-owner: this store; ends when the parts are shown.
+        return Task { [weak self] in
+            let loaded = await Task.detached(priority: .userInitiated) {
+                parts.map { part -> Loaded in
+                    let bytes = part.bytes ?? store.macBlob(part.hash, accountID: part.key.accountID, macID: part.key.macID)
+                    switch part.slot {
+                    case .screen: return Loaded(part: part, text: bytes.map { String(decoding: $0, as: UTF8.self) })
+                    case .favicon: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) })
+                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }?.preparingForDisplay())
+                    }
+                }
+            }.value
+            self?.show(loaded)
+        }
+    }
+
+    private func show(_ loaded: [Loaded]) {
+        for item in loaded {
+            let part = item.part
+            // The row moved on while the bytes were read: the newer fill shows its own.
+            guard let entry = entries[part.key], let info = entry.info else { continue }
+            switch part.slot {
+            case .favicon:
+                guard info.faviconHash == part.hash, let image = item.image else { continue }
+                entry.favicon = image
+                entry.shownFavicon = part.hash
+            case .screen:
+                guard info.screenHash == part.hash, let text = item.text else { continue }
+                entry.screen = text
+                entry.shownScreen = part.hash
+            case .thumb:
+                guard info.thumbHash == part.hash, let image = item.image else { continue }
+                entry.shownThumb = part.hash
+                snapshots.show(macPicture: image, capturedAtMs: part.capturedAtMs, for: part.key)
+            }
+        }
+    }
+}
+#endif

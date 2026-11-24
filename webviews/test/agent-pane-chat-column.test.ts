@@ -631,7 +631,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   // A long thought folds once done (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
-  // Closed, a thought's button reads its words (Codex parity); open, "Thought".
+  // A thought's button reads its own first line (Codex parity), closed and open.
   const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
   test("a long thought draws as its folded line while it streams, and the next step moves nothing above it", async () => {

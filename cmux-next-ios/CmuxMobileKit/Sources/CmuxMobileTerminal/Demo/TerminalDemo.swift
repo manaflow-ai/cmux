@@ -168,10 +168,11 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("tuihold") { await holdTUI() }
         if selected.contains("projection") { await projection() }
         if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
-        for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
+        for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load", "primary-slow", "mouse-slow"]
         where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
@@ -340,8 +341,11 @@ final class TerminalDemoDriver {
     /// pans: `primary-load` redraws its live region every 16 ms, the
     /// full-screen app adds a row and redraws its whole screen every 16 ms.
     private func tuiPan(_ variant: String) async {
-        let load = variant.hasSuffix("-load")
-        let screen = load ? String(variant.dropLast(5)) : variant
+        // `-slow`: the UI test drags slowly, as a reader does (the demo runs the same).
+        let base = variant.hasSuffix("-slow") ? String(variant.dropLast(5)) : variant
+        let load = base.hasSuffix("-load")
+        let screen = load ? String(base.dropLast(5)) : base
+        (model.session as? MockTerminalSession)?.stampsRedraws = true
         model.composerText = screen == "primary"
             ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
             : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
@@ -354,9 +358,11 @@ final class TerminalDemoDriver {
         }
         session.batchesInputPerTurn = true
         defer { session.batchesInputPerTurn = false }
-        let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
+        let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 },
+                                     position: { [weak controller] in controller?.debugContentY })
         let bytes = session.bytesFromPhone, fetches = session.historyFetches, sends = session.sends
         let scrolls = session.appScrolls
+        session.paintSamples = []
         mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
         model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
         // Until the pans are over: 4 s with no finger after the first (the
@@ -367,10 +373,18 @@ final class TerminalDemoDriver {
             if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
         }
         meter.stop()
-        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
+        let result = meter.summary + meter.smoothness(rowHeight: controller.debugRowHeight) + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
+            + Self.paintNote(session.paintSamples)
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
+    }
+
+    /// ` paint=N paintP50=MS paintP95=MS`: the screen's receive to the present that showed it
+    /// (``TerminalPaintTally``), over the stamped writes it reported.
+    static func paintNote(_ samples: [TerminalPaintTally.Sample]) -> String {
+        guard let paint = TerminalPaintTally.receiveToPaint(samples) else { return " paint=0" }
+        return String(format: " paint=%d paintP50=%.1f paintP95=%.1f", samples.count, paint.p50, paint.p95)
     }
 
     private func keyboard() async {
@@ -402,6 +416,15 @@ final class TerminalDemoDriver {
     /// keyboard is still moving), the same calls a tap on each makes; then the
     /// keyboard key twice 0.1 s apart. Each second action reverses the first
     /// from where the keyboard is, never after it settles.
+    /// `tuihold` (opt-in): vim, left running with the keyboard down for a UI
+    /// test to drive (KeyboardMotionBenchUITests). `demoNote` reads
+    /// `tui.ready` once it is up, `done.notui` when it never became full screen.
+    private func holdTUI() async {
+        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+        await wait(2.5)
+        note(model.isTUI ? "tui.ready" : "done.notui")
+    }
+
     /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
     /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
@@ -781,13 +804,19 @@ final class TerminalPanMeter: NSObject {
     /// Sends to the "Mac" so far, read every frame.
     private let sends: () -> Int
     private var lastSends = 0
+    /// Where the content was drawn (points), read every measured frame (``TerminalScrollSmoothness``).
+    private let position: () -> CGFloat?
+    private var lastPosition: CGFloat?
+    /// How far it moved each measured frame (points).
+    private var steps: [CGFloat] = []
     /// Measured frames that had a send, and the most sends in one frame.
     private var sendFrames = 0
     private var maxSendsPerFrame = 0
 
-    init(window: UIWindow, sends: @escaping () -> Int = { 0 }) {
+    init(window: UIWindow, sends: @escaping () -> Int = { 0 }, position: @escaping () -> CGFloat? = { nil }) {
         self.window = window
         self.sends = sends
+        self.position = position
         lastSends = sends()
         super.init()
         watcher.changed = { [weak self] down, time in
@@ -812,8 +841,11 @@ final class TerminalPanMeter: NSObject {
         if link.duration > 0 { period = link.duration }
         let sent = sends()
         defer { lastSends = sent }
+        let y = position()
+        defer { lastPosition = y }
         guard active, let lastFrame else { return }
         intervals.append(link.timestamp - lastFrame)
+        if let y, let lastPosition { steps.append(abs(y - lastPosition)) }
         if sent > lastSends { sendFrames += 1 }
         maxSendsPerFrame = max(maxSendsPerFrame, sent - lastSends)
     }
@@ -832,8 +864,15 @@ final class TerminalPanMeter: NSObject {
         }
         let hitches = intervals.filter { $0 > period * 1.5 }.count
         let stalls = intervals.filter { $0 > 0.05 }.count
-        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) max=\(ms(1)) hitches=\(hitches) stalls=\(stalls)"
+        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) p99=\(ms(0.99)) max=\(ms(1)) hitches=\(hitches) stalls=\(stalls)"
             + " sendFrames=\(sendFrames) maxSendsPerFrame=\(maxSendsPerFrame) periodMs=\(String(format: "%.1f", period * 1000))"
+    }
+}
+
+extension TerminalPanMeter {
+    /// How smoothly the content moved while measured (`motionFrames=0` when it never moved).
+    func smoothness(rowHeight: CGFloat) -> String {
+        TerminalScrollSmoothness(steps: steps)?.note(rowHeight: rowHeight) ?? " motionFrames=0"
     }
 }
 

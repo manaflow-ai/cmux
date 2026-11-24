@@ -5,13 +5,13 @@
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    ASK_DESCRIPTION, CHECK_INS_DESCRIPTION, CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION,
-    DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, FOLLOW_UP_DESCRIPTION, FOLLOW_UPS_DESCRIPTION,
-    MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP, MEMORY_READ_DESCRIPTION,
-    MEMORY_WRITE_DESCRIPTION, NOTHING_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION,
-    REACT_DESCRIPTION, RECALL_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
-    SEND_DESCRIPTION, SEND_LATER_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    ASK_DESCRIPTION, AUTOMATION_DESCRIPTION, CHECK_INS_DESCRIPTION, CLOUD_WORKSPACE_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, FOLLOW_UP_DESCRIPTION,
+    FOLLOW_UPS_DESCRIPTION, MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP,
+    MEMORY_READ_DESCRIPTION, MEMORY_WRITE_DESCRIPTION, NOTHING_DESCRIPTION, PEER_TELL_DESCRIPTION,
+    PEERS_DESCRIPTION, REACT_DESCRIPTION, RECALL_DESCRIPTION, REMEMBER_DESCRIPTION,
+    REPLY_DESCRIPTION, SEND_DESCRIPTION, SEND_LATER_DESCRIPTION, SLEEP_DESCRIPTION,
+    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
     SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
     VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
@@ -37,6 +37,15 @@ pub const WATCH_MAX_SECONDS: u64 = 86_400;
 pub const WATCH_POLL_SECONDS: u64 = 15;
 /// Most watches pending at once.
 pub const WATCHES_KEPT: usize = 8;
+
+/// Longest automation name (optchat-chief automations.rs).
+pub const AUTOMATION_NAME_MAX: usize = 80;
+/// Longest automation prompt.
+pub const AUTOMATION_PROMPT_MAX: usize = 4000;
+/// The `automation` tool's actions.
+pub const AUTOMATION_ACTIONS: [&str; 6] = ["add", "list", "pause", "resume", "delete", "run"];
+/// The events an automation can wait for.
+pub const AUTOMATION_EVENTS: [&str; 1] = ["agent_done"];
 
 /// The kinds of sign-in `escalate_auth` takes.
 pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
@@ -262,6 +271,16 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "note": {"type": "string", "description": "What to do when it fires: shown to you in the watch message."},
             "cancel": {"type": "string", "minLength": 1, "description": "A watch id (w<N>) or all: cancels instead of starting one. With no command and no cancel, lists the pending watches."}},
           "additionalProperties": false}}));
+        list.push(json!({"name": "automation", "description": AUTOMATION_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": AUTOMATION_ACTIONS, "description": "add: make one; list: see them all; pause, resume, delete, run (now): one by id."},
+            "id": {"type": "string", "minLength": 1, "description": "pause, resume, delete, run: the automation (au<N>)."},
+            "name": {"type": "string", "minLength": 1, "maxLength": AUTOMATION_NAME_MAX, "description": "add: a short name the person sees in Chief settings, e.g. \"Morning PR summary\"."},
+            "prompt": {"type": "string", "minLength": 1, "maxLength": AUTOMATION_PROMPT_MAX, "description": "add: the whole task you do at each fire, standing alone (you will not see this turn then)."},
+            "cron": {"type": "string", "minLength": 1, "description": "add, a schedule: five fields in this Mac's time zone (minute hour day-of-month month day-of-week), e.g. \"0 9 * * *\" every day at 9, \"0 9 * * 1-5\" weekdays; or @hourly, @daily, @weekly."},
+            "event": {"type": "string", "enum": AUTOMATION_EVENTS, "description": "add, an event instead of cron: agent_done (one of your subagents finished). Each event fires it once."},
+            "match": {"type": "string", "minLength": 1, "description": "agent_done: only subagents whose title has this text."}},
+          "additionalProperties": false}}));
         let path = json!({"type": "string", "minLength": 1, "maxLength": 80, "description": MEMORY_PATH_HELP});
         list.push(json!({"name": "memory_read", "description": MEMORY_READ_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
@@ -313,6 +332,7 @@ const ONCE: &[&str] = &[
     "control",
     "sleep",
     "watch",
+    "automation",
     "profile",
     "chiefs",
     "move",
@@ -321,11 +341,13 @@ const ONCE: &[&str] = &[
 
 /// Tools only a host on the person's machine can do: the Mac's app
 /// (`version`), moving the Chief's home (`move`), running a command off
-/// the turn (`watch`) and the MCP hub with its servers and secrets (`mcp`).
+/// the turn (`watch`), the MCP hub with its servers and secrets (`mcp`)
+/// and the Mac's scheduled tasks (`automation`).
 const HOST_ONLY: &[&str] = &[
     "version",
     "move",
     "watch",
+    "automation",
     "mcp",
     "recall",
     "memory_read",

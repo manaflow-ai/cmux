@@ -57,9 +57,9 @@ agent test account, with the helpers in `cloud-journey.ts` that `vm-hassle.ts` a
 |---|---|---|---|
 | Point an agent at one URL | `signIn` + `chat` | all 15 steps | the install script, opening the app, `cmux setup local`/`harness`, the `cmux whoami` waits and the browser sign-in need a Mac and a person |
 | In the app | nothing | all 8 steps | every step is a click in the Mac app or a browser; no headless route drives File > New Cloud Chat. The Cloud part is likely close to `chat` but the page does not say which route the app takes, so no number is borrowed |
-| From the CLI | `signIn` + `chat` | all 6 steps | the install and app launch, the browser sign-in; `cmux whoami` needs the app's socket |
+| From the CLI | `signIn` + `chat` | all 9 steps | the install and app launch, the browser sign-in; `cmux whoami` needs the app's socket |
 | Through Chief | `signIn` + `chat` + `send` | all 15 steps | Chief runs inside the Mac app; the paste, the yes to a cost, the connect link and the browser need a person |
-| From your phone | nothing | all 9 steps | the iPhone app, its beta install and pairing need a Mac and an iPhone |
+| From your phone | `chat` (the chat the agent starts on the Mac for the phone to open) | all 12 steps | the iPhone app, its beta install, the pairing and the message sent from the phone need a Mac and an iPhone |
 
 The `chat` route creates a fresh machine with `cloud.machine.create`. The CLI may get a warm spare instead, so the
 real command can be faster than this number; the CLI's own path is timed only once a runner has the app.
@@ -115,14 +115,37 @@ The workflow can be started by hand (workflow_dispatch) only once this file is o
 request it runs on each change to the script or the workflow. It reads the agent test account from the
 `cmux-next-vm-image-dev` environment, the pair `cloud-journey-pr.yml` reads on pull requests.
 
+## The first climb: the phone and CLI levels
+
+Counting the page found two levels that did not do what the page promises (the list below, as first written).
+The page changed, `LEVELS` followed it, and the same counter ran again (`--documented`, 2026-11-23):
+
+| level | | steps | command | wait | physical | by the person | conditional | fewest steps | ends at a working agent |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| From your phone | before | 9 | 2 | 0 | 7 | 7 | 3 | 6 | no: it stopped at a paired phone |
+| From your phone | after | 12 | 4 | 0 | 8 | 8 | 3 | 9 | yes: a message sent from the phone gets an answer |
+| From the CLI | before | 6 | 3 | 0 | 3 | 6 | 2 | 4 | yes, unless the start was refused: then the page said nothing |
+| From the CLI | after | 9 | 5 | 0 | 4 | 9 | 5 | 4 | yes, the refused start included |
+
+The step counts went up, not down, and that is the fix: the earlier numbers were low because the phone level
+stopped before an agent and the CLI level left out what to do when a start is refused. The CLI's fewest steps
+are the same 4. The phone's three new steps are the Cloud chat the agent starts, the message the person sends
+from the phone, and the agent reading the answer back. The other three levels did not change. Nothing here is a
+time: the phone's steps need an iPhone, and the first reply is still refused for a newcomer (above).
+
 ## What counting the page found
 
+This list is what the first count found; the climb above fixed the phone and CLI items except where it says not.
+
+
 - **From your phone** never reaches a working agent: it pairs the iPhone with the Mac and stops. No step starts or
-  opens a Cloud chat from the phone, and the page does not say where the beta invite comes from.
+  opens a Cloud chat from the phone, and the page does not say where the beta invite comes from. Fixed: the level now
+  ends at an answer to a message sent from the phone. Still open: the page says only that the iPhone app is in beta.
 - **From the CLI** and **Through Chief** start "in any terminal inside cmux" and "open Home", but the app install
-  is only a pointer to Getting started; the agent level is the only one that installs it.
+  is only a pointer to Getting started; the agent level is the only one that installs it. The CLI level now says
+  to install first; neither installs it for you.
 - **From the CLI** says nothing about a refused start (a Cloud plan, a model connection, GitHub); the agent and
-  Chief levels do. It also lists `cmux whoami` without saying to wait for the browser sign-in to finish.
+  Chief levels do. It also lists `cmux whoami` without saying to wait for the browser sign-in to finish. Fixed, both.
 - **Through Chief** has the most conditional steps (11 of 15): the model-connection branch alone adds three, with
   two different link flows for Claude and Codex.
 

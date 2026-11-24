@@ -81,6 +81,11 @@ impl TerminalProjection {
         segments(self.inner().feed(&bytes, paint))
     }
 
+    /// Paints what unpainted feeds changed, once (nothing on the alternate screen).
+    pub fn flush(&self) -> Vec<ProjectionSegment> {
+        segments(self.inner().flush())
+    }
+
     /// Paints what changed since the last paint.
     pub fn paint(&self) -> Vec<ProjectionSegment> {
         segments(self.inner().paint().into_iter().collect())
