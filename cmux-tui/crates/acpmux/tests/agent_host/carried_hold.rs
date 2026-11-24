@@ -20,6 +20,7 @@ fn claude_spec(dir: &Path, session: &str) -> SpawnSpec {
         prompt_suggestions: true,
         recap: None,
         claude_session_id: None,
+        resumes_cut_turn: false,
     });
     spec
 }

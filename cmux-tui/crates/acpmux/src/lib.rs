@@ -110,6 +110,7 @@ pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
 pub mod god_fixture;
+pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -173,8 +174,14 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+/// Calls this machine runs for the person's other machines, over the hub carrier
+/// (`machine_call_service.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
+/// File and command actions for another of the person's machines (`machine_call_service.rs`).
+pub mod machine_files;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
 /// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
@@ -218,6 +225,9 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
+pub mod peer_dial_gate;
+pub(crate) mod peer_notice_outbox;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
@@ -240,6 +250,7 @@ pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod prompt_uploads;
+pub mod prompts;
 pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
@@ -294,6 +305,9 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+/// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod transfer_service;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
@@ -312,9 +326,11 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod sr2_priority;
 pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
+pub mod stash;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
@@ -359,10 +375,12 @@ pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
+pub(crate) mod unread_records;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
 pub mod web_modes;
+pub mod web_tailnet;
 pub mod wire_size;
 pub mod wireguard;
 pub mod workflow_journal;
