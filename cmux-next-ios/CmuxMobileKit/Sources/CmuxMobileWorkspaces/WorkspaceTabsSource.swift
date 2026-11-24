@@ -912,12 +912,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             if left > .zero {
                 cleared = await BoundedWait(left).run { @MainActor [weak self] in
                     // No strong reference across the wait: a source closed meanwhile goes away.
-                    while self?.pendingTabTitle != nil, !Task.isCancelled {
-                        await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
-                            guard let self, self.pendingTabTitle != nil else { return changed.resume() }
-                            withObservationTracking { _ = self.pendingTabTitle } onChange: { changed.resume() }
-                        }
-                    }
+                    await BoundedWait.observing { self?.pendingTabTitle != nil }
                 }
             }
             if !cleared, pendingTabTitle != nil {

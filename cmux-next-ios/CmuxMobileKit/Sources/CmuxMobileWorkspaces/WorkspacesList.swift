@@ -1110,11 +1110,7 @@ public struct WorkspacesList: View {
         await retryLoad()
         let store = store
         await BoundedWait(.seconds(30)).run { @MainActor in
-            while store.teamDataState == .loading, !Task.isCancelled {
-                await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
-                    withObservationTracking { _ = store.teamDataState } onChange: { changed.resume() }
-                }
-            }
+            await BoundedWait.observing { store.teamDataState == .loading }
         }
     }
 }

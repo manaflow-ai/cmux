@@ -70,14 +70,9 @@ struct NativeBrowserPage: View {
         await BoundedWait(.seconds(60)).run { @MainActor in await Self.until(model) { !$0.isLoading || $0.problem != nil } }
     }
 
-    /// Waits until `done` reads true (Observation wakes it; no polling).
+    /// Waits until `done` reads true (Observation wakes it; no polling); cancelling it ends it.
     private static func until(_ model: BrowserTabModel, _ done: @escaping @MainActor (BrowserTabModel) -> Bool) async {
-        while !done(model), !Task.isCancelled {
-            await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
-                guard !done(model) else { return changed.resume() }
-                withObservationTracking { _ = done(model) } onChange: { changed.resume() }
-            }
-        }
+        await BoundedWait.observing { !done(model) }
     }
 
     private func card(_ problem: BrowserTabModel.Problem) -> some View {
