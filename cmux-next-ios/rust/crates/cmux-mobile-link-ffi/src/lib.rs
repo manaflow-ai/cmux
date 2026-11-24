@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::dial::TurnLease;
 use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::{
     BuildSpace, ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline,
@@ -845,15 +844,6 @@ async fn connect_on(
             return Err(error);
         }
     };
-    if let Some(lease) = connected.turn_lease.clone() {
-        let key = SocketKey {
-            base_url: request.base_url.clone(),
-            team_id: request.team_id.clone(),
-            device_id: request.device_id.clone(),
-            build_space: build_space(),
-        };
-        pool.store_turn(&key, lease).await;
-    }
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
     let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
@@ -1040,8 +1030,6 @@ struct Warm {
     /// opening one waits for it instead of opening a second (the service
     /// keeps one socket per device and would close the first).
     opening: tokio::sync::Mutex<()>,
-    /// One phone-side TURN allocation for the current network and key.
-    held_turn: tokio::sync::Mutex<Option<(SocketKey, TurnLease)>>,
 }
 
 /// How many warm sockets are kept (the oldest goes first).
@@ -1069,7 +1057,6 @@ impl WarmPool {
             ice: Mutex::new(Vec::new()),
             sockets: tokio::sync::Mutex::new(Vec::new()),
             opening: tokio::sync::Mutex::new(()),
-            held_turn: tokio::sync::Mutex::new(None),
         }))
     }
 
@@ -1125,9 +1112,6 @@ impl WarmPool {
         let pool = Arc::clone(&self.0);
         on_runtime(async move {
             pool.sockets.lock().await.clear();
-            if let Some((_, lease)) = pool.held_turn.lock().await.take() {
-                lease.invalidate();
-            }
             for (_, cache) in pool.ice.lock().unwrap_or_else(PoisonError::into_inner).iter() {
                 cache.clear();
             }
@@ -1169,9 +1153,6 @@ async fn network_changed_on(
     team_id: String,
     device_id: String,
 ) -> Vec<TimingMark> {
-    // A TURN allocation is bound to the socket path that created it. Drop
-    // the pool's idle carrier before opening on the new network.
-    pool.invalidate_turn().await;
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
@@ -1248,74 +1229,6 @@ const ICE_BUDGET: Duration = Duration::from_secs(8);
 const STALE_PROBE: Duration = Duration::from_millis(2500);
 
 impl Warm {
-    async fn take_turn(&self, key: &SocketKey) -> Option<TurnLease> {
-        let held = self.held_turn.lock().await;
-        let lease = held
-            .as_ref()
-            .filter(|(held_key, lease)| held_key == key && lease.is_valid() && lease.has_carrier())
-            .map(|(_, lease)| lease.clone());
-        if lease.is_none() {
-            if let Some((held_key, held_lease)) = held.as_ref()
-                && held_key == key
-            {
-                held_lease.discard_if_dead();
-            }
-        }
-        lease
-    }
-
-    async fn store_turn(&self, key: &SocketKey, lease: TurnLease) {
-        let mut held = self.held_turn.lock().await;
-        let replace = match held.as_ref() {
-            None => true,
-            Some((_, existing)) if existing.same_storage(&lease) => false,
-            Some((held_key, existing)) if held_key == key => !existing.is_valid() || existing.has_carrier(),
-            Some((_, existing)) => !existing.is_valid() || existing.has_carrier(),
-        };
-        if replace {
-            if let Some((_, existing)) = held.take() {
-                existing.invalidate();
-            }
-            *held = Some((key.clone(), lease.clone()));
-            drop(held);
-            self.expire_turn_when_idle(lease);
-        }
-    }
-
-    async fn invalidate_turn(&self) {
-        if let Some((_, lease)) = self.held_turn.lock().await.take() {
-            lease.invalidate();
-        }
-    }
-
-    fn expire_turn_when_idle(&self, lease: TurnLease) {
-        tokio::spawn(async move {
-            let mut returned = lease.returned();
-            loop {
-                if !lease.is_valid() {
-                    return;
-                }
-                if lease.has_carrier() {
-                    tokio::select! {
-                        _ = tokio::time::sleep(Duration::from_secs(3)) => {
-                            if lease.has_carrier() {
-                                lease.invalidate();
-                                return;
-                            }
-                        }
-                        changed = returned.changed() => {
-                            if changed.is_err() {
-                                return;
-                            }
-                        }
-                    }
-                } else if returned.changed().await.is_err() {
-                    return;
-                }
-            }
-        });
-    }
-
     fn ice_cache(&self, base_url: &str) -> Arc<IceCache> {
         let mut caches = self.ice.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((_, cache)) = caches.iter().find(|(url, _)| url == base_url) {
@@ -1662,44 +1575,6 @@ mod redial_tests {
         mac
     }
 
-    async fn answering_mac(server: &FakeSignaling, turn: &TestTurn, mac_device_id: &str) -> SignalingClient {
-        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", mac_device_id)
-            .await
-            .expect("Mac signaling");
-        let serving = mac.clone();
-        let turn_ice = turn.udp_only();
-        tokio::spawn(async move {
-            while let Some(session) = serving.next_session().await {
-                let events = cmux_mobile_link::dial::SessionEvents {
-                    backend: serving.events(),
-                    session_id: session.first.session_id.clone(),
-                    session: session.events,
-                };
-                let options = DialOptions {
-                    ice_servers: vec![turn_ice.clone()],
-                    include_loopback: true,
-                    relay_only: true,
-                    ..DialOptions::default()
-                };
-                let mac = serving.clone();
-                tokio::spawn(async move {
-                    if let Ok(connected) = cmux_mobile_link::dial::answer(
-                        &mac,
-                        session.first,
-                        events,
-                        &options,
-                        LinkConfig::default(),
-                    )
-                    .await
-                    {
-                        std::mem::forget(connected);
-                    }
-                });
-            }
-        });
-        mac
-    }
-
     fn redial(
         pool: WarmPool,
         request: ConnectRequest,
@@ -1708,7 +1583,7 @@ mod redial_tests {
     {
         let pool = Arc::clone(&pool.0);
         let key = key(&request);
-        async move { redial_after(&pool, &key, &request, &options, &options.timeline, None).await }
+        async move { redial_after(&pool, &key, &request, &options, &options.timeline).await }
     }
 
     /// Dropping the FFI pool's real replacement dial releases the early TURN
@@ -1739,115 +1614,6 @@ mod redial_tests {
         dial.abort();
         assert!(held(&turn, 0).await, "{} TURN allocations held after drop", turn.allocations());
         pool.reset().await;
-    }
-
-    /// A carrier returned by one link is taken by the next same-network
-    /// redial, so the TURN server sees no second Allocate request.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn ffi_pool_same_network_redial_reuses_held_turn() {
-        let turn = TestTurn::start().await;
-        let mac_turn = TestTurn::start().await;
-        let server = FakeSignaling::start(FakeOptions {
-            ice_servers: vec![turn.udp_only()],
-            strip_direct_endpoints: true,
-            ..FakeOptions::default()
-        })
-        .await;
-        let pool = WarmPool::new();
-        let mac_id = uuid::Uuid::new_v4().to_string();
-        let _mac = answering_mac(&server, &mac_turn, &mac_id).await;
-        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
-        let key = key(&request);
-        let options = options(&turn);
-        let (first, socket) = redial_after(&pool.0, &key, &request, &options, &options.timeline, None)
-            .await
-            .expect("first dial");
-        let allocate_count = turn.allocation_count();
-        assert!(allocate_count >= 1, "first dial did not allocate TURN");
-        pool.0.store_turn(&key, first.turn_lease.clone().expect("TURN lease")).await;
-        first.link.close("test redial");
-        drop(first);
-        assert!(held(&turn, 1).await, "the first link did not return its allocation");
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-        let held_lease = loop {
-            if let Some(lease) = pool.0.take_turn(&key).await {
-                break lease;
-            }
-            assert!(tokio::time::Instant::now() < deadline, "held same-network allocation");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        };
-        let (second, _) =
-            redial_after(&pool.0, &key, &request, &options, &options.timeline, Some(held_lease))
-                .await
-                .expect("same-network redial");
-        assert_eq!(turn.allocation_count(), allocate_count, "redial allocated a second TURN relay");
-        second.link.close("test done");
-        drop(second);
-        drop(socket);
-        assert!(held(&turn, 0).await, "{} allocations held after redial", turn.allocations());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn ffi_pool_releases_idle_turn_within_three_seconds() {
-        let turn = TestTurn::start().await;
-        let pool = WarmPool::new();
-        let request = request("http://unused", "phone", "mac");
-        let key = key(&request);
-        let lease = cmux_mobile_link::dial::TurnLease::from_carrier(
-            cmux_mobile_link::dial::TurnCarrier::allocate(&options(&turn)).await.expect("TURN allocation"),
-        );
-        pool.0.store_turn(&key, lease.clone()).await;
-        let carrier = lease.take().expect("lease carrier");
-        lease.put(carrier);
-        let released = tokio::time::timeout(Duration::from_millis(3500), held(&turn, 0))
-            .await
-            .expect("idle lease release deadline");
-        assert!(released, "{} allocation still held", turn.allocations());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn ffi_pool_network_change_invalidates_old_turn() {
-        let turn = TestTurn::start().await;
-        let pool = WarmPool::new();
-        let request = request("http://unused", "phone", "mac");
-        let key = key(&request);
-        let lease = cmux_mobile_link::dial::TurnLease::from_carrier(
-            cmux_mobile_link::dial::TurnCarrier::allocate(&options(&turn)).await.expect("TURN allocation"),
-        );
-        pool.0.store_turn(&key, lease).await;
-        pool.0.invalidate_turn().await;
-        assert!(pool.0.take_turn(&key).await.is_none());
-        assert!(held(&turn, 0).await);
-        let fresh = cmux_mobile_link::dial::TurnCarrier::allocate(&options(&turn))
-            .await
-            .expect("new-network TURN allocation");
-        assert_eq!(turn.allocation_count(), 2);
-        drop(fresh);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn ffi_pool_dead_turn_falls_back_to_fresh_allocation() {
-        let turn = TestTurn::start().await;
-        let pool = WarmPool::new();
-        let request = request("http://unused", "phone", "mac");
-        let key = key(&request);
-        let mut dead_options = options(&turn);
-        dead_options.ice_servers = vec![turn.ice.clone()];
-        dead_options.block_udp = true;
-        dead_options.turn_tls_roots = Some(turn.roots.clone());
-        let carrier = cmux_mobile_link::dial::TurnCarrier::allocate(&dead_options)
-            .await
-            .expect("stream TURN allocation");
-        carrier.kill();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let lease = cmux_mobile_link::dial::TurnLease::from_carrier(carrier);
-        pool.0.store_turn(&key, lease).await;
-        assert!(pool.0.take_turn(&key).await.is_none(), "dead TURN was reused");
-        let fresh = cmux_mobile_link::dial::TurnCarrier::allocate(&dead_options)
-            .await
-            .expect("fresh TURN allocation");
-        assert_eq!(turn.allocation_count(), 2);
-        drop(fresh);
     }
 
     /// A pool teardown during a replacement dial follows the app-background
@@ -2046,12 +1812,7 @@ async fn dial(
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
-    let held_turn = (request.transport == Transport::WireGuard).then(|| pool.take_turn(&key));
-    let held_turn = match held_turn {
-        Some(held_turn) => held_turn.await,
-        None => None,
-    };
-    let attempt = dial_on(&socket, request, &options, reused, held_turn.clone()).await;
+    let attempt = dial_on(&socket, request, &options, reused).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
@@ -2059,7 +1820,7 @@ async fn dial(
             // that forgot it): redial on a fresh one, once.
             timeline.mark("signaling_stale");
             pool.evict(&socket).await;
-            redial_after(pool, &key, request, &options, timeline, held_turn).await
+            redial_after(pool, &key, request, &options, timeline).await
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
@@ -2099,7 +1860,6 @@ async fn redial_after(
     request: &ConnectRequest,
     options: &DialOptions,
     timeline: &Timeline,
-    held_turn: Option<TurnLease>,
 ) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
     let opening = pool.opening.lock().await;
     let opened = Arc::new(tokio::sync::Mutex::new(None));
@@ -2124,37 +1884,15 @@ async fn redial_after(
         drop(opening);
         Ok::<_, cmux_mobile_link::signaling::SignalingError>(client)
     };
-    let result = cmux_mobile_link::dial::connect_after_with_turn(
+    let result = cmux_mobile_link::dial::connect_after(
         signaling,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
-        held_turn.clone(),
     )
     .await;
     let socket = opened.lock().await.take();
-    let result = match result {
-        Err(error) if socket.as_ref().is_some() && held_turn.as_ref().is_some() => {
-            let socket_ref = socket.as_ref().expect("socket checked above");
-            let lease = held_turn.as_ref().expect("lease checked above");
-            // A held UDP allocation can have expired at the TURN server while
-            // its local carrier still exists. Discard it and retry this
-            // signaling session with a fresh allocation.
-            lease.invalidate();
-            let retry = cmux_mobile_link::dial::connect_with_turn(
-                &socket_ref.client,
-                &request.mac_device_id,
-                request.transport.into(),
-                options,
-                if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
-                None,
-            )
-            .await;
-            retry.map(|connected| (socket_ref.client.clone(), connected)).map_err(|_| error)
-        }
-        other => other,
-    };
     match (result, socket) {
         (Ok((_signaling, connected)), Some(socket)) => Ok((connected, socket)),
         (Ok(_), None) => unreachable!("connect_after succeeded without opening a signaling socket"),
@@ -2180,34 +1918,16 @@ async fn dial_on(
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
-    turn_lease: Option<TurnLease>,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect_with_turn(
+    let dial = cmux_mobile_link::dial::connect(
         &socket.client,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
-        turn_lease.clone(),
     );
     if !probe {
-        let result = dial.await;
-        return match (result, turn_lease) {
-            (Err(_), Some(lease)) => {
-                lease.invalidate();
-                cmux_mobile_link::dial::connect_with_turn(
-                    &socket.client,
-                    &request.mac_device_id,
-                    request.transport.into(),
-                    options,
-                    if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
-                    None,
-                )
-                .await
-                .map_err(Attempt::Failed)
-            }
-            (result, _) => result.map_err(Attempt::Failed),
-        };
+        return dial.await.map_err(Attempt::Failed);
     }
     tokio::pin!(dial);
     tokio::select! {

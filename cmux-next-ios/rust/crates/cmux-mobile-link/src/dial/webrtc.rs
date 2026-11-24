@@ -453,7 +453,6 @@ async fn finish(
         liveness: None,
         media,
         webrtc_media: false,
-        turn_lease: None,
     })
 }
 

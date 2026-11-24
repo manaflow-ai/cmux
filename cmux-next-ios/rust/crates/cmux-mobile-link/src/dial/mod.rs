@@ -16,10 +16,9 @@ use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingCli
 
 pub(crate) mod turn;
 /// Measurement support (cmux-mobile-path-probe).
-pub use turn::{TimedAllocation, TurnCarrier, TurnTransport, timed_allocation};
+pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
-pub use wireguard::TurnLease;
 
 /// The transport switch (PROTOCOL.md "Transport switch").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -376,9 +375,6 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
-    /// The phone-side TURN allocation can be returned to the warm pool when
-    /// this transport is dropped and reused by a same-network redial.
-    pub turn_lease: Option<TurnLease>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -551,8 +547,6 @@ pub struct Connected {
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
-    /// The phone-side TURN allocation lease, when this is a WireGuard dial.
-    pub turn_lease: Option<TurnLease>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -564,20 +558,7 @@ pub async fn connect(
     link_config: LinkConfig,
 ) -> Result<Connected, DialError> {
     refuse_unreachable(kind, options)?;
-    connect_on(signaling, mac, kind, options, link_config, None, None).await
-}
-
-/// [`connect`] with a TURN allocation lease supplied by the warm pool.
-pub async fn connect_with_turn(
-    signaling: &SignalingClient,
-    mac: &str,
-    kind: TransportKind,
-    options: &DialOptions,
-    link_config: LinkConfig,
-    turn_lease: Option<TurnLease>,
-) -> Result<Connected, DialError> {
-    refuse_unreachable(kind, options)?;
-    connect_on(signaling, mac, kind, options, link_config, None, turn_lease).await
+    connect_on(signaling, mac, kind, options, link_config, None).await
 }
 
 /// Phone side, a redial: `signaling` is the signaling reconnect, and the
@@ -596,25 +577,11 @@ pub async fn connect_after<E: std::fmt::Display>(
     options: &DialOptions,
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
-    connect_after_with_turn(signaling, mac, kind, options, link_config, None).await
-}
-
-/// [`connect_after`] with a TURN allocation lease supplied by the warm pool.
-pub async fn connect_after_with_turn<E: std::fmt::Display>(
-    signaling: impl Future<Output = Result<SignalingClient, E>>,
-    mac: &str,
-    kind: TransportKind,
-    options: &DialOptions,
-    link_config: LinkConfig,
-    turn_lease: Option<TurnLease>,
-) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard
-        && turn_lease.as_ref().is_none_or(|lease| !lease.has_carrier()))
-    .then(|| wireguard::EarlyTurn::start(options));
+    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
-    let connected = connect_on(&signaling, mac, kind, options, link_config, early, turn_lease).await?;
+    let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
     Ok((signaling, connected))
 }
 
@@ -642,16 +609,14 @@ async fn connect_on(
     options: &DialOptions,
     link_config: LinkConfig,
     early: Option<wireguard::EarlyTurn>,
-    turn_lease: Option<TurnLease>,
 ) -> Result<Connected, DialError> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
     options.timeline.mark("dial_start");
-    let dial = if kind == TransportKind::WireGuard {
-        wireguard::dial_wireguard(signaling, mac, &session_id, events, options, early, turn_lease)
-    } else {
-        dialer.dial(signaling, mac, &session_id, events, options)
+    let dial = match early {
+        Some(early) => wireguard::dial_wireguard(signaling, mac, &session_id, events, options, Some(early)),
+        None => dialer.dial(signaling, mac, &session_id, events, options),
     };
     let result = tokio::time::timeout(options.timeout, dial).await;
     let dialed = match result {
@@ -686,7 +651,6 @@ async fn connect_on(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
-        turn_lease: dialed.turn_lease,
     })
 }
 
@@ -737,7 +701,6 @@ pub async fn answer(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
-        turn_lease: dialed.turn_lease,
     })
 }
 
