@@ -6965,9 +6965,16 @@ function TranscriptView({
   }, [canLoadNewer, height, onLoadNewer, newerLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(newerRecheck.current), []);
   // The view went to the latest message (the reader scrolled to the end, a send) while the rows end in history: the
-  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`).
+  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`). Only the view starting to
+  // follow is that move. A rail jump far back makes the window (`jumpWindow`) while the view still follows the
+  // chat's end, a frame before the jump scrolls to its prompt: read as a return, it swapped the window for the
+  // newest page, and the jump drew its prompt, went to the chat's end and came back (bench/thread-rail-jump.bench.ts,
+  // unloaded case: 872 px moved).
+  const followedForReturn = useRef(following);
   useEffect(() => {
-    if (following && canLoadNewer) void onReturnToLatest?.();
+    const started = following && !followedForReturn.current;
+    followedForReturn.current = following;
+    if (started && canLoadNewer) void onReturnToLatest?.();
   }, [following, canLoadNewer, onReturnToLatest]);
   // A Jump to latest pressed while the rows end in history waits for the newest page, then goes there.
   useEffect(() => {
