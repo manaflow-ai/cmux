@@ -293,6 +293,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "sparkles",
         surfaces: PALETTE,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "workspace release-names",
         ..Action::DEFAULT
     },
     Action {
