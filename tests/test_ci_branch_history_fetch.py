@@ -37,6 +37,29 @@ class BranchHistoryFetch(unittest.TestCase):
                 checkouts = [i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith("actions/checkout@")]
                 self.assertGreater(fetches[0], checkouts[0], f"{name}:{job}")
 
+    def test_the_migrations_push_guard_fetches_two_commits_not_every_ref(self):
+        # The guard compares the pushed tree with the previous head's and needs no ancestry. Its checkout's
+        # fetch-depth 0 failed the same way (jobs 138141296796, 138140836520), and the production promote's G1
+        # needs this job green. The commits come whole: its lints read the previous head's files with `git show`
+        # and count an unreadable file as absent, so a blob filter could pass a changed migration.
+        steps = yaml.safe_load((WORKFLOWS / "backend.yml").read_text())["jobs"]["migrations-push-guard"]["steps"]
+        checkouts = [i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith("actions/checkout@")]
+        self.assertNotIn("fetch-depth", steps[checkouts[0]].get("with") or {})
+        self.assertNotIn("filter", steps[checkouts[0]].get("with") or {})
+        fetches = [i for i, s in enumerate(steps) if "--depth=1 origin" in (s.get("run") or "")]
+        self.assertEqual(len(fetches), 1)
+        run = steps[fetches[0]]["run"]
+        self.assertEqual(steps[fetches[0]]["env"], {"BEFORE": "${{ github.event.before }}"})
+        self.assertIn('fetch_one "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"', run)
+        self.assertIn('fetch_one "$BEFORE"', run)
+        self.assertIn("--no-tags", run)
+        # A reused workspace can carry a configured blob filter; --no-filter overrides it.
+        self.assertIn("fetch --no-filter ", run)
+        self.assertNotIn("--filter", run)
+        self.assertNotIn("|| true", run)
+        guards = [i for i, s in enumerate(steps) if "git diff --name-status" in (s.get("run") or "")]
+        self.assertTrue(checkouts[0] < fetches[0] < guards[0])
+
     def test_script_fetches_one_branch_blobless_with_retries(self):
         lines = (ROOT / "scripts" / "ci" / "fetch_branch_history.sh").read_text().splitlines()
         text = "\n".join(line for line in lines if not line.lstrip().startswith("#"))

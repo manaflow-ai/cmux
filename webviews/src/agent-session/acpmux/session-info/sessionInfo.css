@@ -1777,8 +1777,13 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-connect {
   display: block;
   padding: 4px 8px;
+  border: 0;
+  background: none;
   color: var(--accent-color);
+  font: inherit;
   font-size: var(--text-detail);
+  text-align: start;
+  cursor: default;
 }
 /* Progress (ProgressSection.tsx): the agent's plan, one step a row on the panel's grid. The mark sits
    in the icon column, centred on the step's first line; the words start on the text column and wrap,

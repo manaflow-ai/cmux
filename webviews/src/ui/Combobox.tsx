@@ -658,11 +658,14 @@ function VirtualRows({
     // border box alone would let it cover the next row. A size the library answers from its cache
     // (no resize entry) was measured here already and holds the margins.
     measureElement: (element, entry, instance) => {
-      const size = measureElement(element, entry, instance);
-      if (!entry && instance.itemSizeCache.has(instance.options.getItemKey(instance.indexFromElement(element))))
-        return size;
-      const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-      return virtualRowSize(size, style?.marginTop ?? "", style?.marginBottom ?? "");
+      // A row that mounts again (scrolled back, or the menu reopened) has no resize entry: its slot is the one
+      // measured here before, margins and all. The library's own answer is its border box alone, which would
+      // let a row with a heading in its margin cover the next row (#46018).
+      const cached = entry ? undefined : instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
+      return virtualRowSlot(cached, () => {
+        const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+        return virtualRowSize(measureElement(element, entry, instance), style?.marginTop ?? "", style?.marginBottom ?? "");
+      });
     },
   });
   virtualizerRef.current = virtualizer;
@@ -708,6 +711,12 @@ type VirtualPlacement = { ref: (node: Element | null) => void; start: number; co
 /// or with `sizeKey` the item and its size key, so each outer size it can have is its own row.
 export function virtualRowKey(item: string, sizeKey?: (item: string) => string): string {
   return sizeKey ? `${item}\u0001${sizeKey(item)}` : item;
+}
+
+/// A virtual row's slot when its ref attaches: the size measured here before (margins included) when there is one,
+/// else a fresh measure. Never the library's bare border box for a row seen before.
+export function virtualRowSlot(cached: number | undefined, measure: () => number): number {
+  return cached ?? measure();
 }
 
 /// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel
