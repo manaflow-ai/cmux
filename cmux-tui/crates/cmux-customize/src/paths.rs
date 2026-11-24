@@ -11,6 +11,8 @@ pub const STATE_OVERRIDE: &str = "CMUX_CUSTOMIZE_STATE_DIR";
 pub struct Roots {
     /// The folder of the settings file (`~/.config/cmux`).
     pub config_dir: PathBuf,
+    /// The harness folder read by acpmux on this host.
+    pub harness_dir: PathBuf,
     /// The settings file itself (`cmux-next.json`, or `CMUX_NEXT_CONFIG_FILE`).
     pub settings_file: PathBuf,
     /// The person's own views app (`local/customize`).
@@ -51,7 +53,17 @@ impl Roots {
         } else {
             default_state_dir(&env, home.as_deref()?)
         };
-        Some(Roots { config_dir, settings_file, customize_dir, state_dir })
+        let xdg = env("XDG_CONFIG_HOME").map(PathBuf::from);
+        let harness_dir = home.as_deref().map_or_else(
+            || config_dir.join("harnesses"),
+            |home| {
+                cmux_config::harness_paths::user(&cmux_config::harness_paths::config_home(
+                    home,
+                    xdg.as_deref(),
+                ))
+            },
+        );
+        Some(Roots { config_dir, harness_dir, settings_file, customize_dir, state_dir })
     }
 
     /// Roots under one folder, for tests and benches: `<root>/config` and
@@ -60,6 +72,7 @@ impl Roots {
         let config_dir = root.join("config");
         Roots {
             settings_file: config_dir.join("cmux-next.json"),
+            harness_dir: config_dir.join("harnesses"),
             customize_dir: config_dir.join("customize"),
             state_dir: root.join("state"),
             config_dir,

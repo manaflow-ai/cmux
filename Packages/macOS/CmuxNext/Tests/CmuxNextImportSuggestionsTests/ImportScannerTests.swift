@@ -24,10 +24,10 @@ struct ImportScannerTests {
         deinit { try? FileManager.default.removeItem(at: url) }
     }
 
-    static func scanner(_ home: Home, imported: Set<String> = [], classic: Bool = false,
+    static func scanner(_ home: Home, imported: Set<String> = [], classic: ClassicImportAvailability = .unavailable,
                         probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe) -> ImportScanner {
         ImportScanner(home: home.url, environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }),
-                      variables: [:], importedProfiles: imported, classicAvailable: { classic }, probe: probe)
+                      variables: [:], importedProfiles: imported, classicAvailability: classic, probe: probe)
     }
 
     static let chrome = "Library/Application Support/Google/Chrome"
@@ -126,10 +126,16 @@ struct ImportScannerTests {
 
     @Test func ghosttyIsInUseAndClassicCanBeOfferedWithoutReadingItsWorkspaces() throws {
         let home = try Home([".config/ghostty/config"])
-        let found = Self.scanner(home, classic: true) { _ in .missing }.scan()
+        let found = Self.scanner(home, classic: .available) { _ in .missing }.scan()
         #expect(found.first { $0.kind == .ghostty }?.access == .inUse)
         let classic = try #require(found.first { $0.kind == .cmuxClassic })
         #expect(classic.count == nil && !classic.offersNothingNew)
+
+        let accepted = Self.scanner(home, classic: .alreadyImported) { _ in .missing }.scan()
+        let finished = try #require(accepted.first { $0.kind == .cmuxClassic })
+        #expect(finished.count == 0 && finished.offersNothingNew)
+        let deck = ImportCardDeck(findings: [finished], state: .init(), jobs: .init())
+        #expect(deck.cards().first?.primary?.title == ImportSuggestionStrings.importAgain)
     }
 
     /// Conductor's workspaces are counted from its folders; its database alone is enough for a

@@ -152,7 +152,7 @@ public final class ImportSuggestionsCenter {
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
         // The daemon checks for Classic files without opening them.
-        let classic = await host.classicAvailable()
+        let classic = await host.classicAvailability()
         // Browser import turned off meanwhile: no other browser's data is read. The scan itself
         // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
@@ -160,7 +160,7 @@ public final class ImportSuggestionsCenter {
         return await withTaskCancellationHandler {
             await Task.detached(priority: .utility) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                              importedProfiles: imported, classicAvailable: { classic }, shouldStop: { stop.isSet }).scan()
+                              importedProfiles: imported, classicAvailability: classic, shouldStop: { stop.isSet }).scan()
             }.value
         } onCancel: {
             stop.set()

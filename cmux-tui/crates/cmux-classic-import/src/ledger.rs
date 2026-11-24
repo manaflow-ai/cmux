@@ -72,6 +72,12 @@ pub struct Ledger {
     /// The classic save the last run read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+    /// Metadata observed before an accepted import that finished.
+    #[serde(rename = "observedClassicFiles", default, skip_serializing_if = "Option::is_none")]
+    pub observed_classic_files: Option<String>,
+    /// First contact beside an existing NEXT tree suppresses a launch prompt without claiming an import.
+    #[serde(rename = "baselineClassicFiles", default, skip_serializing_if = "Option::is_none")]
+    pub baseline_classic_files: Option<String>,
     /// Progress by classic workspace key.
     pub workspaces: BTreeMap<String, Entry>,
     /// cmux NEXT group id by classic group id.
@@ -102,6 +108,8 @@ impl Ledger {
             schema: CURRENT_SCHEMA,
             state,
             source: None,
+            observed_classic_files: None,
+            baseline_classic_files: None,
             workspaces: BTreeMap::new(),
             groups: BTreeMap::new(),
             runs: 0,

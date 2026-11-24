@@ -68,6 +68,10 @@ fn plan(mux: &Arc<Mux>, home: &Home, mode: Mode) -> Value {
 }
 
 fn record(mux: &Arc<Mux>, home: &Home, fields: Value, key: &str) -> Value {
+    record_at(mux, &home.places(), fields, key)
+}
+
+fn record_at(mux: &Arc<Mux>, places: &Places, fields: Value, key: &str) -> Value {
     let mut fields = fields;
     fields["bundle_id"] = json!(BUNDLE);
     let record = Record::parse(fields.as_object().unwrap()).unwrap();
@@ -77,7 +81,7 @@ fn record(mux: &Arc<Mux>, home: &Home, fields: Value, key: &str) -> Value {
         crate::workspace_registry::Actor::Daemon,
     )
     .unwrap();
-    let commit = mux.classic_import_record(Some(&home.places()), &mutation, &record).unwrap();
+    let commit = mux.classic_import_record(Some(places), &mutation, &record).unwrap();
     json!({"value": commit.result, "replayed": commit.replayed})
 }
 
@@ -195,17 +199,28 @@ fn a_first_launch_plans_records_and_a_relaunch_makes_nothing() {
 fn first_contact_while_cmux_next_was_in_use_records_classic_as_seen() {
     let mux = Mux::new_for_test("classic-import-baseline", SurfaceOptions::default());
     let home = home(true);
-    let reply = record(&mux, &home, json!({"event": "baseline"}), "baseline");
+    let probe =
+        || checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "automatic"}), None);
+    let offer = probe();
+    let reply = checked_ok(
+        &mux,
+        &home,
+        "classic_import.record",
+        json!({"event": "baseline", "observed": offer["observed"]}),
+        Some("baseline"),
+    );
     assert_eq!(reply["value"]["state"], "completed");
-    assert_eq!(reply["value"]["workspaces"], 5);
-    assert_eq!(
-        home.ledger_json()["workspaces"]["AAAAAAAA-0000-4000-8000-000000000001"]["reason"],
-        "baseline"
-    );
-    assert_eq!(
-        plan(&mux, &home, Mode::Automatic)["decision"],
-        json!({"decision": "skip", "reason": "unchanged"})
-    );
+    assert_eq!(reply["value"]["workspaces"], 0);
+    assert_eq!(probe()["decision"], json!({"decision": "skip", "reason": "unchanged"}));
+    assert_eq!(keys(&plan(&mux, &home, Mode::Manual)).len(), 4);
+    std::fs::write(home.session(), b"broken save").unwrap();
+    let changed = probe();
+    assert_ne!(offer["observed"], changed["observed"]);
+    assert_eq!(changed["decision"], json!({"decision": "merge"}));
+    assert!(changed["source"].is_null() && changed["error"].is_null());
+    assert!(plan(&mux, &home, Mode::Manual)["error"].is_string());
+    record(&mux, &home, json!({"event": "decline"}), "decline");
+    assert_eq!(probe()["decision"], json!({"decision": "skip", "reason": "declined"}));
     // A second first contact (a later launch) changes nothing.
     let before = std::fs::read(home.ledger()).unwrap();
     record(&mux, &home, json!({"event": "seen"}), "seen");
@@ -506,6 +521,26 @@ fn the_plan_says_whether_classic_is_open() {
         .unwrap()
         .set_modified(std::time::SystemTime::now())
         .unwrap();
+    // Both sources exist and Classic is live. A probe must not inspect either content.
+    let unread_since = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
+    for path in [&home.session(), &sentinel] {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_accessed(unread_since))
+            .unwrap();
+    }
+    for fields in [json!({"mode": "automatic"}), json!({"mode": "manual", "consented": false})] {
+        let probe = checked_ok(&mux, &home, "classic_import.plan", fields, None);
+        assert_eq!(probe["available"], true);
+        assert_eq!(probe["classic_running"], false);
+        assert_eq!(probe["backups"], json!([]));
+        assert!(probe["source"].is_null() && probe["plan"].is_null() && probe["preview"].is_null());
+    }
+    for path in [&home.session(), &sentinel] {
+        assert_eq!(std::fs::metadata(path).unwrap().accessed().unwrap(), unread_since);
+    }
     let open = plan(&mux, &home, Mode::Automatic);
     assert_eq!(open["classic_running"], true);
     assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
@@ -704,22 +739,43 @@ fn checked_ok(
 fn classic_import_replies_match_the_embedded_catalog() {
     let mux = Mux::new_for_test("classic-import-catalog", SurfaceOptions::default());
     let none = home(false);
-    let empty = checked_ok(&mux, &none, "classic_import.plan", json!({"mode": "automatic"}), None);
+    let empty = checked_ok(
+        &mux,
+        &none,
+        "classic_import.plan",
+        json!({"mode": "automatic", "consented": true}),
+        None,
+    );
     assert_eq!(empty["classic_running"], false, "{empty}");
 
     let home = home(true);
-    let first = checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "automatic"}), None);
+    let probe = checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "automatic"}), None);
+    assert_eq!(probe["available"], true);
+    assert!(probe["plan"].is_null() && probe["preview"].is_null() && probe["source"].is_null());
+    let first = checked_ok(
+        &mux,
+        &home,
+        "classic_import.plan",
+        json!({"mode": "automatic", "consented": true}),
+        None,
+    );
     assert_eq!(first["decision"], json!({"decision": "first_run"}));
     assert_eq!(first["classic_running"], false);
     assert!(first["plan"].is_object(), "{first}");
-    let manual = checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "manual"}), None);
+    let manual = checked_ok(
+        &mux,
+        &home,
+        "classic_import.plan",
+        json!({"mode": "manual", "consented": true}),
+        None,
+    );
     assert_eq!(keys(&manual).len(), 4, "{manual}");
     for outline in [false, true] {
         let reply = checked_ok(
             &mux,
             &home,
             "classic_import.plan",
-            json!({"mode": "manual", "outline": outline}),
+            json!({"mode": "manual", "consented": true, "outline": outline}),
             None,
         );
         assert_eq!(keys(&reply), keys(&manual));
@@ -734,8 +790,13 @@ fn classic_import_replies_match_the_embedded_catalog() {
     );
     assert_eq!(declined["value"]["state"], "completed", "{declined}");
     assert!(home.ledger_json()["declinedAt"].is_f64());
-    let skipped =
-        checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "automatic"}), None);
+    let skipped = checked_ok(
+        &mux,
+        &home,
+        "classic_import.plan",
+        json!({"mode": "automatic", "consented": true}),
+        None,
+    );
     assert_eq!(skipped["decision"], json!({"decision": "skip", "reason": "declined"}));
     // A decline without a source (a resumed run's No) passes too.
     checked_ok(
@@ -758,7 +819,7 @@ fn classic_import_replies_match_the_embedded_catalog() {
         &mux,
         &home,
         "classic_import.plan",
-        json!({"mode": "manual", "outline": "yes"}),
+        json!({"mode": "manual", "consented": true, "outline": "yes"}),
         None,
     );
     assert_eq!(error_code(bad), "validation.invalid");

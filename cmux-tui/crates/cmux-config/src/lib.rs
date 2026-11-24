@@ -31,6 +31,7 @@ pub mod effective;
 pub mod font_faces;
 pub mod fsio;
 pub mod guard;
+pub mod harness_paths;
 pub mod hosts;
 pub mod hosts_edit;
 pub mod jsonc;

@@ -1490,11 +1490,13 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
  "serde_json",
  "tempfile",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]

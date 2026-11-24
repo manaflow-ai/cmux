@@ -1,5 +1,5 @@
 //! Harness profile files (BRING-YOUR-OWN-HARNESS H1): one declarative TOML
-//! file per harness, also accepted in cmux.json `agents.harnesses` and in a
+//! file per harness, also accepted in cmux-next.json `agents.harnesses` and in a
 //! managed (company) folder. Each file maps onto one [`HarnessProfile`]; the
 //! extra display, capability, auth and sessions data goes to [`ProfileMeta`].
 //!
@@ -7,8 +7,8 @@
 //! 1. managed: `/Library/Application Support/cmux/harnesses/*.toml` (macOS),
 //!    `/etc/cmux/harnesses/*.toml` (other unix);
 //! 2. user files: `$XDG_CONFIG_HOME/cmux/harnesses/*.toml`, default
-//!    `~/.config/cmux/harnesses/`;
-//! 3. cmux.json `agents.harnesses`.
+//!    `~/.config/cmux/harnesses/` (on macOS: `cmux-next/harnesses` instead);
+//! 3. cmux-next.json `agents.harnesses`.
 //!
 //! acpmux's own config.json and PATH discovery rank below all three
 //! (`Config::join_profiles`). One bad file never stops the others: it gets a
@@ -65,7 +65,9 @@ pub struct ProfileSources {
     /// so a DEV build offers the person's own harnesses (`claude-sr2`) without
     /// putting its test profiles in front of shipped builds.
     pub person_dir: Option<PathBuf>,
-    /// cmux.json (its `agents.harnesses` object).
+    /// Classic profiles copied beside an isolated NEXT settings file after consent.
+    pub imported_dir: Option<PathBuf>,
+    /// cmux-next.json (its `agents.harnesses` object).
     pub cmux_json: Option<PathBuf>,
 }
 
@@ -75,9 +77,9 @@ impl ProfileSources {
     pub fn current() -> Self {
         let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
         let explicit_config = xdg.is_some();
-        let config_dir = xdg
-            .map(|v| PathBuf::from(v).join("cmux"))
-            .or_else(|| dirs::home_dir().map(|home| home.join(".config").join("cmux")));
+        let config_home =
+            xdg.map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
+        let person = config_home.as_deref().map(cmux_config::harness_paths::user);
         let managed = if std::env::consts::OS == "macos" {
             PathBuf::from("/Library/Application Support/cmux/harnesses")
         } else {
@@ -87,32 +89,30 @@ impl ProfileSources {
         let build_dir = (!explicit_config)
             .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
             .flatten();
-        Self::with_build_dir(managed, config_dir, build_dir)
-    }
-
-    /// The sources for the managed folder, the person's config folder
-    /// (`~/.config/cmux`) and a DEV build's own harness folder, if any.
-    fn with_build_dir(
-        managed: PathBuf,
-        config_dir: Option<PathBuf>,
-        build_dir: Option<PathBuf>,
-    ) -> Self {
-        let person = config_dir.as_ref().map(|d| d.join("harnesses"));
         let (user_dir, person_dir) = match build_dir {
             Some(build) => (Some(build), person),
             None => (person, None),
         };
+        let cmux_json = crate::user_settings::resolved_path();
+        let imported_dir = std::env::var_os("CMUX_NEXT_CLASSIC_IMPORT_DIR")
+            .filter(|value| !value.is_empty())
+            .and_then(|_| cmux_json.parent().map(cmux_config::harness_paths::isolated));
         Self {
             managed: vec![managed],
             user_dir,
             person_dir,
-            cmux_json: config_dir.map(|d| d.join("cmux.json")),
+            imported_dir,
+            cmux_json: Some(cmux_json),
         }
     }
 
     /// Every folder profile files load from, in precedence order.
     pub fn folders(&self) -> impl Iterator<Item = &PathBuf> + Clone {
-        self.managed.iter().chain(self.user_dir.iter()).chain(self.person_dir.iter())
+        self.managed.iter().chain(self.user_dir.iter()).chain(self.read_only_folders())
+    }
+
+    fn read_only_folders(&self) -> impl Iterator<Item = &PathBuf> + Clone {
+        self.person_dir.iter().chain(self.imported_dir.iter())
     }
 
     /// No sources (a config built in code).
@@ -383,8 +383,8 @@ pub fn load(sources: &ProfileSources) -> LoadedProfiles {
     if let Some(dir) = &sources.user_dir {
         load_dir(dir, ProfileSource::UserFile, &mut out);
     }
-    if let Some(dir) = &sources.person_dir {
-        load_person_dir(dir, &mut out);
+    for dir in sources.read_only_folders() {
+        load_read_only_dir(dir, &mut out);
     }
     if let Some(path) = &sources.cmux_json {
         load_cmux_json(path, &mut out);
@@ -393,10 +393,9 @@ pub fn load(sources: &ProfileSources) -> LoadedProfiles {
     out
 }
 
-/// The person's folder under a DEV build's own: an id the build already has
-/// (a copy made into its folder) quietly keeps the build's, with no
-/// "defines it too" warning; the file's other problems still show.
-fn load_person_dir(dir: &Path, out: &mut LoadedProfiles) {
+/// User-owned TOMLs take precedence over copies in a read-only folder.
+/// Keep diagnostics for profiles that were loaded from this folder.
+fn load_read_only_dir(dir: &Path, out: &mut LoadedProfiles) {
     let mut person = LoadedProfiles::default();
     load_dir(dir, ProfileSource::UserFile, &mut person);
     let taken = |id: &Option<String>| id.as_ref().is_some_and(|id| out.profiles.contains_key(id));

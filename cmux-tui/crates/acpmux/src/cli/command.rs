@@ -624,7 +624,7 @@ pub enum Command {
     #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
-    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    /// files in your user harness folder. Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
     /// Forum rules: announce one, list the current ones, ack one.
@@ -1129,7 +1129,7 @@ pub enum HarnessCmd {
         #[arg(long)]
         folder: Option<PathBuf>,
     },
-    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    /// Write a new file in your user harness folder and check it.
     #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
