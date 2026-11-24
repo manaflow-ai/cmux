@@ -3758,6 +3758,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
         // A tap makes this phone the active device (Prefer the active device).
         model.session.noteInteraction()
+        // A tap shows the app's live screen, never the held rows as live.
+        model.session.returnToLiveScreen()
         // A tap that ends a selection only ends it, as in the shell.
         if selection.selection == nil, tuiSelection.selection == nil, model.isTUI, surface.superview === tuiHost {
             // A touch that is part of scrolling the app is never its click
@@ -4334,6 +4336,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             panFrames.begin(.tui, rows: documentRows)
         }
         tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
+        // Rows the app scrolled off are painted here; only the rest goes to it.
+        tuiScroll.panHeld = { [weak self] dy in
+            guard let self, cell.height > 0 else { return dy }
+            let rows = Double(dy / cell.height)
+            let forward = model.session.panHeldRows(rows)
+            // Painted here: the smoother glides these rows as it does the app's.
+            if forward != rows { tuiSmoother.wheelSent() }
+            return forward == rows ? dy : CGFloat(forward) * cell.height
+        }
         tuiScroll.wheelSent = { [weak self] in
             guard let self else { return }
             tuiSmoother.wheelSent()
