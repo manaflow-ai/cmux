@@ -139,3 +139,16 @@ fn a_session_reads_its_one_computer_status() {
     assert_eq!(status["why"], json!({"at_ms": 9, "reason": "spend_cap"}));
     assert_eq!(call(c"cloud_computer_status", &json!("nope")).0, ERR_INVALID);
 }
+
+#[test]
+fn the_keep_count_says_how_many_and_what_another_does() {
+    let plus = json!({"plan": "next_plus", "kept": 2, "on": false, "hoursUsed": 41.5});
+    let (code, reply) = call(c"cloud_hybrid_keep_count", &plus);
+    assert_eq!(code, OK);
+    assert_eq!((reply["kept"].clone(), reply["slots"].clone()), (json!(2), json!(3)));
+    assert_eq!(reply["hoursUsed"], 41);
+    assert_eq!(reply["next"], json!({"do": "keeps", "after": 3}));
+    let none = call(c"cloud_hybrid_keep_count", &json!({})).1;
+    assert_eq!(none["next"], json!({"do": "startsTrial", "slots": 1, "hours": 10}));
+    assert_eq!(call(c"cloud_hybrid_keep_count", &json!({"kept": "two"})).0, ERR_INVALID);
+}

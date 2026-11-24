@@ -9,7 +9,7 @@ frontend or a compatibility adapter.
 | Use case | Protocol | Stability |
 | --- | --- | --- |
 | New CLI, SDK, plugin, or external integration | `cmux.protocol/2` (resource API v2) | Public compatibility boundary |
-| cmux frontend, renderer, or migration adapter | Private mux protocol v12 | Negotiated implementation protocol |
+| cmux frontend, renderer, or migration adapter | Private mux protocol v12 | Negotiated implementation protocol; date-pinned versions ([api-versioning.md](api-versioning.md)) |
 
 The two protocols do not share envelopes, IDs, capability negotiation, or
 version numbers. A client must not infer support for one from the other.
