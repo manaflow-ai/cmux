@@ -3176,3 +3176,8 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+// ---- The session-move matrix over the hub relay (RFD 0138). ----
+
+#[path = "hub_carrier/move_matrix_relay.rs"]
+mod move_matrix_relay;
