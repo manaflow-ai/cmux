@@ -20,8 +20,26 @@ import CmuxNextSettings
     var tabsShown = true
     /// Native chrome holes, in the chat view's coordinates; Session Info adds its own overlay hole. Turned into the
     /// page's coordinates at each apply (``AgentPaneView/applyNativeRects()``), so a page the view lays elsewhere for a
-    /// while (held away while an adopted chat draws) gets them back where it shows.
-    var holes: [CGRect] = []
+    /// while (held away while an adopted chat draws) gets them back where it shows. Worked out from ``shape`` against
+    /// the view's bounds at each apply (``resolveHoles(in:flipped:)``).
+    private(set) var holes: [CGRect] = []
+    /// The row the holes cut, as the last offer gave it (nil: the chat does not share the row): measured from the
+    /// view's top-left and trailing edges, so a view resized with no new offer yet (a divider drag lays the chat out
+    /// before its pane offers the row again) gets holes at its new width in the same page update, not stale ones
+    /// that the offer then corrects with a second update of the page window in the same frame.
+    private var shape: (height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool)?
+
+    /// Works ``holes`` out from ``shape`` for a chat view of `bounds`. The holes are laid out from the row's top-left
+    /// corner; the chat view is not flipped, so each one is mirrored from its own maxY (a hole shorter than the row,
+    /// the rim's, stays at the top; at y 0 they cut the composer's footer out of the page instead).
+    func resolveHoles(in bounds: CGRect, flipped: Bool) {
+        guard let shape else { holes = []; return }
+        holes = nativeHoles(width: bounds.width, height: shape.height, trailingInset: shape.trailingInset,
+                            tools: shape.tools, tabs: shape.tabs).map { hole in
+            let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
+            return CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height)
+        }
+    }
     /// What the pane's toolbar hole paints (``holeFill(chromium:shares:tabsShown:page:)``), set with each offer.
     public private(set) var holeFill: CGColor?
     /// The window's top rim the page leaves uncovered over the chat's tools (`nativeHoles`), in points; the
@@ -99,17 +117,10 @@ import CmuxNextSettings
         row.holeFill = holeFill(chromium: view.chromiumPage != nil, shares: shares, tabsShown: row.tabsShown,
                                 page: view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: view.surfaceKind) })
         if view.page != nil {
-            // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
-            // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
-            // each one is mirrored from its own maxY (a hole shorter than the row, the rim's, stays at the
-            // top; at y 0 they cut the composer's footer out of the page instead).
-            let bounds = view.bounds, flipped = view.isFlipped
-            let holes = shares ? nativeHoles(width: bounds.width, height: height, trailingInset: max(0, trailingInset),
-                                             tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : []
-            row.holes = holes.map { hole in
-                let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
-                return CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height)
-            }
+            // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered
+            // (worked out against the view's bounds at each apply, ``resolveHoles(in:flipped:)``).
+            row.shape = shares ? (height: height, trailingInset: max(0, trailingInset),
+                                  tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : nil
             view.applyNativeRects()
         }
         guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools }) ?? (next.height > 0 || nativeRowTools) else { return }
