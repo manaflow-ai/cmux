@@ -218,9 +218,7 @@ public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
 
 /// The cmux daemon's Cloud calls (cmux-tui `cloud.<call>`) through the bundled cmux's `cmux cloud api` (cmux-tui
 /// `cli/cloud_api.rs`). This only forwards: one JSON request on the child's stdin (the credential never goes in
-/// argv), with the classic Cloud session beside it when this client has one (`classic`, or `classic_unread` when it
-/// could not be read); which call takes it, and what a refusal then means, is Rust's (cmux-cloud-api `classic_runs`).
-/// One answer line back, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`, where `E.kind` names a
+/// argv). One answer line back, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`, where `E.kind` names a
 /// ``CloudAPIError`` case one for one.
 public struct CloudDaemon: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
@@ -238,8 +236,6 @@ public struct CloudDaemon: Sendable {
     var daemonCall: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)?
     /// The account a sandboxed Run's create is sent under (``runningAs(_:)``); nil: no create is sent.
     private(set) var runAccount: RunAccount?
-    /// Classic Cloud's Run API and Stack session (``drainingClassic(_:)``): where a Run the daemon never made drains; nil: none does.
-    private(set) var classicRuns: (@Sendable () async throws -> (api: URL, access: String, refresh: String, team: String?))?
 
     init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, appVersion: String, sendsStackSession: Bool) {
         self.baseURL = baseURL
@@ -252,23 +248,9 @@ public struct CloudDaemon: Sendable {
     /// This daemon with its team fixed to `team`: every request of a create and its retries goes to the same team
     /// whatever the app switches to meanwhile. A Worker client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudDaemon {
+        guard sendsStackSession else { return self }
         var copy = self
-        // A classic Run drains in the Stack team it was sent in.
-        if let classic = classicRuns { copy.classicRuns = { let session = try await classic(); return (session.api, session.access, session.refresh, team) } }
-        guard sendsStackSession else { return copy }
         copy.teamID = { team }
-        return copy
-    }
-
-    /// This daemon with `classic` (the sign-in client's) as where a wait or cancel of a Run the daemon never made goes:
-    /// a Run the app followed from before the daemon ran Runs drains on classic Cloud's `/api/runs` to its end
-    /// (cmux-cloud-api `classic_runs`), so an upgrade never drops its result. New Runs are the daemon's alone.
-    public func drainingClassic(_ classic: CloudDaemon) -> CloudDaemon {
-        var copy = self
-        copy.classicRuns = {
-            let session = try await classic.tokens()
-            return (classic.baseURL, session.access, session.refresh, await classic.teamID())
-        }
         return copy
     }
 
@@ -279,10 +261,9 @@ public struct CloudDaemon: Sendable {
     /// same Run. Answers the Run's view as JSON; it holds no secrets. A non-empty `image` is refused (`run_image_invalid`).
     /// This client with the account the person is sending a Run under, read as they send it
     /// (``CloudAuth/runAccount``). Every sandboxed Run's create needs one: without it none is sent.
-    /// A Sandboxed send's client: the daemon's Runs under `account`, and classic Cloud (an incognito send, a Run from before
-    /// the upgrade) in `account`'s own Stack team, never this Worker client's team, which classic does not know (#39022 F1 at 1c13439a).
-    public func sending(as account: RunAccount, classic: CloudDaemon) -> CloudDaemon {
-        drainingClassic(classic).pinningTeam(account.team).runningAs(account)
+    /// A Sandboxed send's client: the daemon's Runs under `account`, in `account`'s own Stack team.
+    public func sending(as account: RunAccount) -> CloudDaemon {
+        pinningTeam(account.team).runningAs(account)
     }
 
     public func runningAs(_ account: RunAccount?) -> CloudDaemon {
@@ -355,8 +336,6 @@ public struct CloudDaemon: Sendable {
         do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
         var pinned = self
         pinned.tokens = { credentials }
-        // An incognito create goes to classic Cloud with the session read here, once, as the daemon's credentials are.
-        if incognito, let classicRuns, let classic = try? await classicRuns() { pinned.classicRuns = { classic } }
         let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key,
                                                                    incognito: incognito) }
         let createdData: Data

@@ -127,7 +127,7 @@
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/peers": {"params": [], "acpmux": []},
     "_acpmux/move_targets": {"params": ["source", "sourceKind"], "acpmux": []},
-    "_acpmux/place_chat": {"params": ["where", "targets"], "acpmux": []},
+    "_acpmux/place_chat": {"params": ["where", "targets", "parent", "key"], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/inbox_thread": {"params": ["sessionId", "threadId"], "acpmux": []},
     "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
@@ -230,7 +230,7 @@
     "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string"}}}}},
     "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}},
     "_acpmux/move_targets": {"object": {"targets": {"list": {"object": {"id": "string", "label": "string", "kind": "string", "status": "string", "reason": "string", "room": "number"}}}, "pick": "string"}},
-    "_acpmux/place_chat": {"object": {"placement": {"object": {"at": "string", "place": "string"}}, "reason": {"object": {"code": "string"}}, "why": "string"}}
+    "_acpmux/place_chat": {"object": {"placement": {"object": {"at": "string", "place": "string"}}, "reason": {"object": {"code": "string"}}, "why": "string", "fork": {"object": {"at": "string", "machine": "string", "clientKey": "string", "why": "string"}}}}
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
