@@ -8,127 +8,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يوجد جزء مركّز عليه."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nijedan panel nije fokusiran."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen rude har fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Teilfenster ist fokussiert."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun pannello attivo."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスされたペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "포커스된 분할 창이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen rute er fokusert."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Żaden panel nie jest aktywny."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum painel está focado."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odakta bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có khung nào đang được tập trung."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       }
@@ -16120,6 +16120,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "請先新增第二欄"
+          }
+        }
+      }
+    },
+    "refusal.server.devBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A dev build does not keep a server running after it quits: the server's state is shared by every build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يُبقي إصدار التطوير خادمًا قيد التشغيل بعد إغلاقه: حالة الخادم مشتركة بين جميع الإصدارات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razvojna verzija ne ostavlja server pokrenut nakon zatvaranja: stanje servera dijele sve verzije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En udviklingsbuild holder ikke en server kørende, efter den er lukket: serverens tilstand deles af alle builds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Entwicklungs-Build lässt nach dem Beenden keinen Server weiterlaufen: Der Serverzustand wird von allen Builds geteilt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una compilación de desarrollo no mantiene un servidor en marcha al cerrarse: el estado del servidor lo comparten todas las compilaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une build de développement ne garde pas de serveur actif après sa fermeture : l'état du serveur est partagé par toutes les builds."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una build di sviluppo non mantiene un server attivo dopo la chiusura: lo stato del server è condiviso da tutte le build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開発ビルドは終了後にサーバーを動かし続けません。サーバーの状態はすべてのビルドで共有されるためです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែអភិវឌ្ឍន៍មិនរក្សាម៉ាស៊ីនមេឱ្យដំណើរការបន្ទាប់ពីបិទទេ៖ ស្ថានភាពម៉ាស៊ីនមេត្រូវបានចែករំលែកដោយកំណែទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "개발 빌드는 종료 후 서버를 계속 실행하지 않습니다. 서버 상태는 모든 빌드가 공유하기 때문입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et utviklingsbygg holder ikke en server i gang etter at det er avsluttet: serverens tilstand deles av alle bygg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wersja deweloperska nie utrzymuje działającego serwera po zamknięciu: stan serwera jest wspólny dla wszystkich wersji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma build de desenvolvimento não mantém um servidor em execução depois de fechada: o estado do servidor é compartilhado por todas as builds."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сборка для разработки не оставляет сервер работать после выхода: состояние сервера общее для всех сборок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์สำหรับพัฒนาจะไม่ให้เซิร์ฟเวอร์ทำงานต่อหลังปิด: สถานะของเซิร์ฟเวอร์ใช้ร่วมกันทุกบิลด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geliştirme derlemesi kapandıktan sonra sunucuyu çalışır durumda tutmaz: sunucunun durumu tüm derlemelerce paylaşılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збірка для розробки не залишає сервер працювати після виходу: стан сервера спільний для всіх збірок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng phát triển không giữ máy chủ chạy sau khi thoát: trạng thái máy chủ được dùng chung cho mọi bản dựng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开发版本退出后不会让服务器继续运行：服务器状态由所有版本共享。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開發版本結束後不會讓伺服器繼續執行：伺服器狀態由所有版本共用。"
           }
         }
       }
@@ -35664,6 +35795,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 未能完成啟動，因此你在啟動期間執行的操作未執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentNotInConversation": {
+      "comment": "Refusal: Make This Agent a Chief on a chat whose agent is in no conversation yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent isn't in a conversation yet. Message it from Home first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل ليس في محادثة بعد. راسله من الصفحة الرئيسية أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj agent još nije u razgovoru. Prvo mu pošaljite poruku iz Početne."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agent er ikke i en samtale endnu. Skriv til den fra Hjem først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent ist noch in keiner Unterhaltung. Schreib ihm zuerst über Home."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente aún no está en una conversación. Escríbele primero desde Inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent n’est encore dans aucune conversation. Écrivez-lui d’abord depuis l’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo agente non è ancora in una conversazione. Scrivigli prima da Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントはまだ会話に参加していません。先にホームからメッセージを送ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនេះមិនទាន់នៅក្នុងការសន្ទនាទេ។ សូមផ្ញើសារទៅវាពីទំព័រដើមជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 에이전트는 아직 대화에 없습니다. 먼저 홈에서 메시지를 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agenten er ikke i en samtale ennå. Send den en melding fra Hjem først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent nie jest jeszcze w żadnej rozmowie. Najpierw napisz do niego ze Startu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente ainda não está em uma conversa. Envie uma mensagem a ele pelo Início primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент ещё не участвует в разговоре. Сначала напишите ему с «Главной»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์นี้ยังไม่อยู่ในการสนทนา ส่งข้อความหาจากหน้าหลักก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan henüz bir sohbette değil. Önce Ana Sayfa'dan ona mesaj gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент ще не в розмові. Спершу напишіть йому з «Головної»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác nhân này chưa ở trong cuộc trò chuyện nào. Hãy nhắn cho nó từ Trang chủ trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此智能体尚未加入对话。请先从主页给它发消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理尚未加入對話。請先從首頁傳訊息給它。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.pictureTooLarge": {
+      "comment": "Refusal: Set My Picture… with a file over 1 MB.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a picture of 1 MB or less."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر صورة بحجم 1 ميغابايت أو أقل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite sliku od 1 MB ili manje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg et billede på højst 1 MB."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle ein Bild mit höchstens 1 MB."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige una imagen de 1 MB o menos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez une image de 1 Mo maximum."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli un'immagine di 1 MB o meno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 MB 以下の画像を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមជ្រើសរើសរូបភាពដែលមានទំហំ 1 MB ឬតិចជាងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1MB 이하의 사진을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg et bilde på høyst 1 MB."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz obraz o rozmiarze do 1 MB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha uma imagem de até 1 MB."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите изображение размером не более 1 МБ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกรูปภาพขนาดไม่เกิน 1 MB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1 MB veya daha küçük bir resim seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виберіть зображення розміром до 1 МБ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chọn ảnh có dung lượng tối đa 1 MB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请选择不超过 1 MB 的图片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請選擇不超過 1 MB 的圖片。"
           }
         }
       }

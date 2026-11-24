@@ -24,7 +24,7 @@ pub const MEMORY_TOOLS: [&str; 4] = [
 /// takes the ask floor (`spawn_policy`); `tell` and `control` are checked
 /// against their target by the brain (`Brain::internal_allowed`), and
 /// `cloud_workspace` (a billed Cloud machine) runs only in the owner's turn.
-pub const CHIEF_TOOLS: [&str; 13] = [
+pub const CHIEF_TOOLS: [&str; 23] = [
     "mcp__optchat__send",
     "mcp__optchat__reply",
     "mcp__optchat__react",
@@ -36,6 +36,16 @@ pub const CHIEF_TOOLS: [&str; 13] = [
     "mcp__optchat__control",
     "mcp__optchat__profile",
     "mcp__optchat__remember",
+    "mcp__optchat__automation",
+    "mcp__optchat__recall",
+    "mcp__optchat__follow_up",
+    "mcp__optchat__follow_ups",
+    "mcp__optchat__check_ins",
+    "mcp__optchat__nothing",
+    "mcp__optchat__ask",
+    "mcp__optchat__memory_read",
+    "mcp__optchat__memory_write",
+    "mcp__optchat__memory_forget",
     "mcp__optchat__cloud_workspace",
     "mcp__optchat__mcp",
 ];
