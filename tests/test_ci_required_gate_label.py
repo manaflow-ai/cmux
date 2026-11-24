@@ -56,6 +56,15 @@ STAGED = {
     ("cla-policy-guard.yml", "validate"): "a guard-only PR, once the validator admitting the gate selector is on main",
     ("cla.yml", "CLAAssistant"): "a policy PR to the cla.yml bytes CLA_ACTION_RUNNER_SUCCESSOR_PINS pins",
 }
+# Jobs behind a required check that need no one-job VM lead with cmux-linux, the persistent pool, instead: the
+# merge-group bridge only echoes (no token, no checkout, permissions {}). On 2026-11-21 the gate JIT label started
+# nothing from about 14:40Z while about 300 persistent runners sat idle, so its jobs queued for hours.
+POOL_LABEL = "cmux-linux"
+POOL_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + POOL_LABEL + "' || "
+POOL_JOBS = {
+    ("merge-group-policy-checks.yml", "cla-assistant"),
+    ("merge-group-policy-checks.yml", "cla-policy-guard"),
+}
 CLA_SELECTOR = (FORK_BRANCH + "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\","
                 "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                 "'blacksmith-4vcpu-ubuntu-2404' }}")
@@ -94,7 +103,8 @@ class RequiredGateLabelTest(unittest.TestCase):
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
-                self.assertTrue(value.startswith(FORK_BRANCH + GATE_OPERAND), value)
+                operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
+                self.assertTrue(value.startswith(FORK_BRANCH + operand), value)
 
     def test_a_staged_job_keeps_the_admitted_selector_until_its_step(self) -> None:
         for (name, job_id), step in sorted(STAGED.items()):
@@ -115,12 +125,13 @@ class RequiredGateLabelTest(unittest.TestCase):
     def test_only_gate_jobs_ask_for_the_gate_label(self) -> None:
         # The label stays reserved: a PR or build job on it would put the backlog back in front of the gates.
         found = {(name, job_id) for name, job_id, job in all_jobs() if GATE_LABEL in runs_on(job)}
-        self.assertEqual(found, set(GATE_JOBS) - set(STAGED))
+        self.assertEqual(found, set(GATE_JOBS) - set(STAGED) - POOL_JOBS)
 
     def test_the_switch_leaves_the_previous_selector(self) -> None:
         for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
             with self.subTest(workflow=name, job=job_id):
-                after = runs_on(load(name)["jobs"][job_id]).replace(GATE_OPERAND, "", 1)
+                operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
+                after = runs_on(load(name)["jobs"][job_id]).replace(operand, "", 1)
                 self.assertNotIn(GATE_LABEL, after)
                 self.assertTrue(after.startswith(FORK_BRANCH), after)
                 self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")

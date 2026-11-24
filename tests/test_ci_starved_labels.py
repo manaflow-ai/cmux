@@ -97,6 +97,24 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(starved(queued, job(label="cmux-linux", status="in_progress", created=30,
                                              started=20, runner="cmux-gha-runner-1120-1")), [])
 
+    def test_one_pool_label_running_serves_the_other(self) -> None:
+        # Every pool runner registers both cmux-linux and cmux-fleet-linux-x64, so either label's running job
+        # proves a listener for the other (router-review F1 on #47956).
+        for queued_label, running_label in (("cmux-linux", "cmux-fleet-linux-x64"),
+                                            ("cmux-fleet-linux-x64", "cmux-linux")):
+            with self.subTest(queued=queued_label):
+                queued = job(label=queued_label, created=60)
+                running = job(label=running_label, status="in_progress", created=30, started=20,
+                              runner="cmux-runner-pool-c1f-0014-1")
+                self.assertEqual([e["label"] for e in starved(queued)], [queued_label])
+                # Two runs, so the running job is no sibling that may gate the queued one (wait_start()).
+                self.assertEqual(starved_labels.starved([{"id": 1}, {"id": 2}], {1: [queued], 2: [running]},
+                                                        now=NOW), [])
+        # A glaeda label is not the pool's: a pool job (in another run, so it is no sibling) serves no Mac label.
+        pool_job = job(label="cmux-linux", status="in_progress", created=30, started=20, runner="p-1")
+        found = starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=60)], 2: [pool_job]}, now=NOW)
+        self.assertEqual([e["label"] for e in found], [SIDE])
+
     def test_a_cancelled_job_that_never_got_a_runner_is_no_start(self) -> None:
         found = starved(job(created=60), job(status="completed", created=8, started=8, runner=None))
         self.assertEqual([entry["label"] for entry in found], [SIDE])

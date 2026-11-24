@@ -1,4 +1,5 @@
 import Bonsplit
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -52,6 +53,44 @@ import Testing
         let surfaceID = try #require(tab.surfaceId)
         #expect(workspace.panels[surfaceID] != nil)
         #expect(surfaceID == tab.panelId)
+    }
+
+    @Test("sidebar agents expose the same focusable surface as their hosting tab")
+    func customSidebarAgentsExposeFocusableSurface() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.customSidebarWorkspaceSnapshot(
+            index: 0, selectedId: workspace.id, unreadCount: 0
+        ).surfaces.first?.panelId)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            fallbackTranscriptPathResolver: { _, _ in nil }
+        )
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: "custom-sidebar-agent-surface", hookEventName: .sessionStart, source: "claude",
+            workspaceId: workspace.id.uuidString, surfaceId: panelId.uuidString,
+            cwd: "/Users/example/project", receivedAt: Date(timeIntervalSince1970: 10)
+        ))
+        let previousService = TerminalController.shared.agentChatTranscriptService
+        TerminalController.shared.agentChatTranscriptService = service
+        defer {
+            TerminalController.shared.agentChatTranscriptService = previousService
+            service.shutdown()
+        }
+
+        let snapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0, selectedId: workspace.id, unreadCount: 0
+        )
+        let tab = try #require(snapshot.surfaces.first)
+        let agent = try #require(snapshot.agents.first)
+        #expect(agent.panelId == tab.panelId)
+        #expect(agent.surfaceId == tab.surfaceId)
+        let surfaceID = try #require(agent.surfaceId)
+        #expect(workspace.panels[surfaceID] != nil)
     }
 
     @Test("remote layout changes reconcile pane identities incrementally")
