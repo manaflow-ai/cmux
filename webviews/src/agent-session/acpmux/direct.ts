@@ -7733,8 +7733,13 @@ export class AcpmuxDirectClient {
       return false;
     const held = page.filter((event) => event.seq >= seq).sort((a, b) => a.seq - b.seq);
     if (held[0]?.seq !== seq || !startsTurn(held[0]!)) return false;
-    // The page ends at a turn's start, so a read forward folds on from between two turns.
-    const end = newerCut(held, 1, () => Infinity);
+    // The page ends at its last turn start, so a read forward folds on from between two turns. The window
+    // keeps every whole turn the page brought: cut at the first turn start after the target, it held the
+    // target's turn alone, so a short turn left the view at the held rows' end, that read as following
+    // the latest row, and the pane read the chat's newest page in place of the window (`returnToLatest`):
+    // the jump drew its prompt, then went to the chat's end (bench/thread-rail-jump.bench.ts, unloaded).
+    let end = -1;
+    for (let at = newerCut(held, 1, () => Infinity); at > 0; at = newerCut(held, at + 1, () => Infinity)) end = at;
     const window = end > 0 ? held.slice(0, end) : held;
     const after = window.at(-1)!.seq;
     if (after >= first) return false;
@@ -15237,6 +15242,11 @@ export class AcpmuxDirectClient {
   perf(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/perf", params);
   }
+  /// This machine's load and swap verdict (`_acpmux/host_overload`, host_overload.rs): acpmux reads
+  /// the host and applies the thresholds; the pane only draws it (OverloadNotice.tsx).
+  hostOverload(): Promise<unknown> {
+    return this.request("_acpmux/host_overload", {});
+  }
   /// Another machine's agents: acpmux forwards `_acpmux/harnesses` to the peer `_meta.acpmux.peer`
   /// names (requests.rs, 5 s limit) and answers with that machine's reply plus `peer`. The composer
   /// checks the agent a new chat there will start with (machineHarnesses.ts); a refusal or a timeout
@@ -16101,8 +16111,10 @@ export class AcpmuxDirectClient {
       );
       older = [...page, ...older];
       const next = Number(result?.before);
-      // A cursor moves back, or the transcript is done.
-      before = Number.isFinite(next) && next > 0 && next < before ? next : 0;
+      // A cursor moves back, or the transcript is done; a chat resumed under a new agent session
+      // goes on at the end of the transcript it continued (acpmux hub/native_history_chain.rs).
+      const olderTranscript = result?.olderTranscript !== undefined && result?.olderTranscript !== null;
+      before = Number.isFinite(next) && next > 0 && (next < before || olderTranscript) ? next : 0;
       mark = typeof result?.mark === "string" ? result.mark : undefined;
       if (older.some(startsTurn)) break;
     }

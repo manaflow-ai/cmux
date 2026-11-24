@@ -134,7 +134,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/move_targets": (["source", "sourceKind"], []),
         // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
         // `place` name and its `headroom`, all data the page already holds (Cloud today).
-        "_acpmux/place_chat": (["where", "targets"], []),
+        // `parent` ({machine, fork}) and `key`: the Cloud machine the starting chat runs on and
+        // this start's key, for fork placement behind `cloud.autoCloud` (acpmux fork_place.rs).
+        "_acpmux/place_chat": (["where", "targets", "parent", "key"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
