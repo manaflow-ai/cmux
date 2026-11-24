@@ -68,7 +68,6 @@ struct TaskComposerOptionsSheet: View {
             .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
             .submitLabel(.done)
             .accessibilityLabel("Workspace name")
             .accessibilityIdentifier("taskComposer.name")

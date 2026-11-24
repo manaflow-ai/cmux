@@ -622,3 +622,21 @@ fn a_theme_file_keeps_the_corner_treatment() {
     assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
         && d.message.starts_with("expected one of")));
 }
+
+/// `appearance.tabShape` (block, rounded) is a look a theme file sets (the gooey look is `appearance.cornerFlush`); any other value is refused by the
+/// schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_tab_shape() {
+    for shape in ["block", "rounded"] {
+        let file = overlay(&format!(r#"{{ "appearance.tabShape": "{shape}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{shape}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.tabShape"), Some(&json!(shape)));
+    }
+    // "gooey" is the corner treatment's `flush-goo`, not a tab shape.
+    let wobbly = overlay(r#"{ "appearance.tabShape": "gooey" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused =
+        wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}

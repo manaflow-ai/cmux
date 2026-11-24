@@ -652,6 +652,7 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/perf-cron.py
             scripts/cmux-next/perf-budgets.py
+            scripts/cmux-next/state_wait.py
             scripts/cmux-next/perf-budgets.json
             scripts/cmux-next/perf-budget-table.py
             scripts/cmux-next/perf-budget-table.tsv

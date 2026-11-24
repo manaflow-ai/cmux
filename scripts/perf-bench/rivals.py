@@ -25,8 +25,33 @@ After the last warm launch, an idle soak: --soak s in --sample s windows of foot
 wakeups/s, threads, processes and disk writes. Rows: start, end and peak footprint (the ceiling), growth
 (MB per minute, least squares over the soak), mean and peak CPU, mean wakeups.
 
+By process group (RFD 0062, hq docs/rfd/0062-ram-cpu-ceiling-and-growth.md): every soak window also splits the
+footprint, CPU and wakeups over five groups, for cmux and every rival alike: app (the app process, its CEF or
+Electron browser-side helpers and utility processes), renderer (Chromium renderers; Safari's WebKit WebContent),
+gpu (Chromium's GPU process; Safari's WebKit GPU), acpmux, terminals (cmux-tui, its holders and terminal hosts);
+anything else is "other". The soak's last window also records every process (pid, kind, group, footprint, CPU,
+wakeups) as a soak-detail sample. Safari's WebContent, GPU and Networking processes are XPC services, not
+children of Safari: procs.Instance counts them through responsibility_get_pid_responsible_for_pid, and the
+report says so when a Safari soak found no WebKit process.
+
 Apps sign in nowhere: an agent app's window is its signed-out first screen, a browser's its new tab page.
-That is what a person sees on a first launch, and the same for every app; signed-in sessions are a later row.
+That is what a person sees on a first launch, and the same for every app.
+
+Growth (RFD 0062's growth bounds): the short slope drops the first --settle-cut s (default 90: launch work
+settling, cmux's release takes 90 s); the whole-soak slope stays as its own row. A long soak (--soak 28800, 8 h)
+also reads troughs every --trough-every s (default: off under 30 min, else soak/12): at each trough, with
+passwordless sudo, `memory_pressure -S -l warn` (Chromium, Electron and WebKit collect garbage and drop caches
+on the system's pressure notice) and a read --sample s later, back to normal after; without sudo the trough is
+the bucket's lowest sample. Rows: trough growth (MB per minute, least squares over the troughs), the last
+trough, and the mean drop a pressure notice bought.
+
+More rows, each its own idle soak after the signed-out session (row ids prefixed signed-in- and tabs-):
+  --signed-in NAME=DIR   the app launched from a signed-in profile: DIR's contents (home/ and, for Chromium,
+                         data/, as a run's profile folder) copied into a new profile. Made once by hand on the
+                         bench Mac (sign in with the app's home pointed at DIR/home); never committed.
+  --tabs N               browsers (Chrome, Edge, Helium, Safari): N local idle pages (pages.py, 127.0.0.1) opened
+                         as tabs in one window, all but the first in the background: discard, freeze and
+                         sleeping tabs show here, given a soak longer than their timers (Chrome and Edge: 5 min).
 
 Usage (on a fleet Mac with a console user; scripts/measure/rivals.sh is the fleet entry):
   rivals.py run --out DIR --app NAME=BUNDLE ... [--rounds 1] [--warm 3] [--after 20] [--soak 300] [--sample 10]
@@ -62,18 +87,33 @@ ROWS = [
     ("fresh-memory-peak", "First launch: peak footprint", "MB", False),
     ("restart-memory-peak", "After purge: peak footprint", "MB", False),
     ("warm-memory-peak", "Warm relaunch: peak footprint", "MB", False),
-    ("soak-memory-start", "Idle: footprint at start", "MB", True),
-    ("soak-memory-end", "Idle: footprint at end", "MB", False),
-    ("soak-memory-peak", "Idle: peak footprint (ceiling)", "MB", True),
-    ("soak-memory-growth", "Idle: footprint growth", "MB/min", True),
-    ("soak-cpu", "Idle: CPU, mean", "%", True),
-    ("soak-cpu-peak", "Idle: CPU, peak window", "%", False),
-    ("soak-wakeups", "Idle: wakeups, mean", "/s", True),
-    ("soak-processes", "Idle: processes", "n", False),
-    ("soak-threads", "Idle: threads", "n", False),
-    ("soak-disk", "Idle: disk writes", "KB/s", False),
     ("bundle-size", "Bundle on disk", "MB", True),
 ]
+SOAK_ROWS = [
+    ("memory-start", "footprint at start", "MB", True),
+    ("memory-end", "footprint at end", "MB", False),
+    ("memory-peak", "peak footprint (ceiling)", "MB", True),
+    ("memory-growth", "footprint growth, after the settle cut", "MB/min", True),
+    ("memory-growth-all", "footprint growth, whole soak", "MB/min", False),
+    ("memory-trough-growth", "trough growth", "MB/min", False),
+    ("memory-trough-last", "last trough", "MB", False),
+    ("memory-pressure-drop", "drop at a memory-pressure notice, mean", "MB", False),
+    ("cpu", "CPU, mean", "%", True),
+    ("cpu-peak", "CPU, peak window", "%", False),
+    ("wakeups", "wakeups, mean", "/s", True),
+    ("processes", "processes", "n", False),
+    ("threads", "threads", "n", False),
+    ("disk", "disk writes", "KB/s", False),
+]
+# A soak pass: its row prefix and its label. "soak" is the signed-out idle soak after the last warm launch.
+PASSES = [("soak", "Idle"), ("signed-in-soak", "Signed in, idle"), ("tabs-soak", "Background tabs, idle")]
+for _prefix, _pass_label in PASSES:
+    ROWS += [(f"{_prefix}-{row}", f"{_pass_label}: {label}", unit, summary and _prefix == "soak")
+             for row, label, unit, summary in SOAK_ROWS]
+for _kind, _kind_label in (("signed-in", "Signed in"), ("tabs", "Background tabs")):
+    ROWS += [(f"{_kind}-window", f"{_kind_label}: launch, window up", "ms", False),
+             (f"{_kind}-cpu", f"{_kind_label}: CPU spent to window + after", "s", False),
+             (f"{_kind}-memory-peak", f"{_kind_label}: peak footprint", "MB", False)]
 UNITS = {row: unit for row, _label, unit, _summary in ROWS}
 LABELS = {"cmux": "cmux NEXT", "claude": "Claude", "codex": "Codex", "t3code": "T3 Code", "rex": "Rex",
           "slack": "Slack", "chrome": "Chrome", "edge": "Microsoft Edge", "helium": "Helium", "safari": "Safari"}
@@ -81,6 +121,46 @@ ORDER = ["cmux", "rex", "claude", "codex", "t3code", "slack", "chrome", "edge", 
 CHROMIUM = {"chrome", "edge", "helium"}
 ELECTRON = {"claude", "codex", "t3code", "slack"}
 SYSTEM = {"safari"}  # sealed system apps: no fresh copy
+BROWSERS = CHROMIUM | SYSTEM
+GROUPS = ["app", "renderer", "gpu", "acpmux", "terminals", "other"]
+GROUP_LABELS = {"app": "app (shell + browser process, helpers, utility)", "renderer": "renderer", "gpu": "GPU",
+                "acpmux": "acpmux", "terminals": "terminals (cmux-tui, holders, terminal hosts)", "other": "other"}
+GROUP_METRICS = [("memory", "footprint, end", "MB"), ("growth", "footprint growth, after the settle cut", "MB/min"),
+                 ("cpu", "CPU, mean", "%"), ("wakeups", "wakeups, mean", "/s"), ("processes", "processes", "n")]
+for _prefix, _pass_label in PASSES:
+    for _group in GROUPS:
+        for _metric, _label, _unit in GROUP_METRICS:
+            ROWS.append((f"{_prefix}-group-{_group}-{_metric}", f"{_pass_label}, {GROUP_LABELS[_group]}: {_label}",
+                         _unit, False))
+UNITS.update({row: unit for row, _label, unit, _summary in ROWS})
+
+
+def group_of(kind: str) -> str:
+    """The RFD 0062 process group of a procs.kind_of kind."""
+    if kind in ("renderer", "webkit-webcontent"):
+        return "renderer"
+    if kind in ("gpu", "webkit-gpu"):
+        return "gpu"
+    if kind == "acpmux" or kind.startswith("acpmux"):
+        return "acpmux"
+    if kind in ("terminal-host", "cmux-tui", "cmux-holder", "holder") or kind.startswith("cmux-tui"):
+        return "terminals"
+    if kind in ("main", "helper") or kind.startswith("utility:") or kind.startswith("webkit-"):
+        return "app"
+    return "other"
+
+
+def by_group(memory_kinds: dict, window_kinds: dict) -> dict:
+    """{group: {memory, cpu, wakeups, processes}} from one memory() and one window() read."""
+    out = {g: {"memory": 0.0, "cpu": 0.0, "wakeups": 0.0, "processes": 0} for g in GROUPS}
+    for kind, mb in (memory_kinds or {}).items():
+        out[group_of(kind)]["memory"] += mb
+    for kind, entry in (window_kinds or {}).items():
+        group = out[group_of(kind)]
+        group["cpu"] += entry.get("cpu_pct", 0.0)
+        group["wakeups"] += entry.get("wakeups_per_s", 0.0)
+        group["processes"] += entry.get("n", 0)
+    return out
 
 
 def log(message: str):
@@ -102,6 +182,34 @@ def slope_per_min(points: list[tuple[float, float]]) -> float | None:
     if var == 0:
         return None
     return 60 * sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / var
+
+
+def troughs(points: list[tuple[float, float]], every: float) -> list[tuple[float, float]]:
+    """The lowest (seconds, MB) point of each `every`-second bucket: the sawtooth's troughs."""
+    if every <= 0:
+        return []
+    buckets: dict[int, tuple[float, float]] = {}
+    for t, mb in points:
+        key = int(t // every)
+        if key not in buckets or mb < buckets[key][1]:
+            buckets[key] = (t, mb)
+    return [buckets[k] for k in sorted(buckets)]
+
+
+def trough_every(soak: float, given: float | None) -> float:
+    """--trough-every, or by default none under 30 min and soak/12 from there (40 min troughs over 8 h)."""
+    if given is not None:
+        return max(0.0, given)
+    return 0.0 if soak < 1800 else soak / 12
+
+
+def memory_pressure(level: str) -> bool:
+    """Simulate a system memory-pressure level (root: sudo -n). False when it cannot."""
+    try:
+        return subprocess.run(["sudo", "-n", "/usr/bin/memory_pressure", "-S", "-l", level], capture_output=True,
+                              timeout=60).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def bundle_mb(bundle: str) -> float | None:
@@ -129,7 +237,7 @@ class App:
         self.helper = helper
         self.instance = None
 
-    def launch(self, profile: str):
+    def launch(self, profile: str, urls: list[str] | None = None):
         import procs
         home = os.path.join(profile, "home")
         tmp = os.path.join(profile, "tmp")
@@ -154,6 +262,10 @@ class App:
         if self.name not in SYSTEM:
             argv += [x for k, v in env.items() for x in ("--env", f"{k}={v}")]
         argv += ["-a", self.bundle]
+        if urls and self.name in SYSTEM:
+            argv += list(urls)  # Safari opens each as a tab of one window
+        elif urls:
+            args = [*args, *urls]  # Chromium: each URL a tab, the first one in front
         if args:
             argv += ["--args", *args]
         subprocess.run(argv, check=True, timeout=60)
@@ -193,6 +305,14 @@ class Run:
         os.makedirs(self.work, exist_ok=True)
         self.helper = xbench.Helper(args.cache)
         self.xbench = xbench
+        self.server = None
+        self.signed_in = {}
+        for item in args.signed_in:
+            name, _, folder = item.partition("=")
+            if not os.path.isdir(folder):
+                raise SystemExit(f"--signed-in {item}: no such folder")
+            self.signed_in[name] = os.path.abspath(folder)
+        self.pressure = False
 
     def record(self, app: str, round_no: int, row: str, value, **extra):
         sample = {"browser": app, "round": round_no, "row": row,
@@ -208,13 +328,13 @@ class Run:
             time.sleep(5)  # bench: waiting for a quiet machine
         return round(procs.load_average(), 2)
 
-    def launch(self, app: App, round_no: int, kind: str, profile: str) -> bool:
+    def launch(self, app: App, round_no: int, kind: str, profile: str, urls: list[str] | None = None) -> bool:
         """One measured launch: window ms, then peak footprint and CPU over --after s. Leaves the app running."""
         load = self.quiet()
         watch = self.helper.wait_window(os.path.join(os.path.realpath(app.bundle), "Contents/MacOS/"), 60)
         t0 = now_ms()
         try:
-            app.launch(profile)
+            app.launch(profile, urls)
             line = (watch.communicate(timeout=70)[0] or "").split()
             note = {} if line else {"note": "no window within 60 s"}
             if line and kind == "fresh" and app.name in SYSTEM:
@@ -238,33 +358,101 @@ class Run:
             if watch.poll() is None:
                 watch.kill()
 
-    def soak(self, app: App, round_no: int):
+    def soak(self, app: App, round_no: int, prefix: str = "soak"):
+        a = self.args
         points = []
         cpu, wakeups, disk = [], [], []
+        groups: list[dict] = []
         threads = processes = 0
+        every = trough_every(a.soak, a.trough_every)
+        pressure = every > 0 and self.pressure
+        forced: list[tuple[float, float]] = []
+        drops: list[float] = []
+        next_trough = every
         began = time.monotonic()
-        last_memory = None
-        while time.monotonic() - began < self.args.soak:
-            window = app.instance.window(self.args.sample)
-            memory = app.instance.memory()
+        last_memory = last_window = detail_memory = None
+        while time.monotonic() - began < a.soak:
+            last_round = time.monotonic() - began + a.sample >= a.soak
+            window = app.instance.window(a.sample, per_pid=last_round)
+            memory = app.instance.memory(per_pid=last_round)
             points.append((time.monotonic() - began, memory["mb"]))
+            groups.append(by_group(memory["kinds"], window["kinds"]))
+            if last_round:
+                last_window, detail_memory = window, memory
             cpu.append(window["cpu_pct"])
             wakeups.append(window["wakeups_per_s"])
             disk.append(window["disk_kb_per_s"])
             threads, processes, last_memory = window["threads"], window["processes"], memory
+            if pressure and time.monotonic() - began >= next_trough:
+                next_trough += every
+                if memory_pressure("warn"):
+                    app.instance.window(a.sample)  # the app's answer to the notice (GC, cache drops)
+                    after = app.instance.memory()["mb"]
+                    memory_pressure("normal")
+                    forced.append((time.monotonic() - began, after))
+                    drops.append(memory["mb"] - after)
+                else:
+                    pressure = False
         if not points:
             return
-        self.record(app.name, round_no, "soak-memory-start", points[0][1])
-        self.record(app.name, round_no, "soak-memory-end", points[-1][1], kinds=(last_memory or {}).get("kinds"))
-        self.record(app.name, round_no, "soak-memory-peak", max(p[1] for p in points))
-        self.record(app.name, round_no, "soak-memory-growth", slope_per_min(points),
-                    points=[[round(t), round(mb, 1)] for t, mb in points])
-        self.record(app.name, round_no, "soak-cpu", statistics.fmean(cpu))
-        self.record(app.name, round_no, "soak-cpu-peak", max(cpu))
-        self.record(app.name, round_no, "soak-wakeups", statistics.fmean(wakeups))
-        self.record(app.name, round_no, "soak-disk", statistics.fmean(disk))
-        self.record(app.name, round_no, "soak-threads", threads)
-        self.record(app.name, round_no, "soak-processes", processes)
+        settled = [p for p in points if p[0] >= a.settle_cut]
+        self.record(app.name, round_no, f"{prefix}-memory-start", points[0][1])
+        self.record(app.name, round_no, f"{prefix}-memory-end", points[-1][1], kinds=(last_memory or {}).get("kinds"))
+        self.record(app.name, round_no, f"{prefix}-memory-peak", max(p[1] for p in points))
+        self.record(app.name, round_no, f"{prefix}-memory-growth", slope_per_min(settled),
+                    settle_cut=a.settle_cut, points=[[round(t), round(mb, 1)] for t, mb in points])
+        self.record(app.name, round_no, f"{prefix}-memory-growth-all", slope_per_min(points))
+        if every > 0:
+            low = forced or troughs(settled, every)
+            how = "forced: memory_pressure -S -l warn" if forced else "natural: lowest sample per bucket"
+            self.record(app.name, round_no, f"{prefix}-memory-trough-growth", slope_per_min(low), how=how,
+                        every=every, troughs=[[round(t), round(mb, 1)] for t, mb in low])
+            self.record(app.name, round_no, f"{prefix}-memory-trough-last", low[-1][1] if low else None, how=how)
+            if drops:
+                self.record(app.name, round_no, f"{prefix}-memory-pressure-drop", statistics.fmean(drops))
+        self.record(app.name, round_no, f"{prefix}-cpu", statistics.fmean(cpu))
+        self.record(app.name, round_no, f"{prefix}-cpu-peak", max(cpu))
+        self.record(app.name, round_no, f"{prefix}-wakeups", statistics.fmean(wakeups))
+        self.record(app.name, round_no, f"{prefix}-disk", statistics.fmean(disk))
+        self.record(app.name, round_no, f"{prefix}-threads", threads)
+        self.record(app.name, round_no, f"{prefix}-processes", processes)
+        for group in GROUPS:
+            self.record(app.name, round_no, f"{prefix}-group-{group}-memory", groups[-1][group]["memory"])
+            self.record(app.name, round_no, f"{prefix}-group-{group}-growth",
+                        slope_per_min([(t, g[group]["memory"]) for (t, _mb), g in zip(points, groups)
+                                       if t >= a.settle_cut]))
+            self.record(app.name, round_no, f"{prefix}-group-{group}-cpu",
+                        statistics.fmean(g[group]["cpu"] for g in groups))
+            self.record(app.name, round_no, f"{prefix}-group-{group}-wakeups",
+                        statistics.fmean(g[group]["wakeups"] for g in groups))
+            self.record(app.name, round_no, f"{prefix}-group-{group}-processes", groups[-1][group]["processes"])
+        # Every process of the last window: answers "what is each rival's GPU footprint" process by process.
+        cpu_of = {row["pid"]: row for row in (last_window or {}).get("pids", [])}
+        detail = [{**row, "group": group_of(row["kind"]), "cpu_pct": (cpu_of.get(row["pid"]) or {}).get("cpu_pct"),
+                   "wakeups_per_s": (cpu_of.get(row["pid"]) or {}).get("wakeups_per_s")}
+                  for row in (detail_memory or {}).get("pids", [])]
+        self.record(app.name, round_no, f"{prefix}-detail", len(detail), pids=detail)
+
+    def extra_pass(self, app: App, round_no: int, kind: str):
+        """One more launch and idle soak after the signed-out session: signed-in (a copied profile) or tabs."""
+        profile = os.path.join(self.work, "runs", f"{app.name}-r{round_no}-{kind}")
+        make_writable_and_remove(profile)
+        urls = None
+        if kind == "signed-in":
+            template = self.signed_in[app.name]
+            shutil.copytree(template, profile, symlinks=True)
+        else:
+            os.makedirs(profile, exist_ok=True)
+            if self.server is None:
+                import pages
+                self.server = pages.BeaconServer()
+            urls = [self.server.url("idle", f"{app.name}-bg{i}") for i in range(self.args.tabs)]
+        try:
+            if self.launch(app, round_no, kind, profile, urls):
+                self.soak(app, round_no, f"{kind}-soak")
+        finally:
+            app.quit()
+            time.sleep(2)  # bench: the quit's last writes
 
     def session(self, app: App, round_no: int, purge: bool):
         copies = os.path.join(self.args.cache, "rivals-copies")
@@ -277,7 +465,11 @@ class Run:
             else:
                 os.makedirs(copy_dir, exist_ok=True)
                 app.bundle = os.path.join(copy_dir, os.path.basename(app.source))
-                subprocess.run(["ditto", app.source, app.bundle], check=True, timeout=900)
+                # cp -R, not ditto: the cache is read-only (chmod a-w), and ditto copies a directory's mode before
+                # its contents, so it cannot write into Chrome's read-only framework folders ("Permission denied",
+                # cmux-ci step ae86578f9527fb43dc8ffcb2). BSD cp makes each folder writable until its contents are in,
+                # and keeps the extended attributes, so the signature still verifies.
+                subprocess.run(["cp", "-R", app.source, app.bundle], check=True, timeout=900)
             if round_no == 1:
                 self.record(app.name, round_no, "bundle-size", bundle_mb(app.bundle))
             if not self.launch(app, round_no, "fresh", profile):
@@ -298,6 +490,10 @@ class Run:
                     self.soak(app, round_no)
                 app.quit()
                 time.sleep(2)  # bench: the quit's last writes
+            if app.name in self.signed_in:
+                self.extra_pass(app, round_no, "signed-in")
+            if self.args.tabs > 0 and app.name in BROWSERS:
+                self.extra_pass(app, round_no, "tabs")
         finally:
             app.quit()
             if app.name not in SYSTEM:
@@ -320,7 +516,9 @@ class Run:
             chosen.append(App(name, bundle, self.helper))
         machine = self.xbench.Run.machine(self)
         purge = can_purge()
+        self.pressure = trough_every(a.soak, a.trough_every) > 0 and memory_pressure("normal")
         meta = {"machine": machine, "cmux_ref": a.cmux_ref, "args": vars(a), "purge": purge,
+                "pressure": self.pressure, "signed_in": sorted(self.signed_in),
                 "apps": {app.name: {"name": LABELS.get(app.name, app.name), "bundle": app.source,
                                     "version": self.xbench.bundle_version(app.source),
                                     "team": self.xbench.team_id(app.source)} for app in chosen}}
@@ -337,7 +535,11 @@ class Run:
                 order = order[1:] + order[:1] if round_no > 1 else order  # rotate each round
                 for app in order:
                     log(f"{app.name} round {round_no}")
-                    self.session(app, round_no, purge)
+                    try:
+                        self.session(app, round_no, purge)
+                    except Exception as error:  # one app's failure costs its row, never the other apps' numbers
+                        log(f"{app.name} round {round_no} failed: {error!r}")
+                        self.record(app.name, round_no, "fresh-window", None, note=f"session failed: {error}"[:200])
         finally:
             caffeinate.terminate()
 
@@ -357,6 +559,22 @@ def aggregate(samples: list[dict]) -> dict:
     return rows
 
 
+def group_rows(rows: dict, prefix: str = "soak") -> list[str]:
+    """The per-group row ids of the groups some app has a nonzero number in."""
+    def used(group):
+        return any(cell["median"] for m, _l, _u in GROUP_METRICS
+                   for cell in rows.get(f"{prefix}-group-{group}-{m}", {}).values())
+    return [f"{prefix}-group-{g}-{m}" for g in GROUPS if used(g) for m, _l, _u in GROUP_METRICS]
+
+
+def pass_rows(rows: dict, prefix: str) -> list[str]:
+    """A soak pass's row ids: every one for the signed-out soak, only the measured ones for the others."""
+    ids = [f"{prefix}-{row}" for row, _l, _u, _s in SOAK_ROWS]
+    optional = {f"{prefix}-{r}" for r in ("memory-growth-all", "memory-trough-growth", "memory-trough-last",
+                                          "memory-pressure-drop")}
+    return [i for i in ids if i in rows or (prefix == "soak" and i not in optional)]
+
+
 def fmt(value, unit: str) -> str:
     if value is None:
         return "–"
@@ -364,8 +582,8 @@ def fmt(value, unit: str) -> str:
         return f"{value:,.0f}"
     if unit == "MB":
         return f"{value:,.0f}"
-    if unit == "MB/min":
-        return f"{value:+.1f}"
+    if unit == "MB/min":  # RFD 0062's long bound is 0.02 MB/min: small slopes keep three places
+        return f"{value:+.3f}" if abs(value) < 1 else f"{value:+.1f}"
     if unit in ("%", "/s", "s", "KB/s"):
         return f"{value:.2f}" if value < 10 else f"{value:.1f}"
     return f"{value:g}"
@@ -408,13 +626,21 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
          ["fresh-window", "restart-window", "warm-window"]),
         ("What a launch costs (to window + the after-launch window)",
          ["fresh-cpu", "restart-cpu", "warm-cpu", "fresh-memory-peak", "restart-memory-peak", "warm-memory-peak"]),
-        ("Idle: RAM ceiling and growth, CPU, wakeups",
-         ["soak-memory-start", "soak-memory-end", "soak-memory-peak", "soak-memory-growth", "soak-cpu",
-          "soak-cpu-peak", "soak-wakeups", "soak-disk", "soak-processes", "soak-threads"]),
+        ("Idle: RAM ceiling and growth, CPU, wakeups", pass_rows(rows, "soak")),
+        ("Idle by process group (RFD 0062: footprint at the soak's end, CPU and wakeups mean over the soak)",
+         group_rows(rows)),
+        ("Signed in: launch and idle (--signed-in)", [r for r in ("signed-in-window", "signed-in-cpu",
+                                                               "signed-in-memory-peak") if r in rows]
+         + pass_rows(rows, "signed-in-soak") + group_rows(rows, "signed-in-soak")),
+        (f"Background tabs: {meta['args'].get('tabs') or 0} local idle pages, idle (--tabs)",
+         [r for r in ("tabs-window", "tabs-cpu", "tabs-memory-peak") if r in rows]
+         + pass_rows(rows, "tabs-soak") + group_rows(rows, "tabs-soak")),
         ("On disk", ["bundle-size"]),
     ]
     labels = {row: (label, unit) for row, label, unit, _summary in ROWS}
     for title, ids in sections:
+        if not ids:
+            continue
         lines += [f"## {title}", "", "| Row | " + " | ".join(LABELS.get(a, a) for a in present) + " |",
                   "|---|" + "---:|" * len(present)]
         for row in ids:
@@ -428,10 +654,16 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
                     cells.append("–")
                     continue
                 spread = f" [{fmt(cell['min'], unit)}–{fmt(cell['max'], unit)}]" if cell["n"] > 1 else ""
-                rel = "" if app == "cmux" or row == "soak-memory-growth" else ratio(cmux_value, cell["median"])
+                rel = "" if app == "cmux" or UNITS.get(row) == "MB/min" else ratio(cmux_value, cell["median"])
                 cells.append(fmt(cell["median"], unit) + spread + rel)
             lines.append(f"| {label} ({unit}) | " + " | ".join(cells) + " |")
         lines.append("")
+    if "safari" in meta["apps"] and rows.get("soak-processes", {}).get("safari"):
+        webkit = [p for s in samples if s.get("browser") == "safari" and s.get("row") == "soak-detail"
+                  for p in s.get("pids") or [] if str(p.get("kind", "")).startswith("webkit-")]
+        lines += ["Safari's WebKit XPC processes (WebContent, GPU, Networking) counted: " +
+                  (f"{len(webkit)} in the soak's last window." if webkit else
+                   "NONE FOUND: Safari's rows miss its web content (responsibility lookup failed)."), ""]
     if errors:
         lines += ["## Not measured", ""]
         seen = set()
@@ -441,7 +673,9 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
                 seen.add(key)
                 lines.append(f"- {LABELS.get(e['browser'], e['browser'])} {e['row']}: {e['note']}")
         lines.append("")
-    lines += ["Method: scripts/perf-bench/rivals.py (docstring). Every app is signed out: its first screen.", ""]
+    lines += ["Method: scripts/perf-bench/rivals.py (docstring). Every app is signed out (its first screen) outside the Signed in rows.", ""]
+    import growth_bounds
+    lines += growth_bounds.lines(rows, "cmux", meta["args"].get("soak"))
     text = "\n".join(lines)
     if md_path:
         with open(md_path, "w") as handle:
@@ -465,6 +699,13 @@ def main():
     run.add_argument("--after", type=float, default=20, help="seconds sampled after each launch's window")
     run.add_argument("--soak", type=float, default=300, help="idle soak seconds after the last warm launch")
     run.add_argument("--sample", type=float, default=10, help="soak window seconds")
+    run.add_argument("--settle-cut", type=float, default=90,
+                     help="seconds of the soak's start left out of the growth slope (launch work settling)")
+    run.add_argument("--trough-every", type=float, default=None,
+                     help="trough reading period, s (default: none under a 30 min soak, else soak/12)")
+    run.add_argument("--signed-in", action="append", default=[], metavar="NAME=DIR",
+                     help="a signed-in profile folder for NAME (home/, data/): one more launch and soak from it")
+    run.add_argument("--tabs", type=int, default=0, help="browsers: one more launch with N background tabs and soak")
     run.add_argument("--max-load", type=float, default=4)
     run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--cmux-ref", default=None)

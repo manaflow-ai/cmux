@@ -72,12 +72,22 @@
 //!   --test duress_daemon -- --ignored --nocapture duress_bench legs=relay,bigchat'
 //! ```
 //!
+//! `host150` (Leo's laptop, 2026-11-23: load 10 x cores, memory and swap pressure, 40 peers, a
+//! fork storm at about 40 processes a second) and `peerscale` (the baseline at 1, 10, 20 and 40
+//! peers) are named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
+//! count (default 2). Every leg's row also carries the presence gap, link drops, peer links,
+//! frames on the wire, peer notice gauges, spawns per second and a tool call's cost
+//! (`support/duress_host150.rs`).
+//!
 //! (`ACPMUX_DURESS_LEGS=relay,bigchat` works too; libtest takes `legs=...` as a name filter that
 //! matches nothing, so `duress_bench` must be named with it.)
 #![cfg(target_os = "linux")]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// host150, peerscale and the measures every leg's row gains (presence gap, links, notices, spawns).
+#[path = "support/duress_host150.rs"]
+mod host150;
 // The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS",
@@ -87,6 +97,17 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS_CPU_X",
     "ACPMUX_DURESS_SESSIONS",
     "ACPMUX_DURESS_N",
+    "ACPMUX_DURESS_PEERS",
+    "ACPMUX_DURESS_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CORES",
+    "ACPMUX_DURESS_STARVE_X",
+    "ACPMUX_DURESS_STARVE_IDLE",
+    "ACPMUX_DURESS_STARVE_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CPU_MAX",
+    "ACPMUX_DURESS_STARVE_DELAY_MS",
+    "ACPMUX_DURESS_STARVE_JITTER_MS",
+    "ACPMUX_DURESS_STARVE_STALL_MS",
+    "ACPMUX_DURESS_STARVE_STALL_EVERY_S",
     // The commit under test, when the runner names it (else `git rev-parse HEAD`).
     "GITHUB_SHA",
     // The fleet's output directory, not a credential.
@@ -119,6 +140,7 @@ const CALL_LIMIT: Duration = Duration::from_secs(30);
 /// A sample over this is slow (the count the table shows).
 const SLOW_MS: f64 = 500.0;
 /// Peers and the rows each lists.
+/// Peers by default (`ACPMUX_DURESS_PEERS`; Leo's Mac held ~40).
 const PEERS: usize = 2;
 const PEER_ROWS: usize = 5;
 /// The name the external session is listed under (the registry entry's `name`).
@@ -174,6 +196,8 @@ struct Knobs {
     cpu_x: usize,
     sessions: usize,
     n: usize,
+    /// Peers behind proxies (`ACPMUX_DURESS_PEERS`, default [`PEERS`]).
+    peers: usize,
     /// Records in each of the bigchat leg's chats.
     big_records: usize,
 }
@@ -188,8 +212,13 @@ impl Knobs {
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.split(',').map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()).collect())
             .unwrap_or_else(|| ALL_LEGS.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>());
+        let legs = host150::expand(legs);
         for leg in &legs {
-            assert!(ALL_LEGS.contains(&leg.as_str()), "unknown leg {leg:?}; legs: {ALL_LEGS:?}");
+            assert!(
+                ALL_LEGS.contains(&leg.as_str()) || host150::is_extra(leg),
+                "unknown leg {leg:?}; legs: {ALL_LEGS:?} and {:?}",
+                host150::EXTRA_LEGS
+            );
         }
         let window = Duration::from_secs(env_or("ACPMUX_DURESS_SECS", 90u64).max(5));
         let cap = Duration::from_secs(env_or("ACPMUX_DURESS_CAP_SECS", 120u64))
@@ -201,6 +230,7 @@ impl Knobs {
             cpu_x: env_or("ACPMUX_DURESS_CPU_X", 10usize).max(1),
             sessions: env_or("ACPMUX_DURESS_SESSIONS", 20usize).max(4),
             n: env_or("ACPMUX_DURESS_N", 100usize).max(1),
+            peers: env_or("ACPMUX_DURESS_PEERS", PEERS).clamp(1, 200),
             big_records: env_or("ACPMUX_DURESS_BIG_RECORDS", 100_000usize).max(4),
         }
     }
@@ -218,6 +248,8 @@ struct Stress {
     /// The send relay's listing (`sendRelay.lsArgv`): 1 sleeps [`RELAY_SLEEP_SECS`], 2 exits 1.
     relay: u8,
     bigchat: bool,
+    /// Leo's laptop: load 10 x cores, memory and swap pressure, 40 peers, a fork storm.
+    host150: bool,
 }
 
 impl Stress {
@@ -244,6 +276,11 @@ impl Stress {
             "all" => {
                 s = Stress { cpu: true, fork: true, disk: true, hubslow: true, peercut: true, ..s }
             }
+            "host150" => s.host150 = true,
+            // peerscaleN: the baseline at N peers (`host150::peers_for`).
+            l if l.starts_with("peerscale") => {}
+            // starved: the daemon pinned with its load, capped and far (`host150::starved`).
+            "starved" => {}
             _ => unreachable!(),
         }
         s
@@ -645,6 +682,8 @@ struct Proxy {
     port: u16,
     up: Arc<AtomicBool>,
     links: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
+    /// Dials and frames through it (`host150::pump`).
+    wire: Arc<host150::Wire>,
 }
 
 impl Proxy {
@@ -653,25 +692,27 @@ impl Proxy {
         let port = listener.local_addr().unwrap().port();
         let up = Arc::new(AtomicBool::new(true));
         let links: Arc<Mutex<Vec<tokio::task::AbortHandle>>> = Arc::default();
-        let (u, held) = (up.clone(), links.clone());
+        let wire: Arc<host150::Wire> = Arc::default();
+        let (u, held, w) = (up.clone(), links.clone(), wire.clone());
         tokio::spawn(async move {
-            while let Ok((mut client, _)) = listener.accept().await {
+            while let Ok((client, _)) = listener.accept().await {
                 if !u.load(Ordering::SeqCst) {
                     drop(client);
                     continue;
                 }
+                w.accepts.fetch_add(1, Ordering::Relaxed);
+                let w = w.clone();
                 let task = tokio::spawn(async move {
-                    let Ok(mut server) =
-                        tokio::net::TcpStream::connect(("127.0.0.1", backend)).await
+                    let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", backend)).await
                     else {
                         return;
                     };
-                    let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                    host150::pump(client, server, w).await;
                 });
                 held.lock().unwrap().push(task.abort_handle());
             }
         });
-        Self { port, up, links }
+        Self { port, up, links, wire }
     }
 
     fn cut(&self, hold_down: bool) {
@@ -686,9 +727,9 @@ impl Proxy {
     }
 }
 
-async fn peers(scratch: &Path) -> (Value, Vec<Proxy>, Vec<Arc<Hub>>) {
+async fn peers(scratch: &Path, count: usize) -> (Value, Vec<Proxy>, Vec<Arc<Hub>>) {
     let (mut config, mut proxies, mut hubs) = (serde_json::Map::new(), vec![], vec![]);
-    for p in 0..PEERS {
+    for p in 0..count {
         let name = format!("peer{p:02}");
         let mut cfg = Config::default();
         cfg.store.mode = StoreMode::Memory;
@@ -1174,7 +1215,7 @@ impl Samples {
         s.sort_by(f64::total_cmp);
         let at = |q: f64| (!s.is_empty()).then(|| s[((s.len() - 1) as f64 * q).round() as usize]);
         json!({
-            "n": s.len(), "p50Ms": at(0.5), "p99Ms": at(0.99), "maxMs": s.last(),
+            "n": s.len(), "p50Ms": at(0.5), "p95Ms": at(0.95), "p99Ms": at(0.99), "maxMs": s.last(),
             "over500Ms": s.iter().filter(|m| **m > SLOW_MS).count(),
             "errors": self.errors(), "outcomes": self.outcomes, "examples": self.examples,
             "rowsMin": self.rows.iter().min(), "rowsMax": self.rows.iter().max(),
@@ -1346,7 +1387,8 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     std::fs::create_dir_all(claude.join("sessions")).unwrap();
 
     // The peers, the stub hub, the config and the bridge setting.
-    let (peer_config, proxies, _hubs) = peers(&scratch).await;
+    let peer_count = host150::peers_for(name, k.peers);
+    let (peer_config, proxies, _hubs) = peers(&scratch, peer_count).await;
     let hub = StubHub::start();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut config = json!({
@@ -1413,11 +1455,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             Err(e) => notes.push(format!("bigchat: fixtures failed: {e}")),
         }
     }
-    let memory_high = if stress.bigchat {
+    let host150_high = host150::host150_memory_high();
+    let memory_high = if stress.bigchat || stress.host150 {
+        let high = if stress.host150 { host150_high.as_str() } else { MEMORY_HIGH };
         match memory_ceiling_works() {
             Ok(()) => {
-                stress_json_early.insert("memoryHigh".into(), json!(MEMORY_HIGH));
-                Some(MEMORY_HIGH)
+                stress_json_early.insert("memoryHigh".into(), json!(high));
+                Some(high)
             }
             Err(why) => {
                 notes.push(format!("memory pressure skipped: {why}"));
@@ -1533,7 +1577,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     // Peers listed and the external session bridged: up to 30 s.
-    let expect_peer_rows = PEERS * PEER_ROWS;
+    let expect_peer_rows = peer_count * PEER_ROWS;
     let mut before: BTreeMap<String, Value> = BTreeMap::new();
     let listed_by = Instant::now() + Duration::from_secs(30);
     loop {
@@ -1562,7 +1606,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let sample_rows: Vec<Value> = before.values().take(2).cloned().collect();
 
     // The stressors.
-    let watchdog = Watchdog::arm(k.cap);
+    let watchdog = Watchdog::arm(k.cap + host150::extra_cap(name));
     let mut stressors: Vec<Stressor> = vec![];
     let mut stress_json = std::mem::take(&mut stress_json_early);
     if stress.cpu {
@@ -1616,6 +1660,31 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     if stress.cpu || stress.fork {
         std::thread::sleep(Duration::from_secs(3));
     }
+    // host150's stressors and its wait for the load; peerscale's quiet span.
+    let wire_sum = |w: &host150::Wire| {
+        for p in &proxies {
+            for (to, from) in [
+                (&w.accepts, &p.wire.accepts),
+                (&w.frames, &p.wire.frames),
+                (&w.pings, &p.wire.pings),
+                (&w.pongs, &p.wire.pongs),
+                (&w.data, &p.wire.data),
+                (&w.bytes, &p.wire.bytes),
+            ] {
+                to.fetch_add(from.load(Ordering::Relaxed), Ordering::Relaxed);
+            }
+            w.open.fetch_add(p.wire.open.load(Ordering::Relaxed), Ordering::Relaxed);
+        }
+    };
+    let wire_now = || {
+        let w = host150::Wire::default();
+        wire_sum(&w);
+        w
+    };
+    let mut extras =
+        host150::Extras::start(name, daemon.pid(), &wire_now, k.cap + host150::extra_cap(name));
+    notes.append(&mut extras.notes);
+    stress_json.extend(extras.stress.clone());
 
     // The kills: one harness and the external session's process.
     let harness_name = names.first().cloned();
@@ -1643,6 +1712,19 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         killed_at,
     };
     let until = killed_at + k.window;
+    // Peers down on purpose: every one in peercut, the held one (peer00) in bigchat.
+    let peer_names: Vec<String> = (0..peer_count).map(|p| format!("peer{p:02}")).collect();
+    let cut_peers: BTreeSet<String> = if stress.peercut {
+        peer_names.iter().cloned().collect()
+    } else if stress.bigchat {
+        ["peer00".to_owned()].into()
+    } else {
+        BTreeSet::new()
+    };
+    let proxy_ports: BTreeSet<u16> = proxies.iter().map(|p| p.port).collect();
+    let window_open = host150::Window::open(&daemon.socket, daemon.pid(), &wire_now(), &daemon.log);
+    let presence =
+        host150::Presence::start(&daemon.socket, &peer_names, &cut_peers, daemon.pid(), until);
     let hub_requests_before = hub.requests.load(Ordering::SeqCst);
     let hub_paths_before = hub.paths.lock().unwrap().clone();
 
@@ -1688,6 +1770,14 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     // the CLI's: `true` (spawning /bin/true, the host's floor for starting any process at this
     // load) and `version` (`acpmux --version`: our binary's exec and runtime start, no socket).
     // CLI ls minus `version` is connect, hello and request; `version` minus `true` is our start.
+    // Sends to a session on a peer: the hub legs address another machine instead.
+    let peer_targets = if stress.hub503 || stress.hubslow {
+        vec![]
+    } else {
+        host150::peer_targets(&before, &cut_peers)
+    };
+    let mut ids_with_peers = ids.clone();
+    ids_with_peers.extend(peer_targets.iter().cloned());
     let pairs: Vec<(&str, &str)> = [
         ("true", "cli"),
         ("version", "cli"),
@@ -1699,10 +1789,18 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         ("register", "socket"),
         ("wake", "cli"),
         ("wake", "socket"),
+        // One agent tool call's process (`host150::tool_call`).
+        ("toolcall", "cli"),
     ]
     .into_iter()
     .chain(
         stress.bigchat.then_some([("status", "cli"), ("status", "socket")]).into_iter().flatten(),
+    )
+    .chain(
+        (!peer_targets.is_empty())
+            .then_some([("send-peer", "cli"), ("send-peer", "socket")])
+            .into_iter()
+            .flatten(),
     )
     .collect();
     let mut samples: BTreeMap<(String, String), Samples> = BTreeMap::new();
@@ -1734,6 +1832,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             any = true;
             let send_to = send_targets[round % send_targets.len().max(1)].as_str();
             let wake_to = wake_targets[round % wake_targets.len().max(1)];
+            let peer_to = peer_targets.get(round % peer_targets.len().max(1)).map(|(t, _)| t);
             let entry = samples.entry(key).or_default();
             if via == "cli" {
                 let r = match op {
@@ -1742,6 +1841,13 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
                     "ls" => cli.run(&["--json", "ls"]),
                     "status" => cli.run(&["--json", "status"]),
                     "send" => cli.run(&["send", "--no-wait", send_to, &format!("duress {round}")]),
+                    "send-peer" => cli.run(&[
+                        "send",
+                        "--no-wait",
+                        peer_to.map_or("", String::as_str),
+                        &format!("duress {round}"),
+                    ]),
+                    "toolcall" => host150::tool_call(&work),
                     "register" => cli.run(&["register", &format!("duress-reg-{round}")]),
                     _ => cli.run(&[
                         "send",
@@ -1766,8 +1872,19 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
                 entry.example(&outcome, &r.text);
                 entry.add(r.took, &outcome);
             } else {
-                let (took, outcome, listed) =
-                    socket_op(&mut rpc, &daemon.socket, op, send_to, wake_to, &ids, round);
+                let (op, send_to) = match (op, peer_to) {
+                    ("send-peer", Some(t)) => ("send", t.as_str()),
+                    _ => (op, send_to),
+                };
+                let (took, outcome, listed) = socket_op(
+                    &mut rpc,
+                    &daemon.socket,
+                    op,
+                    send_to,
+                    wake_to,
+                    &ids_with_peers,
+                    round,
+                );
                 if let Some(n) = listed {
                     entry.rows.push(n);
                 }
@@ -1782,6 +1899,17 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         }
     }
     let _ = poller.join();
+    let measures = host150::close(
+        window_open,
+        &extras,
+        presence,
+        &daemon.socket,
+        daemon.pid(),
+        &wire_now(),
+        &proxy_ports,
+        &peer_names,
+        &daemon.log,
+    );
     let mut drivers_json = serde_json::Map::new();
     for d in drivers {
         match d.join() {
@@ -1807,6 +1935,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             removal_errors.push(e);
         }
     }
+    removal_errors.extend(extras.stop());
     drop(watchdog);
     match &disk {
         Disk::Tmpfs { filler, .. } => {
@@ -1903,6 +2032,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         "daemonLogTail": daemon_log.chars().rev().take(1500).collect::<String>().chars().rev().collect::<String>(),
     });
     let mut row = row;
+    if let Value::Object(m) = &mut row {
+        m.extend(measures);
+    }
     row["summary"] = json!(summary(&row));
     let _ = external.kill();
     let _ = external.wait();
@@ -2276,6 +2408,7 @@ fn summary(row: &Value) -> String {
         ms(diff(v, t)),
         ms(diff(ls, v)),
     );
+    line.push_str(&host150::summary_tail(row));
     if t.is_some_and(|t| t > SLOW_MS) {
         line.push_str(
             "; FLOOR OVER 500ms: spawning /bin/true alone misses the target at this load",
@@ -2312,13 +2445,15 @@ fn markdown(report: &Value) -> String {
         report["commit"].as_str().unwrap_or("").chars().take(12).collect::<String>()
     ));
     md.push_str(
-        "| leg | op | via | n | p50 ms | p99 ms | max ms | >500ms | errors | error codes |\n",
+        "| leg | op | via | n | p50 ms | p99 ms | max ms | >500ms | errors | error codes | p95 ms |\n",
     );
-    md.push_str("|---|---|---|---|---|---|---|---|---|---|\n");
+    md.push_str("|---|---|---|---|---|---|---|---|---|---|---|\n");
     for leg in report["legs"].as_array().into_iter().flatten() {
         let name = leg["leg"].as_str().unwrap_or("");
         if let Some(e) = leg["error"].as_str() {
-            md.push_str(&format!("| {name} | - | - | - | - | - | - | - | - | leg failed: {e} |\n"));
+            md.push_str(&format!(
+                "| {name} | - | - | - | - | - | - | - | - | leg failed: {e} | - |\n"
+            ));
             continue;
         }
         for op in leg["ops"].as_array().into_iter().flatten() {
@@ -2330,7 +2465,7 @@ fn markdown(report: &Value) -> String {
                 .map(|(k, v)| format!("{k} x{v}"))
                 .collect();
             md.push_str(&format!(
-                "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
                 op["label"].as_str().or(op["op"].as_str()).unwrap_or(""),
                 op["via"].as_str().unwrap_or(""),
                 op["n"],
@@ -2339,7 +2474,8 @@ fn markdown(report: &Value) -> String {
                 fmt_ms(&op["maxMs"]),
                 op["over500Ms"],
                 op["errors"],
-                codes.join(", ").replace('|', "/")
+                codes.join(", ").replace('|', "/"),
+                fmt_ms(&op["p95Ms"]),
             ));
         }
     }
@@ -2385,6 +2521,7 @@ fn markdown(report: &Value) -> String {
             notes.join("; ").replace('|', "/")
         ));
     }
+    md.push_str(&host150::markdown(report));
     md.push_str("\nPer leg:\n\n");
     for leg in report["legs"].as_array().into_iter().flatten() {
         let name = leg["leg"].as_str().unwrap_or("");
@@ -2452,7 +2589,7 @@ async fn duress_bench() {
         "cores": cores(),
         "commit": commit(),
         "knobs": {"legs": k.legs, "windowSecs": k.window.as_secs(), "capSecs": k.cap.as_secs(),
-                  "cpuX": k.cpu_x, "sessions": k.sessions, "n": k.n},
+                  "cpuX": k.cpu_x, "sessions": k.sessions, "n": k.n, "peers": k.peers},
         "legs": legs,
         "removalErrors": removal_errors,
     });

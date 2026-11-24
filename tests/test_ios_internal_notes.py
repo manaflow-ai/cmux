@@ -235,6 +235,24 @@ class BuildNoteTests(unittest.TestCase):
         self.assertIsNone(notes.recorded_sha("Uploaded by hand"))
 
 
+class YoloNoteTests(unittest.TestCase):
+    def test_reads_the_stacked_prs_from_merge_subjects(self):
+        self.assertEqual(notes.yolo_prs(["ios-yolo: merge #12", "Merge branch x", "ios-yolo: merge #40"]), [12, 40])
+        self.assertEqual(notes.yolo_prs(["Merge pull request #5"]), [])
+
+    def test_lead_line_names_the_prs_and_records_the_base(self):
+        text = notes.build_note(sha=SHA, version="1.2.1", base=BASE, base_source="",
+                                commits=[commit("1" * 40, "s")], prs={"1" * 40: pr(12, "Fixed: Chat scrolls")},
+                                yolo=[12, 40])
+        lines = text.splitlines()
+        self.assertEqual(lines[0], f"cmux-next iPhone 1.2.1 YOLO, feat-cmux-next {BASE[:12]} + #12 #40 ({SHA[:12]}). "
+                                   "Internal testers only.")
+        self.assertIn("the next nightly replaces it", lines[2])
+        self.assertIn("- Chat scrolls", lines)
+        # The next nightly's base from App Store Connect is the feat-cmux-next commit, not the stack.
+        self.assertEqual(notes.recorded_sha(text), BASE[:12])
+
+
 class TruncationTests(unittest.TestCase):
     def test_stays_under_the_limit_and_counts_what_it_left_out(self):
         groups = {"Fixed": [f"Fixed thing number {i} " + "x" * 80 for i in range(100)]}

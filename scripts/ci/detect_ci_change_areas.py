@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -250,12 +251,42 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     return frozenset(seen)
 
 
+LEAN_CHECKOUT_TABLE = ".github/checkout-lean.json"
+
+
+@lru_cache(maxsize=None)
+def _tree_is_complete(root: str) -> bool:
+    """True when the tree at `root` holds every file the helper walk searches.
+
+    ci.yml's `changes` job checks out a narrower sparse set than the table's `sparse_checkout`
+    (.github/checkout-lean.json), which saves the blobs of the paths routing never opens
+    (78-80 s of a cold workspace, 2026-11-23). The helper walk's `git grep` sees only checked-out
+    files, so before its first search it widens the checkout to the table's patterns: the tree
+    the job had before it was narrowed, and the same answer. A checkout that is not sparse is
+    complete already. False when the table or the widening fails, which the walk reads as
+    "could not search" and answers every area.
+    """
+    def git(*args: str, **options) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, **options)
+
+    try:
+        if git("config", "--bool", "core.sparseCheckout").stdout.strip() != "true":
+            return True
+        patterns = json.loads((Path(root) / LEAN_CHECKOUT_TABLE).read_text(encoding="utf-8"))["sparse_checkout"]
+        widened = git("sparse-checkout", "set", "--no-cone", "--stdin", input="\n".join(patterns) + "\n", timeout=240)
+        return widened.returncode == 0
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return False
+
+
 def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     """Tracked files that name `token` as a whole name, not inside a longer one.
 
     `tests/test_foo.py` names the test, not `foo`; the test is its own
     referrer and is judged by its own rule.
     """
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
         # -I: a binary file (an image, an archive) names no helper.
         ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
@@ -278,6 +309,8 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
 def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     """The tracked files under `pathspec` that _files_naming() can return: the
     non-empty text files. None when git cannot search the tree."""
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
         ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
         capture_output=True, text=True,

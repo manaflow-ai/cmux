@@ -97,3 +97,12 @@ fn vm_lifecycle_claim_and_release_preserve_provider_power() {
     let running: Vm<Running, _> = paused.resume().running().preclaim().release();
     assert_eq!(running.payload(), "paused-spare");
 }
+
+#[test]
+fn vm_lifecycle_edges_are_listed_once() {
+    let mut seen = std::collections::HashSet::new();
+    for edge in EDGES {
+        assert!(seen.insert((edge.from, edge.method)), "{edge:?} declared twice");
+    }
+    assert_eq!(EDGES.len(), 43);
+}
