@@ -263,6 +263,27 @@ async fn a_create_past_the_cap_starts_on_the_picked_peer_only_when_its_client_as
     unsafe { std::env::remove_var("ACPMUX_PLACE_REDIRECT") };
     assert_eq!(placed_on(&off), None, "{off}");
 
+    // A filler's room (`filler=true`, idle_feeder's work) is a real start's: it starts here,
+    // never moved, and the filler is hibernated.
+    let mut filler = new("filler", false);
+    filler["_meta"]["acpmux"]["tags"] = json!({"filler": "true"});
+    let filler = call(&a, None, method::SESSION_NEW, filler).await;
+    let filler_id = filler["sessionId"].as_str().unwrap().to_owned();
+    let before = seen.lock().unwrap().len();
+    let real = call(&a, None, method::SESSION_NEW, new("real", true)).await;
+    assert_eq!(placed_on(&real), None, "a start moved past a filler's room: {real}");
+    assert!(real.get("peer").is_none(), "{real}");
+    assert_eq!(seen.lock().unwrap().len(), before, "a start with a filler's room reached far");
+    let mut hibernated = false;
+    for _ in 0..200 {
+        if a.resolve(&filler_id).unwrap().meta().hibernated_ms != 0 {
+            hibernated = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(hibernated, "the filler whose room the start took was not hibernated");
+
     // With no peer that has room it starts here, warned, as before.
     let lone = hub();
     let lone_new = call(&lone, None, method::SESSION_NEW, new("lone", true)).await;

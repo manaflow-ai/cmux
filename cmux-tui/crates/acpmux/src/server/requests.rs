@@ -1896,6 +1896,10 @@ async fn dispatch_request_with_identity(
                     }
                 }
             }
+            // It starts here in a filler's room: the filler is hibernated (`free_filler`).
+            if let Some((filler, reason)) = admitted.as_mut().and_then(|a| a.freed.take()) {
+                crate::hub::admission_redirect::free_filler(hub.clone(), filler, reason);
+            }
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let workspace_id = crate::session_env::workspace_id(meta, &env)?;

@@ -289,6 +289,9 @@ pub(crate) struct Admitted<'a> {
     /// The peer the placement engine put this create on, which it starts on
     /// instead of here (`admission_redirect.rs`); None to start here.
     pub placed: Option<super::admission_redirect::Placed>,
+    /// The filler session whose room this start takes, hibernated once the create goes ahead
+    /// here (`admission_redirect::free_filler`), with why there was no room.
+    pub freed: Option<(String, super::admission_redirect::Reason)>,
 }
 
 tokio::task_local! {
@@ -397,7 +400,13 @@ impl Hub {
             (
                 verdict,
                 fillers,
-                Admitted { admitting: &self.admitting, made, warning: None, placed: None },
+                Admitted {
+                    admitting: &self.admitting,
+                    made,
+                    warning: None,
+                    placed: None,
+                    freed: None,
+                },
             )
         };
         // Logged beside the admission; a create that asks moves on its verdict
@@ -436,6 +445,7 @@ impl Hub {
                 None,
                 Some(filler.as_str()),
             );
+            admitted.freed = Some((filler.clone(), reason));
         } else if let (Some(reason), Some(peers)) = (reason, &peers) {
             let live = verdict.over.as_ref().map_or(0, |o| o.live);
             let max = verdict.over.as_ref().map(|o| o.max);
@@ -645,8 +655,13 @@ mod tests {
         let admitting = Admitting::default();
         let made = Arc::new(Making::default());
         admitting.0.lock().unwrap().push(made.clone());
-        let admitted =
-            Admitted { admitting: &admitting, made: made.clone(), warning: None, placed: None };
+        let admitted = Admitted {
+            admitting: &admitting,
+            made: made.clone(),
+            warning: None,
+            placed: None,
+            freed: None,
+        };
         claim("outside");
         assert_eq!(made.made.get(), None, "a session inserted outside the create is not its");
         admitted.run(async { claim("mine") }).await;

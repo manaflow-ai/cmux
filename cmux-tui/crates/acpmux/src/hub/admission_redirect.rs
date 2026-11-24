@@ -101,12 +101,47 @@ pub(crate) struct Placed {
     pub max: Option<u64>,
 }
 
-/// Whether `session` is filler work (`tools/idle_feeder.py`'s, in leo-workspace), whose room a
-/// real start takes: that start stays here, never moved for it. False until the feeder marks
-/// its sessions (lane/idle-feeder-sources); the filler's preempt or hibernate then goes here
-/// too, in admission (`admission.rs` `admit_new`).
-pub(crate) fn is_filler(_session: &super::Session) -> bool {
-    false
+/// The acpmux tag every session `tools/idle_feeder.py` (leo-workspace) starts carries, as
+/// `filler=true`: work that soaks up idle room, which a real start takes back.
+pub(crate) const FILLER_TAG: &str = "filler";
+
+/// Whether `session` is filler work (`FILLER_TAG`), whose room a real start takes: that start
+/// stays here, never moved for it, and the filler is hibernated (`free_filler`).
+pub(crate) fn is_filler(session: &super::Session) -> bool {
+    session.read_meta(|m| m.tags.get(FILLER_TAG).is_some_and(|t| t.value == "true"))
+}
+
+/// Hands the room of filler session `id` to the real start that took it (`admission.rs`
+/// `admit_new`): hibernated as `session pause` does (`pause.rs`), and when its turn holds it up,
+/// that turn is stopped first (filler work is preemptible), then hibernated. In the background:
+/// the start never waits for it. The filler resumes its conversation on its next prompt.
+pub(crate) fn free_filler(hub: std::sync::Arc<super::Hub>, id: String, reason: Reason) {
+    tokio::spawn(async move {
+        let Some(session) = hub.session_by_id(&id) else { return };
+        let mut stopped = false;
+        let mut last = String::new();
+        for _ in 0..20 {
+            match hub.pause(&session).await {
+                Ok(v) if v.get("paused").and_then(Value::as_bool) == Some(true) => {
+                    let how = if stopped { "stopped, then hibernated" } else { "hibernated" };
+                    log("filler_hibernated", reason, None, Some(&format!("{id}: {how}")));
+                    return;
+                }
+                // Already stopped or hibernated: its room is free.
+                Ok(_) => return,
+                Err(e) if !stopped => {
+                    tracing::info!(session = %id, "filler busy ({}): turn stopped", e.message);
+                    stopped = true;
+                    if let Err(e) = hub.cancel(&session).await {
+                        tracing::info!(session = %id, "filler stop: {}", e.message);
+                    }
+                }
+                Err(e) => last = e.message,
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        log("filler_not_freed", reason, None, Some(&format!("{id}: {last}")));
+    });
 }
 
 /// Whether `params` asks to follow a placed create.
