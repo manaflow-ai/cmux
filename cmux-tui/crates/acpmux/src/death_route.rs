@@ -14,6 +14,10 @@
 //! - a live session holds the dead one's work: nothing starts;
 //! - it came back: one resume prompt;
 //! - it was moved: finish the move once it reads alive there;
+//! - its host is down past the grace, or its row is gone, and this machine keeps a copy of its
+//!   chat (`hub/peer_snapshot.rs`): move it from the copy (`session move --from-snapshot`) to the
+//!   first admitted host, its transcript and name with it, before anything starts it from briefs
+//!   (class 4: "let a move start from the copy");
 //! - no row to restart (gone, and its host is not down within the grace), or a network death:
 //!   start it again on a healthy host, else hand off (a network death goes on to failover);
 //! - its host is down within the grace: ask its host to start (a GCP VM), else wait;
@@ -68,6 +72,9 @@ pub struct Facts {
     pub pass_seconds_left: Option<f64>,
     /// The least a failover needs of the pass to finish.
     pub failover_min_seconds: f64,
+    /// Records of its chat this machine's copy holds (`_acpmux/peer_snapshot`, as
+    /// `session move --from-snapshot --dry-run --json` counts them); 0 for none or unread.
+    pub snapshot_records: u64,
     pub max_restarts: u32,
     pub max_failovers: u32,
     pub hosts: Hosts,
@@ -120,6 +127,8 @@ pub struct Tried {
     pub respawn_failed: String,
     /// Its host was asked to start.
     pub start_asked: bool,
+    /// A move from this machine's copy failed (why).
+    pub snapshot_failed: String,
     pub restarts: u32,
     pub failovers: u32,
 }
@@ -142,6 +151,9 @@ pub enum Route {
     StartHost,
     /// `acpmux session move` to `to`; on failure, `otherwise` says what the next pass does.
     Move { to: String, otherwise: String },
+    /// `acpmux session move --from-snapshot` to `to`: its host answers nothing, so it starts
+    /// there from this machine's copy of its chat (a new chat of its name).
+    MoveFromCopy { to: String },
     /// `acpmux session restart` in place (restart number `number`).
     Restart { number: u32 },
     /// Start a successor (failover number `number`), on `to` when set.
@@ -188,6 +200,33 @@ pub fn route(f: &Facts) -> Route {
     }
     let in_grace = f.host_down && f.dead_seconds < f.host_grace_seconds;
     let network = f.network && !f.host_down && f.has_row && !f.capacity;
+    if (f.host_down || !f.has_row)
+        && !in_grace
+        && f.snapshot_records > 0
+        && t.snapshot_failed.is_empty()
+        && !t.respawn_tried
+    {
+        let to = if h.room_known {
+            healthy(f).into_iter().find(|c| *c != f.host)
+        } else {
+            h.move_to
+                .iter()
+                .find(|c| {
+                    **c != f.host
+                        && listed(&h.answering, c)
+                        && !listed(&h.personal, c)
+                        && !listed(&h.last_resort, c)
+                        && !listed(&h.avoid, c)
+                })
+                .cloned()
+        };
+        if let Some(to) = to {
+            if !f.placement_cap.is_empty() {
+                return Route::Wait { why: f.placement_cap.clone() };
+            }
+            return Route::MoveFromCopy { to };
+        }
+    }
     if (!f.has_row && !in_grace) || (network && !t.respawn_tried) {
         let mut target = h
             .move_to

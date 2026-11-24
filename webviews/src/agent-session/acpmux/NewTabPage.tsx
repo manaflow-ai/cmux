@@ -4,8 +4,9 @@ import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { AgentMark as BrandMark, SessionMark } from "../shared/AgentMark";
-import type { HarnessIconSpec } from "../shared/harnessIcons";
+// AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
+// would pull this New Tab screen into the chat page's first script.
+import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -895,61 +896,6 @@ function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
-/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
-/// which agent it is at a glance; an agent without either draws the generic agent glyph.
-/// A chat's mark: the icon it set (acpmux `icon`), else its harness's.
-export function AgentMark({ harness, icon }: { harness?: string; icon?: HarnessIconSpec }) {
-  if (icon) return <SessionMark icon={icon} agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-}
-
-// 16px stroke icons in currentColor, matching ComposerPickers.
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
-}
-
-export function KindIcon({ kind }: { kind: TabKind }) {
-  switch (kind) {
-    case "terminal":
-      return (
-        <Icon>
-          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-          <path d="m4.6 6.2 2 1.8-2 1.8M8.4 10h3" />
-        </Icon>
-      );
-    case "browser":
-      return (
-        <Icon>
-          <circle cx="8" cy="8" r="6.1" />
-          <path d="M1.9 8h12.2M8 1.9c1.7 1.7 2.5 3.7 2.5 6.1S9.7 12.4 8 14.1C6.3 12.4 5.5 10.4 5.5 8S6.3 3.6 8 1.9Z" />
-        </Icon>
-      );
-    case "agent":
-      return (
-        <Icon>
-          <path d="M8 1.9c.4 2.9 1.6 4.1 4.6 4.6-3 .5-4.2 1.7-4.6 4.6-.4-2.9-1.6-4.1-4.6-4.6 3-.5 4.2-1.7 4.6-4.6Z" />
-          <path d="M12.4 10.4c.15 1.1.6 1.55 1.7 1.7-1.1.15-1.55.6-1.7 1.7-.15-1.1-.6-1.55-1.7-1.7 1.1-.15 1.55-.6 1.7-1.7Z" />
-        </Icon>
-      );
-  }
-}
-
 /// A folder glyph (the project picker on both New Tab designs).
 export const FolderIcon = () => (
   <Icon>
@@ -979,3 +925,5 @@ const ChevronRight = () => (
     <path d="m6.3 4.6 3.3 3.4-3.3 3.4" />
   </Icon>
 );
+
+export { AgentMark, KindIcon } from "./tabMarks";
