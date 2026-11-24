@@ -1002,6 +1002,57 @@ fn a_scan_past_a_seq_reads_no_segment_before_it() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A segment copied to another file (a staged prefix moved across file systems) takes the copy
+/// its source had, carried (`carry_copy`): a scan of the copied segment reads that copy, not the
+/// segment, and a copy carried onto a file with other bytes than it covers is not taken.
+#[test]
+fn a_copy_carried_to_a_copied_segment_is_read_and_one_of_other_bytes_is_not() {
+    let (from_root, to_root) = (root(), root());
+    let (store, log) = store_with_log(&from_root, 12);
+    let kinds = ["queued", "turn_started", "turn_result"];
+    let expected: Vec<EventRecord> =
+        log.iter().filter(|r| kinds.contains(&r.kind.as_str())).cloned().collect();
+    assert_eq!(scanned(&store, &kinds), expected);
+    let to = LocalStore::new(to_root.clone(), 4096).unwrap();
+    let (events, copies) =
+        (to_root.join("c").join("events"), to_root.join("c").join(kind_index::DIR));
+    crate::config::private_state_dir(&events).unwrap();
+    crate::config::private_state_dir(&copies).unwrap();
+    for (index, path) in store.segments("c").unwrap() {
+        let name = format!("{index:06}.ndjson");
+        std::fs::copy(&path, events.join(&name)).unwrap();
+        let carried = carry_copy(
+            &from_root.join("c").join(kind_index::DIR).join(&name),
+            &events.join(&name),
+            &copies.join(&name),
+        )
+        .unwrap();
+        assert!(carried, "segment {index}");
+        // Only the copy holds the records now: the copied segment's bytes are blanked.
+        let len = std::fs::metadata(events.join(&name)).unwrap().len();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(events.join(&name))
+            .unwrap()
+            .write_all(" ".repeat(len as usize).as_bytes())
+            .unwrap();
+    }
+    assert_eq!(scanned(&to, &kinds), expected, "the carried copies hold every record");
+    // Carried onto a shorter file than it covers: not taken.
+    let (first, _) = store.segments("c").unwrap()[0].clone();
+    let name = format!("{first:06}.ndjson");
+    std::fs::write(events.join(&name), b"").unwrap();
+    let short = carry_copy(
+        &from_root.join("c").join(kind_index::DIR).join(&name),
+        &events.join(&name),
+        &copies.join(&name),
+    )
+    .unwrap();
+    assert!(!short, "a copy of more bytes than the file holds is not carried");
+    let _ = std::fs::remove_dir_all(&from_root);
+    let _ = std::fs::remove_dir_all(&to_root);
+}
+
 /// A chat written but never scanned (a new or seeded chat, one moved in) has a copy of every
 /// segment its appends filled, made at the rotation (`store/segment_writer.rs`), each saying all
 /// its lines read: its first strict scan, a first start's transfer authority, reads the copies

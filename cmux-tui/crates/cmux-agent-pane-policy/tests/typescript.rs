@@ -94,6 +94,8 @@ fn the_allowlist_is_what_the_page_sends() {
     sent.insert(constant(&direct, "PREWARM_METHOD"));
     sent.insert(constant(&direct, "MCP_RECONNECT_METHOD"));
     sent.insert(constant(&direct, "PROJECT_NEW_METHOD"));
+    // Auto's Where (autoWhereModel.ts `PLACE_CHAT_METHOD`, sent through direct.ts `placeChat`).
+    sent.insert(constant(&read(&dir, "autoWhereModel.ts"), "PLACE_CHAT_METHOD"));
     // A chat's typing (multiplayer/presenceClient.ts) and a failed subagent's, sub-session's or
     // turn's Retry (subagents/retryState.ts `RETRY_METHOD`, sent through direct.ts `retry`).
     sent.extend(quoted_after(&read(&dir, "multiplayer/presenceClient.ts"), "this.send("));
