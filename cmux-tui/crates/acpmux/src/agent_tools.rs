@@ -1046,6 +1046,18 @@ pub fn claude_args_for(
     session_id: &str,
     cwd: &Path,
 ) -> (Vec<String>, Option<String>) {
+    let (args, prompt, _) = claude_args_and_hooks_for(remote_origin, env, args, session_id, cwd);
+    (args, prompt)
+}
+
+/// Whether the session included cmux’s own plugin also controls its stream callbacks.
+pub(crate) fn claude_args_and_hooks_for(
+    remote_origin: bool,
+    env: &BTreeMap<String, String>,
+    args: &[String],
+    session_id: &str,
+    cwd: &Path,
+) -> (Vec<String>, Option<String>, bool) {
     // Under `--strict-mcp-config` Claude starts no project server; a remote origin's config
     // stays empty (`left_out`).
     let strict = args.iter().any(|a| a == "--strict-mcp-config");
@@ -1054,7 +1066,7 @@ pub fn claude_args_for(
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
         if project_servers.is_empty() {
-            return (Vec::new(), None);
+            return (Vec::new(), None, false);
         }
         AgentTools::default()
     } else {
@@ -1072,9 +1084,10 @@ pub fn claude_args_for(
         }
         tools.via_gateway(session_id, cwd)
     };
+    let callbacks = tools.plugin_dir.is_some();
     let args = AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id));
-    (args, prompt)
+    (args, prompt, callbacks)
 }
 
 /// The heading Claude Code gives MCP server instructions (2.1.330), so the moved text reads as
@@ -1787,8 +1800,6 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
         all.extend_from_slice(text.as_bytes());
         all.push(0);
     }
-    let hooks = bg_hooks();
-    all.extend_from_slice(hooks.as_bytes());
     let hash = crate::sha256::sha256_hex(&all);
     let dir = state_dir.join(&hash[..16]);
     if dir.join(".claude-plugin/plugin.json").is_file() {
@@ -1806,7 +1817,6 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
     });
     let mut files = vec![(".claude-plugin/plugin.json".to_owned(), manifest.to_string())];
     files.extend(skill_files.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
-    files.push(("hooks/hooks.json".to_owned(), hooks));
     for (path, text) in files {
         let file = tmp.join(path);
         if let Some(parent) = file.parent() {
@@ -1826,48 +1836,6 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
             Err(e.into())
         }
     }
-}
-
-/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, and for a subagent's
-/// calls only ([`hook_command`]) after its `Bash` calls, around its acpmux MCP calls
-/// (`bg_hook::MCP_CALLS`, `subagent_call.rs`) and as it stops (the notices left for a subagent,
-/// `subagent_notice.rs`), run by this binary
-/// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
-/// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
-/// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
-/// its content's hash, so each home has its own. Leo, 2026-10-27: "also when it comes to
-/// hibernation...can't you hibernate the agent but not hibernate the bg tasks?"
-fn bg_hooks() -> String {
-    let this = crate::self_command::SelfCommand::current()
-        .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
-    let mut words = vec![this.exe.to_string_lossy().into_owned()];
-    let home = crate::config::home().to_string_lossy().into_owned();
-    words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    let bash = hook_command(&words, &crate::bg_hook::bash_patterns());
-    let hook = json!([{"type": "command", "command": bash, "timeout": 10}]);
-    // Only a subagent's call has work there: the lead's never starts this binary.
-    let sub = hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()]);
-    let subagent = json!([{"type": "command", "command": sub, "timeout": 10}]);
-    let mcp = crate::bg_hook::mcp_matcher();
-    json!({"hooks": {
-        "PreToolUse": [{"matcher": "Bash", "hooks": hook}, {"matcher": mcp, "hooks": subagent}],
-        "PostToolUse": [{"matcher": format!("Bash|{mcp}"), "hooks": subagent}],
-        "PostToolUseFailure": [{"matcher": mcp, "hooks": subagent}],
-        "SubagentStop": [{"hooks": subagent}],
-    }})
-    .to_string()
-}
-
-/// A hook's shell command: the shell reads Claude Code's input and starts `words` with it only when
-/// it matches one of `patterns` (shell `case` patterns), so a call the binary has nothing to say
-/// about starts no process (`bg_hook::bash_patterns`; a subagent's call names `agent_id`). It ends
-/// `true`: Claude Code blocks the call when a PreToolUse hook exits 2, and the hook turns a call
-/// away only through the JSON it prints, so a failure (a binary that is gone, or one that does not
-/// know `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
-/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02).
-pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
-    let (read, when, run) = ("input=$(cat); case \"$input\" in", patterns.join("|"), quoted(words));
-    format!("{read} {when}) printf '%s' \"$input\" | {run} ;; esac; true")
 }
 
 /// `words` as single-quoted shell words.
