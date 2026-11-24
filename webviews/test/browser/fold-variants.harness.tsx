@@ -409,7 +409,7 @@ async function run(
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
-      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
+      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => [row.id, JSON.stringify(row)] as const));
       // This harness draws no "Worked for" to open: a reader's `open` step scrolls nothing here.
       const reader = step.type === "reader" && !("open" in step.reader) ? step.reader : undefined;
       if (reader && stray) {

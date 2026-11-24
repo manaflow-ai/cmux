@@ -493,10 +493,12 @@ class PipelineTest(unittest.TestCase):
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
         routed = pr_router.table_jobs_routed
-        self.assertEqual(routed(callees, ["webviews/src/app.tsx"]), ["web-browser"])
+        # `security-holes` (inputs ["**"]) routes every change to linux, so linux is in every list; web-browser
+        # starts only for a browser step's inputs.
+        self.assertEqual(routed(callees, ["webviews/src/app.tsx"]), ["linux", "web-browser"])
         self.assertEqual(routed(callees, ["scripts/ci/notify-indexnow.py"]), ["linux"])
         self.assertEqual(routed(callees, ["web/app/page.tsx"]), ["linux", "web-browser"])
-        self.assertEqual(routed(callees, ["docs/x.md"]), [])
+        self.assertEqual(routed(callees, ["docs/x.md"]), ["linux"])
         # Unknown changes or an unreadable table run every job.
         self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac"])
         self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac"])
@@ -603,8 +605,11 @@ class PipelineTest(unittest.TestCase):
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
-                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
-                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                path = ROOT / ".github/workflows" / name
+                # ci-artifact-transport.yml ran only on pushes to main, so feat-cmux-next has no copy.
+                if path.exists():
+                    wf = yaml.safe_load(path.read_text())
+                    self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
         # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
@@ -647,6 +652,32 @@ class PipelineTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(web_subareas.classify_paths([path]).typecheck)
                 self.assertTrue(ci_steps.routed(typecheck, [path]))
+        # cmux-next-guards.yml's security-holes job judged every pull request (gitleaks reads any file), so its step's
+        # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        self.assertEqual(wf["jobs"]["security-holes"]["if"],
+                         "${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
+                         "|| github.workflow == 'docs-only fallback') }}")
+        holes = steps["security-holes"]
+        self.assertEqual(holes.job, "linux")
+        self.assertEqual(holes.inputs, ("**",))
+        self.assertTrue(holes.blocks)
+        for path in ("a.txt", "web/app/page.tsx", "Sources/App.swift", ".github/workflows/x.yml"):
+            with self.subTest(path=path):
+                self.assertTrue(ci_steps.routed(holes, [path]))
+        # A docs-only change alone does not start the pipeline for it, as the job's docs-only path filter did not.
+        import pr_router
+        callee = pr_router.load_manifest()["pr-pipeline.yml"]
+        self.assertEqual(pr_router.table_steps(callee, ["docs/x.md"]), [])
+        self.assertIn("security-holes", pr_router.table_steps(callee, ["docs/x.md", "a.txt"]))
+        self.assertIn("security-holes", pr_router.table_steps(callee, ["a.txt"]))
+        for command in ("ratchet.py zizmor --base HEAD^1 --head HEAD", "ratchet.py gitleaks --base HEAD^1 --head HEAD",
+                        "tests/test_static_analysis_ratchet.py", "tests/test_ci_linux_single_size.py",
+                        "tests/test_ci_no_single_size_pins.py", "CMUX_STATIC_ANALYSIS_BLOCKING=1"):
+            self.assertIn(command, holes.run)
+        # One failed command does not stop the others, as the job's `!cancelled()` steps did.
+        self.assertEqual(holes.run.count("|| status=1"), 4)
+        self.assertIn('exit "$status"', holes.run)
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -1046,6 +1077,20 @@ class EnsureBun(unittest.TestCase):
         done = self.run_script()
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("from " + str(self.cache), done.stdout)
+
+    def test_bunx_is_beside_bun_whichever_way_bun_came(self) -> None:
+        # setup-bun gave steps `bunx` too; web's playwright webServer runs `bunx next` (#53426: "bunx: not found").
+        ways = {"path": lambda: fake_bun(self.path_bin / "bun", BUN_VERSION), "download": self.publish, "cache": lambda: None}
+        for way, arrange in ways.items():
+            with self.subTest(way=way):
+                arrange()
+                done = self.run_script()
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(os.readlink(self.bin / "bunx"), "bun")
+                self.assertEqual((self.bin / "bunx").resolve(), (self.bin / "bun").resolve())
+                (self.bin / "bunx").unlink()
+                if way == "path":
+                    (self.path_bin / "bun").unlink()
 
     def test_a_download_that_does_not_match_its_checksum_fails(self) -> None:
         self.publish(corrupt=True)
