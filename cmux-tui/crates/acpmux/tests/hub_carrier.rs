@@ -359,7 +359,12 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
         .await
         .unwrap();
     until_state(&a, true, Duration::from_secs(30)).await;
-    assert!(carrier_a.stats().dials.load(Ordering::Relaxed) >= 1, "A dialed over the carrier");
+    // A peer link rides the pair's kept circuit as a stream (#52580), else a plain circuit.
+    let carried = |carrier: &HubCarrier| {
+        carrier.stats().dials.load(Ordering::Relaxed)
+            + carrier.stats().kept_opens.load(Ordering::Relaxed)
+    };
+    assert!(carried(&carrier_a) >= 1, "A dialed over the carrier");
     assert!(carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1, "B took the circuit");
     let connected_bytes = proxy.bytes.load(Ordering::Relaxed);
 
@@ -413,7 +418,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     .await
     .expect("B's turn never ended");
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let dials_before = carrier_a.stats().dials.load(Ordering::Relaxed);
+    let dials_before = carried(&carrier_a);
     proxy.resume();
 
     // A reconnects over the carrier and replays what it missed, once, with the prompt's answer.
@@ -426,10 +431,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     .await
     .expect("the missed events never arrived after the relay came back");
     assert_eq!(answer.as_ref().unwrap()["stopReason"], "end_turn");
-    assert!(
-        carrier_a.stats().dials.load(Ordering::Relaxed) > dials_before,
-        "redialed over the carrier"
-    );
+    assert!(carried(&carrier_a) > dials_before, "redialed over the carrier");
     until_state(&a, true, Duration::from_secs(5)).await;
     // Nothing more arrives late: each event came exactly once.
     let _ = tokio::time::timeout(Duration::from_millis(500), async {
@@ -948,6 +950,9 @@ async fn hub_carrier_a_replayed_or_reordered_record_closes_the_stream() {
         key_a,
         fast,
     );
+    // A plain circuit, one Noise record per line: on a kept circuit (where acpmux dials go since
+    // #52580) the next record A sends may be a PING or WINDOW record, not the request.
+    carrier_a.acpmux_streams(false);
 
     for (tamper, sent) in [(Tamper::Duplicate, 1), (Tamper::Reorder, 2)] {
         ran.lock().unwrap().clear();
@@ -2107,6 +2112,8 @@ async fn hub_carrier_pipe_bulk_layers() {
 /// reading never applies its acknowledgements, so each full delivery window ends in a liveness
 /// reconnect; the frame a send held across one went missing and the next took its sequence
 /// (frame 7 of 32 arrived as 8 before the fix), here over plain TCP and through the pipe alike.
+/// The transfer is 16 MiB: past two of the 7 MiB windows a lane has had since #49037 (1 MiB
+/// fit in one and never reconnected).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let _ = HERMETIC;
@@ -2116,7 +2123,7 @@ async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
     let client = connect_over(&fixture, &identity, true, tcp).await;
     let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
-    bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
+    bulk_down(&client, &daemon_client, 16 << 20, false).await.unwrap();
     assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
 }
 
@@ -3093,8 +3100,9 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_opens() - opens, 4);
 }
 
-/// One circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials) ride
-/// the kept circuit as streams beside the cmux-tui ones, and no plain circuit opens.
+/// One cheap circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials)
+/// ride the cheap kept circuit as streams, cmux-tui rides the bulk one, and no plain circuit
+/// opens.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
     let _ = HERMETIC;
@@ -3103,10 +3111,12 @@ async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
     let mut probe = within("the hub probe", fixture.a.dial(&fixture.b_key)).await.unwrap();
     echo(&mut link, b"link\n").await;
     echo(&mut probe, b"probe\n").await;
-    let _tui = fixture.dial_to_banner().await;
     assert_eq!(fixture.kept_circuits(), 1, "the links rode the one cheap circuit");
-    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside it");
-    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1);
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
+    let _tui = fixture.dial_to_banner().await;
+    assert_eq!(fixture.kept_circuits(), 2, "cmux-tui opened the bulk circuit beside it");
+    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside them");
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 2);
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(3));
 }
 

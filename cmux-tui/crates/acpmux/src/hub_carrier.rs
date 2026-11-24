@@ -1028,9 +1028,9 @@ impl HubCarrier {
                             }
                             Ok(Err(_)) | Err(_) => {
                                 mux.close().await;
-                                return KeptOpen::Failed(
-                                    "the machine did not answer the kept circuit's hello".into(),
-                                );
+                                return KeptOpen::Failed(mux.ended().unwrap_or_else(|| {
+                                    "the machine did not answer the kept circuit's hello".into()
+                                }));
                             }
                         }
                         match first {
