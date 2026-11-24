@@ -42,6 +42,8 @@
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
+//! `layout_cache` is every window's last computed layout kept across restarts, so a launch
+//! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
@@ -70,6 +72,7 @@ pub use cmux_keymap::ffi as keymap;
 pub use cmux_launch_image::ffi as launch_image;
 pub use cmux_launch_record;
 pub use cmux_launch_shell::ffi as launch_shell;
+pub use cmux_layout_cache::ffi as layout_cache;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;

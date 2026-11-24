@@ -872,7 +872,10 @@
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1602,7 +1605,8 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
-        "computerUse.menus"
+        "computerUse.menus",
+        "computerUse.whileLocked"
       ]
     },
     {
@@ -1748,6 +1752,13 @@
       "why": "On, a phone signed in to the same account can open this Mac's terminals and agents.",
       "keys": [
         "mobile.allowIPhoneConnections"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
       ]
     },
     {
