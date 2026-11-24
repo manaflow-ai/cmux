@@ -565,6 +565,7 @@ MODEL_BY_PATH = {
     'commands/terminal-clipboard-subscribe/request': models.TerminalClipboardSubscribeRequest,
     'commands/terminal-command-context/request': models.TerminalCommandContextRequest,
     'commands/terminal-events/request': models.TerminalEventsRequest,
+    'commands/terminal-find/request': models.TerminalFindRequest,
     'commands/terminal-history/request': models.TerminalHistoryRequest,
     'commands/terminal-last-command/request': models.TerminalLastCommandRequest,
     'commands/terminal-ports/request': models.TerminalPortsRequest,

@@ -401,7 +401,10 @@ impl Hub {
         self.seal_retry_replacement(old);
         // Drain an earlier retention commit before replacing the journal.
         drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-        self.kill(old, false).await
+        let why =
+            crate::close_why::CloseWhy::by("daemon", "replaced by an import of the same chat")
+                .outcome("moved");
+        self.kill_why(old, false, why).await
     }
 
     /// `_acpmux/transfer_preflight {manifest, guard?}`: whether this daemon would take the chat

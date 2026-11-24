@@ -163,7 +163,7 @@ Worker was deployed before its database migration; the message names it), `membe
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, skipped?, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `POST /v1/diagnostics/connectivity-incidents` | One state of a major connectivity incident (0.15.0; "Connectivity incidents" below) → `202 {accepted:true, route:"team"\|"test", note?:"duplicate"\|"rate_limited"}`; `403 not_team` / `email_unverified` for anyone whose verified Stack email is not on a cmux team domain; `409 conflict` for an incident id another account used; `502 user_unavailable` when Stack cannot be asked (retry) |
@@ -510,8 +510,10 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   signal opened too. `503 relay_off` when the Worker's `LINK_RELAY_MODE` is
   `off` (the kill switch); an older Worker answers `404`.
 - **Where:** one `LinkRelay` Durable Object per session, named by the owner
-  key, build space and session id (never a client value), created with the
-  joiner's `locationHint` like a hub. Hibernating sockets, no storage, one
+  key, build space and session id (never a client value), created in the
+  region that makes the two ends' round trips through it least ("Relay
+  placement" below); the joiner's `locationHint` when the peer's location is
+  unknown. Hibernating sockets, no storage, one
   socket per device (a newer join closes the older with 4000 `replaced`).
 - **Frames:** the overlay relay frame of `cmux_transport::relay_frame`
   (`[u8 1][u8 kind][16-byte peer][payload ≤ 16 KiB]`, the shared golden
@@ -556,6 +558,35 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   allocation, the relay at once, never left; without the relay the dial
   fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
   `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
+
+### Relay placement
+
+A Durable Object stays where it is first created, so the first join decides
+where a session's relay lives for good (`backend/src/placement.ts`). The
+Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+The peer is the other party of the session, located by its live signal
+socket. Each end's cost to r is either:
+
+- its own measured round trip to r, from its netcheck; or
+- an estimate from Cloudflare's geolocation of its request (lat/lon rounded
+  to 0.1°): the great-circle distance to the region's assumed centre at
+  100 km per ms of round trip.
+
+When an end has neither, the relay takes the joiner's `locationHint`, as
+before. Regions within 2 ms of the least sum count as a tie; the more even
+split wins.
+
+- **Netcheck targets:** `GET /v1/netcheck/:region` (`wnam`, `enam`, `sam`,
+  `weur`, `eeur`, `apac`, `oc`, `afr`, `me`), a WebSocket upgrade with the
+  same bearer as signaling. It reaches one object per region and build
+  space, created with that region's hint. The object answers `ping` with
+  `pong` without waking; any other frame closes the socket with 1008. An
+  unknown region gets `404 unknown_region`, and `503 relay_off` comes with
+  the relay's kill switch.
+- **Reporting it:** a client that has measured adds
+  `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
+  a relay join). Entries that fail to parse are dropped. The hub keeps the
+  value with the socket and never stores it.
 
 ### When no path works
 
@@ -1185,6 +1216,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
   (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
   view only: hostd sends the source no input from the phone.
+  With `mac-display-v1` (2026-11-23), `tab` may be `d~<display>`: this Mac's own
+  display (a CGDirectDisplayID in decimal, no leading zero; `d~0` the main display),
+  the Mac screen as rd/1 on this link with its video on the media lane, view only like
+  a Cloud desktop. hostd lists `mac-display-v1` only when the app's source captures
+  displays (`CMUX_MOBILE_MAC_DISPLAY=1`, else `no_surface_host`); the app starts a
+  capture only while Share This Mac is on (else the open fails `unavailable`) and
+  stops it when sharing turns off or the viewer goes.
   `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
@@ -1252,6 +1290,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
@@ -1318,6 +1357,27 @@ With both, the challenge frame adds `macKey` (the X9.63 point, hex) and
 pins `macKey` per Mac device id when pairing first passes, and from then on
 refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
 or none. Removing the Mac forgets the pin.
+
+#### Tunnel keys in the proofs (`proofVersion` 2)
+
+On a WireGuard link, both identity proofs also cover the tunnel's two static
+public keys, as each side's own tunnel handshook with them: `dialer` (the
+phone's, or a dialing Mac's) and `answerer` (the Mac's), base64 as in `wg-init`
+and `wg-resp`.
+
+- The phone's `auth` args add `proofVersion: "2"` on a WireGuard link.
+- A Mac that supports it answers on a WireGuard link with `proofVersion: "2"` in
+  the challenge, `macSignature` over
+  `cmux-mobile-mac-identity-v2 \0 mac \0 phone \0 macNonce \0 challenge \0 dialer \0 answerer`,
+  and checks the phone's signature over
+  `cmux-mobile-link-auth-v2 \0 mac \0 phone \0 nonce \0 identityKey \0 approvalKey \0 action \0 dialer \0 answerer`
+  (refused `unpaired` otherwise).
+- The phone checks the proof over its own tunnel's keys (refused
+  `mac_identity_changed`, before it signs). Once a Mac proved v2, the phone
+  remembers it beside the pin and refuses a v1 challenge from it on a WireGuard
+  link; a v2 challenge on a link with no tunnel keys is refused too.
+- A peer that sends no `proofVersion` (an older phone, or a WebRTC link) gets
+  the v1 proofs above; an older Mac ignores it and answers v1.
 
 ### Chief question answers
 
@@ -1634,7 +1694,16 @@ phone's registered `sandbox` or `production`, `status` is APNs' HTTP status
 `network` when no answer came, or `unknown` for any other body. It never
 carries the device token, the topic or an error's text. Without a failure the
 field is absent, so the rest of the answer is unchanged. Sends APNs reports as
-gone count in `dropped`, not here.
+gone count in `dropped`, not here: only a token-level answer (`BadDeviceToken`,
+`Unregistered`, `DeviceTokenNotForTopic`, or 410) drops a registration.
+
+A key- or topic-level answer (`TopicDisallowed`, `BadEnvironmentKeyInToken`,
+`InvalidProviderToken`, `ExpiredProviderToken`, `MissingTopic`, `BadTopic`)
+would be the same for every phone on that environment and topic, so the
+Worker does not send that event to the rest of them: they count in
+`skipped` (absent when 0), not in `failed` or `failures`, and keep their
+registrations. The Worker keeps at most 6 APNs sends in flight per event,
+each environment and topic's first send in the first six.
 
 Only `eventId` and `kind` are required. Any other field that is malformed
 (an id outside its pattern, a value of the wrong type, an unknown `state`, an

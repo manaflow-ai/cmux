@@ -267,6 +267,32 @@ fn a_capacity_wait_never_runs_out_and_is_capped() {
     assert!((1600..=1920).contains(&super::capacity_wait(3, &short, "s")), "1600 ms plus jitter");
 }
 
+/// A capacity outage and an account's rate limit are waited out (Leo, 2026-11-24: "didn't we
+/// build auto retries for this? why do they fail instead of waiting it out?"); a connection
+/// error keeps its configured attempts, and `[]` keeps every loop off.
+#[test]
+fn capacity_and_rate_limits_are_waited_out() {
+    let delays = DEFAULT_DELAYS_MS.to_vec();
+    assert!(super::waits_it_out(RetryReason::Capacity, &delays));
+    assert!(super::waits_it_out(RetryReason::RateLimit, &delays));
+    assert!(!super::waits_it_out(RetryReason::Transport, &delays));
+    assert!(!super::waits_it_out(RetryReason::RateLimit, &[]));
+    // Both errors on the 18 lanes one machine left failed on 2026-11-23 are one of the two.
+    for (error, reason) in [
+        (
+            "API Error: 503 no non-exhausted claude accounts available; next account frees up in 9m (retry after 540s)",
+            RetryReason::Capacity,
+        ),
+        (
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit. Please try again later.",
+            RetryReason::RateLimit,
+        ),
+    ] {
+        let cause = crate::turn_errors::resume_cause(error, error);
+        assert_eq!(cause.and_then(RetryReason::from_cause), Some(reason), "{error}");
+    }
+}
+
 #[test]
 fn a_cut_compact_is_sent_again_as_itself() {
     assert_eq!(super::resent_command("/compact"), Some("/compact"));

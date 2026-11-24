@@ -1117,7 +1117,9 @@ pub(super) async fn handle_request(
             crate::sender_token::stamp(prompt, matched, carried);
             // Who sent it, as the `Sent-by:` line the daemon appends to its text (`sent_by.rs`):
             // only a local connection that proved its session, before the outbox or a peer
-            // takes it, so every route carries the sender's own line.
+            // takes it, so every route carries the sender's own line. Its `_meta` copy is the
+            // daemon's alone: one a client sent is dropped.
+            crate::sent_by::drop_claimed(prompt, carried);
             if conn.origin == super::Origin::Local
                 && let Some(caller) = conn.caller()
             {
@@ -1375,6 +1377,7 @@ async fn dispatch_request_with_identity(
                 method::MUX_PLACE_CHAT,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
+                method::MUX_FELT_SNAPSHOT,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -2007,6 +2010,8 @@ async fn dispatch_request_with_identity(
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
+            // The felt send-to-ack starts here, before the admission wait (`felt.rs`).
+            let felt_started = std::time::Instant::now();
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
@@ -2355,6 +2360,7 @@ async fn dispatch_request_with_identity(
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             }
+            let on_accepted = super::felt::time_ack(felt_started, on_accepted);
             let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
                 prompt_admission: Some(prompt_admission),
@@ -2651,12 +2657,14 @@ async fn dispatch_request_with_identity(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, false)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, false, why)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, true)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -2689,6 +2697,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
+        // own clients only, like the perf watch beside it.
+        method::MUX_FELT_SNAPSHOT => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read the felt latency",
+                ));
+            }
+            Ok(cmux_felt::snapshot())
+        }
         // Each caller's requests and bytes over a recent window (`caller_stats.rs`): this
         // machine's own clients only. It names local pids and sessions.
         method::MUX_CALLERS => {
@@ -2862,6 +2880,17 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
+        // place picker and chip, on the same sockets `_acpmux/place` answers on.
+        "_acpmux/chat_place" | "_acpmux/chat_place_set"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/chat_place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/chat_place" => Ok(super::chat_place::read(hub, &params).await),
+        "_acpmux/chat_place_set" => super::chat_place::set(hub, &params).await,
         // Where a new Auto chat runs, from this machine's budget: the same clients as
         // `_acpmux/place` (its reason names this machine's numbers).
         method::MUX_PLACE_CHAT if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
@@ -3836,7 +3865,10 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
+            // refused.
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         // Hibernate an idle session now, or start a hibernated one's agent now (`hub/pause.rs`).
@@ -4063,6 +4095,45 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            // A take-over start's ask for this daemon's listeners (`daemon/listener_handover.rs`):
+            // from the unix socket only, to a side socket in this home that the asking process
+            // listens on. Sent before the stop begins; a failure only means it binds as before.
+            #[cfg(unix)]
+            let handed: Vec<&'static str> = match (
+                params.get(crate::daemon::listener_handover::PARAM).and_then(Value::as_str),
+                conn.origin,
+                conn.socket_peer,
+            ) {
+                (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
+                    let side = std::path::PathBuf::from(side);
+                    let home = crate::config::home();
+                    match tokio::task::spawn_blocking(move || {
+                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                    })
+                    .await
+                    {
+                        Ok(Ok(kinds)) => {
+                            tracing::info!(
+                                asker,
+                                ?kinds,
+                                "handed the listeners to the take-over start"
+                            );
+                            kinds
+                        }
+                        Ok(Err(why)) => {
+                            tracing::warn!(asker, "listener handover refused: {why}");
+                            Vec::new()
+                        }
+                        Err(e) => {
+                            tracing::warn!("listener handover task: {e}");
+                            Vec::new()
+                        }
+                    }
+                }
+                _ => Vec::new(),
+            };
+            #[cfg(not(unix))]
+            let handed: Vec<&'static str> = Vec::new();
             crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
                 &shutdown_reason(&params),
                 params.get("restart").and_then(Value::as_bool) == Some(true),
@@ -4095,7 +4166,11 @@ async fn dispatch_request_with_identity(
             } else {
                 0
             };
-            Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
+            Ok(json!({
+                "endAgents": end_agents,
+                "keptSessions": kept,
+                "listenersHanded": handed,
+            }))
         }
         method::MUX_HANDOFF_PREPARE => {
             heap(|| hub.handoff_prepare(&params, conn.origin.web_class())).await

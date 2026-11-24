@@ -378,9 +378,12 @@ fn set_text(
         accepts(row, &value, &state.domains)?;
         // The default's own value removes the key, so it keeps following the default when a later
         // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
-        let below = state.managed.recommended.contains_key(&row.key)
-            || state.team.defaults.contains_key(&row.key);
-        if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
+        if remove_default
+            && row.default.clone().map(canonical).as_ref() == Some(&value)
+            && !state.managed.recommended.contains_key(&row.key)
+            && !state.team.defaults.contains_key(&row.key)
+            && !overrides_group_background(state, source, row, &value)?
+        {
             let text = remove_pruning(without_replaced(source.to_string(), &path)?, &path)?;
             return Ok(text);
         }
@@ -390,6 +393,22 @@ fn set_text(
     }
     let text = without_replaced(source.to_string(), &path)?;
     jsonc::set(&text, &path, &value).map_err(unreadable)
+}
+
+fn overrides_group_background(
+    state: &State,
+    source: &str,
+    row: &Row,
+    value: &Value,
+) -> Result<bool, Refusal> {
+    if row.key != crate::sidebar_look::GROUP_BACKGROUND || source == state.source {
+        return Ok(state.overrides_group_background(row, value));
+    }
+    // Earlier edits in this batch may have changed the selected look or its theme.
+    let mut pending = state.clone();
+    pending.file_root = jsonc::parse(source).map_err(unreadable)?;
+    pending.recompute();
+    Ok(pending.overrides_group_background(row, value))
 }
 
 const BACKGROUND: [&str; 2] = ["appearance", "background"];

@@ -859,6 +859,7 @@ impl Hub {
             create_key: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
+            close: None,
             idle_launch: None,
             start_level: None,
             moved_to: None,

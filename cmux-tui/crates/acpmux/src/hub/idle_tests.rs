@@ -214,3 +214,48 @@ async fn an_update_restart_waits_for_work_below_and_restarts_a_quiet_chat_now() 
     );
     hub.shutdown_all().await;
 }
+
+/// An unstored Claude chat whose failed turn did work stays awake only while Claude has not
+/// stored its conversation: once the conversation's transcript is in the store its profile
+/// reads, the idle pass clears the flags and it may sleep (its next wake resumes it). Red on
+/// the base: only a turn that ended Ok cleared them, so a chat whose one turn hit a 429 after
+/// working stayed awake until the daemon stopped.
+#[tokio::test]
+async fn an_unstored_chat_claude_stored_after_all_may_sleep() {
+    const CHAT: &str = "0199a1b2-0000-7000-8000-00000000c1a1";
+    let root = std::env::temp_dir().join(format!("acpmux-idle-stored-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let cwd = root.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake], "env": {"CLAUDE_CONFIG_DIR": root}}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(cwd.clone()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    {
+        let mut m = session.meta.lock().unwrap();
+        m.agent_session_id = Some(CHAT.into());
+        m.claude_unstored = true;
+        m.claude_unstored_work = true;
+        m.turn_count = 1;
+    }
+    hub.confirm_claude_stored(&session).await;
+    assert!(!hub.idle_eligible(&session), "a conversation Claude never stored keeps it awake");
+    assert!(session.meta().claude_unstored);
+
+    let dir = root.join("projects").join(crate::adopt::project_dir_name(&cwd));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{CHAT}.jsonl")), "{\"type\":\"user\"}\n").unwrap();
+    hub.confirm_claude_stored(&session).await;
+    let meta = session.meta();
+    assert!(!meta.claude_unstored && !meta.claude_unstored_work, "the store has it");
+    assert!(hub.idle_eligible(&session), "a stored conversation may sleep");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}

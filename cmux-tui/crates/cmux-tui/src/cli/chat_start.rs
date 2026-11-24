@@ -6,8 +6,11 @@
 //! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
 //! that runs something somewhere:
 //!
-//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on here`: right here, as
-//!   `cmux agents chat new` starts it (a chat tab in the app, in this machine's acpmux);
+//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on auto`: Auto
+//!   (`auto_place`): right here when acpmux's placement says this machine has room, else a new
+//!   Cloud VM when signed in with Cloud on, else here all the same;
+//! - `--on here`: right here, as `cmux agents chat new` starts it (a chat tab in the app, in
+//!   this machine's acpmux);
 //! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
 //!   none (`my_vm`);
 //! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
@@ -117,9 +120,12 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
 
-Starts an agent chat, right here unless --on names another target:
+Starts an agent chat, right here (or in Cloud when this machine is busy) unless --on
+names another target:
 
-  --on here          This machine, as a tab in the cmux app (the default)
+  --on auto          This machine when it has room, else a new Cloud VM when you are
+                     signed in and Cloud is on (the default)
+  --on here          This machine, as a tab in the cmux app
   --on cloud         Today the same as --on vm: your one VM, the one running VM of
                      several, or a new one when you have none; several and none
                      running is refused with their names
@@ -143,7 +149,8 @@ Starts an agent chat, right here unless --on names another target:
   --timeout, --timings, --attach or --name) starts here at once while its
   machine starts, then moves there between turns (log: the hybrid-start folder
   beside cmux's sessions). CMUX_HYBRID_START=1 turns that on whatever the plan,
-  CMUX_HYBRID_START=0 off; `cmux cloud hybrid-status --json` says which.
+  CMUX_HYBRID_START=0 off; with neither, cloud.autoCloud set to true in
+  cmux-next.json turns it on. `cmux cloud hybrid-status --json` says which.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
@@ -945,7 +952,11 @@ where
     }
 }
 
-fn run(global: &GlobalArgs, start: Start) -> i32 {
+fn run(global: &GlobalArgs, mut start: Start) -> i32 {
+    // `--on auto` asks by name for what a start naming no target gets (auto_place.rs).
+    if start.on.as_deref().is_some_and(|on| on.trim().eq_ignore_ascii_case(auto_place::AUTO)) {
+        start.on = None;
+    }
     let reads = Reads {
         catalog: || read_catalog(global),
         signed_in: || cloud_start_chat::app_signed_in(global),
@@ -964,6 +975,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     let route = match in_environment(&start, route) {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
+    };
+    let route = match route {
+        Route::Here => auto_place::route(global, &start),
+        route => route,
     };
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
@@ -1371,6 +1386,7 @@ fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 
+mod auto_place;
 pub(super) mod hybrid_start;
 pub(super) mod joined;
 

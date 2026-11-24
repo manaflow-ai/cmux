@@ -966,6 +966,13 @@ impl Hub {
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
         }
+        // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
+        // unfinished closes from `ls --closed --json`.
+        if m.status == SessionStatus::Closed
+            && let Some(close) = &m.close
+        {
+            summary.set("close", json!(close));
+        }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
@@ -1240,6 +1247,9 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
             // The host's CPU and RAM budget and this daemon's share of the load (`host_load.rs`).
             "host_pressure": host_pressure,
+            // Each session scope's memory, CPU, IO and disk budget and its use, versioned
+            // (`session_budget.rs`, `hub/session_budget_watch.rs`).
+            "sessionBudgets": super::session_budget_watch::status(),
         })
     }
 }

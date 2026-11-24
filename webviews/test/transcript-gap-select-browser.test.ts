@@ -1,3 +1,5 @@
+// cmux-web-test-timeout: 300
+// Alone it takes 110-117 s on an 8-vCPU runner (two engines, 50 tests); the 120 s default cut it short beside other files.
 // l10n-allow-file: public transcript fixtures, not shipped UI.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";

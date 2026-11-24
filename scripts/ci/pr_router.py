@@ -108,7 +108,13 @@ def table_steps(config: dict, files: list[str], table: Path | None = None) -> li
         routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
     except Exception:  # noqa: BLE001
         return None
-    return [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    steps = [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
+    # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    if files and docs_only_paths.docs_only(files):
+        table = ci_steps.load(table or ci_steps.TABLE).steps
+        steps = [step for step in steps if table[step].inputs != ("**",)]
+    return steps
 
 
 def route(event: dict, callees: dict, files: list[str] | None,

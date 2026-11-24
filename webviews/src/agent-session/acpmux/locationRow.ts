@@ -7,14 +7,16 @@ type LocationState = Pick<AcpmuxSnapshot, "sessionId" | "summary" | "rows" | "qu
 /// (`turnCount`, counted when a prompt dispatches; older history to load counts as one), a user
 /// prompt in the transcript that did not fail (the optimistic row of a prompt in flight included),
 /// a turn running, or a prompt waiting in the queue (it runs where the chat is). A first send that
-/// failed leaves only its failed row and no turn, so the chat is still new.
+/// failed leaves only its failed row and no turn, so the chat is still new. An agent reply counts
+/// too: the transcript tail a relaunch draws before the handshake can hold only replies, and no
+/// summary yet, so without it the ring came in after the first frame (ask-66b7d014c3).
 export function chatHasFirstSend(state: LocationState): boolean {
   const turns = state.summary?.turnCount ?? (state.canLoadOlder ? 1 : 0);
   return (
     turns > 0 ||
     state.isWorking ||
     state.queue.length > 0 ||
-    state.rows.some((row) => row.kind === "user" && !row.failed)
+    state.rows.some((row) => (row.kind === "user" && !row.failed) || row.kind === "assistant")
   );
 }
 
