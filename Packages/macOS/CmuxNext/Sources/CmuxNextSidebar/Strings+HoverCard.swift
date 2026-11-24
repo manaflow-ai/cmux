@@ -28,7 +28,7 @@ extension Strings {
     static var originScript: String { String(localized: "sidebar.hoverCard.origin.script", defaultValue: "Script", bundle: .module) }
     /// A blank browser tab's (about:blank) title in the hover card's tab rows.
     static var hoverCardNewTab: String { String(localized: "sidebar.hoverCard.tab.newTab", defaultValue: "New Tab", bundle: .localizedModule) }
-    static var hoverCardKindTerminal: String { String(localized: "sidebar.hoverCard.tab.kind.terminal", defaultValue: "Terminal", bundle: .localizedModule) }
+    nonisolated static var hoverCardKindTerminal: String { String(localized: "sidebar.hoverCard.tab.kind.terminal", defaultValue: "Terminal", bundle: .localizedModule) }
     static var hoverCardKindRemoteTerminal: String {
         String(localized: "sidebar.hoverCard.tab.kind.remoteTerminal", defaultValue: "Remote terminal", bundle: .localizedModule)
     }

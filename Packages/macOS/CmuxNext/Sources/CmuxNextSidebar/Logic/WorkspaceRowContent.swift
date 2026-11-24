@@ -307,6 +307,28 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
 }
 
 nonisolated extension WorkspaceRowContent {
+    /// A row whose agent runs in a terminal (`SidebarWorkspace.agentInTerminal`, the Rust face's
+    /// `agent_in_terminal`), not an agent chat, ends its second line with "Terminal" ("Tests pass ·
+    /// Terminal"; a working row's "Now: Running tests · Terminal"), so the row says it where its
+    /// mark is too small for the terminal tile (Leo 2026-11-24, ask-97938b6c84: "terminal agent
+    /// chats. can they be demarcated a bit differently/should they? than gui agent chats").
+    /// Only a row that already has a second line: a one-line row keeps its height. A custom row
+    /// layout (`titleParts`) keeps exactly the tokens it names, and a line that already says
+    /// Terminal as one of its items does not say it twice.
+    mutating func markTerminalAgent(_ ws: SidebarWorkspace) {
+        guard ws.agentInTerminal, titleParts == nil, let detail else { return }
+        let word = Strings.hoverCardKindTerminal
+        func marked(_ line: String) -> String {
+            let says = line.components(separatedBy: Self.separator).contains {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .compare(word, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+            return says ? line : line + Self.separator + word
+        }
+        self.detail = marked(detail)
+        now = now.map(marked)
+    }
+
     /// Two titles name the same thing: equal once trimmed, ignoring case and diacritics; an empty title names nothing.
     static func sameTitle(_ a: String, _ b: String) -> Bool {
         let a = a.trimmingCharacters(in: .whitespacesAndNewlines), b = b.trimmingCharacters(in: .whitespacesAndNewlines)
