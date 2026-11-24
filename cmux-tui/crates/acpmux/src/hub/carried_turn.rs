@@ -336,7 +336,7 @@ impl Hub {
             self.arm_turn_cap(session, &turn.turn_id);
         }
         self.recovered_floor(session, turn.control);
-        self.set_status(session, SessionStatus::Running);
+        self.set_status(session, NotWaiting::Running);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         // A recovered turn is not continued (`auto_resume.rs`).
         self.scope.spawn_named(
@@ -432,7 +432,7 @@ impl Hub {
         let stops = session.stops.load(Ordering::SeqCst);
         loop {
             self.hold_stalled_count(&session);
-            self.set_status(&session, SessionStatus::Running);
+            self.set_status(&session, NotWaiting::Running);
             self.watch_silent_turn(&session, &turn.turn_id).await;
             // Debug builds only: `ACPMUX_TEST_CARRY_HOLD_MS` holds a carried turn before its
             // prompt goes out, so a test can restart the daemon there
