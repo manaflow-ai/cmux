@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 import CmuxNextWakeups
 public import Foundation
 import Observation
