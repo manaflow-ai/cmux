@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "build": "4528921531001",
+  "notes": "notes/4528921531001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 50078,
+      "title": "ci-web: React shards read CI_REACT_SHARD_RUNNER, falling back to the owned gate runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51719,
+      "title": "cmux-next: end a superseded push's compile wait at its first read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49346,
+      "title": "cloud journey: find the sandbox past the first repos page, stop a cut-off agent turn before cleanup, read back the agent's line and draft",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49191,
+      "title": "cmux-rd linux-host remove-device: retire a device identity on the hub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52431,
+      "title": "acpmux: a start past the lane cap with no room anywhere adds a machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52871,
+      "title": "cloud-dev-stack: tag stacks relay the phone's link through TURN, and their API reads a person's teams from Stack",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52875,
+      "title": "review.sh: the Mac build of a stale-pin head stays on the Linux pool, not --builder mac",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50784,
+      "title": "Agent chat: the send pop, off by default, with Pop In Sent Prompts to turn it on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52432,
+      "title": "Update card: keep text readable over photo backgrounds (contrast tokens for glass over pictures)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51361,
+      "title": "acpmux session move: a repo with no remote moves; every chat's reason reaches the caller",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/51361/hv-05ecb08dc928-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52716,
+      "title": "CmuxMobileRPC tests: timeout tests survive a loaded Linux runner (Swift packages on Linux red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52644,
+      "title": "acpmux: a peer link never waits on the hub notice queue",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49593,
+      "title": "Weather widget: a cmux/weather store app, installable from the App Store",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50652,
+      "title": "CmuxNext: CalendarAppOps' rules move to Rust, EventKit stays",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
