@@ -13,6 +13,10 @@ import { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } from "./
 import type { AcpmuxSnapshot } from "./model";
 import { stallTiming } from "./stallLog";
 import { settleReact } from "../../../test/support/domTeardown";
+// Loaded before the file starts, as the app loads it: the module installs the old host's
+// `cmuxAcpmuxComputerUseState` hook on globalThis when it first loads, and a first load inside a
+// test reads as a leaked global (test/support/leakDetector.ts).
+import "./computerUse/computerUseState";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 // The page's timers are the test's fake ones (the client's reconnect uses `window.setTimeout`).
