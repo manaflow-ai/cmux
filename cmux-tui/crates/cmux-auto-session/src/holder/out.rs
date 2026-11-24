@@ -1,7 +1,7 @@
 //! A step's result while it is being built: the chat so far and the effects so far.
 
 use super::{Change, Chat, CopyState, Effect, Sent, State};
-use crate::consts::{RENEW_MS, STREAM_COPY_MS};
+use crate::consts::{RENEW_MS, RENEW_RETRY_MS, RENEW_SLOW_MS, STREAM_COPY_MS};
 
 pub(super) struct Out {
     pub chat: Chat,
@@ -21,12 +21,28 @@ impl Out {
         self.chat.state = state;
     }
 
-    /// A new request number, awaited from `now`. The next one is due a renewal period later.
+    /// A new request number, awaited from `now`. The next one is due a renewal period later,
+    /// or sooner while renewals go unanswered or slow ([`Out::renew_answered`]).
     fn request(&mut self, now: u64) -> u64 {
         self.chat.requests = self.chat.requests.saturating_add(1);
         self.chat.awaiting = Some(Sent { request: self.chat.requests, at: now });
-        self.tick_in_a_period(now);
+        let period = if self.chat.renew_soon { RENEW_RETRY_MS } else { RENEW_MS };
+        self.chat.renew_at = Some(now.saturating_add(period));
         self.chat.requests
+    }
+
+    /// The holder's renewal sent at `sent_at` was answered at `now`: a slow answer keeps the
+    /// pace quick, one in time puts it back to a whole period.
+    pub fn renew_answered(&mut self, sent_at: u64, now: u64) {
+        self.chat.renew_soon = now.saturating_sub(sent_at) > RENEW_SLOW_MS;
+    }
+
+    /// The holder's renewal went unanswered at `now`: the next one goes soon, and the ones
+    /// after it at the quick pace until one is answered in time.
+    pub fn renew_unanswered(&mut self, now: u64) {
+        self.chat.renew_soon = true;
+        let soon = now.saturating_add(RENEW_RETRY_MS);
+        self.chat.renew_at = Some(self.chat.renew_at.map_or(soon, |at| at.min(soon)));
     }
 
     /// Register the chat with the store.

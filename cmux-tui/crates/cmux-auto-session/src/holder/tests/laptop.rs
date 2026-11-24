@@ -4,7 +4,9 @@
 use super::super::*;
 use super::{answer, has, kinds, request};
 use crate::cloud::AutoCloudError;
-use crate::consts::{LEASE_MS, RENEW_MS, SELF_STOP_MS, STREAM_COPY_MS};
+use crate::consts::{
+    LEASE_MS, RENEW_MS, RENEW_RETRY_MS, RENEW_SLOW_MS, SELF_STOP_MS, STREAM_COPY_MS,
+};
 use crate::wire::{Blocked, ErrorCode, Holder};
 
 /// A laptop that switched Auto on at `now`, holds the chat at epoch 1 and stored snapshot 1.
@@ -83,6 +85,47 @@ fn the_holder_renews_every_ten_seconds() {
         assert_eq!(next.state, State::Holding { epoch: 1 });
         chat = next;
     }
+}
+
+#[test]
+fn an_unanswered_renewal_is_followed_by_quicker_ones_until_one_is_answered_in_time() {
+    let (chat, request, sent) = next_renewal(holding(0));
+    // A renewal that fails at once (no route) is tried again soon, not a period later.
+    let (chat, _) = step(chat, Event::Unanswered { request }, sent + 100);
+    assert!(chat.renew_soon);
+    assert_eq!(chat.wake_at(), Some(sent + 100 + RENEW_RETRY_MS));
+    // While renewals fail, they go a retry apart.
+    let (chat, request, sent) = next_renewal(chat);
+    assert_eq!(chat.renew_at, Some(sent + RENEW_RETRY_MS));
+    // A slow answer keeps the quick pace.
+    let slow = Event::Answered { request, answer: answer(Verdict::Holder, 1, 1) };
+    let (chat, _) = step(chat, slow, sent + RENEW_SLOW_MS + 1);
+    assert!(chat.renew_soon && chat.state == State::Holding { epoch: 1 });
+    let (chat, request, sent) = next_renewal(chat);
+    assert_eq!(chat.renew_at, Some(sent + RENEW_RETRY_MS));
+    // One answered in time puts the pace back to a whole period.
+    let quick = Event::Answered { request, answer: answer(Verdict::Holder, 1, 1) };
+    let (chat, _) = step(chat, quick, sent + 50);
+    assert!(!chat.renew_soon);
+    let (chat, _, sent) = next_renewal(chat);
+    assert_eq!(chat.renew_at, Some(sent + RENEW_MS));
+}
+
+#[test]
+fn a_quicker_pace_never_moves_the_self_stop() {
+    // A laptop whose renewals all fail stops 35 s after its last answered one was sent,
+    // whether they go a period or a retry apart.
+    let (chat, stopped_at) = stopped_offline(0);
+    assert_eq!(stopped_at, SELF_STOP_MS);
+    assert!(chat.renew_soon);
+}
+
+#[test]
+fn a_chat_saved_before_the_quick_pace_existed_renews_at_the_usual_pace() {
+    let mut saved = serde_json::to_value(holding(0)).expect("a chat serializes");
+    saved.as_object_mut().expect("an object").remove("renewSoon");
+    let chat: Chat = serde_json::from_value(saved).expect("an old chat reads");
+    assert!(!chat.renew_soon);
 }
 
 #[test]
