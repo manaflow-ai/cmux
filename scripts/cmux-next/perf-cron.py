@@ -4091,15 +4091,25 @@ def restart_note(restarts):
 # job), so the job left no result three ticks running, the part ended yielded_out, and no infinite_items row was
 # stored after 2026-11-17 06:41Z.
 LINUX_RUN_SECONDS = 1800
+# Parts whose one run outlasts the 30 minutes. chat-100k-flat's seven launches (each about a minute of CPU settle, then
+# three idle and three streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so
+# web-ui-flat stored no chat_100k_flat row after 2026-11-17 (Actions run 45422305557); its 20 chats grown live to
+# 100k rows timed out at 1770 s in two cron ticks running. The suite's own timeoutMs for each sits 5 minutes under.
+LINUX_RUN_SECONDS_BY_PART = {"web-ui-flat": 2700, "web-ui-flat-grown": 3300}
 LINUX_SETUP_MINUTES = 10
 LINUX_JOB_MIN_MINUTES = 40
+
+
+def linux_run_seconds(name):
+    """The cap of each bench run of Linux part NAME (pure)."""
+    return LINUX_RUN_SECONDS_BY_PART.get(name, LINUX_RUN_SECONDS)
 
 
 def linux_job_minutes(name):
     """The linux job's timeout-minutes for Linux part NAME (pure): its runs' caps and the setup. web-ui-god's paired
     rounds stop at GOD_PAIRED_DEADLINE_S of the part's time, so they add no run of their own."""
     runs = [n for n in linux_bench_runs("", name) if n != "paired"]
-    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-LINUX_RUN_SECONDS // 60))
+    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-linux_run_seconds(name) // 60))
 
 
 def run_capped(argv, cwd, env, timeout):
@@ -4219,10 +4229,10 @@ def cmd_run_linux_part(o):
             tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
-        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, LINUX_RUN_SECONDS)
+        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
         value = last_json_object(stdout) if code is not None else None
         if code is None:
-            code = f"timeout ({LINUX_RUN_SECONDS} s)"
+            code = f"timeout ({linux_run_seconds(part)} s)"
         # A script that prints its error to stdout (no stderr) still shows it.
         tail += [f"{name}: exit {code}"] + (stderr.strip() or (stdout if code != 0 else "")).splitlines()[-10:]
         if before:
