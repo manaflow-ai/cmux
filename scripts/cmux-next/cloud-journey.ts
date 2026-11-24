@@ -452,9 +452,12 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
   return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
 }
 
-const OP_ATTEMPTS = 3;
-/** How long a machine delete keeps retrying an indeterminate answer under its key. */
-const DELETE_BUDGET_MS = 180_000;
+/**
+ * How long a keyed op keeps retrying an indeterminate answer under its key. Three tries in about six seconds leaked a
+ * machine on a 502 storm (cmux-vm run 42485334511) and failed resume on staging and prod while the machine sat
+ * `starting` (cmux-platform run 44597732379).
+ */
+const OP_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
 /**
@@ -479,36 +482,38 @@ export class Api {
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
-  async op(op: string, params: unknown, key?: string): Promise<any> {
+  /** The wait between retries; tests replace it. */
+  pause = (ms: number) => sleep(ms);
+  async op(op: string, params: unknown, key?: string, budgetMs = OP_BUDGET_MS): Promise<any> {
+    const until = Date.now() + budgetMs;
     let ownerRetried = false;
+    let cutOff = 0;
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
-      // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
-      if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
+      // A provider call cut off mid-way is safe to repeat under the same key until its budget runs out.
+      if (key && opRetryable(r.body) && Date.now() < until) {
+        cutOff++;
+        await this.pause(Math.min(2000 * attempt, 15_000));
+        continue;
+      }
+      if (cutOff) {
+        stepNotes.getStore()?.push(`retried ${cutOff} time${cutOff === 1 ? "" : "s"} under its key after mutation.indeterminate`);
+        cutOff = 0;
+      }
       // An owner reset: once more, under the same key so the op cannot apply twice.
       if (key && !ownerRetried && ownerUnreachable(r.body)) {
         ownerRetried = true;
         stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
-        await sleep(OWNER_RETRY_MS);
+        await this.pause(OWNER_RETRY_MS);
         continue;
       }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
-  /**
-   * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
-   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
-   * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
-   */
-  async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
-    const until = Date.now() + budgetMs;
-    for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
-      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
-      if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
-      return r.body.value;
-    }
+  /** A machine delete that must not leak: op() under its key, for up to `budgetMs`. */
+  async deleteMachine(machine: string, key: string, budgetMs = OP_BUDGET_MS): Promise<any> {
+    return this.op("cloud.machine.delete", { machine }, key, budgetMs);
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
     let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);

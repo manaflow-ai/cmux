@@ -858,6 +858,33 @@ describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
       expect(sent.length).toBe(1);
     });
   });
+
+  // cmux-platform run 44597732379: resume's cloud.machine.start answered mutation.indeterminate (retryable) on staging
+  // and prod, op() gave up after three tries while the machine sat `starting`, and both journeys went red.
+  const cutOff = { status: 200, body: { ok: false, error: { code: "mutation.indeterminate", message: "the provider call was cut off; retry with the same key", retryable: true } } };
+  const quick = () => Object.assign(api(), { pause: async () => undefined });
+
+  test("op() keeps sending a cut-off op under the same key past three tries, and the step says so", async () => {
+    await withAnswers([cutOff, cutOff, cutOff, cutOff, ok], async (sent) => {
+      const J = journey();
+      const v = await J.step("resume", async () => ({ value: await quick().op("cloud.machine.start", { machine: "vm_1" }, "tag-start"), detail: "running" }));
+      expect(v).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(5);
+      expect(sent.every((b) => b.idempotency_key === "tag-start")).toBe(true);
+      expect(J.steps[0]!.detail).toBe("running; retried 4 times under its key after mutation.indeterminate");
+    });
+  }, 20_000);
+
+  test("op() stops at its budget and fails naming the cut-off; deleteMachine uses the same loop", async () => {
+    await withAnswers([cutOff], async (sent) => {
+      await expect(quick().op("cloud.machine.start", { machine: "vm_1" }, "tag-start", 0)).rejects.toThrow("mutation.indeterminate");
+      expect(sent.length).toBe(1);
+    });
+    await withAnswers([cutOff, cutOff, ok], async (sent) => {
+      expect(await quick().deleteMachine("vm_1", "tag-delete")).toEqual({ id: "vm_1" });
+      expect(sent.map((b) => [b.op, b.idempotency_key])).toEqual(Array(3).fill(["cloud.machine.delete", "tag-delete"]));
+    });
+  }, 20_000);
 });
 
 describe("guest carrier timeline", () => {
