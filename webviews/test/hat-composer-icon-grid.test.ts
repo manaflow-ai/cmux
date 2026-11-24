@@ -59,6 +59,24 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
     await page.evaluate(() =>
       document.fonts.ready.then(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))),
     );
+    // The hat's header holds its words a moment (ComposerHatHead) and redraws at the new density after;
+    // measure once its leading mark has stopped moving.
+    await page.evaluate(async () => {
+      const lead = () =>
+        document
+          .querySelector(".acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind) svg")
+          ?.getBoundingClientRect();
+      const frame = () => new Promise((done) => requestAnimationFrame(done));
+      let last = "";
+      let still = 0;
+      for (let index = 0; index < 240 && still < 20; index += 1) {
+        await frame();
+        const rect = lead();
+        const now = rect ? `${rect.left},${rect.top},${rect.width}` : "";
+        still = now === last ? still + 1 : 0;
+        last = now;
+      }
+    });
     return page;
   };
 
