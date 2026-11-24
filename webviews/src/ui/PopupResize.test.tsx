@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Popover } from "./Popover";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "./Menu";
-import { popupSize, setPopupSize } from "./PopupResize";
+import { popupSize, setPopupSize, type PopupResizeOptions } from "./PopupResize";
 import { settleReact } from "../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -88,7 +88,17 @@ const settle = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-function Dropdown({ id, side, align }: { id: string; side: "top" | "bottom"; align: "start" | "end" }) {
+function Dropdown({
+  id,
+  side,
+  align,
+  resize,
+}: {
+  id: string;
+  side: "top" | "bottom";
+  align: "start" | "end";
+  resize?: Omit<PopupResizeOptions, "id">;
+}) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   ids.add(id);
   return (
@@ -97,7 +107,15 @@ function Dropdown({ id, side, align }: { id: string; side: "top" | "bottom"; ali
         chip
       </button>
       {anchor && (
-        <Popover open onOpenChange={() => {}} anchor={anchor} label="Folders" side={side} align={align} resize={{ id }}>
+        <Popover
+          open
+          onOpenChange={() => {}}
+          anchor={anchor}
+          label="Folders"
+          side={side}
+          align={align}
+          resize={{ id, ...resize }}
+        >
           <div>rows</div>
         </Popover>
       )}
@@ -198,6 +216,25 @@ test("a kept size sizes the dropdown when it opens, never past the room it has",
   expect(node.style.height).toBe("min(260px, var(--available-height, 260px))");
   expect(node.style.maxHeight).toBe(node.style.height);
   expect(node.hasAttribute("data-resized-width")).toBe(true);
+});
+
+test("a fitting popup fixes the dragged height until close and uses it as a ceiling on reopen", async () => {
+  const id = "test.fit-height";
+  const dropdown = <Dropdown id={id} side="top" align="start" resize={{ minHeight: 250, fitHeight: true }} />;
+  const doc = await render(dropdown);
+  fakeBox(popup(doc));
+  await drag(grip(doc, "y"), 0, 150);
+  expect(popupSize(id)).toEqual({ height: 250 });
+  expect(popup(doc).style.height).toContain("250px");
+
+  await act(async () => root!.render(null));
+  await act(async () => root!.render(dropdown));
+  expect(popup(doc).style.height).toBe("");
+  expect(popup(doc).style.maxHeight).toContain("250px");
+
+  await act(async () => grip(doc, "y").dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
+  expect(popupSize(id)).toEqual({});
+  expect(popup(doc).style.maxHeight).toBe("");
 });
 
 test("the grips follow where the dropdown actually opened", async () => {

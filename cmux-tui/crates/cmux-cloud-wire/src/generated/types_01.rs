@@ -468,6 +468,10 @@ pub struct CloudMachine {
     pub paused_by: Option<LitSpendCap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_cap_pause_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CloudMachineOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
     pub revision: Revision,
 }
 
@@ -495,6 +499,30 @@ wire_enum! {
         NoReport = "no_report",
         ProviderStopped = "provider_stopped",
         ProviderPaused = "provider_paused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineOrigin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CloudMachineOriginKind>,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane: Option<String>,
+}
+
+wire_enum! {
+    CloudMachineOriginKind {
+        Workflow = "workflow",
+        Lane = "lane",
+        Agent = "agent",
+        Person = "person",
     }
 }
 
@@ -869,28 +897,3 @@ pub struct Connection {
     pub created_at: i64,
     pub updated_at: i64,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConnectionAccount {
-    pub key: String,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-}
-
-wire_enum! {
-    ConnectionSharing {
-        Private = "private",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConnectionResources {
-    pub repos: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub linked_by_github_id: Option<i64>,
-}
-
-/// One integration connection (a provider account linked to a team).
-pub type ConnectionId = String;
