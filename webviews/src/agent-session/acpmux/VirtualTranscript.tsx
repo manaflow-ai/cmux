@@ -199,6 +199,8 @@ import {
   IdleTracker,
 } from "./jumpUp";
 import { jumpUpButton } from "./jumpUp.experiment";
+import { jumpLatestLands } from "./jumpLatestLands.experiment";
+import { useExperimentArm } from "../../experiments/useExperimentArm";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
@@ -1006,6 +1008,10 @@ function TranscriptView({
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message.
   const jumpShown = useRef(false);
+  /// Jump to latest's ride is in flight and the button waits for its landing to fade
+  /// (jumpLatestLands.experiment.ts `on`; design dp-c070192381 "the fade after landing").
+  const jumpLandsOn = useExperimentArm(jumpLatestLands) === "on";
+  const [jumpRiding, setJumpRiding] = useState(false);
   /// Jump up (jumpUp.ts): the reader's idle stretch and the mark it pinned (this chat's, kept across
   /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
   /// hints.
@@ -1447,6 +1453,7 @@ function TranscriptView({
     stopFollowMotion();
     jumpTarget.current = undefined;
     chaseHeld.current = false;
+    setJumpRiding(false);
     // A footnote also owns the shared runner and must end on session/send/Find transitions.
     if (ref.current) stopScroll(ref.current);
   }, [stopFollowMotion]);
@@ -5842,6 +5849,7 @@ function TranscriptView({
       send ? MOTION_SEND_CURVE : JUMP_CURVE,
       () => {
         jumpTarget.current = undefined;
+        setJumpRiding(false);
         // What streams on after the landing keeps the latest row over the bottom stack.
         chaseHeld.current = chasing;
         scrolledTo.current = { top: node.scrollTop, atLatest: true };
@@ -5853,6 +5861,7 @@ function TranscriptView({
       () => {
         // A native turn/bookmark command can replace the shared ride without a DOM input event.
         // Explicit stopJump disowns first; only an external replacement releases bottom follow.
+        setJumpRiding(false);
         if (jumpTarget.current === undefined) return;
         jumpTarget.current = undefined;
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
@@ -5862,6 +5871,9 @@ function TranscriptView({
       // spent before its first one (WebKit runs a ride started in the send's commit a frame later).
       { explicit: true, paced: send },
     );
+    // Jump to latest's own ride (not a send's): with jumpLatestLands on, the button stays through it.
+    // Set after animateScroll, whose stopScroll ends a ride it replaces (that ride's cancel clears it).
+    setJumpRiding(jumpLandsOn && !send && duration > 0);
   };
   // A scrollbar drag may cross the estimated room above the loaded rows while a page is in flight.
   // Keep that native drag target and consume the room as pages land; without it, handleScroll
@@ -6973,7 +6985,11 @@ function TranscriptView({
   // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
   // never brings the arrow up (Leo, 2026-11-06: "way too discontinuous", the arrow came up mid-fold
   // under load).
-  if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
+  // jumpLatestLands `on`: while Jump to latest's ride is in flight the button keeps what it showed at
+  // the press, so it fades once the view lands, not as the ride starts (design dp-c070192381).
+  if (jumpLandsOn && jumpRiding) {
+    // Held as it was.
+  } else if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
   // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line

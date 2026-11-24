@@ -245488,6 +245488,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.jumpLatestLands": {
+      "comment": "Settings > Experiments: the Jump to Latest Fades on Landing taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Jump to Latest Fades on Landing"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يختفي زر الانتقال إلى الأحدث عند الوصول"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Skok na najnovije nestaje po dolasku"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gå til seneste toner ud ved ankomst"}},
+        "de": {"stringUnit": {"state": "translated", "value": "„Zum Neuesten“ blendet nach der Ankunft aus"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ir a lo más reciente se desvanece al llegar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "« Aller au plus récent » s’efface à l’arrivée"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Vai al più recente svanisce all’arrivo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「最新へ移動」は到着後に消える"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប៊ូតុងលោតទៅថ្មីបំផុតរលាយពេលដល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "최신으로 이동이 도착 후 사라짐"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gå til nyeste tones ut ved ankomst"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przejdź do najnowszych znika po dotarciu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ir para o mais recente some ao chegar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "«К последнему» исчезает по прибытии"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปุ่มไปล่าสุดจางหายเมื่อถึงด้านล่าง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "En yeniye git, varınca kaybolur"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "«До останнього» зникає після прибуття"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nút Đến mới nhất mờ đi khi đến nơi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“跳到最新”在到达后淡出"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「跳到最新」在抵達後淡出"}}
+      }
+    },
+    "settings.experiments.jumpLatestLands.help": {
+      "comment": "Settings > Experiments: the Jump to Latest Fades on Landing taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "After you click Jump to latest, the button stays until the chat reaches the bottom, then fades."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "بعد النقر على الانتقال إلى الأحدث، يبقى الزر حتى تصل المحادثة إلى الأسفل، ثم يختفي."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nakon klika na Skok na najnovije, dugme ostaje dok razgovor ne stigne do dna, a zatim nestaje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Når du klikker på Gå til seneste, bliver knappen, til chatten når bunden, og toner så ud."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nach einem Klick auf „Zum Neuesten“ bleibt die Taste, bis der Chat unten ankommt, und blendet dann aus."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tras hacer clic en Ir a lo más reciente, el botón permanece hasta que el chat llega al final y luego se desvanece."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Après un clic sur « Aller au plus récent », le bouton reste jusqu’à ce que la conversation atteigne le bas, puis s’efface."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dopo il clic su Vai al più recente, il pulsante resta finché la chat non arriva in fondo, poi svanisce."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「最新へ移動」をクリックすると、チャットが一番下に着くまでボタンが残り、その後消えます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បន្ទាប់ពីអ្នកចុចលោតទៅថ្មីបំផុត ប៊ូតុងនៅដដែលរហូតដល់ការជជែកដល់ខាងក្រោម រួចរលាយបាត់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "최신으로 이동을 클릭하면 채팅이 맨 아래에 닿을 때까지 버튼이 남아 있다가 사라집니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Når du klikker Gå til nyeste, blir knappen værende til chatten når bunnen, og tones så ut."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Po kliknięciu Przejdź do najnowszych przycisk zostaje, aż czat dotrze na dół, a potem znika."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Depois de clicar em Ir para o mais recente, o botão fica até a conversa chegar ao fim e depois some."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "После нажатия «К последнему» кнопка остаётся, пока чат не дойдёт до конца, а затем исчезает."}},
+        "th": {"stringUnit": {"state": "translated", "value": "หลังคลิกไปล่าสุด ปุ่มจะยังอยู่จนกว่าแชทจะถึงด้านล่าง แล้วจึงจางหาย"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "En yeniye git'e tıkladıktan sonra düğme, sohbet en alta ulaşana kadar kalır, sonra kaybolur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Після натискання «До останнього» кнопка лишається, доки чат не дійде до кінця, а потім зникає."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Sau khi bạn bấm Đến mới nhất, nút vẫn hiện cho đến khi cuộc trò chuyện chạm đáy rồi mờ đi."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "点按“跳到最新”后，按钮会保留到聊天到达底部，然后淡出。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "點按「跳到最新」後，按鈕會保留到聊天抵達底部，然後淡出。"}}
+      }
+    },
     "settings.experiments.hoverLook": {
       "comment": "Settings > Experiments: the Tooltip Refresh taste prototype row",
       "extractionState": "manual",
