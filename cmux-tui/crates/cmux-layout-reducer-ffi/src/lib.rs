@@ -28,6 +28,7 @@
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
 //! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
+//! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;

@@ -123,3 +123,19 @@ fn the_newest_show_of_the_driver_log_is_the_start() {
     assert_eq!(call(c"cloud_hybrid_start", &json!({"session": "s/1"})).0, ERR_INVALID);
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
 }
+
+#[test]
+fn a_session_reads_its_one_computer_status() {
+    let facts = json!({
+        "session_id": "s1",
+        "home": "cloud",
+        "machine": {"shape": {"vcpu": 2.0, "memory_gib": 4.0}, "paused_by": "spend_cap", "paused_since_ms": 9}
+    });
+    let (code, status) = call(c"cloud_computer_status", &facts);
+    assert_eq!(code, OK);
+    assert_eq!(status["phase"], "paused_spend_cap");
+    assert_eq!(status["home"], "cloud");
+    assert_eq!(status["shape"], json!({"vcpu": 2.0, "memory_gib": 4.0}));
+    assert_eq!(status["why"], json!({"at_ms": 9, "reason": "spend_cap"}));
+    assert_eq!(call(c"cloud_computer_status", &json!("nope")).0, ERR_INVALID);
+}
