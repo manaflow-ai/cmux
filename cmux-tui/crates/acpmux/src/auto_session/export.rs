@@ -18,6 +18,10 @@ pub(crate) mod folder;
 pub(crate) mod leftover;
 pub(crate) mod snapshot;
 
+#[cfg(test)]
+#[path = "export/ignore_tests.rs"]
+mod ignore_tests;
+
 use std::sync::Arc;
 
 use cmux_auto_session::AutoCloud;
