@@ -1371,22 +1371,14 @@ function TranscriptView({
     if (before && now !== undefined && !moveAtOnce && !turnEnding)
       chase.shift(thread.current, now - before.top, below, held, arrived, sent);
     const view = pinView.current;
-    // The first row the reader sees, as the thread is drawn: while the chase draws it back (a burst it
-    // still brings home), the rows in view are the ones above the view's top in the layout by that
-    // much. An anchor read from the layout alone was the reply under them, so a row that came above
-    // the reply (the turn's "Working for" as its first thought starts) moved no anchor: nothing was
-    // held back, and every row the reader saw jumped by it (turn-transition-jumps `burst-thought`,
-    // 44 px on the chase's line, 66.8 px in one frame). Held at the row in view, the chase draws the
-    // thread back by it and the reply under it glides (tailGlide.ts).
-    const drawn = drawnBy();
     const first = visibleLayoutRange(
       placed,
-      (view ? view.top - scrollOrigin(node) : layoutScrollTop(node)) - drawn,
+      view ? view.top - scrollOrigin(node) : layoutScrollTop(node),
       view ? view.height : node.clientHeight,
       0,
     ).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
-    const top = id === undefined ? undefined : rowTop(id, drawn);
+    const top = id === undefined ? undefined : rowTop(id, drawnBy());
     chaseAnchor.current = id !== undefined && top !== undefined ? { id, top } : undefined;
   };
   /// When the view last changed size: the passes that settle the rows after it never glide.
