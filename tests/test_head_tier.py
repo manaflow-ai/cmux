@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -158,7 +159,7 @@ class LandTierTests(unittest.TestCase):
 DAY = 24 * 3600
 
 
-class IdleTests(unittest.TestCase):
+class BranchRepo(unittest.TestCase):
     """A real repository: a branch with its own commit, then two base merges on top."""
 
     def git(self, *args: str, when: int | None = None) -> str:
@@ -202,9 +203,13 @@ class IdleTests(unittest.TestCase):
                                                    "base": {"ref": "feat-cmux-next"},
                                                    "labels": [{"name": n} for n in labels]}}
 
+
+
+class IdleTests(BranchRepo):
     def test_two_base_merges_on_a_branch_idle_three_days_run_nothing(self) -> None:
         facts = head_tier.head_facts(self.event(self.head))
-        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY})
+        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY,
+                                 "previous": self.git("rev-parse", "HEAD^1")})
         self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts, now=self.now)[0], "none")
 
     def test_a_recent_own_commit_is_not_idle(self) -> None:
@@ -240,6 +245,120 @@ class IdleTests(unittest.TestCase):
         self.assertEqual(start, [])
         self.assertIn("only merges the base", why["cheap.yml"])
 
+
+class GreenBaseMergeTests(BranchRepo):
+    """The same repository, read before the idle rule's 24 h: the green-head base merge rule alone decides, on a
+    head the land rule holds (a ready head into feat-cmux-next from this repository, CI_LAND_TIER on)."""
+
+    @staticmethod
+    def event(sha: str, action: str = "synchronize", labels: tuple[str, ...] = ()) -> dict:
+        ev = BranchRepo.event(sha, action, labels)
+        ev["pull_request"]["base"]["repo"] = {"full_name": "manaflow-ai/cmux"}
+        ev["pull_request"]["head"]["repo"] = {"full_name": "manaflow-ai/cmux"}
+        return ev
+
+    @staticmethod
+    def tier(*args, **kwargs) -> tuple[str, str]:
+        kwargs.setdefault("land_switch", "1")
+        return head_tier.tier(*args, **kwargs)
+
+    def facts(self, green: bool | None) -> dict:
+        facts = head_tier.head_facts(self.event(self.head))
+        self.assertEqual(facts["previous"], self.git("rev-parse", "HEAD^1"))
+        return {**facts, "previous_green": green}
+
+    def test_a_base_merge_onto_a_green_head_runs_nothing(self) -> None:
+        recent = self.now - 2 * DAY - 60  # the idle rule says no
+        decided = self.tier("pull_request", self.event(self.head), facts=self.facts(True), now=recent)
+        self.assertEqual(decided[0], "none")
+        self.assertIn("whose every run passed", decided[1])
+
+    def test_a_red_or_unread_previous_head_keeps_the_cheap_tier(self) -> None:
+        recent = self.now - 2 * DAY - 60
+        for green in (False, None):
+            self.assertEqual(self.tier("pull_request", self.event(self.head), facts=self.facts(green),
+                                            now=recent)[0], "cheap", green)
+
+    def test_labels_switches_and_other_bases_keep_the_usual_tier(self) -> None:
+        recent = self.now - 2 * DAY - 60
+        tier = self.tier
+        facts = self.facts(True)
+        for label in ("full-ci", "ready-to-land"):
+            self.assertEqual(tier("pull_request", self.event(self.head, labels=(label,)), facts=facts,
+                                  now=recent)[0], "full", label)
+        self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=recent, green_switch="0")[0],
+                         "cheap")
+        self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=recent, land_switch="0")[0],
+                         "full")
+        main = self.event(self.head)
+        main["pull_request"]["base"]["ref"] = "main"
+        self.assertEqual(tier("pull_request", main, facts=facts, now=recent)[0], "full")
+        fork = self.event(self.head)
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(tier("pull_request", fork, facts=facts, now=recent)[0], "full")
+        self.assertEqual(tier("pull_request", self.event(self.head, "ready_for_review"), facts=facts,
+                              now=recent)[0], "cheap")
+
+    def test_an_own_commit_head_is_never_green_skipped(self) -> None:
+        facts = {**head_tier.head_facts(self.event(self.own)), "previous_green": True}
+        self.assertEqual(self.tier("pull_request", self.event(self.own), facts=facts, now=self.now)[0], "cheap")
+
+    def test_short_merge_messages_count_as_base_merges(self) -> None:
+        pattern = head_tier.base_merge_message("feat-cmux-next")
+        for message in ("Merge branch 'feat-cmux-next' into lane/x",
+                        "Merge remote-tracking branch 'origin/feat-cmux-next' into lane/x",
+                        "Merge feat-cmux-next into lane/ci14-x", "Merge feat-cmux-next", "Merge origin/feat-cmux-next"):
+            self.assertTrue(pattern.match(message), message)
+        for message in ("Merge feat-cmux-next-old into lane/x", "Merge branch 'lane/other'",
+                        "Merge feat-cmux-next and fix the build", "Merge pull request #1 from x/feat-cmux-next"):
+            self.assertFalse(pattern.match(message), message)
+
+
+class GreenPreviousTests(unittest.TestCase):
+    """green_previous over the Actions runs API's workflow_runs."""
+
+    @staticmethod
+    def run_(id_: int, path: str, conclusion: str | None, status: str = "completed") -> dict:
+        return {"id": id_, "path": path, "status": status, "conclusion": conclusion}
+
+    def test_every_newest_run_green(self) -> None:
+        runs = [self.run_(1, "ci.yml", "success"), self.run_(2, "router.yml", "skipped")]
+        self.assertTrue(head_tier.green_previous(runs))
+
+    def test_a_newer_rerun_replaces_an_older_cancelled_run(self) -> None:
+        runs = [self.run_(1, "ci.yml", "cancelled"), self.run_(5, "ci.yml", "success")]
+        self.assertTrue(head_tier.green_previous(runs))
+        self.assertFalse(head_tier.green_previous(list(reversed([self.run_(1, "ci.yml", "success"),
+                                                                 self.run_(5, "ci.yml", "failure")]))))
+
+    def test_red_running_cancelled_or_empty_is_not_green(self) -> None:
+        self.assertFalse(head_tier.green_previous([]))
+        self.assertFalse(head_tier.green_previous(None))
+        self.assertFalse(head_tier.green_previous([self.run_(1, "ci.yml", None, "in_progress")]))
+        self.assertFalse(head_tier.green_previous([self.run_(1, "ci.yml", "success"),
+                                                   self.run_(2, "x.yml", "cancelled")]))
+        self.assertFalse(head_tier.green_previous([self.run_(1, "ci.yml", "failure")]))
+
+    def test_unreadable_inputs_read_nothing(self) -> None:
+        self.assertIsNone(head_tier.runs_at("manaflow-ai/cmux", "0" * 40, ""))
+        self.assertIsNone(head_tier.runs_at("not a repo", "0" * 40, "t"))
+
+    def test_decide_reads_the_verdict_only_for_a_base_merge(self) -> None:
+        calls = []
+        real_facts, real_runs = head_tier.head_facts, head_tier.runs_at
+        repo = {"full_name": "manaflow-ai/cmux"}
+        ev = {"action": "synchronize", "pull_request": {"draft": False, "base": {"ref": "feat-cmux-next", "repo": repo},
+                                                        "head": {"sha": "a" * 40, "repo": repo}, "labels": []}}
+        try:
+            head_tier.runs_at = lambda *a: calls.append(a) or [self.run_(1, "ci.yml", "success")]
+            head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+            self.assertEqual(calls, [])
+            head_tier.head_facts = lambda e: {"base_merge_only": True, "own_last": time.time(), "previous": "b" * 40}
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "none")
+            self.assertEqual(calls[0][1], "b" * 40)
+        finally:
+            head_tier.head_facts, head_tier.runs_at = real_facts, real_runs
 
 # Workflows whose pull request runs skip a draft head (the tail of the draft tier, after ci.yml and cmux-next.yml).
 # Every job of each carries DRAFT_TIER_CONDITION, because a job with `!cancelled()` or `always()` runs even when the
