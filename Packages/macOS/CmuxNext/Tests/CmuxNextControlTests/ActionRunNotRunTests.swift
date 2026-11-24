@@ -8,15 +8,20 @@ import Testing
 final class RefusingExecutor: ControlActionExecutor {
     let outcome: ControlActionOutcome
     let failure: ActionWorkFailure?
+    var calls = 0
 
     init(_ outcome: ControlActionOutcome, failure: ActionWorkFailure? = nil) {
         self.outcome = outcome
         self.failure = failure
     }
 
-    @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome { outcome }
+    @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
+        calls += 1
+        return outcome
+    }
 
     @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
+        calls += 1
         guard let failure else { return ControlActionRun(outcome: outcome) }
         let work: ActionWork = Task { failure }
         return ControlActionRun(outcome: outcome, work: [work])
