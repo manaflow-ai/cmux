@@ -201,6 +201,15 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        let mut blocks = blocks;
+        // A check that went red between turns rides the next real prompt, hidden (`verify.rs`).
+        if client != "acpmux"
+            && let Some(text) = super::verify::take_held(&session.id)
+        {
+            blocks.push(
+                json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
         // of a turn adoption recovers.
@@ -1786,6 +1795,10 @@ impl Hub {
         trigger: bool,
         next: Option<&super::carried_turn::NextTurn>,
     ) -> Result<Value, RpcError> {
+        // The turn's end, which its cost is ready after (`turn_cost.rs`).
+        let ended = std::time::Instant::now();
+        let started_at =
+            session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|t| t.started_at);
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
@@ -2085,6 +2098,13 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // What the task cost, model and compute, and the chat's total so far.
+                        super::turn_cost::add_turn_cost(session, o, started_at, ended);
+                        // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
+                        if let Some(hm) = v.pointer("/_meta/harnessMagic").filter(|m| m.is_object())
+                        {
+                            o.insert("harnessMagic".into(), hm.clone());
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
@@ -2920,6 +2940,11 @@ impl Hub {
         self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
+        // A stop frees its temporary folder (`closed_tmp.rs`); a purge removes it below.
+        #[cfg(unix)]
+        if !purge && !session.replaced.load(Ordering::SeqCst) {
+            self.free_closed_tmp_soon(session);
+        }
         if purge {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
