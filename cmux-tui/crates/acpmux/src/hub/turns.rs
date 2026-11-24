@@ -479,6 +479,22 @@ impl Hub {
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
+        // Serialize each prompt's setup through queue admission. In particular, resolving an
+        // uploaded block can block in a worker, and a later prompt must not claim the chat while
+        // the earlier one is still on its way to the queue. The guard is dropped immediately
+        // after `queue_slot`, before the admitted prompt reads its uploads for dispatch.
+        let _prompt_admission = match opts.prompt_admission.take() {
+            Some(guard) => guard,
+            None => session.prompt_admission.clone().lock_owned().await,
+        };
+        #[cfg(test)]
+        {
+            let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
@@ -540,11 +556,20 @@ impl Hub {
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
         let race_guard = opts.race_guard.clone();
+        // The name the target was given (`session_handle.rs`), in its acceptance, so the
+        // sender's "Sent to" line names it as people do.
+        let given =
+            session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
                 v = json!({"raceCancelled": true, "error": error.message});
+            }
+            if let (Some(given), Some(obj)) = (given.as_ref(), v.as_object_mut())
+                && obj.contains_key("sessionId")
+            {
+                obj.entry("displayName").or_insert_with(|| json!(given));
             }
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
@@ -772,6 +797,7 @@ impl Hub {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
+        drop(_prompt_admission);
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
@@ -901,8 +927,8 @@ impl Hub {
                 drop(guard);
                 return Err(e);
             }
-            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
-                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let origin = cmux_cloud_client::backend::platform_origin_env()
+                .ok_or_else(|| RpcError::invalid_params("Cloud platform is not configured"))?;
             let scope = envelope.scope();
             let auth = Arc::new(
                 crate::cloud_rewind::EphemeralCapability::new(envelope.capability.clone())
@@ -1799,6 +1825,9 @@ impl Hub {
         if let Some(e) = refused {
             result = Err(e);
         }
+        if let Some(e) = result.as_ref().ok().and_then(Self::capacity_retry_error) {
+            result = Err(e);
+        }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
         // Before the message gains the stderr line: `recovery::annotate_as` below types it.
@@ -2061,7 +2090,9 @@ impl Hub {
             self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
-            let alive = child.is_alive().await;
+            // A link that broke on an entry it could not store (a full disk) leaves its host
+            // running: the next request reattaches, so the chat is not disconnected.
+            let alive = child.is_alive().await || (child.is_broken() && !child.has_exited());
             // A subagent or background shell still waiting on the person
             // keeps the chat waiting after its turn (cx-jo8yo). The lock is
             // held across the write, so an answer in between cannot leave it
@@ -2199,11 +2230,15 @@ impl Hub {
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
         }
+        // A store that refused the turn (a full disk) says nothing of its agent: the chat
+        // waits for the next prompt rather than reading disconnected.
+        let refused = msg["errorKind"] == crate::recovery::kind::DISK_FULL;
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Disconnected);
+            let status = if refused { SessionStatus::Ready } else { SessionStatus::Disconnected };
+            self.set_status(session, status);
         }
         self.save_meta(session);
         self.settle_view_at_turn_end(session);
@@ -2772,6 +2807,8 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
+            // Their ends go nowhere now: none stays watched (`bg_notify.rs`).
+            self.bg_unwatch_session(&session.id);
             {
                 // Under the breakdown's lock: a time breakdown save running now lands before the
                 // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).

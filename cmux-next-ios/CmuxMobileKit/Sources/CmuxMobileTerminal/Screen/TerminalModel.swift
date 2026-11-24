@@ -36,6 +36,10 @@ public final class TerminalModel {
     /// The terminal surface is first responder: keys go to the PTY as typed.
     public internal(set) var directTyping = false
     public internal(set) var isScrolledUp = false
+    /// The last line sent from the phone, while its row is off screen: the
+    /// top strip shows it, and a tap there scrolls back to it
+    /// (`TerminalLastSentStrip`). Nil hides the strip.
+    public internal(set) var lastSentStripText: String?
     /// Whether the screen shows the Mac's terminal; anything else draws the
     /// connecting placeholder over it.
     public internal(set) var connectionState: TerminalConnectionState
@@ -337,7 +341,7 @@ public final class TerminalModel {
                 composerText = held.text
             }
             heldComposerSend = nil
-        case .hostGrid, .hostGridOwner:
+        case .hostGrid, .hostGridOwner, .paintMark:
             break
         }
     }
@@ -542,6 +546,11 @@ public final class TerminalModel {
     /// the terminal bouncing.
     public internal(set) var keyboardBounces = 0
     #if DEBUG
+    /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
+    public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: posted when the terminal surface takes a key from the system keyboard
+    /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
+    public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
     #endif
@@ -604,6 +613,7 @@ public final class TerminalModel {
         // no Mac daemon goes through the mirror as before.
         let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
         let text = composerText
+        controller?.noteSent(text)
         composerSending = true
         let viaDaemon = submit.steps.first == .paste(text)
             && session.sendPasteAndSubmit(text, notSent: { [weak self] in self?.composerSendNotSent(text) })
@@ -667,6 +677,7 @@ public final class TerminalModel {
     @discardableResult
     public func sendVoicePrompt(_ text: String) -> Bool {
         guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.noteSent(text)
         controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
         return true
     }
@@ -723,6 +734,7 @@ public final class TerminalModel {
             guard let self else { return }
             self.isUploading = false
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
+            if pressReturn { self.controller?.noteSent(self.composerText) }
             self.controller?.surface.perform(submit)
             self.composerText = ""
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
@@ -881,6 +893,12 @@ public final class TerminalModel {
 
     public func scrollToBottom() {
         controller?.scrollToBottom(animated: true)
+    }
+
+    /// The top strip's tap: back to the last line sent from the phone, with
+    /// a short scroll and a brief highlight on its row.
+    public func jumpToLastSent() {
+        controller?.jumpToLastSent()
     }
 }
 

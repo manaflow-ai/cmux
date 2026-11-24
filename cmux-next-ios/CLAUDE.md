@@ -18,8 +18,8 @@ covers your change:
 | Route | Edit to visible | Use it for |
 |---|---|---|
 | Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | `build` from a few minutes to about 40 min, mostly queue (measured below) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
-| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), open; not on `feat-cmux-next` yet) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
-| Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Always-on simulator, `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435), 2026-11-23): your checkout's diff, warm-rebuilt and relaunched | about 16 s | Any change, from any checkout, no fleet step. One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+| Swift live code, `ios-live swift` / `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `ios-sim.sh` not on `feat-cmux-next` yet; check `ls scripts/live-code/ios-sim.sh`) | about 1.9 s once it lands | DEBUG simulator builds only. Until `ios-sim.sh` is on the branch, `ios-live swift` and `undo` refuse ("not a live code build") and `swap` is the live route. A patch that changes a `some View` type is refused; use `swap` for those |
 
 ### From a lane VM (Linux, no Mac)
 
@@ -96,7 +96,7 @@ flags are for checking the other paths, and are never the hand-off:
 | --- | --- | --- | --- |
 | (none) | signed in, paired by the Mac's code | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
 | `--manual-pairing` | signed in; no code handed over or marked used, so the person pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
-| `--approve-first` | signed in; no code; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” to connect?" | waits for the person's Allow on the Mac (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s), then paired, linked, listed by the Mac, and again after a credential-free relaunch; no Mac restart | `installed, signed in (auto_login), paired and linked with <Mac> (allowed on the Mac, --approve-first); ...`, or `waiting for Allow on the Mac: not paired in time (...)` |
+| `--approve-first` | signed in; no code; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” (<key>) to connect to this Mac?" | the phone picks the tagged Mac; the Mac itself shows the request and the prompt (`review_mac.py allow-state`), said before the wait with the Mac's name and app; the person's Allow pairs it (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s); then a credential-free relaunch is linked and the Mac lists it paired and connected; no Mac restart. A phone that Mac paired before is reported "not asked" | `installed, signed in (auto_login), asked the tagged Mac “<Mac>” (cmux DEV <tag>), which showed “Allow …”; allowed on the Mac (--approve-first); credential-free relaunch: ...`, or unattended `waiting for Allow on the Mac: nobody pressed Allow in 600 s. The tagged Mac “<Mac>” (cmux DEV <tag>) shows “Allow …”, and the phone is signed in and waiting for it, not linked yet. Next: ...` |
 | `--no-auth` | no credentials, no code; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
 
 A tagged dev Mac (DEBUG `com.cmuxterm.app.debug.<tag>`) pairs its own tag's iPhone app
@@ -104,8 +104,10 @@ A tagged dev Mac (DEBUG `com.cmuxterm.app.debug.<tag>`) pairs its own tag's iPho
 hand or through the Tag Opener link pairs at once too; a machine, another account or another tag's
 phone still asks, and another build's dev iPhone app asks NIGHTLY, release and other tags only
 quietly (Settings > Mobile, no prompt). `--approve-first` turns it off for the run, to check the
-Allow prompt itself; a phone already paired with that Mac is not asked again (forget it in Settings
-> Mobile first). The rules and their safety argument: [SECURITY.md](SECURITY.md) "Dev auto-approve".
+Allow prompt itself; a phone already paired with that Mac is not asked again (remove it in Settings
+> Mobile first). The readiness receipt's `paired_macs` is the phone's focused Mac (picked from the
+account's Mac list), not a Mac that let it in: only `linked: true` means paired, and the hand-off never
+calls a Mac it merely picked "paired". The rules and their safety argument: [SECURITY.md](SECURITY.md) "Dev auto-approve".
 
 `--no-auth` implies no pairing; given both, `--no-auth` wins.
 

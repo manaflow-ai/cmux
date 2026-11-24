@@ -7535,6 +7535,18 @@
     "class": "brand",
     "source": "cmux Sans"
   },
+  "chatDisplay.uiFontCmuxSansSquat": {
+    "class": "brand",
+    "source": "cmux Sans Squat"
+  },
+  "chatDisplay.uiFontCmuxSansCandy": {
+    "class": "brand",
+    "source": "cmux Sans Candy"
+  },
+  "chatDisplay.uiFontCmuxSansOpen": {
+    "class": "brand",
+    "source": "cmux Sans Open"
+  },
   "settings.choice.agentChatUiFontGeist": {
     "class": "brand",
     "source": "Geist"
@@ -7550,6 +7562,18 @@
   "settings.choice.agentChatUiFontCmuxSans": {
     "class": "brand",
     "source": "cmux Sans"
+  },
+  "settings.choice.agentChatUiFontCmuxSansSquat": {
+    "class": "brand",
+    "source": "cmux Sans Squat"
+  },
+  "settings.choice.agentChatUiFontCmuxSansCandy": {
+    "class": "brand",
+    "source": "cmux Sans Candy"
+  },
+  "settings.choice.agentChatUiFontCmuxSansOpen": {
+    "class": "brand",
+    "source": "cmux Sans Open"
   },
   "chatDisplay.uiFontSystemUi": {
     "source": "System",
@@ -7639,6 +7663,32 @@
   "settings.choice.dictationSourceSuperwhisper": {
     "class": "brand",
     "source": "Superwhisper"
+  },
+  "argument.home.chief.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pl": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.home.chief.effort": {
+    "source": "Effort",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.home.chief.model": {
+    "source": "Model",
+    "identityLocales": {
+      "bs": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pl": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "tr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
   },
   "argument.value.dividerInsertKind.terminal": {
     "source": "Terminal",
