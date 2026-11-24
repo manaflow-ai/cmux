@@ -146,6 +146,15 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
+/// Claim the one move lease while its caller holds `Session::moving`.
+fn claim_transfer(moving: &mut Option<String>, transfer_id: &str) -> bool {
+    if moving.is_some() {
+        return false;
+    }
+    *moving = Some(transfer_id.to_owned());
+    true
+}
+
 /// Reads the fencing epoch persisted beside an outgoing transfer. Old bundles have no marker and
 /// are treated as epoch zero for compatibility with a daemon that predates fencing.
 pub(super) fn transfer_epoch(dir: &Path) -> Result<u64, RpcError> {
@@ -462,15 +471,42 @@ impl Hub {
         // This begin holds the move's watch until it starts it, below: a watch that ran now
         // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
         // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
-        let watch = {
-            let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(other) = moving.as_ref() {
-                let e = transfer_error("moving", "this chat is already being moved");
-                return Err(e.with_data(json!({"transferId": other})));
+        // If the old driver stopped heartbeating before it read the bundle to its end, abort
+        // that fenced move first. The target cannot have finished such a bundle, so retrying
+        // cannot create a second chat or lose the original.
+        let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
+        let watch = loop {
+            let other = session.moving();
+            let Some(other) = other else {
+                let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+                if claim_transfer(&mut moving, &transfer_id) {
+                    let watch = self.claim_move_watch(&transfer_id);
+                    break watch;
+                }
+                continue;
+            };
+            let old_dir = transfers_dir().join(&other);
+            let idle = super::transfer_watch::idle_for(&old_dir);
+            let fully_read = super::transfer_watch::fully_read(&old_dir);
+            if super::transfer_watch::takeover_allowed(idle, fully_read, lease) {
+                let epoch =
+                    transfer_epoch_marker(&old_dir)?.or_else(|| Some(session.ownership_epoch()));
+                if self
+                    .transfer_abort_with_epoch(session, &other, Some("stalled_driver"), epoch)
+                    .is_ok()
+                {
+                    continue;
+                }
             }
-            let watch = self.claim_move_watch(&transfer_id);
-            *moving = Some(transfer_id.clone());
-            watch
+            let age = idle.map_or_else(|| "an unknown time".to_owned(), |d| format!("{d:?} ago"));
+            let e = transfer_error(
+                "moving",
+                format!(
+                    "this chat is already being moved by transfer {other} (last heartbeat {age}); retry after the {}-second lease to take it over",
+                    lease.as_secs()
+                ),
+            );
+            return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
         };
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
@@ -993,6 +1029,22 @@ mod fencing_tests {
         assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
         assert!(parse_epoch(Some(&json!("7"))).is_err());
         assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+
+    #[test]
+    fn concurrent_transfer_claims_have_one_winner() {
+        use std::sync::{Arc, Mutex};
+        let moving = Arc::new(Mutex::new(None));
+        let mut threads = Vec::new();
+        for id in ["first", "second"] {
+            let moving = moving.clone();
+            threads.push(std::thread::spawn(move || {
+                let mut moving = moving.lock().unwrap();
+                claim_transfer(&mut moving, id)
+            }));
+        }
+        let winners = threads.into_iter().filter_map(|t| t.join().ok()).filter(|won| *won).count();
+        assert_eq!(winners, 1);
     }
 }
 

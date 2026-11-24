@@ -225885,6 +225885,30 @@
         }
       }
     },
+    "settings.cloud.agentMemory.follow": {
+      "comment": "Settings > Machines: toggle that carries the person's agent memory files to their Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carry Your Agent Memory to Cloud Machines"
+          }
+        }
+      }
+    },
+    "settings.cloud.agentMemory.follow.help": {
+      "comment": "Help for the agent memory toggle: names what travels and who controls it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
+          }
+        }
+      }
+    },
     "settings.cloud.agentsStartWithoutAsking": {
       "comment": "Settings > Machines: toggle that lets agents, the cmux CLI and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking first.",
       "extractionState": "manual",

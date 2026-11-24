@@ -21,6 +21,8 @@ mod auto_hold;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create over the cap with nowhere to go asks the fleet for a machine.
+pub(crate) mod admission_scale_up;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
@@ -129,6 +131,7 @@ pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -760,6 +763,9 @@ pub struct PromptOptions {
     /// it can only refuse a prompt, never admit one.
     #[doc(hidden)]
     pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
+    /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
+    #[doc(hidden)]
+    pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -1292,6 +1298,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a prompt before it reaches queue admission.
+    #[cfg(test)]
+    pub(super) prompt_admission_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a prompt whose turn shows, before its last check and its acceptance.
     #[cfg(test)]
     pub(super) turn_shown_seam: full_access_bound::WriteSeam,
@@ -1725,6 +1734,8 @@ impl Hub {
             queue_approval_off: AtomicBool::new(false),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            prompt_admission_seam: Default::default(),
             #[cfg(test)]
             turn_shown_seam: Default::default(),
             #[cfg(test)]
@@ -2191,6 +2202,7 @@ impl Hub {
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
+            prompt_admission: Arc::new(tokio::sync::Mutex::new(())),
             restoring: AtomicBool::new(false),
             restore_done: tokio::sync::Notify::new(),
             recovery_pending: AtomicBool::new(false),

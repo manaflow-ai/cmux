@@ -785,6 +785,24 @@ pub struct SessionMeta {
     /// held the chat last, and changes kept aside. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_session: Option<crate::auto_session::record::AutoRecord>,
+    /// The subagent of chat `parent_id` this fork holds the conversation of, not the chat's own
+    /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_of_subagent: Option<SubagentForkOf>,
+}
+
+/// A fork of a chat's subagent: the chat, and the subagent as its `_meta.acpmux.subagents`
+/// names it (`SessionMeta::fork_of_subagent`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentForkOf {
+    pub session_id: String,
+    pub subagent_id: String,
+    /// Claude's agent id (its sidechain's), or the Codex child's thread id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// A cold-archived chat's preview, kept in `session.json` (`SessionMeta::cold`).

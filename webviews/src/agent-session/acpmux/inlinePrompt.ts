@@ -391,6 +391,21 @@ export async function restoreInline(
     attachments.push(attachment);
     input += inlineToken(id);
   }
+  // An image recorded only in the legacy `images` shape beside inline-recorded parts (UserBubble
+  // draws it as a loose image) goes back too, read back by id: Retry never drops it.
+  for (const image of row.images ?? []) {
+    if (row.inlineParts?.some((part) => part.kind === "image" && part.id === image.id)) continue;
+    const data = await read(image.id);
+    if (!data) throw new Error(translate("attachment.unavailable", { name: image.name ?? image.id }));
+    attachments.push({
+      id: `sent-${image.id}`,
+      kind: "image",
+      name: image.name ?? "image",
+      ...data,
+      size: Math.floor((data.data.length * 3) / 4),
+      ...(image.source ? { source: image.source } : {}),
+    });
+  }
   for (const [index, chip] of attachments.entries()) {
     const frames = chip.kind === "link" && !chip.video ? saved.get(chip) : undefined;
     const video = frames && videoFromFrames(frames.note, frames.frames);
