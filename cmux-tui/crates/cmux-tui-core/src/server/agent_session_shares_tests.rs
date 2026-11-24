@@ -1165,6 +1165,7 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
             name: "n".repeat(64),
             attempt_id: format!("late-{}", "y".repeat(100)),
             account: Some(account),
+            team_id: None,
             avatar_url: None,
         };
         let _ = shares.redeem(dir, redeem);
