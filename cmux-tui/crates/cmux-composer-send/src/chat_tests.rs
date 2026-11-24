@@ -645,13 +645,22 @@ fn check(run: &Run, sends: usize) {
     for id in &run.maybe_sent {
         assert!(run.mac.deliveries.contains_key(id), "{id} said maybe sent but was never written");
     }
-    // Order kept across drops: the Mac first ran them in tap order.
+    // Order kept across drops: the Mac first ran them in tap order, except that a prompt still
+    // uploading never holds back the ones behind it (Leo, 2026-11-24: text must not queue behind
+    // an upload). So a later prompt ran first only past one that carried attachments.
     let index = |id: &String| id[1..].parse::<usize>().unwrap();
-    assert!(
-        run.mac.ran.windows(2).all(|w| index(&w[0]) < index(&w[1])),
-        "the Mac ran them out of tap order: {:?}",
-        run.mac.ran
-    );
+    let carried = |id: &String| {
+        run.attempts.get(id).is_some_and(|tries| tries.iter().any(|r| !r.attachments.is_empty()))
+    };
+    for (at, first) in run.mac.ran.iter().enumerate() {
+        for later in run.mac.ran.iter().skip(at + 1) {
+            assert!(
+                index(first) < index(later) || carried(later),
+                "the Mac ran {first} before {later}, which was ready: {:?}",
+                run.mac.ran
+            );
+        }
+    }
 }
 
 #[test]
@@ -726,22 +735,37 @@ fn a_prompt_goes_only_once_its_uploads_are_done_with_their_mac_paths() {
 }
 
 #[test]
-fn a_later_text_send_queues_at_once_behind_an_upload_and_goes_after_it() {
+fn a_later_text_send_never_waits_behind_an_upload() {
+    // Leo's blocked send (2026-11-24): text sent while a picked video uploads goes at once; the
+    // video's prompt follows once its upload is on the Mac. Base held b behind a's upload.
     let t0 = Instant::now();
     let mut outbox = outbox();
     outbox.push("a", "photo", atts(&["big"]), false, t0, t0);
     assert!(outbox.push("b", "and this", vec![], false, t0 + ms(1), t0 + ms(1)), "never blocked");
-    assert_eq!(outbox.next_request(t0 + ms(2)), None, "b never goes before a");
-    assert_eq!(outbox.unwritten(), vec!["a", "b"]);
+    assert_eq!(outbox.next_request(t0 + ms(2)).unwrap().id, "b", "b does not wait for a's upload");
+    outbox.wrote("b");
+    assert_eq!(outbox.answered("b").unwrap().outcome, PromptOutcome::Sent);
+    assert_eq!(outbox.unwritten(), vec!["a"]);
     // A long upload is not a wait for the link: nothing gives up while it runs.
     assert!(outbox.expire(t0 + Duration::from_secs(60)).is_empty());
     assert_eq!(outbox.look("a", t0 + Duration::from_secs(60)), PromptLook::Sent);
     assert_eq!(outbox.next_wake(t0 + Duration::from_secs(60)), None, "the upload's end wakes it");
-    outbox.uploaded("big", "/m/big", t0 + Duration::from_secs(60));
     let now = t0 + Duration::from_secs(60);
+    assert_eq!(outbox.next_request(now), None, "a still uploading");
+    outbox.uploaded("big", "/m/big", now);
     assert_eq!(outbox.next_request(now).unwrap().id, "a");
-    outbox.wrote("a");
-    assert_eq!(outbox.next_request(now).unwrap().id, "b");
+}
+
+#[test]
+fn ready_prompts_still_go_in_tap_order_behind_an_upload() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "video", atts(&["v"]), false, t0, t0);
+    outbox.push("b", "one", vec![], false, t0 + ms(1), t0 + ms(1));
+    outbox.push("c", "two", vec![], false, t0 + ms(2), t0 + ms(2));
+    assert_eq!(outbox.next_request(t0 + ms(3)).unwrap().id, "b");
+    outbox.wrote("b");
+    assert_eq!(outbox.next_request(t0 + ms(3)).unwrap().id, "c");
 }
 
 #[test]
@@ -878,7 +902,9 @@ fn edit_of_an_unsent_prompt_replaces_text_and_attachments_in_its_place() {
     let a = outbox.attachments("a").unwrap();
     assert_eq!(a[0].state, UploadState::Uploaded { mac_path: "/m/x".into() }, "x kept its upload");
     assert_eq!(a[1], Attachment { id: "z".into(), state: UploadState::Pending });
-    assert_eq!(outbox.next_request(t0 + ms(5)), None, "z uploads first");
+    let r = outbox.next_request(t0 + ms(5)).unwrap();
+    assert_eq!(r.id, "b", "b is ready: it does not wait while z uploads");
+    outbox.wrote("b");
     outbox.uploaded("y", "/m/y", t0 + ms(5));
     assert_eq!(outbox.attachments("a").unwrap().len(), 2, "a dropped upload's end is ignored");
     outbox.uploaded("z", "/m/z", t0 + ms(6));

@@ -379,17 +379,20 @@ impl PromptOutbox {
         Some(entry.done(PromptOutcome::UploadFailed { reason }))
     }
 
-    /// The next prompt to write: the first unwritten one, when the link is up, nothing else is
-    /// being written, its uploads are done, its retry wait is over and it is within the hold (one
+    /// The next prompt to write: the first unwritten one whose uploads are done (one still
+    /// uploading never holds back those behind it), when the link is up, nothing else is
+    /// being written, its retry wait is over and it is within the hold (one
     /// past it is for [`expire`](Self::expire), never sent behind the person's back).
     pub fn next_request(&mut self, now: Instant) -> Option<PromptRequest> {
         if !self.link_up || self.entries.iter().any(|e| e.state == State::Writing) {
             return None;
         }
         let hold = self.hold;
-        let entry = self.entries.iter_mut().find(|e| e.state == State::Queued)?;
-        if !entry.uploaded()
-            || entry.not_before.is_some_and(|at| now < at)
+        // A prompt still waiting on its uploads does not hold back the ones behind it: text
+        // sent after a picked video goes now, and the video's prompt follows once its uploads
+        // are on the Mac (Leo, 2026-11-24: a send must never sit blocked behind a load).
+        let entry = self.entries.iter_mut().find(|e| e.state == State::Queued && e.uploaded())?;
+        if entry.not_before.is_some_and(|at| now < at)
             || now.saturating_duration_since(entry.waiting_since) >= hold
         {
             return None;
@@ -476,8 +479,8 @@ impl PromptOutbox {
     /// again and is to be taken off the Mac's queue ([`CancelStep::RemoveOnMac`]).
     pub fn cancel(&mut self, id: &str) -> Option<CancelStep> {
         let index = self.entries.iter().position(|e| e.id == id)?;
-        if self.entries[index].may_be_on_mac() {
-            let entry = &mut self.entries[index];
+        let entry = self.entries.get_mut(index)?;
+        if entry.may_be_on_mac() {
             entry.state = State::Cancelling;
             return Some(CancelStep::RemoveOnMac { id: entry.id.clone() });
         }
@@ -516,8 +519,8 @@ impl PromptOutbox {
     ) -> Option<EditStep> {
         let index = self.entries.iter().position(|e| e.id == id)?;
         let text = text.into();
-        if !self.entries[index].may_be_on_mac() {
-            let entry = &mut self.entries[index];
+        let entry = self.entries.get_mut(index)?;
+        if !entry.may_be_on_mac() {
             let cancel_uploads = unfinished(&entry.slots, &attachments);
             entry.slots = Entry::slots_for(&attachments, &entry.slots);
             entry.text = text;
@@ -530,7 +533,7 @@ impl PromptOutbox {
         if new_id == id || self.entries.iter().any(|e| e.id == new_id) {
             return None;
         }
-        let old = &mut self.entries[index];
+        let old = self.entries.get_mut(index)?;
         old.state = State::Cancelling;
         let cancel_uploads = unfinished(&old.slots, &attachments);
         let replacement = Entry {
