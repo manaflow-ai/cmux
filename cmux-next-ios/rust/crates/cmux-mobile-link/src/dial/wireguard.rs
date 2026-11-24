@@ -330,6 +330,7 @@ impl EarlyTurn {
     /// it is in hand).
     pub(crate) fn start(options: &DialOptions) -> Self {
         let (stun, turn_side) = stun_turn_link();
+        // Debug "relay via cmux only" takes no TURN allocation, early or not.
         let options = effective_options(options).into_owned();
         let task = tokio::spawn(async move {
             let turn = turn_beside(&options, true, turn_side).await;
@@ -2163,8 +2164,7 @@ impl Underlay for HybridUnderlay {
             self.last_turn_source = Some(from);
             return Poll::Ready(Ok(Received { len, origin }));
         }
-        loop {
-            let Some(relay) = &mut self.relay else { break };
+        while let Some(relay) = &mut self.relay {
             match relay.inbound.poll_recv(cx) {
                 Poll::Ready(Some(datagram)) => {
                     if self.dark {
@@ -2523,6 +2523,7 @@ pub(super) fn dial_wireguard<'a>(
     early: Option<EarlyTurn>,
 ) -> DialFuture<'a> {
     Box::pin(async move {
+        // Debug "relay via cmux only": no TURN server, no plain UDP.
         let effective = effective_options(options);
         let options: &DialOptions = &effective;
         let socket = bind_udp().map_err(transport_error)?;
@@ -2598,9 +2599,9 @@ pub(super) fn dial_wireguard<'a>(
         let video_agreed;
         let webrtc_media_agreed;
         let liveness_agreed;
-        let classes_agreed;
         // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
         let relay_ticket;
+        let classes_agreed;
         let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
             match events.next().await? {
                 SessionEvent::Signal(envelope) => match envelope.payload {

@@ -20,6 +20,7 @@ mod composer_outbox;
 mod follow_camera;
 mod link_side;
 mod mac_screen;
+mod pair_requests;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -839,6 +840,13 @@ pub async fn connect_with_options(
 #[uniffi::export]
 pub fn cmux_mobile_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
+}
+
+/// What the phone's terminal declares in `set-client-info` for the lean stream
+/// (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
+#[uniffi::export]
+pub fn terminal_lean_stream_capabilities() -> Vec<String> {
+    cmux_mobile_link::names::TERMINAL_LEAN_STREAM.iter().map(|name| (*name).to_owned()).collect()
 }
 
 #[doc(hidden)]

@@ -27,7 +27,9 @@ use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, 
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
+mod hub;
 mod shaped;
+pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{LINK_PROFILES_JSON, LinkProfile, set_link_profile, shape_by_profile, shaped_counts};
 
 #[derive(Debug, Clone, Default)]
@@ -77,6 +79,8 @@ struct State {
     /// sent to it (team-hub.ts `relayTicket`): (sessionId, device) → ticket.
     tickets: HashMap<(String, String), String>,
     relay_joins: u64,
+    /// Each device's relay joins, in order: device → when.
+    relay_joined: Vec<(String, std::time::Instant)>,
     relay_frames: u64,
 }
 
@@ -129,6 +133,12 @@ impl FakeSignaling {
     /// Relay joins admitted so far.
     pub fn relay_joins(&self) -> u64 {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_joins
+    }
+
+    /// When `device` joined the relay, each time it did.
+    pub fn relay_joins_of(&self, device: &str) -> Vec<std::time::Instant> {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relay_joined.iter().filter(|(who, _)| who == device).map(|(_, at)| *at).collect()
     }
 
     /// Relay frames forwarded so far.
@@ -450,6 +460,7 @@ async fn serve_relay(
     let peer_out = {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
         state.relay_joins += 1;
+        state.relay_joined.push((device.clone(), std::time::Instant::now()));
         let sockets = state.relays.entry(session.clone()).or_default();
         if let Some(old) = sockets.insert(device.clone(), out_tx.clone()) {
             let _ = old.send(Message::Close(Some(CloseFrame {
@@ -741,6 +752,9 @@ pub struct TestTurn {
     /// Relayed addresses this server allocated (also in [`RELAYED`] until
     /// the server drops).
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// How long a new stream connection (TLS or TCP) waits before the
+    /// server takes it, in milliseconds ([`Self::delay_streams`]).
+    stream_delay: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Whether the TURN server's UDP port drops everything, and what it dropped
@@ -915,18 +929,20 @@ impl TestTurn {
                 .expect("TLS server config");
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
         let streams = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stream_delay = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let mut tasks = Vec::new();
         let mut stream_port = |secure: bool| {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TURN TCP");
             listener.set_nonblocking(true).expect("nonblocking");
             let port = listener.local_addr().expect("addr").port();
             let listener = TcpListener::from_std(listener).expect("listener");
-            let (acceptor, servers, ports, streams, allocated) = (
+            let (acceptor, servers, ports, streams, allocated, delay) = (
                 acceptor.clone(),
                 Arc::clone(&servers),
                 relay_ports.clone(),
                 Arc::clone(&streams),
                 Arc::clone(&allocated),
+                Arc::clone(&stream_delay),
             );
             tasks.push(tokio::spawn(async move {
                 while let Ok((tcp, client)) = listener.accept().await {
@@ -937,7 +953,11 @@ impl TestTurn {
                         Arc::clone(&streams),
                         Arc::clone(&allocated),
                     );
+                    let delay = delay.load(std::sync::atomic::Ordering::Relaxed);
                     tokio::spawn(async move {
+                        if delay > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        }
                         let _ = tcp.set_nodelay(true);
                         let Ok(local) = tcp.local_addr() else { return };
                         let conn: Arc<dyn webrtc::util::Conn + Send + Sync> = if secure {
@@ -965,7 +985,7 @@ impl TestTurn {
             username: Some("cmuxMobile".into()),
             credential: Some("secret".into()),
         };
-        Self { ice, roots, relay_ports, servers, tasks, streams, udp_block, allocated }
+        Self { ice, roots, relay_ports, servers, tasks, streams, udp_block, allocated, stream_delay }
     }
 
     async fn server(
@@ -1005,6 +1025,14 @@ impl TestTurn {
     /// Block (or unblock) UDP to the server, as a network that drops UDP.
     pub fn set_udp_blocked(&self, blocked: bool) {
         self.udp_block.on.store(blocked, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Hold each new stream connection (TLS or TCP) this long before the
+    /// server takes it, as a slow path to the TURN host over TLS: an
+    /// allocation over a stream then takes about this long.
+    pub fn delay_streams(&self, delay: std::time::Duration) {
+        let millis = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
+        self.stream_delay.store(millis, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Drop the next `count` Allocate success responses on the UDP port, as

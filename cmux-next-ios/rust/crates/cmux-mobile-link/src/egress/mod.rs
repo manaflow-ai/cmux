@@ -174,7 +174,10 @@ async fn connect_hop(hop: &Hop, host: &str, port: u16) -> Result<TcpStream, Egre
         }
     };
     match hop {
-        Hop::Direct => tcp(host, port).await,
+        // Raced over the host's addresses and remembered, as signaling's dial (`signal_dial.rs`).
+        Hop::Direct => crate::signal_dial::connect_host(host, port)
+            .await
+            .map_err(|error| EgressError::Io(format!("{}: {error}", proxy::authority(host, port)))),
         Hop::Http(server) => {
             proxy::http_connect(tcp(&server.host, server.port).await?, server, host, port).await
         }
