@@ -5822,7 +5822,6 @@ GUARD_WORKFLOWS = {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
-        "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",

@@ -13,6 +13,7 @@ mod pause_all;
 mod plan;
 mod snapshot;
 pub(crate) mod start_retry;
+pub mod surge;
 
 pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};

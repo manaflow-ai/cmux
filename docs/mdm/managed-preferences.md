@@ -475,7 +475,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
 | `sidebar.groupHeader.memberCount` | boolean | `false` |  | Show Group Member Count. A collapsed group shows how many workspaces it holds. |
 | `sidebar.groupHeader.unreadCount` | boolean | `false` |  | Show Group Unread Count. A collapsed group shows its unread notification count. |
-| `sidebar.groupHeader.background` | string | `"folder"` | `folder`, `auto`, `glass`, `solid`, `sections`, `chip`, `tree`, `card` | Group Background. How a group draws. Folders shows plain folders; Sections shows plain headings. |
+| `sidebar.groupHeader.background` | string | `"auto"` | `folder`, `auto`, `glass`, `solid`, `sections`, `chip`, `tree`, `card` | Group Background. How a group draws. Folders shows plain folders; Sections shows plain headings. |
 | `sidebar.groupPalette` | string | `"glass"` | `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial` | Group Colors. Where group colors come from. A color you pick for a group stays. |
 | `sidebar.groupGradient` | string | `"sunset"` | `sunset`, `aurora`, `lagoon`, `twoTone` | Group Gradient. The gradient Group Colors uses when set to Gradient. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |

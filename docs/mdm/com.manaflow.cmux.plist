@@ -7278,7 +7278,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>folder</string>
+			<string>auto</string>
 			<key>pfm_description</key>
 			<string>How a group draws. Folders shows plain folders; Sections shows plain headings.</string>
 			<key>pfm_name</key>
