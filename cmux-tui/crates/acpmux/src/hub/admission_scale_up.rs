@@ -11,13 +11,14 @@
 //! 0, or `{"error": WHY}`; the first host, or a provider declared or answering
 //! `terminal: true`, ends the chain.
 //!
-//! The run is detached: the create never waits for it (a cap only warns, and a
-//! create is never refused or slowed). One run at a time per daemon, and none
+//! The run is detached for ordinary starts: the create never waits for it (a
+//! cap only warns, and a create is never refused or slowed). An Auto start may
+//! await the same run while it waits for the new peer to connect. One run at a time per daemon, and none
 //! again within [`COOLDOWN`] of the last start, so a burst of over-cap creates
 //! asks once. No registry, no `lane_overflow.providers`, or no leo-workspace
 //! checkout holding the provider: nothing runs (acpmux outside the fleet is
 //! unchanged). The new machine takes the next `--machine auto` start once it
-//! is connected; making that start wait for it is a follow-up.
+//! is connected; Auto starts wait for that connection below.
 
 use super::*;
 use std::sync::OnceLock;
@@ -30,6 +31,9 @@ const BUDGET_DEFAULT: u64 = 240;
 const BUDGET_MAX: u64 = 3600;
 /// Seconds a provider gets past the `--budget` it was told before it is killed.
 const SLACK: u64 = 10;
+/// Auto waits for the default provider budget plus the process-kill slack.
+/// A configured provider may run longer, but an Auto start stays bounded.
+pub(crate) const AUTO_WAIT_BOUND: Duration = Duration::from_secs(BUDGET_DEFAULT + SLACK);
 
 /// One provider to ask: its name, and the argv to run (resolved).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,7 +163,11 @@ impl Trigger {
 struct State {
     running: bool,
     last: Option<Instant>,
+    result: Option<Arc<tokio::sync::watch::Sender<Option<Option<String>>>>>,
 }
+
+/// A scale-up result shared by Auto starts that arrive during one provider run.
+pub(crate) type ResultReceiver = tokio::sync::watch::Receiver<Option<Option<String>>>;
 
 /// This daemon's scale-up: at most one run, none within the cooldown.
 pub(crate) struct ScaleUp {
@@ -189,27 +197,52 @@ impl ScaleUp {
     /// unless a run is under way or within the cooldown. Never waits for the
     /// run. Call inside a Tokio runtime.
     pub(crate) fn trigger(&self, owner: &cmux_scope::Scope, plan: Plan, now: Instant) -> Trigger {
+        self.trigger_wait(owner, plan, now).0
+    }
+
+    /// Starts a provider run and returns a receiver for its eventual answer.
+    /// The receiver is present for a newly started or already-running run and
+    /// absent during cooldown. Ordinary callers use [`Self::trigger`] and keep
+    /// the run detached.
+    pub(crate) fn trigger_wait(
+        &self,
+        owner: &cmux_scope::Scope,
+        plan: Plan,
+        now: Instant,
+    ) -> (Trigger, Option<ResultReceiver>) {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.running {
-                return Trigger::InFlight;
+                let receiver = state.result.as_ref().map(|result| result.subscribe());
+                return (Trigger::InFlight, receiver);
             }
             if state.last.is_some_and(|last| now.saturating_duration_since(last) < self.cooldown) {
-                return Trigger::Cooling;
+                return (Trigger::Cooling, None);
             }
             state.running = true;
             state.last = Some(now);
+            let (result, receiver) = tokio::sync::watch::channel(None);
+            state.result = Some(Arc::new(result));
+            let Some(result) = state.result.as_ref().cloned() else {
+                state.running = false;
+                return (Trigger::InFlight, None);
+            };
+            let (state, runner) = (self.state.clone(), self.runner.clone());
+            owner.spawn_named("admission scale-up", async move {
+                let host = run_plan(&runner, plan).await;
+                match &host {
+                    Some(host) => {
+                        tracing::info!(host, "scale-up: the fleet added a machine for lanes")
+                    }
+                    None => tracing::warn!("scale-up: no provider added a machine"),
+                }
+                let _ = result.send(Some(host));
+                let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+                state.running = false;
+                state.result = None;
+            });
+            return (Trigger::Started, Some(receiver));
         }
-        let (state, runner) = (self.state.clone(), self.runner.clone());
-        owner.spawn_named("admission scale-up", async move {
-            let host = run_plan(&runner, plan).await;
-            match host {
-                Some(host) => tracing::info!(host, "scale-up: the fleet added a machine for lanes"),
-                None => tracing::warn!("scale-up: no provider added a machine"),
-            }
-            state.lock().unwrap_or_else(|e| e.into_inner()).running = false;
-        });
-        Trigger::Started
     }
 }
 

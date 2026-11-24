@@ -294,6 +294,7 @@ mod tests {
             local,
             peers,
             redirect,
+            auto: false,
         }
     }
 

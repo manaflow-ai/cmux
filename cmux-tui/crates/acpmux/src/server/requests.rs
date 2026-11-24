@@ -121,7 +121,25 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let peers = conn.origin != Origin::Peer;
     // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
     let redirect = crate::hub::admission_redirect::movable(params);
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name, redirect }
+    let auto = mux_meta(params)
+        .and_then(|meta| meta.get(crate::hub::admission::AUTO_PLACE_FIELD))
+        .and_then(Value::as_bool)
+        == Some(true)
+        // The app's Auto place stays on this daemon when no peer was selected.
+        // A named machine is forwarded with `peer` and is admitted there.
+        || (conn.origin == Origin::LocalApp
+            && mux_meta(params).and_then(|meta| meta.get("peer")).is_none());
+    crate::hub::admission::Ask {
+        force,
+        can_force,
+        person,
+        who,
+        local: !web,
+        peers,
+        name,
+        redirect,
+        auto,
+    }
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
