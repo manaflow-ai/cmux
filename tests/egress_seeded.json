@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 45,
+ "todo_max": 44,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -21,7 +21,7 @@
    "todo": true
   },
   "cmux_cloud_api::http": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-cloud-api/src/http_seeded_tests.rs::seeded_secrets_go_only_where_the_rule_allows"
   },
   "cmux_cloud_api::machine_io": {
    "todo": true
