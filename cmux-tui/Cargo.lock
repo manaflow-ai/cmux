@@ -62,6 +62,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-session-cloud",
+ "cmux-session-pack",
  "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
@@ -80,6 +81,7 @@ dependencies = [
  "cmux-worktree-care",
  "crossterm",
  "dhat",
+ "diffy",
  "dirs",
  "flate2",
  "futures",
@@ -1502,6 +1504,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
+ "cmux-egress",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1654,6 +1657,13 @@ dependencies = [
 [[package]]
 name = "cmux-command-class"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-computer-use"
@@ -1835,6 +1845,15 @@ dependencies = [
  "sha2 0.10.9",
  "toml",
  "toml_edit 0.22.27",
+]
+
+[[package]]
+name = "cmux-egress"
+version = "1.0.0"
+dependencies = [
+ "reqwest",
+ "rustls",
+ "tokio",
 ]
 
 [[package]]
@@ -2799,6 +2818,7 @@ dependencies = [
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-conversation",
