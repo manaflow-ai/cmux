@@ -464,6 +464,25 @@ pub fn hops_now(host: &str, port: u16, secure: bool, config: &ProxyConfig) -> Ve
     }
 }
 
+/// The proxy an HTTP client with one proxy and no SOCKS (reqwest's
+/// `Proxy::custom`) sends a request for `url` through: the first HTTP proxy the
+/// system names for it, unless the settings go direct before it; `None` is
+/// direct. It reads the cached answer, else asks on this thread ([`hops_now`]):
+/// [`warm`] the origin first.
+pub fn http_proxy_url(url: &url::Url) -> Option<String> {
+    let host = url.host_str()?.trim_start_matches('[').trim_end_matches(']');
+    let secure = matches!(url.scheme(), "https" | "wss");
+    let port = url.port_or_known_default()?;
+    for hop in hops_now(host, port, secure, &ProxyConfig::System) {
+        match hop {
+            Hop::Direct => return None,
+            Hop::Http(server) => return Some(server.http_url()),
+            Hop::Socks5(_) => {}
+        }
+    }
+    None
+}
+
 /// Ask the system for `url`'s proxy now, off this thread, so a later
 /// [`hops_now`] finds it cached.
 pub async fn warm(url: &str) {
