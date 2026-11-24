@@ -176,6 +176,9 @@ export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), off unless set true. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
+/// AutoCloud (autoCloud.ts): hidden in cmux-next.json, off unless set true. The host sends it with the
+/// chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const AUTO_CLOUD_KEY = "cloud.autoCloud";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
@@ -570,6 +573,7 @@ let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = false;
+let autoCloudOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
 let environmentCardOn = false;
@@ -655,6 +659,7 @@ export function setChatDisplay(value: unknown): void {
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] === true;
+  const autoCloud = raw[AUTO_CLOUD_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
@@ -694,6 +699,7 @@ export function setChatDisplay(value: unknown): void {
     view === transcriptView &&
     nextPresentation === presentation &&
     tips === featureTipsOn &&
+    autoCloud === autoCloudOn &&
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
@@ -716,6 +722,7 @@ export function setChatDisplay(value: unknown): void {
   transcriptView = view;
   presentation = nextPresentation;
   featureTipsOn = tips;
+  autoCloudOn = autoCloud;
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
@@ -848,6 +855,10 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+const autoCloudSnapshot = () => autoCloudOn;
+/// Whether `cloud.autoCloud` is on in cmux-next.json (AUTO_CLOUD_KEY): the Where menu's Auto chevron
+/// and its Cloud leg (autoCloud.ts) show only with it and the plan.
+export const useAutoCloudKey = (): boolean => useSyncExternalStore(subscribe, autoCloudSnapshot, autoCloudSnapshot);
 /// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
 /// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
 export const promptCoachEnabled = (): boolean => promptCoachOn;
