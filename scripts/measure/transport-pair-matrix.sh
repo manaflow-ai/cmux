@@ -89,13 +89,24 @@ for pair in "${pair_list[@]}"; do
   esac
 done
 
+# Item 7, the round-trip audit: its bench prints ROUNDTRIP lines; its report writes the second table.
+rtt_md=""
+if [[ -f cmux-tui/crates/acpmux/tests/round_trip_audit.rs && -f scripts/measure/round-trip-audit-report.py ]]; then
+  bench rtt cmux-tui acpmux round_trip_audit || status=1
+  rtt_md="$work/round-trip-audit.md"
+  python3 -I "$root/scripts/measure/round-trip-audit-report.py" "$work/rtt.log" --out "$rtt_md" || status=1
+  [[ -f "$rtt_md" ]] && sed 's/^/ROUNDTRIP-TABLE /' "$rtt_md"
+else
+  echo "ROUNDTRIP-NA no round-trip bench at this ref (cmux-tui/crates/acpmux/tests/round_trip_audit.rs)"
+fi
+
 command="scripts/measure/transport-pair-matrix.sh pairs=$pairs paths=$paths conditions=$conditions loads=$loads n=$n seed=$seed long_minutes=$long_minutes${out:+ out=$out}  # at $(git rev-parse --short=12 HEAD), host_os=$host_os"
 python3 "$root/scripts/measure/transport-pair-matrix-report.py" "$work/lines.txt" \
   --markdown "$work/report.md" --json "$work/report.json" --command "$command"
 sed 's/^/PAIRMATRIX-TABLE /' "$work/report.md"
-[[ -z "$out" ]] || cp "$work/report.md" "$out"
+[[ -z "$out" ]] || { cp "$work/report.md" "$out"; [[ -z "$rtt_md" || ! -f "$rtt_md" ]] || cp "$rtt_md" "$(dirname "$out")/round-trip-audit.md"; }
 if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then
   mkdir -p "$FAST_CHECKS_OUT"
-  cp "$work/report.json" "$work/report.md" "$work/lines.txt" "$work"/*.log "$FAST_CHECKS_OUT/" 2>/dev/null || true
+  cp "$work/report.json" "$work/report.md" "$work/lines.txt" "$work"/*.log ${rtt_md:+"$rtt_md"} "$FAST_CHECKS_OUT/" 2>/dev/null || true
 fi
 exit "$status"
