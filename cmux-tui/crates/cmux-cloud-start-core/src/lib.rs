@@ -7,6 +7,7 @@
 pub mod agent_check;
 pub mod ask;
 pub mod capability;
+pub mod computer_status;
 pub mod hybrid;
 pub mod hybrid_show;
 pub mod hybrid_tools;
