@@ -89,7 +89,7 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
-        Self::spawn_with(tag, peer, agent_env, false).await
+        Self::spawn_full(tag, peer, agent_env, false, &[], "approve-all").await
     }
 
     /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
