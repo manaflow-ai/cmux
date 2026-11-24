@@ -20,6 +20,9 @@
   "chatmux_relay::session": {
    "todo": true
   },
+  "cmux_autocloud::login": {
+   "test": "cmux-tui/crates/cmux-autocloud/src/login.rs::seeded_codes_ride_only_in_their_body_and_header"
+  },
   "cmux_cloud_api::http": {
    "test": "cmux-tui/crates/cmux-cloud-api/src/http_seeded_tests.rs::seeded_secrets_go_only_where_the_rule_allows"
   },
@@ -34,6 +37,21 @@
   },
   "cmux_coderouter": {
    "todo": true
+  },
+  "cmux_mobile_host::auth": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
+  },
+  "cmux_mobile_host::services::acpmux": {
+   "none": "a WebSocket to the acpmux listener on this Mac's loopback only (any other host is refused before connecting): the request never leaves the machine"
+  },
+  "cmux_mobile_link::api": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::the_api_token_rides_only_in_authorization"
+  },
+  "cmux_mobile_link::hub": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::the_hub_token_rides_only_in_authorization"
+  },
+  "cmux_mobile_link::signaling": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::the_signaling_token_rides_only_in_authorization"
   },
   "cmux_projection::peers": {
    "todo": true
@@ -133,6 +151,9 @@
   },
   "cmux_tui_core::apps::egress": {
    "todo": true
+  },
+  "cmux_tui_core::apps::git_source": {
+   "none": "header-less GETs of the public repository, archive and release the person named to install, and a POST of that repository ref and commit to the cmux extension registry: no cookie, token or person data"
   },
   "cmux_tui_core::blob_fetch": {
    "todo": true

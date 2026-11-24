@@ -18,6 +18,7 @@ workspace = true
 anyhow.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 cmux-cloud-config.workspace = true
+cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
 crossterm = { version = "0.29", features = ["event-stream"] }
@@ -28,3 +29,7 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+# The seeded-secret test (login.rs) sends through the capture server.
+cmux-egress = { workspace = true, features = ["capture"] }

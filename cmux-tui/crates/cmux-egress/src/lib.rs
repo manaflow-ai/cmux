@@ -398,7 +398,7 @@ pub mod ws {
         request: R,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async(checked(request, site)?).await
+        connect(checked(request, site)?, None, false, None).await
     }
 
     /// A gated `tokio_tungstenite::connect_async_with_config`.
@@ -408,8 +408,7 @@ pub mod ws {
         disable_nagle: bool,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async_with_config(checked(request, site)?, config, disable_nagle)
-            .await
+        connect(checked(request, site)?, config, disable_nagle, None).await
     }
 
     /// A gated `tokio_tungstenite::connect_async_tls_with_config`.
@@ -420,13 +419,68 @@ pub mod ws {
         connector: Option<Connector>,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async_tls_with_config(
-            checked(request, site)?,
-            config,
-            disable_nagle,
-            connector,
+        connect(checked(request, site)?, config, disable_nagle, connector).await
+    }
+
+    /// A gated connect over a TCP stream the caller dials itself (a raced or
+    /// remembered route, `dial` given a copy of the request): the request's host is
+    /// checked before `dial` runs, and
+    /// the upgrade and TLS then run over the dialed stream as
+    /// `tokio_tungstenite::client_async_tls_with_config` runs them.
+    pub async fn connect_dialed<R, D, F>(request: R, site: &'static str, dial: D) -> Connected
+    where
+        R: IntoClientRequest,
+        D: FnOnce(Request) -> F,
+        F: std::future::Future<Output = Result<TcpStream, WsError>>,
+    {
+        let request = checked(request, site)?;
+        #[cfg(feature = "capture")]
+        if let Some(connected) = captured(&request, None).await {
+            return connected;
+        }
+        let stream = dial(request.clone()).await?;
+        tokio_tungstenite::client_async_tls_with_config(request, stream, None, None).await
+    }
+
+    /// With capture on, a `wss://` upgrade to a listed or person-named host goes
+    /// to the capture server instead; `None` when it does not.
+    #[cfg(feature = "capture")]
+    async fn captured(request: &Request, config: Option<WebSocketConfig>) -> Option<Connected> {
+        if request.uri().scheme_str() != Some("wss") {
+            return None;
+        }
+        let (addr, tls) = request.uri().host().and_then(crate::capture::ws_redirect)?;
+        let stream = match TcpStream::connect(addr).await {
+            Ok(stream) => stream,
+            Err(error) => return Some(Err(WsError::Io(error))),
+        };
+        Some(
+            tokio_tungstenite::client_async_tls_with_config(
+                request.clone(),
+                stream,
+                config,
+                Some(Connector::Rustls(tls)),
+            )
+            .await,
         )
-        .await
+    }
+
+    /// The connect of a checked request. With capture on (feature `capture`), a
+    /// `wss://` upgrade to a listed or person-named host goes to the capture
+    /// server, which keeps the upgrade request (its target and headers) and
+    /// answers `200`, so the connect fails after the request was seen.
+    async fn connect(
+        request: Request,
+        config: Option<WebSocketConfig>,
+        disable_nagle: bool,
+        connector: Option<Connector>,
+    ) -> Connected {
+        #[cfg(feature = "capture")]
+        if let Some(connected) = captured(&request, config).await {
+            return connected;
+        }
+        tokio_tungstenite::connect_async_tls_with_config(request, config, disable_nagle, connector)
+            .await
     }
 }
 

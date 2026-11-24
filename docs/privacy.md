@@ -106,15 +106,19 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
+| `codeload.github.com` | connects | the source archive of an extension you install from a GitHub repository |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `private-user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
+| `objects.githubusercontent.com` | connects | a GitHub release asset download (an extension package or a release binary), where github.com redirects it |
+| `release-assets.githubusercontent.com` | connects | a GitHub release asset download (an extension package or a release binary), where github.com redirects it |
 | `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies |
 | `user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `gitlab.com` | connects | repositories you add from GitLab |
+| `codeberg.org` | connects | an extension you install from a Codeberg repository; also read as a known code forge in a module's source URL |
 | `accounts.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `calendar.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `docs.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
@@ -335,7 +339,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `govt.nz` | identifier | a public suffix, so sites under it are told apart |
 | `bitbucket.org` | identifier | a known code forge, to read a module's source URL |
 | `altssh.bitbucket.org` | identifier | a git host name, so it is not shown as one of your computers |
-| `codeberg.org` | identifier | a known code forge, to read a module's source URL |
 | `www.ietf.org` | identifier | an RTP header extension id, never fetched |
 | `json-schema.org` | identifier | a JSON schema id, never fetched |
 | `www.w3.org` | identifier | an XML or SVG namespace, never fetched |

@@ -83,7 +83,9 @@ fn save(session: &Session) -> Result<PathBuf> {
 
 fn client() -> Result<reqwest::Client> {
     crate::install_tls();
-    Ok(reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?)
+    Ok(cmux_egress::client_builder("cmux_autocloud::login")
+        .timeout(Duration::from_secs(20))
+        .build()?)
 }
 
 async fn send(client: &reqwest::Client, call: &HttpCall) -> Result<(u16, String)> {
@@ -107,6 +109,10 @@ fn origin(url: &str) -> String {
 }
 
 pub async fn run(config_url: &str) -> Result<()> {
+    if config_url != DEFAULT_CONFIG_URL {
+        // `--config-url`: a server the person named.
+        cmux_egress::allow_named(config_url);
+    }
     let client = client()?;
     let config: CliConfig = client
         .get(config_url)
@@ -160,5 +166,48 @@ mod tests {
     fn origin_is_scheme_and_host() {
         assert_eq!(super::origin("https://cmux.com/handler/cli-auth-confirm"), "https://cmux.com");
         assert_eq!(super::origin("http://localhost:3000"), "http://localhost:3000");
+    }
+
+    /// Seeded secrets through the login's gated client, on the wire (cmux_egress::capture): the
+    /// polling code rides only in the poll's body, the refresh token only in the refresh's
+    /// `x-stack-refresh-token`, neither in a URL. tests/egress_seeded.json names this test for the
+    /// `cmux_autocloud::login` gate site.
+    #[tokio::test]
+    async fn seeded_codes_ride_only_in_their_body_and_header() {
+        use cmux_cloud_config::cli_sign_in::{self, Project};
+        use cmux_egress::capture;
+
+        crate::install_tls();
+        capture::install().unwrap();
+        let host = "api.stack-auth.com";
+        let project = Project {
+            stack_base_url: format!("https://{host}"),
+            project_id: "SEEDautocloudProject-2a6e".to_owned(),
+            publishable_client_key: "SEEDautocloudPublishable-8c03".to_owned(),
+        };
+        let polling = "SEEDautocloudPolling-e51b";
+        let refresh = "SEEDautocloudRefresh-07f4";
+        let client = super::client().unwrap();
+        for call in [
+            cli_sign_in::start_request(&project),
+            cli_sign_in::poll_request(&project, polling),
+            cli_sign_in::token_request(&project, refresh),
+        ] {
+            super::send(&client, &call).await.unwrap();
+        }
+
+        let sent = capture::requests_to(host);
+        for target in
+            ["/api/v1/auth/cli", "/api/v1/auth/cli/poll", "/api/v1/auth/sessions/current/refresh"]
+        {
+            assert!(sent.iter().any(|r| r.target == target), "{target}: {sent:?}");
+        }
+        assert_eq!(capture::leaks(polling), [format!("{host} POST /api/v1/auth/cli/poll: body")]);
+        assert_eq!(
+            capture::leaks(refresh),
+            [format!(
+                "{host} POST /api/v1/auth/sessions/current/refresh: header x-stack-refresh-token"
+            )]
+        );
     }
 }
