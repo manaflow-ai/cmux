@@ -356071,133 +356071,133 @@
       }
     },
     "composer.envAuto": {
-      "comment": "Agent pane: the composer's Cloud Environment chip and its drop-up, the default environment: one made for the chat from its folder or repository, with no questions",
+      "comment": "Agent pane: the composer's Cloud Environment chip and its drop-up, the Default environment (RFD 0080: Auto now means only where a chat runs): one made for the chat from its folder or repository, with no questions",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تلقائي"
+            "value": "البيئة الافتراضية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatski"
+            "value": "Zadano okruženje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatisk"
+            "value": "Standardmiljø"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatisch"
+            "value": "Standardumgebung"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto"
+            "value": "Default environment"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automático"
+            "value": "Entorno predeterminado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatique"
+            "value": "Environnement par défaut"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatico"
+            "value": "Ambiente predefinito"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "自動"
+            "value": "デフォルト環境"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្វ័យប្រវត្តិ"
+            "value": "បរិស្ថានលំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "자동"
+            "value": "기본 환경"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatisk"
+            "value": "Standardmiljø"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatycznie"
+            "value": "Środowisko domyślne"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automático"
+            "value": "Ambiente padrão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Автоматически"
+            "value": "Среда по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อัตโนมัติ"
+            "value": "สภาพแวดล้อมเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otomatik"
+            "value": "Varsayılan ortam"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Автоматично"
+            "value": "Середовище за замовчуванням"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tự động"
+            "value": "Môi trường mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "自动"
+            "value": "默认环境"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "自動"
+            "value": "預設環境"
           }
         }
       }

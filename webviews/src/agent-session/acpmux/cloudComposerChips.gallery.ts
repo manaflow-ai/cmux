@@ -125,8 +125,8 @@ function chipProblems(document: Document): string[] {
 /// The Environment chip gives way first (cmux#39001, the coordinator's decision on Leo's authority:
 /// "at narrow composer widths, the Environment chip collapses to its icon first, with its label
 /// moving into its tooltip, before anything else gives way. Nothing changes at full width."): from
-/// the 760 px stage up it reads “Environment: Auto”; at 400 px it is its icon alone, still named
-/// “Cloud environment: Auto” by its accessible name and its tooltip.
+/// the 760 px stage up it reads “Environment: Default environment”; at 400 px it is its icon alone, still named
+/// “Cloud environment: Default environment” by its accessible name and its tooltip.
 function environmentProblems(document: Document): string[] {
   const width = document.defaultView!.innerWidth;
   const chip = document.querySelector(`${STRIP} .acpmux-cloud-env-slot[data-shown="true"] .acpmux-cloud-env`);

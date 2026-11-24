@@ -75,7 +75,7 @@ export function cloudEnvironmentRows(control: CloudEnvironmentControl, autoName:
   ];
 }
 
-/// The environment a pick runs in, by name: Auto's is the account's Default (or "Auto" until it is
+/// The environment a pick runs in, by name: Auto's is the account's Default (or "Default environment" until it is
 /// known); any other its own name.
 export function currentEnvironment(control: CloudEnvironmentControl, autoName: string): { id?: string; name: string } {
   if (control.current === AUTO_ENVIRONMENT) return { name: control.auto?.name ?? autoName };
@@ -83,7 +83,9 @@ export function currentEnvironment(control: CloudEnvironmentControl, autoName: s
   return { id: control.current, name: listed?.name ?? control.currentName ?? control.current };
 }
 
-/// The chip's value: "Auto", or the picked environment's name.
+/// The chip's value: the Default's name ("Default environment" until it is known), or the picked
+/// environment's name. RFD 0080: the word "Auto" means only where a chat runs (AutoWhere.tsx), so this
+/// pick reads "Default environment", never "Auto".
 export function cloudEnvironmentValue(control: CloudEnvironmentControl, autoName: string): string {
   return control.current === AUTO_ENVIRONMENT ? autoName : currentEnvironment(control, autoName).name;
 }

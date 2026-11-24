@@ -122,7 +122,7 @@ export default componentEntry<StageProps>({
       props: { ...base, where: "local" },
     },
     "cloud-auto": {
-      note: "Cloud picked: Environment: Auto beside the Where chip. Auto makes an environment from the chat's folder or repository on its first Cloud chat, with no questions.",
+      note: "Cloud picked: Environment: Default environment beside the Where chip. The Default environment is made from the chat's folder or repository on its first Cloud chat, with no questions.",
       props: base,
     },
     "pick-cloud": {
@@ -131,7 +131,7 @@ export default componentEntry<StageProps>({
       play: pickCloud,
     },
     "drop-up-list": {
-      note: "Shipped. The drop-up opens up, never over the composer: Auto, the project's recent environments, New environment…, Edit Default…, then New Cloud machine… after a hairline. One line each, no headers.",
+      note: "Shipped. The drop-up opens up, never over the composer: Default environment, the project's recent environments, New environment…, Edit Default…, then New Cloud machine… after a hairline. One line each, no headers.",
       props: base,
       play: openDropUp,
     },
@@ -156,7 +156,7 @@ export default componentEntry<StageProps>({
       play: openDropUp,
     },
     "first-chat": {
-      note: "A first Cloud chat with no environments yet: Auto, New environment…, Edit Default…, New Cloud machine….",
+      note: "A first Cloud chat with no environments yet: Default environment, New environment…, Edit Default…, New Cloud machine….",
       props: { ...base, recent: 0 },
       play: openDropUp,
     },
