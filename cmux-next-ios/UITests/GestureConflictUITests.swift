@@ -69,10 +69,10 @@ final class GestureConflictUITests: XCTestCase {
         field.typeText(Self.longDraft)
         let top = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
         let bottom = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
-        // Scroll the draft to its start; each drag is the text's, so the keyboard stays.
-        for _ in 0..<4 where app.keyboards.firstMatch.exists {
-            top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.1)
-        }
+        // One drag the field's height scrolls the draft (about three lines past the field) to its
+        // start, and it is the text's, so the keyboard stays. A second drag would already start at
+        // the top, where the swipe is the dock's.
+        top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.1)
         XCTAssertTrue(app.keyboards.firstMatch.exists, "scrolling the draft to its top keeps the keyboard up; \(state(app, field))")
         attach(app, "long-at-top")
         let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
@@ -107,13 +107,21 @@ final class GestureConflictUITests: XCTestCase {
 
     @MainActor
     private func assertSwipeRightStays(_ app: XCUIApplication, _ field: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let page = app.descendants(matching: .any)["workspace.ws-cmux"]
+        XCTAssertTrue(page.exists, "the workspace page is open; \(state(app, field))", file: file, line: line)
+        let frameBefore = field.frame
         let from = field.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
         from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 220, dy: 0)), withVelocity: .fast,
                    thenHoldForDuration: 0.05)
-        // A pop would have animated the workspace away by now.
+        // A pop would have animated the workspace away by now, and the drawer slid it aside.
         Thread.sleep(forTimeInterval: 1.0)
         attach(app, "after-swipe-right")
-        XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open; \(state(app, field))", file: file, line: line)
+        // The field may sit under its own edit menu after the drag selected text, so it is the
+        // page and the field's place that tell, not whether a tap would reach the field.
+        XCTAssertTrue(page.exists && field.exists, "still in the workspace with the composer open; \(state(app, field))", file: file, line: line)
+        XCTAssertEqual(field.frame.minX, frameBefore.minX, accuracy: 2,
+                       "the workspace did not slide aside (was \(NSCoder.string(for: frameBefore))); \(state(app, field))", file: file, line: line)
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "the composer is still being edited; \(state(app, field))", file: file, line: line)
     }
 
     // MARK: Helpers
@@ -123,9 +131,12 @@ final class GestureConflictUITests: XCTestCase {
     @MainActor
     private func state(_ app: XCUIApplication, _ field: XCUIElement) -> String {
         let fields = app.textViews.allElementsBoundByIndex.prefix(6).map { "\($0.identifier)@\(Int($0.frame.minY))" }
-        let buttons = app.buttons.allElementsBoundByIndex.prefix(10).map(\.label).filter { !$0.isEmpty }
+        let buttons = app.buttons.allElementsBoundByIndex.prefix(24).map(\.label).filter { !$0.isEmpty }
+        let menus = app.menuItems.allElementsBoundByIndex.prefix(8).map(\.label)
+        let ids = app.otherElements.allElementsBoundByIndex.prefix(40).filter { !$0.identifier.isEmpty }
+            .prefix(12).map { "\($0.identifier)@\(NSCoder.string(for: $0.frame))" }
         return "field exists=\(field.exists) hittable=\(field.exists && field.isHittable) frame=\(field.exists ? NSCoder.string(for: field.frame) : "-") "
-            + "keyboard=\(app.keyboards.firstMatch.exists) textViews=\(fields) buttons=\(buttons)"
+            + "keyboard=\(app.keyboards.firstMatch.exists) textViews=\(fields) menus=\(menus) views=\(ids) buttons=\(buttons)"
     }
 
     /// About ten wrapped lines at the 17 pt body on a phone: taller than the field's six.
@@ -151,8 +162,12 @@ final class GestureConflictUITests: XCTestCase {
     @MainActor
     private func openChatComposer(_ app: XCUIApplication) -> XCUIElement {
         let field = app.textViews["chat.composer.field"]
-        if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "the composer field\n\(app.debugDescription)")
+        if !field.waitForExistence(timeout: 15) {
+            // At rest the workspace tab's composer is its collapsed capsule; a tap opens the field.
+            let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+            if capsule.waitForExistence(timeout: 30) { capsule.tap() }
+        }
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "the composer field\n\(app.debugDescription)")
         field.tap() // the field, not the terminal behind it, takes the keyboard: it is being edited
         expect(app.keyboards.firstMatch, "exists == true", "the keyboard comes up")
         return field
