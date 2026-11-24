@@ -202,27 +202,31 @@ public struct TerminalSurfaceAgentCommandShimCleanup {
     /// install can find its directory gone halfway through and give up, which
     /// leaves that pane without shims.
     ///
-    /// The kernel releases the lock when its holder exits, however it exits.
-    /// A holder can also be stopped while it holds the lock, so nobody waits
-    /// for it: each caller says what it does without the lock. An actor
-    /// cannot stand in, because the other party is another process.
+    /// An actor cannot stand in, because the other party is another process.
+    /// A holder keeps the lock for one rename or one removal, and the kernel
+    /// releases it when the holder exits, however it exits. An install waits
+    /// for it, off the main actor, because publishing beside a sweep is what
+    /// the lock is there to prevent. Close and sweep never wait: they leave
+    /// the directory for a later sweep.
     public final class DirectoryLock {
         private let descriptor: Int32
 
-        /// Takes the lock for the shim directories under `shimParentDirectory`
-        /// if nobody holds it.
+        /// Takes the lock for the shim directories under `shimParentDirectory`.
         ///
-        /// - Parameter shimParentDirectory: The directory that holds one
-        ///   directory per surface. It must already exist.
-        /// - Returns: `nil` when another holder has the lock, or it cannot be
-        ///   opened.
-        public init?(shimParentDirectory: URL) {
+        /// - Parameters:
+        ///   - shimParentDirectory: The directory that holds one directory
+        ///     per surface. It must already exist.
+        ///   - waits: Whether to wait for a holder to release the lock.
+        ///     Never pass `true` on the main actor.
+        /// - Returns: `nil` when the lock cannot be opened, or when another
+        ///   holder has it and `waits` is `false`.
+        public init?(shimParentDirectory: URL, waits: Bool = false) {
             let path = shimParentDirectory.appendingPathComponent(".lock", isDirectory: false).path
             let descriptor = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
             guard descriptor >= 0 else { return nil }
             var result: Int32
             repeat {
-                result = flock(descriptor, LOCK_EX | LOCK_NB)
+                result = flock(descriptor, waits ? LOCK_EX : LOCK_EX | LOCK_NB)
             } while result != 0 && errno == EINTR
             guard result == 0 else {
                 close(descriptor)

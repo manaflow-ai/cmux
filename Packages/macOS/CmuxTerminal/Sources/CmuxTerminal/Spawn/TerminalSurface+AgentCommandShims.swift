@@ -173,11 +173,14 @@ extension TerminalSurface {
             shims.append(shim)
         }
         guard !shims.isEmpty else { return nil }
-        // Held until the directory is in place, so a sweep or a close in
-        // another cmux cannot move it away halfway. An install never waits
-        // for it: when the lock is taken it publishes without one.
+        // Held from reading the owner records until the directory is in
+        // place, so a sweep or a close cannot move it away halfway and two
+        // cmux apps restoring one surface cannot lose each other's record.
+        // Waiting is brief: a holder keeps the lock for one rename. Without
+        // a lock file the install goes ahead unlocked.
         let publishLock = TerminalSurfaceAgentCommandShimCleanup.DirectoryLock(
-            shimParentDirectory: shimParentDirectory
+            shimParentDirectory: shimParentDirectory,
+            waits: true
         )
         defer { withExtendedLifetime(publishLock) {} }
         // Names this process as an owner of the pane's directory, so a sweep
@@ -202,9 +205,9 @@ extension TerminalSurface {
             }
             return privateDirectoryCheck.makePrivate(atPath: shimDirectory.path)
         }
-        // Without the lock a sweep can take the directory away between the
-        // look and the move. It has settled by a second attempt: the
-        // directory is gone, or back.
+        // A cmux built before the lock can still publish this surface's
+        // directory between the look and the move. A second attempt replaces
+        // what it left.
         guard publish() || publish() else { return nil }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
