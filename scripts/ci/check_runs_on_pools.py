@@ -50,9 +50,6 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
     # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it (the boundaries
     # are his call), so its fallback label moves only in a PR he approves.
     ("language-boundaries.yml", "language-boundaries"): "language-boundaries.yml is Leo's to change",
-    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it must not read one: "
-                                                          "rule 7 of tests/test_ci_signing_keychain_is_deleted_"
-                                                          "before_bundle_code.py pins its literal Blacksmith label",
 }
 
 COMPARISON = re.compile(r"(?:==|!=)\s*$")
