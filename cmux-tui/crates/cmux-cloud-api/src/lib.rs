@@ -27,6 +27,9 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `machine.fork` is cmux-platform's `POST /v1/machines/{id}/fork`: a running copy of a Cloud
+//! machine, memory and disk, that a new session or sub-agent is placed on ([`machine_fork`]).
+//!
 //! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
 //! `cloud.machine.resize` ([`chief_resize`]).
 //!
@@ -61,6 +64,7 @@ mod fork_runs;
 mod http;
 mod machine;
 pub mod machine_destroy;
+pub mod machine_fork;
 pub mod machine_io;
 mod network;
 mod owner;
@@ -139,6 +143,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         "machine.io" => machine::worker(request).await,
         "machine.chief_start" => chief_machine::perform(request, &http).await,
         "machine.chief_resize" => chief_resize::perform(request, &http).await,
+        "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
+        "machine.fork" => machine_fork::fork_machine(request, args).await,
         call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
             Err(not_on_this_cloud(call))
         }
@@ -241,6 +247,7 @@ pub const CALLS: [&str; 44] = [
     "machine.chief_start",
     "machine.chief_resize",
     "machine.setup_desktop",
+    "machine.fork",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about
