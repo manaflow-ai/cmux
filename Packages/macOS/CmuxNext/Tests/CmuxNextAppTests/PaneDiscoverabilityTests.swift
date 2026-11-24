@@ -110,7 +110,7 @@ import Testing
             let pinned = toolbar.view.buttons
             #expect(pinned.count == pins.count)
             #expect(pinned.allSatisfy { !$0.isHidden })
-            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden }
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX, "controls must never overlap at \(width) points")
             }
@@ -152,14 +152,13 @@ import Testing
             #expect(tab.pane.isBandActive)
             #expect(toolbar.view.frame.width <= width / 2)
             #expect(tab.pane.stripView.tabAvailableWidth > 0, "the browser band must retain a tab viewport")
-            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden }
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX)
             }
-            let menu = try #require(toolbar.view.moreMenu?())
-            let menuActions = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
+            // A pin that does not fit hides; its key and the palette still run it (the bar has no ⋮, #53356).
             for (item, button) in zip(toolbar.view.items, toolbar.view.buttons) where button.isHidden && pins.contains(item.id) {
-                #expect(menuActions.contains(ActionID(rawValue: item.id)), "overflowed pins must remain actionable")
+                #expect(registry.descriptor(for: ActionID(rawValue: item.id)) != nil, "overflowed pins must remain actionable")
             }
         }
     }
