@@ -149,6 +149,24 @@ public struct TaskImage: Hashable, Sendable, Identifiable {
     }
 }
 
+/// A Cloud machine New Task can run on, as a connected Mac lists it (Cloud chats reach the phone
+/// through that Mac). The Cloud machine starts Claude, asking before it acts, in a folder it makes.
+public struct CloudTaskTarget: Hashable, Sendable, Identifiable {
+    public var teamID: String
+    public var machineID: String
+    public var name: String
+    /// The Mac that lists it and carries its chat.
+    public var macID: String
+    public var id: String { teamID + "\u{1}" + machineID }
+
+    public init(teamID: String, machineID: String, name: String, macID: String) {
+        self.teamID = teamID
+        self.machineID = machineID
+        self.name = name
+        self.macID = macID
+    }
+}
+
 /// One agent New Task starts: a harness of the Mac's catalog and its model (nil: its default).
 public struct TaskAgentPick: Hashable, Sendable, Identifiable, Codable {
     public var harness: String
@@ -189,6 +207,8 @@ public struct TaskDraft: Hashable, Sendable {
     public var picks: [TaskAgentPick]
     /// The Mac, or nil for the creator's target Mac.
     public var macID: String?
+    /// A Cloud machine (``CloudTaskTarget/id``) the task runs on instead of a Mac; nil: a Mac.
+    public var cloudID: String?
     /// One of the Mac's workspace folders, or nil for the most recent one.
     public var directory: String?
     /// The workspace name; empty names it after the prompt.
@@ -197,14 +217,15 @@ public struct TaskDraft: Hashable, Sendable {
     public var launch: TaskLaunch
 
     public init(id: UUID = UUID(), prompt: String = "", images: [TaskImage] = [], files: [TaskFile] = [],
-                picks: [TaskAgentPick] = [], macID: String? = nil, directory: String? = nil, name: String = "",
-                launch: TaskLaunch = .terminal) {
+                picks: [TaskAgentPick] = [], macID: String? = nil, cloudID: String? = nil, directory: String? = nil,
+                name: String = "", launch: TaskLaunch = .terminal) {
         self.id = id
         self.prompt = prompt
         self.images = images
         self.files = files
         self.picks = picks
         self.macID = macID
+        self.cloudID = cloudID
         self.directory = directory
         self.name = name
         self.launch = launch
@@ -257,9 +278,16 @@ public struct TaskDraft: Hashable, Sendable {
 
     /// Another Mac: its agents are its own, so the picks go (the folder is checked against its list).
     public mutating func chooseMac(_ macID: String) {
+        cloudID = nil
         guard macID != self.macID else { return }
         self.macID = macID
         picks = []
+    }
+
+    /// A Cloud machine instead of a Mac: the Mac's picks and folder stay for when a Mac is chosen
+    /// again (the Cloud machine starts Claude in a folder it makes).
+    public mutating func chooseCloud(_ cloudID: String) {
+        self.cloudID = cloudID
     }
 
     /// The workspace title: the typed name, else the prompt's first line, shortened at a word.
@@ -299,6 +327,10 @@ public enum TaskStartBlocker: Hashable, Sendable {
     case noAgent
     case noFolder
     case tooManyAgents
+    /// The chosen Cloud machine isn't listed by any connected Mac now.
+    case noCloud
+    /// A Cloud task's first message is text: photos and files go only to a Mac's folder.
+    case cloudTextOnly
 
     public var message: String {
         switch self {
@@ -307,6 +339,8 @@ public enum TaskStartBlocker: Hashable, Sendable {
         case .noAgent: "Choose an agent to run the task."
         case .noFolder: "Agents start in a project folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…)."
         case .tooManyAgents: "Choose at most \(TaskDraft.agentLimit) agents."
+        case .noCloud: "This Cloud machine isn't reachable now. Wake it on your Mac, or choose another place to run the task."
+        case .cloudTextOnly: "A Cloud task starts with text only. Remove the photos and files, or run the task on a Mac."
         }
     }
 }
@@ -327,6 +361,34 @@ extension WorkspaceCreator {
         return macs.first { $0.id == draft.macID } ?? macs.first { $0.id == targetMac?.id } ?? macs.first
     }
 
+    /// The Cloud machine a draft runs on; nil for a Mac (or a Cloud machine no Mac lists now).
+    public func taskCloud(for draft: TaskDraft) -> CloudTaskTarget? {
+        draft.cloudID.flatMap { id in cloudTaskTargets.first { $0.id == id } }
+    }
+
+    /// Reads the Cloud machines New Task can run on (through the connected Macs). A failed read
+    /// keeps the last list, so a chosen machine stays chosen through a blip.
+    public func refreshCloudTaskTargets() async {
+        guard let loadCloudTaskTargets else { return }
+        guard let listed = await loadCloudTaskTargets() else { return }
+        cloudTaskTargets = listed
+    }
+
+    /// Starts a Cloud task: the shell opens the machine's new Claude chat with the prompt as its
+    /// first message. Clears the draft (the Cloud machine stays chosen). False when it can't start.
+    @discardableResult
+    public func startCloudTask(_ draft: TaskDraft) -> Bool {
+        guard taskBlocker(draft) == nil, let target = taskCloud(for: draft), let startCloudTask else { return false }
+        startCloudTask(target, draft.trimmedPrompt)
+        taskDrafts.delete([draft.id])
+        taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, cloudID: target.id, directory: draft.directory,
+                              launch: draft.launch)
+        rememberTaskSetup()
+        taskRefusal = nil
+        restoredTask = nil
+        return true
+    }
+
     /// The folders a task may start in on `macID`: the Mac's workspace folders, never home.
     public func taskFolders(on macID: String) -> [String] {
         recentDirectories(on: macID).filter { $0 != "~" && $0 != "/" && !$0.isEmpty }
@@ -345,6 +407,12 @@ extension WorkspaceCreator {
 
     /// Why `draft` can't start now; nil when it can.
     public func taskBlocker(_ draft: TaskDraft) -> TaskStartBlocker? {
+        if draft.cloudID != nil {
+            guard taskCloud(for: draft) != nil else { return .noCloud }
+            if draft.trimmedPrompt.isEmpty { return .noPrompt }
+            if !draft.images.isEmpty || !draft.files.isEmpty { return .cloudTextOnly }
+            return nil
+        }
         guard let mac = taskMac(for: draft) else { return .noMac }
         if draft.trimmedPrompt.isEmpty { return .noPrompt }
         if draft.picks.count > TaskDraft.agentLimit { return .tooManyAgents }
@@ -491,7 +559,8 @@ extension WorkspaceCreator {
     /// The composer's next task starts empty, with the same agents and place.
     public func leaveTaskComposer(keep: Bool) {
         if keep { saveTaskDraft() } else { taskDrafts.delete([taskDraft.id]) }
-        taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, directory: taskDraft.directory, launch: taskDraft.launch)
+        taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, cloudID: taskDraft.cloudID,
+                              directory: taskDraft.directory, launch: taskDraft.launch)
         rememberTaskSetup()
         taskRefusal = nil
         restoredTask = nil
@@ -523,6 +592,8 @@ extension WorkspaceCreator {
     struct TaskSetup: Codable {
         var picks: [TaskAgentPick]
         var macID: String?
+        /// The Cloud machine New Task runs on (nil: a Mac); absent in setups kept before Cloud.
+        var cloudID: String?
         var directory: String?
     }
 
@@ -531,7 +602,7 @@ extension WorkspaceCreator {
     func rememberTaskSetup() {
         rememberTaskLaunch(taskDraft.launch)
         let setup = TaskSetup(picks: taskDraft.picks.map { TaskAgentPick(harness: $0.harness, name: $0.name, family: $0.family) },
-                              macID: taskDraft.macID, directory: taskDraft.directory)
+                              macID: taskDraft.macID, cloudID: taskDraft.cloudID, directory: taskDraft.directory)
         defaults.set(try? JSONEncoder().encode(setup), forKey: Self.taskSetupKey)
     }
 
@@ -542,6 +613,7 @@ extension WorkspaceCreator {
               let setup = try? JSONDecoder().decode(TaskSetup.self, from: data) else { return }
         taskDraft.picks = setup.picks
         taskDraft.macID = setup.macID
+        taskDraft.cloudID = setup.cloudID
         taskDraft.directory = setup.directory
     }
 
