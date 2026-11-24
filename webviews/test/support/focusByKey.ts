@@ -20,4 +20,15 @@ export async function focusByKey(page: Page, target: string | Locator): Promise<
     );
   });
   await page.keyboard.press("Tab");
+  // Focus's own fades (the composer's ring eases in, composerStates.css) run out before a test reads
+  // the focused look: a read mid-fade would see a value between rest and focus. Transitions only,
+  // never a looping animation (a spinner), which never finishes.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
 }
