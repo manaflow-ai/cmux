@@ -339,6 +339,7 @@ export const ROW_LEVELS: {
     "agents.modelRouter.model": "more",
     "computerUse.driver": "more",
     "computerUse.livePreview": "more",
+    "computerUse.whileLocked": "more",
     "remote.ultraMode": "more",
     "sessions.keepAwakeForCommands": "more",
     "agents.promptSuggestions": "more",

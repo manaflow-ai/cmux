@@ -453,4 +453,13 @@ fn short_verbs_answer_their_own_help() {
     let rename = verb_help("rename", false).unwrap();
     assert!(rename.starts_with("usage: cmux vm rename [NAME|ID] NEW_NAME"), "{rename}");
     assert!(verb_help("shutdown", false).unwrap().contains("`shutdown` is `pause`"));
+    // Review F3 on #48221: only the VM API's own verbs claim its fallback.
+    for short in ["status", "resize", "rename", "ssh", "move"] {
+        let help = verb_help(short, false).unwrap();
+        assert!(!help.contains("verb of the same name"), "{short}: {help}");
+        assert!(help.contains("needs the cmux app"), "{short}: {help}");
+    }
+    for short in ["pause", "resume", "rm", "fork", "ls"] {
+        assert!(verb_help(short, false).unwrap().contains("verb of the same name"), "{short}");
+    }
 }
