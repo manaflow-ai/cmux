@@ -1181,13 +1181,6 @@ function TranscriptView({
     const drew = drewScroll.current;
     if (drew && Math.abs(frame.top - drew.top) < 1 && drew.following === followingRef.current) return;
     if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
-    // A frame that brings the offset the last commit drew, following as it drew, changes nothing
-    // that commit shows: a followed reply's growth pins the view to its new end, and the render that
-    // measured the growth already drew there (`projectedTop`). Its scroll event then drew the whole
-    // transcript again for no change, about one pass in four of a streamed reply
-    // (test/agent-pane-stream-renders.test.ts).
-    const drew = drewScroll.current;
-    if (drew && Math.abs(frame.top - drew.top) <= 0.5 && drew.following === followingRef.current) return;
     // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
     acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
