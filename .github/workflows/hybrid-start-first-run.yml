@@ -13,7 +13,8 @@ name: Hybrid start first run (staging, published NEXT DEV app, PR CLI)
 # the Claude login is that environment's CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN, else the repository's
 # CLAUDE_CODE_OAUTH_TOKEN. The repository's one is shared by claude.yml, cloud-chat-proof and every journey; run
 # 45301264459's control chat got "You've hit your weekly limit" from it. A one-word Claude preflight runs before the
-# build, so a login with no quota ends the job in minutes and names its reset.
+# build and prints the login's own words (its limit and reset); it never ends the job, because the machine, the
+# move and the timings need no model and are measured on every run.
 
 on:
   pull_request:
@@ -56,14 +57,16 @@ jobs:
           JOURNEY_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN }}
           REPO_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          set -uo pipefail
+          # The runner's shell has -e: without +e a failed claude ends the step before its words are printed.
+          set +e -uo pipefail
           if [ -n "${JOURNEY_TOKEN:-}" ]; then source=CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN; token="$JOURNEY_TOKEN"
           elif [ -n "${REPO_TOKEN:-}" ]; then source=CLAUDE_CODE_OAUTH_TOKEN; token="$REPO_TOKEN"
-          else echo "::error::no Claude login in this job's environment"; exit 1; fi
+          else echo "::warning::Claude preflight: no Claude login in this job's environment; the run goes on and measures everything but the answers"; exit 0; fi
           unset JOURNEY_TOKEN REPO_TOKEN
           echo "HFR_CLAUDE_TOKEN_SOURCE=$source" >> "$GITHUB_ENV"
           dir="$(mktemp -d)"
           started=$(date +%s)
+          echo "claude on this runner: $(command -v claude || echo 'not on PATH')"
           answer="$(cd "$dir" && CLAUDE_CODE_OAUTH_TOKEN="$token" CLAUDE_CONFIG_DIR="$dir/home" \
             perl -e 'alarm shift; exec @ARGV' 120 claude -p "Reply with the single word ok." --max-turns 1 2>&1)"; code=$?
           rm -rf "$dir"
@@ -71,7 +74,8 @@ jobs:
           line="Claude preflight ($source): exit $code in $(( $(date +%s) - started )) s: $answer"
           echo "$line"; echo "$line" >> "$GITHUB_STEP_SUMMARY"
           if [ "$code" -ne 0 ] || ! printf '%s' "$answer" | grep -qiw ok; then
-            echo "::error::the Claude login ($source) gave no answer, so no chat in this run can reply: $answer"; exit 1
+            # Not fatal: the machine, the move and the timings need no model, so they are measured on every run.
+            echo "::warning::Claude preflight: the login ($source) gave no answer (exit $code), so no chat in this run can reply; the run goes on: $answer"
           fi
       - name: Init ghostty submodules
         run: |
