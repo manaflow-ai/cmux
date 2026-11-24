@@ -393,7 +393,7 @@ const PLAN = {
 }
 kase("plan.get", "cloud.plan.get", {}, [readOk("cloud.plan.get", PLAN, "12")])
 // ---- the team's allotment (Settings Compute card)
-const ALLOTMENT = {
+const ALLOTMENT: Json = {
   allotment: { commit_micros: 300_000_000, mode: "ask", auto_max_micros: null, tiers: { user_vec_1: "plus" }, snoozed_until: null, changed_at: 1791000000000, changed_by: "user_vec_1" },
   decision: {
     allot_micros: 400_000_000,
