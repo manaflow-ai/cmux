@@ -423,6 +423,103 @@ In-memory store (`cmux-auto-session` feature `test-support`, `fake/`):
   machine install (401), the owner index's lag, the list cursor's encoding, small-body size limits and alarm
   timing. `fixtures/conformance.json` is replayed against both stores.
 
+## Modes and moving a chat by hand (2026-11-24, to build)
+
+Asked for by Austin after the demo (`cloud-cmux-mode-demo`, `plans/cmux-next/auto-mode/demo/`) moved a real
+Claude Code chat between a Mac and a VM and back. This section is the contract for that work; where it differs
+from the sections above, it wins.
+
+### One mode per chat
+
+A chat has one mode with three values. It is read from fields the record already has, never stored twice.
+
+| Mode | Record | What the person gets |
+|---|---|---|
+| `local` | `auto: false` | The chat runs on this device only. Nothing is copied to the Cloud. |
+| `auto` | `auto: true`, `keepInCloud: false` | On the laptop while it is there, on the Cloud machine when it is not, home again at a turn end. |
+| `cloud` | `auto: true`, `keepInCloud: true` | The chat runs on the Cloud machine. A laptop that opens it follows it and sends to it; it never comes home by itself. |
+
+- Setting a chat to `cloud` is `keepInCloud: true` and a move to the Cloud in one store write. Setting it to
+  `auto` from `cloud` is `keepInCloud: false`; the chat then comes home by the handback rule. Setting it to
+  `local` while a machine holds it is a move to the laptop, and Auto goes off once the laptop has stored its
+  own snapshot (the `owesImport` rule already refuses it earlier).
+- A new chat takes the default mode from the setting `cloud.chatMode` (`local`, `auto`, `cloud`; default
+  `local`). It replaces `cloud.autoMode`, which this branch added and nothing released reads. A chat made in
+  `cloud` mode on a laptop is registered there, copied once, and moved: the same path as a move by hand.
+- Any surface shows the mode and where the chat runs now as two facts: "Auto, on this Mac", "Auto, in the
+  Cloud", "Cloud", "Local". No surface says lease, epoch, give or wish.
+
+### Move now
+
+A person can move an Auto chat between the laptop and the Cloud machine at any moment, also in the middle of a
+turn, without waiting for a lease to run out.
+
+- `POST /v1/auto-sessions/:id/move` (owner) `{to: "cloud" | "local", device?: "device:<id>"}` -> `{session}`.
+  It writes a wish on the record, `move: {to, device?, at}`, and in the same write sets `keepInCloud` (`true`
+  for `cloud`, `false` for `local`). Refused: `auto.off` (the chat is not Auto), `auto.no_machine` (to the
+  Cloud with no machine to be found, by the same lookup a takeover uses), `auto.no_laptop` (to a laptop when no
+  laptop stands by, or the named one does not). A chat already where it is asked to go has its wish cleared and
+  answers as it is.
+- A parked chat has no holder to give it: to the Cloud it is assigned as a `takeover` at once (refused
+  `auto.not_copied` with no snapshot); to a laptop it goes to that standby at once, owing an import.
+- The holder learns the wish from its lease answer (`move: "cloud" | "local"`, absent when there is none) and
+  from the chat's view (`session.move`). A machine is woken by the index as for an assignment.
+- `POST /v1/auto-sessions/:id/give` (holder) `{holder, epoch}` -> `{session}`. Fenced like every holder write.
+  Refused `auto.no_move` with no wish, and `auto.not_copied` unless a snapshot exists and
+  `snapshotSeq >= lastSeq`: a chat never changes hands ahead of its copy. On success: epoch + 1, the wish is
+  cleared, and the chat goes to the Auto machine as a `takeover` assignment (`to: "cloud"`) or to the standby
+  laptop with `owesImport` (`to: "local"`).
+- A wish does not outlive its holder: any other change of holder clears it, and a wish the holder has not acted
+  on for `MOVE_MS = 120_000` is cleared by the lease alarm. The lease rules still cover a holder that is gone.
+- The parked take-back rules respect `keepInCloud`: a chat kept in the Cloud that has a snapshot is not taken
+  back by its laptop's `PUT` or renewal; it stays parked until work arrives, which starts the machine.
+- `POST /v1/auto-sessions` (a chat started with no laptop) accepts `keepInCloud`.
+
+The holder's side (core crate and daemons):
+
+- On a wish, the holder stops its agent now (the interrupt `transfer_begin` uses), sends its last events,
+  stores a snapshot, then calls `give`. `auto.not_copied` means store the copy and ask again. After the give it
+  is a standby (laptop) or has lost the chat (machine).
+- The new holder imports as for a takeover or a handback. A turn that was running is settled once and continued
+  with the moved-chat text that exists (`Cut::Move`), not the "machine went away" text.
+
+### The agent's own session goes with the copy
+
+The demo's first finding that the product lacks: Claude Code and Codex keep each conversation in a file of
+their own, and a new holder that resumes `harnessSessionId` without that file starts with no memory of the chat.
+The manual move carries those files (`hub/transfer.rs`, `native::locate`); the Auto copy did not.
+
+- The snapshot manifest gains `native: [{label, path, chunks: [sha256]}]` (default empty, so an older manifest
+  still reads). The laptop and the machine put the harness's session files in every snapshot, the same files
+  `native::locate` names for a manual move.
+- An import puts them where the harness on this machine looks (`transfer_in`'s placement, which rewrites the
+  folder-dependent part of the path), before the first resume.
+
+### Daemon surface
+
+- `_acpmux/auto_session/set` takes `mode: "local" | "auto" | "cloud"` (`auto` and `keepInCloud` stay accepted).
+- `_acpmux/auto_session/move` `{sessionId, to: "cloud" | "local"}`: the wish, sent to the store.
+- A chat's row gains `autoSession.mode` and `autoSession.moving` (`"cloud" | "local"`, absent when not moving).
+
+### CLI and chat commands
+
+Modelled on the demo's `auto` command, inside the commands people already have:
+
+- `cmux chat mode [SESSION] [local|auto|cloud]`: print a chat's mode and where it runs, or set it.
+- `cmux chat move SESSION cloud|local`: move it now (an Auto chat; a Local chat is told to set a mode first).
+- `cmux chats list` names where each Auto or Cloud chat runs.
+- In a chat's composer: `/local`, `/auto`, `/cloud` set the mode; `/mode` prints it.
+- The chat menu shows one three-way choice (Local, Auto, Cloud) in place of the Auto and Keep in Cloud rows.
+- `cmux chat --on cloud` and `cmux move --to cloud` keep their meaning (the move with no lease); their help
+  names `cmux chat mode` for a chat that should follow the laptop.
+
+### Known gaps this section does not close
+
+- A store that was down reads the gap as every lease running out (demo finding 11).
+- Two lost answers in a row to the parked take-back (demo finding 3, `tenure`).
+- A laptop that wakes is stopped at the daemon's next step, not within a quarter second (finding 4).
+- A view of a chat coming home does not yet say its files are being brought in (finding 13).
+
 ## Slices
 
 | | Owns | Where |
