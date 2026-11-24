@@ -1097,6 +1097,26 @@ def pixel_verdict(rec, spans, x_lo_pt, settle_after):
             "examples": examples, "timeline": timeline[:400]}
 
 
+
+WORK_KEYS = ("layout_root_layouts", "pane_chrome_updates", "pane_snapshots", "terminal_window_updates")
+TRACKER_KEYS = ("clip_reads", "geometry_posts", "geometry_skips", "fences", "fence_joined", "fence_presented", "fence_missed",
+                "fences_expired")
+
+
+def work_counters():
+    """The app's per-layout work counters (debug.layout_counters) and the fork tracker's (debug.cef tracker)."""
+    layout = rpc("debug.layout_counters") or {}
+    tracker = (rpc("debug.cef") or {}).get("tracker") or {}
+    out = {k: layout.get(k) for k in WORK_KEYS if isinstance(layout, dict)}
+    out.update({f"tracker.{k}": tracker.get(k) for k in TRACKER_KEYS if isinstance(tracker, dict)})
+    return out
+
+
+def work_delta(before, after):
+    return {k: (after.get(k) - before.get(k)) if isinstance(after.get(k), (int, float)) and isinstance(before.get(k), (int, float))
+            else None for k in after}
+
+
 def check_live_resize(tab, pane):
     """Bugs 17 to 21 by pixels: a divider drag, a window corner drag, full screen enter and exit, a window move and a
     workspace switch, each recorded by the app's own recorder, every composited frame classified (classify_row)."""
@@ -1120,6 +1140,7 @@ def check_live_resize(tab, pane):
         else:
             time.sleep(0.3)  # test harness: the recorder's first frames at rest
             rpc("debug.frames", {"action": "start"})
+            work0 = work_counters()
             spans = []
             for _ in range(rounds):
                 a = time.monotonic()
@@ -1127,17 +1148,18 @@ def check_live_resize(tab, pane):
                 drag_divider((divider[0] - 160, divider[1]), 160)
                 spans.append((a, time.monotonic()))
             app_frames = rpc("debug.frames", {"action": "stop"})
+            work = work_delta(work0, work_counters())
             time.sleep(0.8)  # test harness: the settle is in the recording
             read = pixel_stop(rec)
             v = pixel_verdict(rec, spans, frame[0] - 170, 0.7)
-            RAW["live_resize_divider"] = {"verdict": v, "read": read, "app_frames": app_frames}
+            RAW["live_resize_divider"] = {"verdict": v, "read": read, "app_frames": app_frames, "work": work}
             row(not v.get("error") and v["blank"] == 0 and v["wrong"] <= 0.1 * max(1, v["frames"]) and v["stalls_over_50ms"] == 0
                 and v["settle_ms_after_input"] <= LAG_MS,
                 "live_resize.divider.pixels",
                 {"bug": 18, **{k: v.get(k) for k in ("frames", "classes", "wrong", "blank", "longest_wrong_run", "moving_fps",
                                                       "stalls_over_50ms", "gap_p50_ms", "gap_max_ms", "settle_ms_after_input",
                                                       "examples", "error")},
-                 "app_frames": frame_detail(app_frames),
+                 "app_frames": frame_detail(app_frames), "work": work,
                  "pass_if": "no blank frame, wrong <= 10% of frames, no gap over 50 ms between composited frames while "
                             f"dragging, page right <= {LAG_MS} ms after the drag"})
 
@@ -1163,6 +1185,7 @@ def check_live_resize(tab, pane):
         else:
             time.sleep(0.3)  # test harness: the recorder's first frames at rest
             rpc("debug.frames", {"action": "start"})
+            work0 = work_counters()
             spans = []
             for _ in range(rounds):
                 a = time.monotonic()
@@ -1170,10 +1193,11 @@ def check_live_resize(tab, pane):
                 corner(-240, -120)
                 spans.append((a, time.monotonic()))
             app_frames = rpc("debug.frames", {"action": "stop"})
+            work = work_delta(work0, work_counters())
             time.sleep(0.8)  # test harness: the settle is in the recording
             read = pixel_stop(rec)
             v = pixel_verdict(rec, spans, frame[0] - 10, 0.7)
-            RAW["live_resize_window"] = {"verdict": v, "read": read, "app_frames": app_frames,
+            RAW["live_resize_window"] = {"verdict": v, "read": read, "app_frames": app_frames, "work": work,
                                          "window_after": main_layers().get("frame")}
             row(not v.get("error") and v["blank"] == 0 and v["wrong"] <= 0.1 * max(1, v["frames"]) and v["stalls_over_50ms"] == 0
                 and v["settle_ms_after_input"] <= LAG_MS,
@@ -1181,7 +1205,7 @@ def check_live_resize(tab, pane):
                 {"bug": 19, **{k: v.get(k) for k in ("frames", "classes", "wrong", "blank", "longest_wrong_run", "moving_fps",
                                                       "stalls_over_50ms", "gap_p50_ms", "gap_max_ms", "settle_ms_after_input",
                                                       "examples", "error")},
-                 "app_frames": frame_detail(app_frames),
+                 "app_frames": frame_detail(app_frames), "work": work,
                  "pass_if": "no blank frame, wrong <= 10% of frames, no gap over 50 ms while dragging, page right "
                             f"<= {LAG_MS} ms after the drag"})
 
