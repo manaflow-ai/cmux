@@ -3,6 +3,7 @@
 // ended shares for a while (revoked, expired, closed); the card lists only the ones that still let
 // someone in, newest first, like ChatGPT's Settings > Data controls > Shared links.
 import type { SharesState, ShareWire } from "./ops";
+import { intl } from "../../ui/intl";
 
 /** One shared chat's row. */
 export type SharedLinkRow = {
@@ -50,7 +51,7 @@ export function shareDate(at: number, now: number, locale: string): string {
   const date = new Date(at);
   const sameDay = new Date(now).toDateString() === date.toDateString();
   const format = sameDay
-    ? new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
-    : new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+    ? intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
+    : intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
   return format.format(date);
 }

@@ -95,7 +95,7 @@ if [[ -n "$base_revert" ]]; then
   base_app="$(build hoverbase)" || { restore_head; exit 1; }
   restore_head
 elif [[ -n "$base_ref" ]]; then
-  git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet origin "$base_ref" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$base_ref"
+  git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet --recurse-submodules=no origin "$base_ref" 2>/dev/null || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$base_ref"
   git -c advice.detachedHead=false checkout --quiet --detach "$base_ref"
   base_desc="base $(git rev-parse HEAD)"
   check_base_setting

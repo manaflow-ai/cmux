@@ -1,8 +1,19 @@
 import AppKit
+import CmuxNextDesign
 // Right-click: resolve the target, let the App build the menu from the
 // action registry.
 extension SidebarListViewComponents {
     override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = contextMenu(for: event)
+        // A menu look that draws (`sidebar.drawnMenus`) opens the same menu as a GlassMenu at
+        // the pointer, which can take the look; AppKit's menu cannot be restyled.
+        guard let menu, DesignSettings.shared.sidebarDrawnMenus, let window else { return menu }
+        let at = window.convertPoint(toScreen: event.locationInWindow)
+        GlassMenu(menu: menu).show(at: CGRect(origin: at, size: .zero), in: window, preferred: .below)
+        return nil
+    }
+
+    private func contextMenu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         guard let contextMenuProvider else { return nil }
         let hit = clickHit(at: point)
@@ -12,7 +23,7 @@ extension SidebarListViewComponents {
             // Leo 2026-10-21 / Lawrence u8646: the menu is for the clicked row, or the whole selection when the
             // row is part of it; the selection and the shown workspace stay as they are (one rule with the ⋮ button).
             // A group's one row (`standsForGroup`) adds the group's menu (`SidebarRowMenu.menu(for:)`).
-            return SidebarRowMenu(list: self).menu(for: id)
+            return NSMenu.withoutSystemItems(SidebarRowMenu(list: self).menu(for: id))
         case let .group(id)?, let .emptyGroup(id)?:
             // A right-click on a group (or its empty row) shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
@@ -23,6 +34,8 @@ extension SidebarListViewComponents {
             target = .section(id)
         case let .doneFold(fold)? where fold.kind == .archive:
             target = .background // the Archive row belongs to no list
+        case let .doneFold(fold)? where fold.kind == .settled:
+            target = .background // the sidebar's menu, with Archive Settled Chats
         case let .showMore(fold)? where fold.kind == .projects:
             target = .background // Projects' row spans every computer's groups
         case let .doneFold(fold)?, let .showMore(fold)?:
@@ -34,6 +47,6 @@ extension SidebarListViewComponents {
         case nil:
             target = .background
         }
-        return contextMenuProvider(target)
+        return NSMenu.withoutSystemItems(contextMenuProvider(target))
     }
 }

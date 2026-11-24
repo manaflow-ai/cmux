@@ -99,7 +99,7 @@
         {
           "key": "workspaces.freeing.enabled",
           "name": "freeingEnabled",
-          "note": "Off by default at first (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): it ends shell processes, user-visible high-tier behavior. On: a hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen.",
+          "note": "On by default (Leo, ask-211eed2c58: freeing idle shells in workspaces hidden for a day should be on). A hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen. An explicit false keeps idle shells running.",
           "title": {
             "key": "settings.workspaceHibernation.freeingEnabled",
             "text": "Free Idle Terminals"
@@ -109,7 +109,7 @@
             "text": "Ends idle shells of long-unused workspaces; they restart in the same folder."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "free",
             "freeing",

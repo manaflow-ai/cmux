@@ -111,7 +111,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
             }
             Some(Ok(link)) => {
-                let found = by_link(&summaries, &link, &own);
+                let found = by_link(&summaries, &link, &own)?;
                 (Some(link), found)
             }
             None => {
@@ -148,7 +148,7 @@ impl Hub {
                     return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
                 }
                 Some(Ok(link)) => {
-                    let found = by_link(&summaries, &link, &own);
+                    let found = by_link(&summaries, &link, &own)?;
                     (Some(link), found)
                 }
                 None => (None, by_key(&summaries, query, &own)),
@@ -458,8 +458,13 @@ fn minted_harnesses(family: &str) -> impl Iterator<Item = &str> {
 }
 
 /// The sessions whose harness session id and family are the link's, those on the host the link
-/// names first, then this daemon's, newest first within.
-fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a Value> {
+/// names first, then this daemon's, newest first within. An explicit `handle:` selector is
+/// mutable. The legacy id form never falls back to a handle after its chat disappears.
+fn by_link<'a>(
+    summaries: &'a [Value],
+    link: &AgentLink,
+    own: &str,
+) -> Result<Vec<&'a Value>, RpcError> {
     let mut found: Vec<&Value> = summaries
         .iter()
         .filter(|s| s["agentSessionId"].as_str() == Some(link.session.as_str()))
@@ -467,9 +472,29 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
         .collect();
     let on_hint =
         |s: &Value| link.host.as_deref().is_some_and(|h| host_of(s, own).eq_ignore_ascii_case(h));
+    if found.is_empty()
+        && let Some(handle) = link.session.strip_prefix("handle:")
+        && crate::session_handle::valid(handle)
+    {
+        found.extend(summaries.iter().filter(|s| {
+            family_of(s) == link.harness
+                && (link.host.is_none() || on_hint(s))
+                && handle_matches(s, handle)
+        }));
+        if found.iter().any(|s| s["status"] != "closed") {
+            found.retain(|s| s["status"] != "closed");
+        }
+        if found.len() > 1 {
+            return Err(RpcError::invalid_params(format!(
+                "handle {:?} names multiple sessions; add the host or use the session's ID link",
+                handle,
+            ))
+            .with_data(json!({"reason": super::key_route::AMBIGUOUS})));
+        }
+    }
     // Stable: the newest-first order of `all_session_summaries` stays within each rank.
     found.sort_by_key(|s| (!on_hint(s), s["peer"].is_string()));
-    found
+    Ok(found)
 }
 
 /// `found`, with each chat that moved away (`movedTo`) after where it went: the copy it moved to
@@ -590,7 +615,9 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
         return summaries
             .iter()
             .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
-            .filter(|s| bare_name(s) == rest || s["name"].as_str() == Some(key))
+            .filter(|s| {
+                bare_name(s) == rest || s["name"].as_str() == Some(key) || handle_matches(s, rest)
+            })
             .collect();
     }
     summaries
@@ -601,6 +628,7 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
                 .any(|field| s[*field].as_str() == Some(key))
                 || s["name"].as_str() == Some(key)
                 || bare_name(s) == key
+                || handle_matches(s, key)
         })
         .collect()
 }
@@ -638,7 +666,10 @@ impl<'q> Names<'q> {
             return bead();
         }
         if let Some(link) = self.link {
-            return s.agent_session_id() == Some(link.session.as_str());
+            return s.agent_session_id() == Some(link.session.as_str())
+                || link.session.strip_prefix("handle:").is_some_and(|handle| {
+                    crate::session_handle::matches(s.handle(), &r.receipt.mux_session_id, handle)
+                });
         }
         let q = self.query;
         let mux = r.receipt.mux_session_id.as_str();
@@ -646,6 +677,7 @@ impl<'q> Names<'q> {
         let bare =
             name.strip_prefix(r.peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
         mux.starts_with(q)
+            || crate::session_handle::matches(s.handle(), mux, q)
             || bare.starts_with(q)
             || name == q
             || crate::session_name::ends_with_segments(bare, q)
@@ -654,6 +686,12 @@ impl<'q> Names<'q> {
             || s.agent_session_id() == Some(q)
             || bead()
     }
+}
+
+fn handle_matches(summary: &Value, key: &str) -> bool {
+    summary["sessionId"]
+        .as_str()
+        .is_some_and(|id| crate::session_handle::matches(summary["handle"].as_str(), id, key))
 }
 
 /// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
@@ -689,6 +727,9 @@ fn card(s: &Value, own: Option<&str>) -> Value {
         "qualifiedSessionId": s["qualifiedSessionId"],
         "agentSessionId": s["agentSessionId"],
         "name": s["name"],
+        "handle": s["sessionId"].as_str().map(|id| {
+            crate::session_handle::display(s["handle"].as_str(), id)
+        }),
         "harness": s["harness"],
         "family": s["family"],
         "model": s["model"],
@@ -756,18 +797,18 @@ mod tests {
     fn a_link_finds_its_harness_session_on_the_host_it_names_first() {
         let rows = rows();
         let here = link("https://cmux.com/deeplink/agent?harness=claude&session=a1");
-        assert_eq!(ids(&by_link(&rows, &here, "big-red")), ["m1", "m3"]);
+        assert_eq!(ids(&by_link(&rows, &here, "big-red").unwrap()), ["m1", "m3"]);
         let on_hb = link("https://cmux.com/deeplink/agent?harness=claude&session=a1&host=hb");
-        assert_eq!(ids(&by_link(&rows, &on_hb, "big-red")), ["m3", "m1"]);
+        assert_eq!(ids(&by_link(&rows, &on_hb, "big-red").unwrap()), ["m3", "m1"]);
         // The link's harness must be the session's family, or an older peer's harness.
         let wrong = link("https://cmux.com/deeplink/agent?harness=codex&session=a1");
-        assert!(by_link(&rows, &wrong, "big-red").is_empty());
+        assert!(by_link(&rows, &wrong, "big-red").unwrap().is_empty());
         let old = [
             json!({"sessionId": "o1", "agentSessionId": "a7", "name": "x", "harness": "codex"}),
             json!({"sessionId": "o2", "agentSessionId": "a7", "name": "y", "harness": "claude"}),
         ];
         let claude = link("https://cmux.com/deeplink/agent?harness=claude&session=a7");
-        assert_eq!(ids(&by_link(&old, &claude, "big-red")), ["o2"]);
+        assert_eq!(ids(&by_link(&old, &claude, "big-red").unwrap()), ["o2"]);
     }
 
     /// A peer's connection reads a card's session text masked, as it reads a summary's.
@@ -803,7 +844,7 @@ mod tests {
                    "family": "codex", "harness": "codex", "peer": "gcp-1", "status": "idle"}),
         ];
         let footer = link("https://cmux.com/deeplink/agent?harness=codex&session=a1&host=desk-mac");
-        let found = follow_moves(by_link(&rows, &footer, "desk-mac"), &rows, "desk-mac");
+        let found = follow_moves(by_link(&rows, &footer, "desk-mac").unwrap(), &rows, "desk-mac");
         assert_eq!(found[0]["peer"], "gcp-1", "the live copy first: {found:?}");
         assert!(found[1]["movedTo"].is_object());
         // By id or name too, and the target joins even when only the moved copy matched.

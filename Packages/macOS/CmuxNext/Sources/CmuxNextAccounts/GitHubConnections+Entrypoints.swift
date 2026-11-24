@@ -17,24 +17,30 @@ extension GitHubConnections {
 
     /// The Accounts part of the Settings page: the state of ACCOUNTS with this connection's under "github"
     /// and the active team's shared agent keys under "agentKeys".
-    public func accountsPageState(_ accounts: AccountsModel, agentKeys: TeamAgentKeys? = nil) -> JSONValue {
+    /// `signIn`: the daemon's sign-in accounts under "signInAccounts" (SettingsHarnesses+AccountSignIn.swift).
+    public func accountsPageState(_ accounts: AccountsModel, agentKeys: TeamAgentKeys? = nil, signIn: SettingsHarnesses? = nil) -> JSONValue {
         guard let encoded = try? JSONValue.parse(JSONEncoder().encode(accounts.pageState)), case .object(var state) = encoded else { return .null }
         state["github"] = pageState
         if let agentKeys { state["agentKeys"] = agentKeys.pageState }
+        if let signIn { state["signInAccounts"] = signIn.signInAccountsState }
         return .object(state)
     }
 
     /// The Accounts part's state and gesture runner as the Settings page host binds them.
-    public func accountsPage(_ accounts: AccountsModel, agentKeys: TeamAgentKeys) -> (state: (@MainActor () -> JSONValue)?, run: (@MainActor (JSONValue) async throws -> JSONValue)?) {
-        ({ self.accountsPageState(accounts, agentKeys: agentKeys) }, { params in try await self.runAccountsPage(params, accounts: accounts, agentKeys: agentKeys) })
+    public func accountsPage(_ accounts: AccountsModel, agentKeys: TeamAgentKeys, signIn: SettingsHarnesses? = nil) -> (state: (@MainActor () -> JSONValue)?, run: (@MainActor (JSONValue) async throws -> JSONValue)?) {
+        ({ self.accountsPageState(accounts, agentKeys: agentKeys, signIn: signIn) },
+         { params in try await self.runAccountsPage(params, accounts: accounts, agentKeys: agentKeys, signIn: signIn) })
     }
 
     /// One gesture of the Accounts part of the Settings page: a GitHub or team agent key gesture here,
     /// any other through ACCOUNTS. Refresh, focus and a team switch also reload the GitHub list and the
     /// team's agent keys. `agentKeySave` takes the agent as `provider`, the kind as `name` and the pasted
     /// key as `secret`, which goes to the owner API once and is never kept.
-    public func runAccountsPage(_ params: JSONValue, accounts: AccountsModel, agentKeys: TeamAgentKeys? = nil) async throws -> JSONValue {
+    /// The in-place sign-in's gestures go to `signIn` (the daemon's `_acpmux/account/*`).
+    public func runAccountsPage(_ params: JSONValue, accounts: AccountsModel, agentKeys: TeamAgentKeys? = nil,
+                                signIn: SettingsHarnesses? = nil) async throws -> JSONValue {
         let gesture = params["action"]?.stringValue ?? ""
+        if let signIn, let reply = try await signIn.runSignIn(gesture, params) { return reply }
         if gesture.hasPrefix("agentKey") {
             guard let agentKeys, ["agentKeySave", "agentKeyRemove", "agentKeyRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown agent key action") }
             let agent = params["provider"]?.stringValue ?? ""
@@ -46,7 +52,7 @@ extension GitHubConnections {
             return .object([:])
         }
         if gesture.hasPrefix("github") {
-            guard ["githubConnect", "githubDisconnect", "githubRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown GitHub action") }
+            guard ["githubConnect", "githubDisconnect", "githubReconfigure", "githubRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown GitHub action") }
             if gesture == "githubConnect" { await connect() }
             else { await perform(gesture, connection: params["account"]?.stringValue) }
             return .object([:])
@@ -58,6 +64,7 @@ extension GitHubConnections {
         if ["refresh", "focus", "selectTeam"].contains(gesture) {
             await perform("githubRefresh")
             await agentKeys?.refresh()
+            await signIn?.accountsPageRead(gesture)
         }
         return .object([:])
     }

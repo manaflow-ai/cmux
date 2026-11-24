@@ -571,7 +571,12 @@ def stop_locked(state: Path) -> int:
             time.sleep(0.2)
         if running_pid(state) == pid:
             os.kill(pid, signal.SIGTERM)  # our own watcher, started by `start`
-            time.sleep(0.5)
+            # It exits on SIGTERM: wait until its pid is gone before restoring.
+            gone_by = time.monotonic() + 10
+            while running_pid(state) == pid and time.monotonic() < gone_by:
+                time.sleep(0.1)
+            if running_pid(state) == pid:
+                safe_print(f"note: the watcher {pid} still runs 10 s after SIGTERM; restoring anyway")
     cfg_path = state / "config.json"
     if cfg_path.is_file():
         cfg = json.loads(cfg_path.read_text())
