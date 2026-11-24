@@ -9,6 +9,7 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
@@ -16,13 +17,12 @@ import {
   type AcpmuxFileDiff,
   type AcpmuxPlanEntry,
   type AcpmuxRow,
-  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -54,7 +54,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -2730,11 +2730,16 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 
 /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
 /// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
-/// below. Subagent lifecycle lines stay readable; their calls and compactions remain folded work.
+/// below. Subagent starts stay readable; their calls and compactions remain folded work.
+/// A subagent's end is not here: it is a harness event the agent did not write, work of the turn it
+/// came in like a tool call's end, so a burst of them after a steer folds under that stretch's
+/// "Worked for" and groups as "12 subagents stopped" (backgroundRuns.ts; Leo, 2026-11-24: "we can
+/// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
+/// One that failed stays in sight, as a failed shell does: it waits on a Retry.
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   row.kind === SUBAGENT_STARTED ||
-  row.kind === SUBAGENT_DONE ||
+  (row.kind === SUBAGENT_DONE && row.subagents?.[0]?.state === "failed") ||
   (row.kind === "plan" && row.plan !== undefined) ||
   // A background command that finished or was stopped is the turn's work, and folds with it as its
   // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing
@@ -3092,6 +3097,7 @@ function shapeLiveTurn(
   // where the ended turn draws it (`underAnswer` in shapedTurn), so the turn's end does not carry it up
   // past them (Leo, 2026-11-22: "you need to simulate tons of situations exemplified by various situations
   // and steers coming in at various times").
+  // ES2022 has no findLastIndex (tsconfig `lib`).
   let reply = shaped.length - 1;
   while (reply >= 0 && !isReply(shaped[reply]!)) reply -= 1;
   if (reply >= 0 && shaped.slice(reply + 1).some(personCameIn))
