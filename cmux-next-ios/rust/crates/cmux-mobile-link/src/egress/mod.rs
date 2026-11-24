@@ -93,6 +93,31 @@ pub async fn connect_tcp(
     secure: bool,
     egress: &Egress,
 ) -> Result<(TcpStream, Via), EgressError> {
+    connect_tcp_with(host, port, secure, egress, |host, port| {
+        let address = proxy::authority(host, port);
+        async move {
+            TcpStream::connect(address.as_str())
+                .await
+                .map_err(|error| EgressError::Io(format!("{address}: {error}")))
+        }
+    })
+    .await
+}
+
+/// [`connect_tcp`] whose direct hop is `direct` (the signaling socket's raced,
+/// remembered dial, `crate::signal_dial`); a proxy hop connects to the proxy
+/// itself as [`connect_tcp`] does.
+pub async fn connect_tcp_with<F, Fut>(
+    host: &str,
+    port: u16,
+    secure: bool,
+    egress: &Egress,
+    mut direct: F,
+) -> Result<(TcpStream, Via), EgressError>
+where
+    F: FnMut(&str, u16) -> Fut,
+    Fut: std::future::Future<Output = Result<TcpStream, EgressError>>,
+{
     let mut hops = proxy::hops(host, port, secure, &egress.proxy).await;
     if egress.require_proxy {
         hops.retain(|hop| *hop != Hop::Direct);
@@ -102,14 +127,19 @@ pub async fn connect_tcp(
     }
     let mut failure: Option<EgressError> = None;
     for hop in hops {
-        let attempt =
-            tokio::time::timeout(HOP_WAIT, connect_hop(&hop, host, port)).await.unwrap_or_else(|_| {
-                Err(EgressError::Io(format!(
-                    "{hop}: no connection to {} within {}s",
-                    proxy::authority(host, port),
-                    HOP_WAIT.as_secs()
-                )))
-            });
+        let attempt = async {
+            match &hop {
+                Hop::Direct => direct(host, port).await,
+                proxied => connect_hop(proxied, host, port).await,
+            }
+        };
+        let attempt = tokio::time::timeout(HOP_WAIT, attempt).await.unwrap_or_else(|_| {
+            Err(EgressError::Io(format!(
+                "{hop}: no connection to {} within {}s",
+                proxy::authority(host, port),
+                HOP_WAIT.as_secs()
+            )))
+        });
         match attempt {
             Ok(stream) => {
                 if hop != Hop::Direct {
