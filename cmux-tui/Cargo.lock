@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -38,6 +39,7 @@ dependencies = [
  "cmux-device-kind",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1368,8 +1370,10 @@ dependencies = [
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-process",
  "libc",
+ "png",
  "serde",
  "serde_json",
 ]
@@ -1416,6 +1420,14 @@ dependencies = [
  "cmux-bookmarks-core",
  "serde",
  "unicode-normalization",
+]
+
+[[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
 ]
 
 [[package]]
@@ -1916,6 +1928,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-file-lock"
 version = "0.1.0"
 dependencies = [
@@ -2278,6 +2297,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",
@@ -2353,12 +2373,17 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "windows",
  "windows-sys 0.61.2",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2411,6 +2436,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2550,6 +2576,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",
+ "cmux-session-pack",
  "getrandom 0.3.4",
  "hex",
  "reqwest",
@@ -2734,6 +2761,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-find"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-terminal-iface"
 version = "0.1.0"
 dependencies = [
@@ -2743,6 +2779,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"
@@ -2998,6 +3037,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
+ "cmux-terminal-find",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
