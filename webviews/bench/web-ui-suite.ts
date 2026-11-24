@@ -173,6 +173,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 900_000,
     ownPart: true,
   },
+  // One orchestrator chat with 16 sub-sessions (8 local worktrees, 8 Cloud) all streaming (RFD 0167 row 12, goal
+  // competitive-orchestrator-16): every frame's work at 60 Hz; the p99 is NOW's
+  // competitive.orchestrator.p99_frame_ms_16_children. perf-cron.py's web-ui-orchestrator part runs it.
+  {
+    name: "orchestrator-16",
+    file: "orchestrator-16.bench.ts",
+    args: ["16", "30"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.

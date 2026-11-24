@@ -21,6 +21,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create with no room here starts on the peer placement picks.
+pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
 mod adopted_fences;
@@ -513,6 +515,7 @@ mod translator_queue_tests;
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
+mod turn_cost;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;

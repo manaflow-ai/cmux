@@ -1016,6 +1016,7 @@ class IdentifyResult:
     version: str
     workspace_revision: int
     api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    api_version: Union[str, None, MissingType] = field(default=MISSING)
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     build_id: Union[str, None, MissingType] = field(default=MISSING)
     build_time: Union[int, None, MissingType] = field(default=MISSING)
@@ -1033,6 +1034,7 @@ class IdentifyResult:
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     machine_symbol: Union[str, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    min_api_version: Union[str, None, MissingType] = field(default=MISSING)
     screen_device_id: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
@@ -1892,6 +1894,13 @@ class SetCellPixelsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetCellPixelsResult'
     failures: List[CellPixelFailure]
     resizes: List[CellPixelResize]
+
+
+@dataclass(frozen=True)
+class SetClientInfoResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetClientInfoResult'
+    api_revision: Union[int, MissingType] = field(default=MISSING)
+    api_version: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5027,6 +5036,7 @@ class SetClientInfoRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     kind: Union[str, None, MissingType] = field(default=MISSING)
     api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    api_version: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], None, MissingType] = field(default=MISSING)
     device_id: Union[str, None, MissingType] = field(default=MISSING)
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
@@ -6949,6 +6959,7 @@ __all__ = [
     'ServerStatsResult',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
+    'SetClientInfoResult',
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
