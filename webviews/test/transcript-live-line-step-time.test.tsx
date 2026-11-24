@@ -88,10 +88,11 @@ test("a step that ran under a second gives the line back to Thinking, never a fl
   // immediately switch to the thinking?"), never the finished step with its frozen time.
   const live = line([prompt, run(bash!)]);
   expect(live.doing).toBeUndefined();
-  // Under a second after it, the thinking has no time of its own yet: the turn's clock alone.
+  // Under a second after it, the thinking has no time of its own yet: the turn's clock alone, to the
+  // nearest second (formatDuration rounds; Leo: "well no it rounds down apparently").
   const ended = bash!.tool!.endedAt!;
-  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
-  expect(drawn(live, ended + 3_000)).toBe(`Thinking 3s · turn ${Math.floor((ended + 3_000 - prompt.at) / 1_000)}s`);
+  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.round((ended + 500 - prompt.at) / 1_000)}s`);
+  expect(drawn(live, ended + 3_000)).toBe(`Thinking 3s · turn ${Math.round((ended + 3_000 - prompt.at) / 1_000)}s`);
 });
 
 test("a subagent's launch never stands on the line as a step with its launch's time", () => {
@@ -110,7 +111,7 @@ test("a step stamped at one moment has no time of its own: the line shows only t
   const live = line([prompt, run(instant)]);
   expect(live.doingForMs).toBeUndefined();
   const ended = instant.tool.endedAt!;
-  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
+  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.round((ended + 500 - prompt.at) / 1_000)}s`);
 });
 
 test("thinking ticks from its first chunk after a silence, and a later silence says what it waits on", () => {

@@ -211,7 +211,7 @@ test("the live line draws Running or Ran with the turn's time, or Thinking alone
   expect(words(described)).toBe("Run the web tests 2s");
   expect(
     words(renderToStaticMarkup(<Thinking since={start} doing="" doingShell doingAt={start} now={() => start} />)),
-  ).toBe("Running a command 0s");
+  ).toBe("Running a command &lt;1s");
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");

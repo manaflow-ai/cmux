@@ -41,7 +41,8 @@ test("a running turn with work draws Working for under its prompt, and the botto
 });
 
 test("the turn's end puts Worked for in Working for's place, at the same height", () => {
-  const ended = [...turn, row("end", "turnSummary", 4_000, { status: "completed", durationMs: 4_000 })];
+  // Six seconds: a short turn with little to hide draws flat, with no Worked for (turns.ts `worthFolding`).
+  const ended = [...turn, row("end", "turnSummary", 6_000, { status: "completed", durationMs: 6_000 })];
   const live = turnView(turn, new Set(), { now: 60_000, agentFamily: "codex", working: true });
   const done = turnView(ended, new Set(), { now: 60_000, agentFamily: "codex", working: false });
   const header = live.findIndex((each) => each.turnPhase === "running");

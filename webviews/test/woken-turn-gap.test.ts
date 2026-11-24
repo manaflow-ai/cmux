@@ -59,7 +59,15 @@ const wokenAfterFooter = (opensWith: "tool" | "reply"): Step[] => [
       },
     },
   ],
-  ...(opensWith === "tool" ? [call("read-output", "Read b9yur0qrw.output", "read")] : []),
+  // Three calls: a wake with one call and a short reply draws flat, with no Worked for (turns.ts
+  // `worthFolding`; Leo: "another worked for 0s"), so the fold this gap is about needs more work.
+  ...(opensWith === "tool"
+    ? [
+        call("read-output", "Read b9yur0qrw.output", "read"),
+        call("list-worktrees", "git worktree list", "execute"),
+        call("read-holders", "Read holders.json", "read"),
+      ]
+    : []),
   say("The two huge-blue worktrees are still there. wt reclaim keeps a worktree a live session holds."),
   ["mux", "background_turn", { state: "ended", id: "bg-reclaim", trigger: "task_notification", quiet: false }],
 ];

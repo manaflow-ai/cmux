@@ -19,7 +19,13 @@ const read = (id: string) =>
 const prompt = row("prompt", "user", { text: "Check the two callers" });
 const first = read("first");
 const second = read("second");
-const final = row("final", "assistant", { text: "Both callers are correct.", assistantPhase: "final_answer" });
+// Six seconds in: a live turn's concluding answer measures the turn from its prompt, and a two-call
+// turn under five seconds draws flat (turns.ts `worthFolding`).
+const final = row("final", "assistant", {
+  text: "Both callers are correct.",
+  assistantPhase: "final_answer",
+  at: 7_000,
+});
 // Six seconds: a two-call turn of no known time draws flat, with no fold (turns.ts `worthFolding`).
 const summary = row("summary", "turnSummary", { status: "completed", durationMs: 6_000 });
 const foldId = `${WORKED}-prompt`;
