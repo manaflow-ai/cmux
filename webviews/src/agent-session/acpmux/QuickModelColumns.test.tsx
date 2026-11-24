@@ -389,6 +389,29 @@ for (const [fontSize, room] of [
   });
 }
 
+// New Tab's model chip has end padding on its wrapper (newtab/screen.css). At a zoomed density the
+// rects are 1.2x the computed padding; the wrapper still hugs the chip, so the menu grows from the end.
+test("a zoomed wrapper with end padding still hugs the chip, so the grip is on the start", async () => {
+  fakeLayout = (window) => {
+    const body = window.document.body;
+    body.style.display = "flex";
+    body.style.justifyContent = "flex-end";
+    body.getBoundingClientRect = () => ({ left: 0, right: 900, width: 900 }) as DOMRect;
+    const wrapper = window.document.getElementById("root")!;
+    wrapper.style.width = "410px";
+    wrapper.style.paddingRight = "10px";
+    wrapper.getBoundingClientRect = () => ({ left: 396, right: 900, width: 504 }) as DOMRect;
+    const box = window.HTMLElement.prototype.getBoundingClientRect;
+    window.HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.matches("button[data-menu='model']"))
+        return { left: 396, right: 888, top: 500, bottom: 520, width: 492, height: 20 } as DOMRect;
+      return box.call(this);
+    };
+  };
+  await openMenu();
+  expect(popup().querySelector<HTMLElement>(".acpmux-cols-resize-corner")!.dataset.edge).toBe("start");
+});
+
 for (const fromEnd of [false, true]) {
   for (const fromTop of [false, true]) {
     test(`the corner resizes both axes and resets them (end ${fromEnd}, top ${fromTop})`, async () => {
