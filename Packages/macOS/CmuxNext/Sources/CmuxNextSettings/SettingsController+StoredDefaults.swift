@@ -226,3 +226,54 @@ extension SettingsController {
         return result
     }
 }
+
+extension SettingsController {
+    /// Imports Classic's config after the person confirms. The marker makes this a durable
+    /// one-time action while a nonempty NEXT file keeps its values and receives only missing
+    /// Classic keys. The copied document then goes through the normal Classic key migration.
+    public func importClassicConfig(
+        marker: UserDefaults,
+        classicURL: URL? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) async throws {
+        guard !marker.bool(forKey: Self.classicConfigImportedKey) else { return }
+        let classic = classicURL ?? CmuxConfigFile.classicURL(environment: environment)
+        guard FileManager.default.fileExists(atPath: classic.path) else {
+            marker.set(true, forKey: Self.classicConfigImportedKey)
+            return
+        }
+
+        // Read Classic only after this method is called from the confirmed import action.
+        let classicText = try String(contentsOf: classic, encoding: .utf8)
+        let classicRoot = try JSONC.parse(classicText)
+        let nextRoot = try await file.document()
+        var edits: [(path: [String], value: JSONValue)] = []
+        func missing(_ classic: JSONValue, _ next: JSONValue, at path: [String]) {
+            guard case .object(let classicObject) = classic else { return }
+            guard case .object(let nextObject) = next else {
+                if !path.isEmpty { edits.append((path, classic)) }
+                return
+            }
+            for (key, value) in classicObject {
+                let childPath = path + [key]
+                guard let existing = nextObject[key] else {
+                    edits.append((childPath, value))
+                    continue
+                }
+                if case .object = value, case .object = existing {
+                    missing(value, existing, at: childPath)
+                }
+            }
+        }
+        missing(classicRoot, nextRoot, at: [])
+        if !edits.isEmpty {
+            _ = try await file.setUnset(edits)
+            await reloadAfterWrite()
+        }
+        _ = try await migrateClassicSettings()
+        marker.set(true, forKey: Self.classicConfigImportedKey)
+    }
+
+    /// The per-user marker for the confirmed Classic config import.
+    static let classicConfigImportedKey = "classicConfigImported.1"
+}
