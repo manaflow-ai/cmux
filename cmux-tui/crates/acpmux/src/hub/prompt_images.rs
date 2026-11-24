@@ -159,7 +159,7 @@ pub(super) fn bundle_images<'a>(
         if copied == 0 {
             crate::home_fs::create_dirs(&to)?;
         }
-        std::fs::copy(&from, to.join(id))?;
+        crate::home_fs::copy(&from, to.join(id))?;
         copied += 1;
     }
     Ok(copied)
