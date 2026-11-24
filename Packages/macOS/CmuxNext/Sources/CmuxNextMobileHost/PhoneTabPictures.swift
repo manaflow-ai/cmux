@@ -3,6 +3,7 @@ public import CmuxNextCompat
 import CmuxNextMobile
 import CryptoKit
 public import Foundation
+import Observation
 
 /// Browser tabs' thumbnails and favicons for the phones' tab overview (`tabs`, tab-snapshots-v1): the leave picture a
 /// page already takes (``offerThumbnail(_:tab:)``) and each favicon the page shows (``followFavicon(tab:favicon:)``) go
@@ -49,8 +50,10 @@ public final class PhoneTabPictures {
     private var turns: [String: UInt64] = [:]
     /// The surface each tab's pictures went out as, by the app's tab key.
     private var surfaces: [String: UInt64] = [:]
+    private var held: [String: CGImage] = [:]
     /// Each live page's favicon follow, by the app's tab key.
     private var favicons: [String: Task<Void, Never>] = [:]
+    private var wantedObservation: Task<Void, Never>?
 
     public init(iphone: IPhoneHostService, folder: URL = BuildStatePaths.current.phoneTabPicturesCache,
                 surface: @escaping @MainActor (_ key: String) -> UInt64?, encode: @escaping Encode) {
@@ -58,6 +61,18 @@ public final class PhoneTabPictures {
         self.folder = folder
         self.surface = surface
         self.encode = encode
+        wantedObservation = Task { [weak self] in
+            let values = ObservationStream { self?.wanted ?? false }
+            var wasWanted = false
+            for await wanted in values {
+                guard let self else { return }
+                if wanted && !wasWanted {
+                    for (key, image) in self.held { self.offerThumbnail(image, tab: key) }
+                    self.held.removeAll()
+                }
+                wasWanted = wanted
+            }
+        }
     }
 
     /// Whether a phone can get the pictures: iPhone connections are on and one is paired. Until then nothing is
@@ -76,8 +91,9 @@ public final class PhoneTabPictures {
     /// A leave picture of tab `key`'s page (one that is not blank), cut to ``thumbnailWidth`` and encoded off the
     /// main actor.
     public func offerThumbnail(_ image: CGImage, tab key: String) {
-        guard let surface = phoneSurface(key) else { return }
+        guard let surface = surface(key) else { return }
         surfaces[key] = surface
+        guard wanted else { held[key] = image; return }
         let encode = encode, fit = CGSize(width: Self.thumbnailWidth, height: .greatestFiniteMagnitude)
         let quality = Self.thumbnailQuality
         // task-owner: one encode per leave picture; ends on its own.
@@ -115,6 +131,7 @@ public final class PhoneTabPictures {
 
     /// Tab `key` closed: its pictures leave the phones' cache folder and the host's replay.
     public func forget(tab key: String) {
+        held[key] = nil
         guard let surface = surfaces.removeValue(forKey: key) else { return }
         forget(surface: surface)
     }
