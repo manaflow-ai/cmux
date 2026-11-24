@@ -71,8 +71,9 @@ pub const MIN_POPUP_KBPS: u32 = 300;
 const IDLE_PROBE_INTERVAL_US: u64 = 1_000_000;
 /// Keep the deliberate sender window to one quarter of the viewer's measured
 /// reassembly queue. The other three quarters remain available for frames held
-/// by loss and reordering, and the same fraction of the viewer's 32 MiB pending
-/// payload budget bounds intentional queueing to 8 MiB in the worst case.
+/// by loss and reordering. At the benchmark's <=512 KiB encoded-frame budget,
+/// 16 slots allocate at most 8 MiB; MAX_PENDING_BYTES remains the hard byte cap
+/// when larger keyframes are allowed.
 const MAX_FRAMES_IN_FLIGHT: u32 = (cmux_rd_core::reassembly::MAX_PENDING_FRAMES / 4) as u32;
 
 /// Limits of one media session.
