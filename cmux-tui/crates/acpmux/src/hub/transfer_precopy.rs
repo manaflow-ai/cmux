@@ -317,7 +317,7 @@ impl Hub {
 
     /// The move this daemon's moved-away copy of chat `id` was shipped by, while unrewritten.
     fn shipped_base(&self, id: &str) -> Option<String> {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        let session = self.session_get(id)?;
         if !self.moved_away(&session) {
             return None;
         }
@@ -535,10 +535,28 @@ impl Hub {
                                  "resumed": true, "have": have}));
             }
         }
+        // `control`: the guard a guarded receive will take this stage under (a cmux daemon's
+        // `agent-transfer-stage`), so its records are rewritten for it as a hub move's are.
+        let control = match params.get("control") {
+            None | Some(Value::Null) => None,
+            Some(control) => Some(
+                ["peer", "web"]
+                    .into_iter()
+                    .find(|known| control.as_str() == Some(known))
+                    .ok_or_else(|| RpcError::invalid_params("transfer: control is peer or web"))?,
+            ),
+        };
         let stage_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{stage_id}"));
         crate::home_fs::create_dirs(dir.join("bundle"))
             .and_then(|()| crate::home_fs::write(dir.join("manifest.json"), manifest.to_string()))
+            .and_then(|()| match control {
+                Some(control) => crate::home_fs::write(
+                    dir.join(super::super::transfer_hub_precopy::CONTROL_FILE),
+                    control,
+                ),
+                None => Ok(()),
+            })
             .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         super::super::transfer_watch::note_activity(&dir, None);
         Ok(json!({"receiveId": stage_id, "stageId": stage_id, "sessionId": id}))

@@ -83,6 +83,33 @@ import Testing
         #expect(steps.recorded.map(\.ms) == [2000, 0])
     }
 
+    /// RED before: a start whose first turn goes straight to the provider (this Mac's credential rides the launch)
+    /// still waited on this Mac's gateway, up to its whole 10 s deadline while it never came up. Not needed, the
+    /// step says 0 ms however long the work would take.
+    @MainActor @Test func workBesideTheStepsTheTurnDoesNotNeedCostsNothing() async {
+        var now = ContinuousClock.now
+        let steps = CloudStartSteps(log: { _ in }, now: { now })
+        let (never, held) = AsyncStream<Void>.makeStream() // a gateway that never comes online
+        let gateway = CloudStartBeside { () async -> Bool in
+            for await _ in never {}
+            return false
+        }
+        now += .milliseconds(2000)
+        steps.done("start")
+        let needed = PersonalGateway.turnNeedsIt(credential: "connection-1")
+        #expect(await gateway.awaited(marking: "gateway", on: steps, if: needed) == nil)
+        #expect(steps.recorded.map(\.step) == ["start", "gateway"])
+        #expect(steps.recorded.map(\.ms) == [2000, 0])
+        held.finish()
+    }
+
+    /// Only a turn with no credential of this Mac's goes through its gateway (the platform edge, a team gateway or
+    /// the machine's own path).
+    @Test func onlyATurnWithNoCredentialNeedsThisMacsGateway() {
+        #expect(PersonalGateway.turnNeedsIt(credential: nil))
+        #expect(!PersonalGateway.turnNeedsIt(credential: "connection-1"))
+    }
+
     /// A start that fails or is cancelled before the step that needs the work lets go of it, and the work ends with it.
     @MainActor @Test func workBesideAStartThatEndsFirstIsCancelled() async {
         let (began, beginning) = AsyncStream<Void>.makeStream()
