@@ -177,7 +177,7 @@ mod tests {
         let home = tempfile::tempdir_in("/tmp").expect("synthetic home");
         let sources = ChatSources {
             home: home.path().to_owned(),
-            acpmux_home: home.path().join(".acpmux"),
+            acpmux_home: home.path().join("test-daemon-state"),
             env: Arc::new(|_| None),
             launch_roots: Vec::new(),
             user_roots: Vec::new(),
