@@ -15,6 +15,7 @@
           "Packages/",
           "cmux-tui/",
           "webviews/",
+          "Resources/markdown-viewer/",
           "web/",
           "config/vite-plus/",
           "cmux-next-ios/",
