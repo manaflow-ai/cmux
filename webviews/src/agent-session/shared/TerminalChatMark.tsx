@@ -119,7 +119,10 @@ export function TerminalChatMark({
 
   if (variant === "chevron") {
     return (
-      <span data-terminal-chat="chevron" style={{ display: "inline-flex", flex: "none", alignItems: "center", gap: 2 }}>
+      <span
+        data-terminal-chat="chevron"
+        style={{ display: "inline-flex", flex: "none", alignItems: "center", gap: "var(--grid-half-step)" }}
+      >
         <span
           aria-hidden="true"
           style={{
