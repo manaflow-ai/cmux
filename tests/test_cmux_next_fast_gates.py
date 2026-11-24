@@ -1247,11 +1247,11 @@ class ScriptBehavior(unittest.TestCase):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            # Each gate prints a line: the log must hold the gate's own output, not only the `time -p` footer a
-            # runner without /usr/bin/time never writes (tooling-tests on manaflow-ai/cmux#53399, job 138275089904).
-            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "print('ratchet')"])]],
+            # Each gate prints its own line: a runner without /usr/bin/time (timed_gate_argv) adds none, and a
+            # silent gate left an empty log there (tooling-tests on cmux-linux, runs 45339026481, 45350194064).
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "print('crash ratchet')"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "print('checks')"])]],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "print('webviews checks')"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
