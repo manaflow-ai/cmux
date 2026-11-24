@@ -501,6 +501,8 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod pause;
+/// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
+pub(crate) mod pause_state;
 pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
