@@ -4,7 +4,7 @@
 //!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
-//!            [--no-turn-prewarm]
+//!            [--no-turn-prewarm] [--relay] [--force-https-relay]
 //!   cmux-mobile-dial --local --mac MAC_DEVICE_ID [--local-addr HOST:PORT]... [...]
 //!
 //! `--local` (ultra-connectivity P7) dials with no Worker and no internet:
@@ -39,6 +39,15 @@
 //! to TURN over TLS; `--proxy-only` blocks UDP and lets TURN over TLS out only
 //! through the system's proxy (`CMUX_MOBILE_DEV_PROXY=http://host:port` sets
 //! one). PROTOCOL.md "Corporate networks".
+//!
+//! `--relay` offers cmux's WebSocket relay (`/v1/relay` on the base URL,
+//! PROTOCOL.md "WebSocket relay") as the last way to the Mac, as the app does;
+//! without it the dial has no relay. `--force-https-relay` (implies
+//! `--relay`) is the app's debug "Relay via cmux (HTTPS) only": no plain UDP,
+//! no TURN allocation, the link rides the relay (path `https-relay`). With
+//! `--relay-only` (TURN, UDP first) and `--block-udp` (TURN over TLS) it lets
+//! a harness force each relayed path instead of waiting for a network to
+//! block the others.
 //!
 //! As the app does, `GET /v1/ice` runs beside the signaling socket's open
 //! (the device registration, which the app does at sign-in, comes first and
@@ -87,6 +96,8 @@ struct Args {
     device_file: Option<String>,
     turn_ca: Option<String>,
     network_probe_ms: u64,
+    relay: bool,
+    force_https_relay: bool,
 }
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
@@ -111,6 +122,7 @@ fn parse() -> Result<Args> {
     let mut network_probe_ms = 1000;
     let (mut hold_seconds, mut probe_ms, mut watch_net, mut dead_after_ms) = (0.0, 200, false, 0);
     let mut device_file = None;
+    let (mut relay, mut force_https_relay) = (false, false);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -136,6 +148,8 @@ fn parse() -> Result<Args> {
             "--no-input-lane" => no_input_lane = true,
             "--no-turn-prewarm" => no_turn_prewarm = true,
             "--daemon" => daemon = true,
+            "--relay" => relay = true,
+            "--force-https-relay" => (relay, force_https_relay) = (true, true),
             "--stock-ice-waits" => stock_ice_waits = true,
             "--local" => local = true,
             "--local-addr" => {
@@ -196,6 +210,8 @@ fn parse() -> Result<Args> {
         device_file,
         turn_ca,
         network_probe_ms,
+        relay,
+        force_https_relay,
     })
 }
 
@@ -248,7 +264,18 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     };
     let started = Instant::now();
     let timeline = cmux_mobile_link::Timeline::starting_at(started);
-    let options = dial_options(args, &timeline)?;
+    let mut options = dial_options(args, &timeline)?;
+    // cmux's WebSocket relay on the same service, with this device's id
+    // and token, as the app's dial builds it.
+    options.relay = args.relay.then(|| {
+        cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+            args.base_url.clone(),
+            None,
+            device.clone(),
+            args.token.clone(),
+        )
+    });
+    options.force_relay = args.force_https_relay;
     // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
     // allocation starts once ICE answers.
     let ice = async {
@@ -458,6 +485,8 @@ async fn measure(
         "relay_only": args.relay_only,
         "block_udp": args.block_udp,
         "no_turn": args.no_turn,
+        "relay": args.relay,
+        "force_https_relay": args.force_https_relay,
         "path": path,
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),
