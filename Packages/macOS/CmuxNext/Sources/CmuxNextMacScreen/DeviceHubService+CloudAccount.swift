@@ -23,6 +23,7 @@ extension DeviceHubService {
     nonisolated static func hubBuildSpace(_ configuration: CloudConfiguration) -> DeviceHubBuildSpace {
         let state = configuration.buildSpace
         if state.refusal != nil { return .unusable }
-        return state.space.map { .dev($0.headerValue) } ?? .nightly
+        guard let space = state.space else { return .nightly }
+        return .dev(space.headerValue)
     }
 }

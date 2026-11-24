@@ -23,6 +23,7 @@ extension CmuxRemoteService {
             guard let self else { throw CmuxRemoteError.unavailable }
             return try await openChannel("screen-sharing").socket
         })
+        let buildSpace = deviceHub.buildSpace
         deviceHub.makeRemoteHub = { [weak self] url, _ in
             guard let self else { return nil }
             remoteHub = nil
@@ -30,7 +31,7 @@ extension CmuxRemoteService {
             do {
                 let identity = try await devices.identity()
                 let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain,
-                                          buildSpace: deviceHub.buildSpace, tokens: tokens)
+                                          buildSpace: buildSpace, tokens: tokens)
                 remoteHub = hub
                 return hub
             } catch {
