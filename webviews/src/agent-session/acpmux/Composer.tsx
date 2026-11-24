@@ -687,12 +687,26 @@ function useRelayProps(props: Props): Props {
   };
 }
 
+/// The composer's function props that are no `on*` handler but are read only at an event or after one:
+/// a send's Computer Use check, the follow read as it sends, a queued image's read, a capture, an
+/// upload and a drop's paths. The pane hands `holdsSend` as an inline arrow, so each pane render (two
+/// on a transcript scroll, Jump to latest and the follow state among them) drew the composer again
+/// (Leo, 2026-11-22: "then i scrolled up and then the composer flickered").
+const COMPOSER_EVENT_PROPS: ReadonlySet<string> = new Set<keyof Props>([
+  "holdsSend",
+  "transcriptFollowing",
+  "queueImage",
+  "capture",
+  "upload",
+  "localPaths",
+]);
+
 /// The composer, drawn again only when a prop it is handed changes: its event handlers hold their
 /// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
 export function Composer(props: Props) {
-  const stable = useStableHandlers(useRelayProps(props));
+  const stable = useStableHandlers(useRelayProps(props), COMPOSER_EVENT_PROPS);
   usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
   return <MemoComposer {...stable} />;
 }

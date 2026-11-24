@@ -48,3 +48,29 @@ test("a parent's new handler draws a memoized child no more, and calls the lates
   expect(renders).toBe(5);
   act(() => root.unmount());
 });
+
+type Held = { label: string; holdsSend?: (text: string) => boolean };
+let heldRenders = 0;
+let held: Held["holdsSend"];
+const HeldChild = memo(function HeldChild(props: Held) {
+  heldRenders++;
+  held = props.holdsSend;
+  return null;
+});
+const EVENT_PROPS: ReadonlySet<string> = new Set(["holdsSend"]);
+function HeldParent(props: Held) {
+  return <HeldChild {...useStableHandlers(props, EVENT_PROPS)} />;
+}
+
+test("a function prop named as read only at an event holds its identity too (the composer's holdsSend)", () => {
+  // Leo, 2026-11-22: "then i scrolled up and then the composer flickered".
+  const root = createRoot(document.getElementById("root")!);
+  act(() => root.render(<HeldParent label="a" holdsSend={(text) => text === "a"} />));
+  act(() => root.render(<HeldParent label="a" holdsSend={(text) => text === "b"} />));
+  expect(heldRenders).toBe(1);
+  expect(held?.("b")).toBe(true);
+  act(() => root.render(<HeldParent label="a" />));
+  expect(heldRenders).toBe(2);
+  expect(held).toBeUndefined();
+  act(() => root.unmount());
+});

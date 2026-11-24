@@ -11,14 +11,16 @@ type Handler = (...args: unknown[]) => unknown;
 const isHandlerKey = (key: string) => /^on[A-Z]/.test(key);
 
 /// `props` with each `on*` function replaced by a stable one that calls the latest `props[key]`.
-/// The handlers are for events: they read the props of the parent's last render.
-export function useStableHandlers<P extends object>(props: P): P {
+/// The handlers are for events: they read the props of the parent's last render. `also` names the
+/// component's other function props it calls only at an event or after one (a send's checks, a paste's
+/// upload), never to draw: the pane builds those inline too, and each new one drew the component again.
+export function useStableHandlers<P extends object>(props: P, also?: ReadonlySet<string>): P {
   const latest = useRef(props);
   latest.current = props;
   const handlers = useRef(new Map<string, Handler>());
   const stable = { ...props } as Record<string, unknown>;
   for (const [key, value] of Object.entries(props)) {
-    if (typeof value !== "function" || !isHandlerKey(key)) continue;
+    if (typeof value !== "function" || !(isHandlerKey(key) || also?.has(key))) continue;
     let handler = handlers.current.get(key);
     if (!handler) {
       handler = (...args: unknown[]) =>
