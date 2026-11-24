@@ -24,13 +24,15 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
-import { RELAY_SUBPROTOCOL, relayRoomName } from "./link-relay.ts"
+import { RELAY_SUBPROTOCOL, relayRoomName, RELAY_TICKET_HEADER } from "./link-relay.ts";
+import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
 import { isRegion, netcheckRoomName, parseNetcheck, relayPlacement } from "./placement.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
 export { LinkRelay } from "./link-relay.ts"
+export { HubRelay } from "./hub-relay.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -74,6 +76,14 @@ export class CloudAttentionPush extends WorkerEntrypoint<Env> {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+/** A path segment, decoded; a malformed % escape is the caller's 400, never a 500. */
+const pathSegment = (raw: string): string => {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    throw new HttpError(400, "bad_request", "malformed path")
+  }
+}
 const TEAM_ID = /^[A-Za-z0-9_-]{1,128}$/
 const PERSONAL = "personal-"
 /**
@@ -427,19 +437,47 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // this session can join, each with its own socket, and only after direct UDP and TURN failed them.
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
     if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
-    const sessionId = decodeURIComponent(relay[1]!).toLowerCase()
+    const sessionId = pathSegment(relay[1]!).toLowerCase()
     const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
     if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
-    const bound = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId))
+    // The device's own ticket, which the hub stamped on the signals it sent to that device's socket.
+    const ticket = req.headers.get(RELAY_TICKET_HEADER)
+    const bound = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId, ticket))
     if (!bound) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
     const peer = bound.peer
     // Placed from both ends (placement.ts): only the first join creates the object, later hints are ignored.
     const placed = relayPlacement(ingressOf(req), bound.ingress, caller.hint)
     const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayRoomName(me, space, sessionId)), placed.hint ? { locationHint: placed.hint } : undefined)
-    const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer })
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer, "x-cmux-relay-owner": me, "x-cmux-relay-space": space })
     // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
     if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
     return t.span("relay", room.fetch("https://link-relay/join", { headers }))
+  }
+
+  const hubPath = path.match(/^\/v1\/hub\/([^/]+)$/)
+  if (hubPath && method === "GET") {
+    // The three-way hub (RFD 0142 R6, PROTOCOL.md "Three-way hub"): the session's sources (the owner's Mac and VM,
+    // both registered as kind mac) upload, the owner's viewers download the newest copy once. Only the owner's own
+    // registered devices join; everything past the clear header is sealed end to end, so the room is per owner.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.HUB_RELAY_MODE === "off") return fail(503, "hub_off", "the cmux hub is turned off")
+    const sessionId = decodeURIComponent(hubPath[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    const role = url.searchParams.get("role") ?? ""
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    if (role !== "mac" && role !== "vm" && role !== "viewer") throw new HttpError(400, "bad_request", "role must be mac, vm or viewer")
+    let kind = await t.span("hub", userHub(env, caller).hubDevice(who, deviceId))
+    if (!kind) {
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
+      if (device && device.ownerUserId === me) kind = device.kind === "mac" ? "mac" : "phone"
+    }
+    if (!kind) throw new HttpError(403, "not_owner", "register this device first")
+    if (role !== "viewer" && kind !== "mac") throw new HttpError(403, "not_a_source", "only a Mac or VM device can be a hub source")
+    const room = env.HUB_RELAY.get(env.HUB_RELAY.idFromName(hubRoomName(me, space, sessionId)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-hub-device": deviceId, "x-cmux-hub-role": role, "x-cmux-hub-session": sessionId })
+    // The capability handshake: a hub client offers cmux-hub.v1 and this relay echoes it (never the bearer entry).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === HUB_SUBPROTOCOL)) headers.set("x-cmux-hub-subprotocol", "1")
+    return t.span("relay", room.fetch("https://hub-relay/join", { headers }))
   }
 
   if (path === "/v1/me/bootstrap" && method === "POST") {
@@ -547,10 +585,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|mailbox)(?:\/([^/]+))?)?$/)
   if (dev) {
-    const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
+    const deviceId = pathSegment(dev[1]!).toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
-    const itemId = dev[3] === undefined ? undefined : decodeURIComponent(dev[3]).toLowerCase()
+    const itemId = dev[3] === undefined ? undefined : pathSegment(dev[3]).toLowerCase()
     if (itemId !== undefined && sub !== "mailbox") return fail(404, "not_found", "not found")
     if (sub === "mailbox") {
       // PROTOCOL.md "Reply mailbox": a phone's sealed reply for its own Mac. The Worker never opens it.
@@ -791,7 +829,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal|hub)$/)
   if (!team) return fail(404, "not_found", "no such route")
-  const teamId = decodeURIComponent(team[1]!)
+  const teamId = pathSegment(team[1]!)
   const action = team[2]!
 
   if (action === "signal" && method === "GET") {
