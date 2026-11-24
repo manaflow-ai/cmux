@@ -1383,6 +1383,12 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
     func push(text: String, submit: Bool, nowMs: UInt64)  -> UInt64
     
     /**
+     * A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+     * Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+     */
+    func pushTyped(text: String, nowMs: UInt64)  -> UInt64
+    
+    /**
      * The attached daemon's `identify` capabilities. Returns whether it takes keyed Sends; until
      * a daemon that does is attached, Sends wait in the outbox.
      */
@@ -1569,6 +1575,20 @@ open func push(text: String, submit: Bool, nowMs: UInt64) -> UInt64  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(text),
         FfiConverterBool.lower(submit),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+     * Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+     */
+open func pushTyped(text: String, nowMs: UInt64) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_push_typed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(text),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -9316,6 +9336,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push() != 49833) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_push_typed() != 31394) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_set_capabilities() != 28189) {

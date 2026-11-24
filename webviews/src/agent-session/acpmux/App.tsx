@@ -665,6 +665,7 @@ import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
+import { watchLaunchInputEcho } from "./launchInputEcho";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
@@ -6821,6 +6822,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A chat's first paint, unless its saved copy drew first and started it: what moves from here is the
     // launch's settle, reported once (launchSettle.ts). Not a New Tab page's.
     if (first && newTab === undefined) watchLaunchSettle(callNative);
+    // From the same paint, the person's first key into the composer (launchInputEcho.ts).
+    if (first && newTab === undefined) watchLaunchInputEcho(callNative);
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
