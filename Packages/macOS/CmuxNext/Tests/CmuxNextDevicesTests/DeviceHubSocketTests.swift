@@ -112,7 +112,7 @@ final class EventLog: @unchecked Sendable {
         #expect(first.closed)
     }
 
-    @Test(.timeLimit(.seconds(5))) func aHungConnectTimesOutAndRetries() async {
+    @Test(.timeLimit(.minutes(1))) func aHungConnectTimesOutAndRetries() async {
         struct HangingConnector: DeviceHubSocketConnector {
             func connect() async throws -> any DeviceHubSocketConnection {
                 try await Task.sleep(for: .seconds(3600))
@@ -120,8 +120,8 @@ final class EventLog: @unchecked Sendable {
             }
         }
         let socket = DeviceHubSocket(connector: HangingConnector(),
-                                     connectTimeout: .milliseconds(10),
-                                     backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0))
+                                     backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0),
+                                     connectTimeout: .milliseconds(10))
         let log = EventLog()
         let (retry, signal) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         let task = Task {

@@ -188,10 +188,17 @@ public final class DeviceHubSocket: Sendable {
                 try await self.clock.sleep(for: self.connectTimeout)
                 throw DeviceHubError.transport("socket connect timed out after \(self.connectTimeout)")
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else {
-                throw DeviceHubError.transport("socket connect ended without a result")
+            let first: (any DeviceHubSocketConnection)?
+            do { first = try await group.next() } catch {
+                group.cancelAll()
+                throw error
             }
+            group.cancelAll()
+            // A connection that opened as the deadline fired (or after the winner) is closed, never leaked.
+            while !group.isEmpty {
+                if let late = try? await group.next() { late.close() }
+            }
+            guard let first else { throw DeviceHubError.transport("socket connect ended without a result") }
             return first
         }
     }
