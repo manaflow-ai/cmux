@@ -18,8 +18,8 @@
 //! The row gains `cutAll`, and each leg prints `CUTALL <json>`.
 use super::*;
 
-pub(super) const LEG: &str = "cutall";
-pub(super) const LOAD_LEG: &str = "cutallload";
+pub(crate) const LEG: &str = "cutall";
+pub(crate) const LOAD_LEG: &str = "cutallload";
 /// The gate's numbers (`src/peer_dial_gate.rs`), for the bound the row states beside the count.
 const SLOTS: usize = 6;
 const SPREAD: Duration = Duration::from_millis(1500);
@@ -33,29 +33,29 @@ const DIAL_SAMPLE: Duration = Duration::from_millis(20);
 const GAP_OVER_MS: f64 = 2000.0;
 
 /// `cutallN` or `cutallloadN`: N.
-pub(super) fn n(leg: &str) -> Option<usize> {
+pub(crate) fn n(leg: &str) -> Option<usize> {
     leg.strip_prefix(LOAD_LEG).or_else(|| leg.strip_prefix(LEG))?.parse().ok()
 }
 
 /// Whether the leg runs under host150's load.
-pub(super) fn loaded(leg: &str) -> bool {
+pub(crate) fn loaded(leg: &str) -> bool {
     leg.strip_prefix(LOAD_LEG).is_some_and(|rest| rest.parse::<usize>().is_ok())
 }
 
 /// The most dials the gate lets through in the first second after N links dropped together: its
 /// slots at once, and the share of the rest whose spread start falls in that second.
-pub(super) fn first_second_bound(n: usize) -> usize {
+pub(crate) fn first_second_bound(n: usize) -> usize {
     let rest = n.saturating_sub(SLOTS);
     SLOTS.min(n) + (rest as f64 * (1.0 / SPREAD.as_secs_f64())).ceil() as usize
 }
 
 /// One proxy's links (to cut) and counters (to read), `peerNN` at index NN.
-pub(super) struct CutHandle {
+pub(crate) struct CutHandle {
     pub links: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
     pub wire: Arc<Wire>,
 }
 
-pub(super) struct CutAll {
+pub(crate) struct CutAll {
     thread: std::thread::JoinHandle<Value>,
 }
 
@@ -81,13 +81,13 @@ fn is_up(state: Option<&String>) -> bool {
 impl CutAll {
     /// Waits for every peer's link to read connected, cuts them all at once, and measures until
     /// every peer is back or [`BACK_BY`]. Runs beside the leg's window.
-    pub(super) fn start(socket: &Path, handles: Vec<CutHandle>, names: Vec<String>) -> Self {
+    pub(crate) fn start(socket: &Path, handles: Vec<CutHandle>, names: Vec<String>) -> Self {
         let socket = socket.to_path_buf();
         let thread = std::thread::spawn(move || run(&socket, &handles, &names));
         Self { thread }
     }
 
-    pub(super) fn join(self) -> Value {
+    pub(crate) fn join(self) -> Value {
         self.thread.join().unwrap_or_else(|_| json!({"error": "the cut-all thread panicked"}))
     }
 }
