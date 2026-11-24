@@ -79,6 +79,12 @@ public final class DeviceHub {
     /// (``start()``) nor signs it out (``signOut(ending:reason:)``). Set before ``start()``.
     @ObservationIgnored public var ownsDevice = true
     @ObservationIgnored private var socketTask: Task<Void, Never>?
+    /// Reads the device list on its own after registering, so Your Devices never waits on the socket alone.
+    @ObservationIgnored private var listTask: Task<Void, Never>?
+    /// How long one device-list read may take before Your Devices says why it has no list (`.failed`) and reads again.
+    @ObservationIgnored public var listDeadline: Duration = .seconds(20)
+    /// The pause before a failed device-list read is tried again.
+    @ObservationIgnored public var listRetryDelay: Duration = .seconds(10)
     /// Relays this device saved that no listing has shown yet (kept from pruning).
     @ObservationIgnored var savedNotListed: Set<String> = []
     /// Bumped by start and stop: an answer from an older run is dropped.
@@ -155,9 +161,10 @@ public final class DeviceHub {
         let run = generation
         status = .starting
         devicesListError = nil
+        var registered: HubDevice?
         do {
             do {
-                if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
+                if ownsDevice { registered = try await client.registerDevice(name: deviceName, platform: platform) }
             } catch let error as DeviceHubError where (error.code == .deviceRemoved || error.code == .deviceKeyMismatch) && renewIdentity != nil {
                 // This id was removed (or holds another key): register as a new device, once.
                 guard run == generation, let renewIdentity else { return }
@@ -165,9 +172,12 @@ public final class DeviceHub {
                 do { fresh = try await Self.loadIdentity(renewIdentity) } catch { throw DeviceHubError.identity("\(error)") }
                 guard run == generation else { return }
                 client.setIdentity(fresh)
-                _ = try await client.registerDevice(name: deviceName, platform: platform)
+                registered = try await client.registerDevice(name: deviceName, platform: platform)
             }
             guard run == generation else { return }
+            // The hub's own answer for this device: This Mac draws from it before the list arrives (the sharing
+            // toggle's answer replaces this record the same way). It is not a list read, so `devicesListed` stays false.
+            if let registered, !devices.contains(where: { $0.id == registered.id }) { replace(registered) }
             status = .ready
         } catch {
             guard run == generation else { return }
@@ -175,6 +185,8 @@ public final class DeviceHub {
             status = .failed(lastError?.description ?? "\(error)")
             return
         }
+        listTask?.cancel()
+        listTask = Task { [weak self] in await self?.readListUntilListed(run: run) } // task-owner: stopSocket cancels it
         let socket = self.socket, hub = WeakHub(hub: self)
         socketTask = Task {
             await socket.run { event in
@@ -233,6 +245,8 @@ public final class DeviceHub {
 
     @discardableResult
     private func stopSocket() -> Task<Void, Never>? {
+        listTask?.cancel()
+        listTask = nil
         let task = socketTask
         task?.cancel()
         socketTask = nil
@@ -317,10 +331,39 @@ public final class DeviceHub {
         await load { try await $0.me() } into: { hub, value in hub.me = value }
     }
 
+    /// Reads the list now, and again after each failure, until one read succeeds: the socket's connect is
+    /// not the only way to a list (a socket that never connects left Your Devices on "Loading" for good).
+    private func readListUntilListed(run: Int) async {
+        // wakeup-allow: retries a failed device-list read every `listRetryDelay` until one succeeds or the hub stops.
+        while !Task.isCancelled, run == generation, !devicesListed {
+            await refreshDevices()
+            guard !devicesListed, !Task.isCancelled else { return }
+            do { try await ContinuousClock().sleep(for: listRetryDelay) } catch { return }
+        }
+    }
+
+    /// `body`, or `DeviceHubError.transport` when it has not answered by `deadline`.
+    nonisolated static func within<Value: Sendable>(_ deadline: Duration, what: String,
+                                        _ body: @escaping @Sendable () async throws -> Value) async throws -> Value {
+        // concurrency-allow: the losing child is cancelled; URLSession and the sleep both honor cancellation.
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { try await body() }
+            group.addTask {
+                // wakeup-allow: one-shot deadline for a device-hub call.
+                try await ContinuousClock().sleep(for: deadline)
+                throw DeviceHubError.transport("\(what) did not answer in \(deadline.components.seconds) s")
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw DeviceHubError.transport("\(what) ended without an answer") }
+            return first
+        }
+    }
+
     public func refreshDevices() async {
         let run = generation
         do {
-            let value = try await client.devices()
+            let client = self.client
+            let value = try await Self.within(listDeadline, what: "the device list") { try await client.devices() }
             guard run == generation else { return }
             devices = value
             devicesListed = true

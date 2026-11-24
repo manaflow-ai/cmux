@@ -94,7 +94,12 @@ public actor DeviceHubClient {
 
     private func exchangeStackToken() async throws -> DeviceHubAccountSession {
         let stack: String
-        do { stack = try await tokens.stackAccessToken() } catch { throw DeviceHubError.notSignedIn }
+        let tokens = self.tokens
+        // A token read that never answers held every hub call behind it (the account exchange is shared); bound it.
+        do { stack = try await DeviceHub.within(.seconds(30), what: "the account token") { try await tokens.stackAccessToken() } } catch let error as DeviceHubError {
+            if case .transport = error { throw error }
+            throw DeviceHubError.notSignedIn
+        } catch { throw DeviceHubError.notSignedIn }
         var request = URLRequest(url: url("/v1/auth/stack"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
