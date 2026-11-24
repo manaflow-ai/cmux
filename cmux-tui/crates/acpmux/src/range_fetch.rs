@@ -34,11 +34,28 @@ pub struct Options {
     pub threshold: u64,
     /// Lowercase hex sha256 the file must have.
     pub sha256: Option<String>,
+    /// None: split into `ranges` at once. Some: read one stream first, and only when it is slow
+    /// split what is left (the fast path stays one stream).
+    pub adaptive: Option<Adaptive>,
+}
+
+/// When a single stream is given up on for ranges.
+#[derive(Clone, Copy, Debug)]
+pub struct Adaptive {
+    /// How long the stream runs before its rate is judged.
+    pub after: Duration,
+    /// A stream under this many bytes a second at that point is slow.
+    pub min_bytes_per_sec: u64,
+}
+
+impl Adaptive {
+    /// About 3 s, under 2 MB/s (RFD 0067: IPv4 on a Freestyle VM held 0.1-4 MB/s on one stream).
+    pub const FALLBACK: Self = Self { after: Duration::from_secs(3), min_bytes_per_sec: 2_000_000 };
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { ranges: DEFAULT_RANGES, threshold: DEFAULT_THRESHOLD, sha256: None }
+        Self { ranges: DEFAULT_RANGES, threshold: DEFAULT_THRESHOLD, sha256: None, adaptive: None }
     }
 }
 
@@ -157,18 +174,29 @@ async fn fetch_part(
     match total {
         Some(total) if opts.ranges > 1 && total >= opts.threshold && total > 0 => {
             drop(probe);
-            let slices = split(total, opts.ranges);
             let file = std::fs::File::create(part)
                 .with_context(|| format!("creating {}", part.display()))?;
             file.set_len(total)?;
             drop(file);
+            // Adaptive: one stream first, judged after `after`; what it read is kept.
+            let mut from = 0;
+            if let Some(adaptive) = opts.adaptive {
+                from = head_stream(client, &final_url, part, total, adaptive).await?;
+            }
+            let mut slices = Vec::new();
+            if from < total {
+                slices = split(total - from, opts.ranges)
+                    .into_iter()
+                    .map(|(s, e)| (s + from, e + from))
+                    .collect();
+            }
             let jobs = slices.iter().map(|&(s, e)| read_slice(client, &final_url, part, s, e));
             futures::future::try_join_all(jobs).await?;
             let len = std::fs::metadata(part)?.len();
             if len != total {
                 bail!("{url} was {total} bytes, the file has {len}");
             }
-            Ok((total, slices.len()))
+            Ok((total, slices.len().max(1)))
         }
         _ => {
             // Single stream. A 206 probe is one byte, so ask again; a 200 probe is the body.
@@ -191,6 +219,48 @@ async fn fetch_part(
             Ok((n, 1))
         }
     }
+}
+
+/// Read `url` from byte 0 as one stream into `part`. At `adaptive.after` a stream that is
+/// slower than the limit is dropped; either way the bytes written (all of them from 0) are
+/// returned, `total` when the stream finished. A stream that fails or ends early also returns
+/// what it wrote, and the caller reads the rest.
+async fn head_stream(
+    client: &reqwest::Client,
+    url: &str,
+    part: &Path,
+    total: u64,
+    adaptive: Adaptive,
+) -> Result<u64> {
+    let Ok(mut resp) = client.get(url).header(reqwest::header::RANGE, "bytes=0-").send().await
+    else {
+        return Ok(0);
+    };
+    if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Ok(0);
+    }
+    let started = Instant::now();
+    let mut file = tokio::fs::OpenOptions::new().write(true).truncate(false).open(part).await?;
+    let mut written = 0u64;
+    let mut judged = false;
+    while written < total {
+        let chunk = match tokio::time::timeout(STALL, resp.chunk()).await {
+            Ok(Ok(Some(chunk))) => chunk,
+            _ => break,
+        };
+        let take = (chunk.len() as u64).min(total - written) as usize;
+        file.write_all(&chunk[..take]).await?;
+        written += take as u64;
+        let elapsed = started.elapsed();
+        if !judged && elapsed >= adaptive.after {
+            judged = true;
+            if (written as f64) < adaptive.min_bytes_per_sec as f64 * elapsed.as_secs_f64() {
+                break;
+            }
+        }
+    }
+    file.flush().await?;
+    Ok(written)
 }
 
 /// Write the body of `resp` into `part` from `offset`; the bytes written.

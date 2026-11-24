@@ -74,16 +74,16 @@ pub async fn install() -> Result<serde_json::Value> {
     if url.is_empty() {
         bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
     }
-    // A 40 MB release asset over one stream took 12 minutes on a Freestyle VM's IPv4 path (RFD
-    // 0067); read in parallel ranges it takes about one. The same bytes, checked against the same
-    // sha256 before anything is kept. `ACPMUX_FETCH_RANGES=1` reads one stream, as before.
+    // One stream first, as before. A 40 MB release asset took 12 minutes on a Freestyle VM's IPv4
+    // path (RFD 0067): a stream still under 2 MB/s after 3 s has the rest read in 16 ranges
+    // (what it read is kept), about a minute. The same sha256 is checked before anything is kept.
+    // `ACPMUX_FETCH_RANGES=N` overrides: N ranges at once, 1 for one stream only.
     let fetched = tempfile::tempdir()?;
     let archive_path = fetched.path().join("codex.tar.gz");
+    let forced = std::env::var("ACPMUX_FETCH_RANGES").ok().and_then(|v| v.trim().parse().ok());
     let opts = crate::range_fetch::Options {
-        ranges: std::env::var("ACPMUX_FETCH_RANGES")
-            .ok()
-            .and_then(|v| v.trim().parse().ok())
-            .unwrap_or(crate::range_fetch::DEFAULT_RANGES),
+        ranges: forced.unwrap_or(crate::range_fetch::DEFAULT_RANGES),
+        adaptive: forced.is_none().then_some(crate::range_fetch::Adaptive::FALLBACK),
         sha256: Some(expected.to_owned()),
         ..Default::default()
     };

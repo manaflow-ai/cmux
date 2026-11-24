@@ -28,7 +28,12 @@ pub struct FetchArgs {
 }
 
 pub async fn run(args: FetchArgs, json_out: bool) -> Result<()> {
-    let opts = Options { ranges: args.ranges, threshold: args.threshold, sha256: args.sha256 };
+    let opts = Options {
+        ranges: args.ranges,
+        threshold: args.threshold,
+        sha256: args.sha256,
+        adaptive: None,
+    };
     let report = fetch_to_file(&client()?, &args.url, &args.output, &opts).await?;
     let secs = report.elapsed.as_secs_f64();
     let mbps = if secs > 0.0 { report.bytes as f64 / 1e6 / secs } else { 0.0 };

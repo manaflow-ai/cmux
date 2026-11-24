@@ -17,6 +17,8 @@ struct Server {
     cut_once: bool,
     /// Every slice answers one byte too few.
     short: bool,
+    /// An open-ended range from byte 0 (the head stream) trickles at about 100 KB/s.
+    slow_head: bool,
 }
 
 struct Running {
@@ -82,7 +84,8 @@ async fn handle(
     let (status, from, to) = match range.as_deref().and_then(|r| r.strip_prefix("bytes=")) {
         Some(r) if cfg.ranges => {
             let (a, b) = r.split_once('-').unwrap();
-            ("206 Partial Content", a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap())
+            let b = if b.is_empty() { total - 1 } else { b.parse::<usize>().unwrap() };
+            ("206 Partial Content", a.parse::<usize>().unwrap(), b)
         }
         _ => ("200 OK", 0, total - 1),
     };
@@ -106,6 +109,16 @@ async fn handle(
         let _ = sock.write_all(&payload[..payload.len() / 2]).await;
         return;
     }
+    if cfg.slow_head && is_slice && from == 0 && range.as_deref().is_some_and(|r| r.ends_with('-'))
+    {
+        for piece in payload.chunks(1000) {
+            if sock.write_all(piece).await.is_err() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        return;
+    }
     let _ = sock.write_all(payload).await;
 }
 
@@ -114,11 +127,11 @@ fn hex(data: &[u8]) -> String {
 }
 
 fn plain() -> Server {
-    Server { ranges: true, redirect: false, cut_once: false, short: false }
+    Server { ranges: true, redirect: false, cut_once: false, short: false, slow_head: false }
 }
 
 fn small(ranges: usize) -> Options {
-    Options { ranges, threshold: 1000, sha256: None }
+    Options { ranges, threshold: 1000, sha256: None, adaptive: None }
 }
 
 #[test]
@@ -191,7 +204,7 @@ async fn a_file_under_the_threshold_is_one_stream() {
     let srv = serve(data.clone(), plain()).await;
     let dir = tempfile::tempdir().unwrap();
     let dest = dir.path().join("a");
-    let opts = Options { ranges: 16, threshold: 10_000, sha256: None };
+    let opts = Options { ranges: 16, threshold: 10_000, sha256: None, adaptive: None };
     let report =
         fetch_to_file(&client().unwrap(), &format!("{}/x", srv.base), &dest, &opts).await.unwrap();
     assert_eq!(std::fs::read(&dest).unwrap(), data);
@@ -247,4 +260,41 @@ async fn a_slice_a_byte_short_is_an_error_not_a_file() {
         .unwrap_err();
     assert!(format!("{err:#}").contains("range "), "{err:#}");
     assert!(!dest.exists() && !part_path(&dest).exists());
+}
+
+fn adaptive() -> Options {
+    let fallback = Adaptive { after: Duration::from_millis(300), min_bytes_per_sec: 1_000_000 };
+    Options { adaptive: Some(fallback), ..small(4) }
+}
+
+#[tokio::test]
+async fn a_fast_stream_is_never_split() {
+    let data = body(400_000);
+    let srv = serve(data.clone(), plain()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a");
+    let opts = Options { sha256: Some(hex(&data)), ..adaptive() };
+    let report =
+        fetch_to_file(&client().unwrap(), &format!("{}/x", srv.base), &dest, &opts).await.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), data);
+    assert_eq!(report.ranges, 1);
+    // The probe, then the one stream: no slice but the stream's own.
+    assert_eq!(srv.slices.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_slow_stream_is_given_up_on_and_the_rest_is_read_in_ranges() {
+    let data = body(600_000);
+    let srv = serve(data.clone(), Server { slow_head: true, ..plain() }).await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a");
+    let opts = Options { sha256: Some(hex(&data)), ..adaptive() };
+    let started = Instant::now();
+    let report =
+        fetch_to_file(&client().unwrap(), &format!("{}/x", srv.base), &dest, &opts).await.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), data);
+    assert_eq!(report.ranges, 4);
+    assert_eq!(srv.slices.load(Ordering::SeqCst), 1 + 4, "the stream, then four ranges");
+    // 600 KB at 100 KB/s would take 6 s.
+    assert!(started.elapsed() < Duration::from_secs(4), "{:?}", started.elapsed());
 }
