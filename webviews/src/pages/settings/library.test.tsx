@@ -1,4 +1,4 @@
-// Personalization > Customization Library: every entry `cmux customize library` lists, top first,
+// Appearance > Customization Library: every entry `cmux customize library` lists, top first,
 // with its switch and its order; where two entries that are on set the same key, the lower one says
 // in words which higher one wins and on what; a change runs the CLI's verb and draws the library it
 // answers; a refusal (a preview is open) shows the CLI's own words and changes nothing.
@@ -28,7 +28,7 @@ const action = (name: string, which: string) =>
 const toggle = (name: string) => entry(name).querySelector<HTMLButtonElement>('[role="switch"]')!;
 
 async function open(mock?: MockOptions) {
-  page = await renderPage({ path: "/settings/personalization", mock });
+  page = await renderPage({ path: "/settings/appearance", mock });
   await settle();
   return page;
 }
@@ -46,7 +46,7 @@ test("the engine's rule: the higher entry that is on wins, and an entry that is 
   expect(relist([]).conflicts).toEqual([]);
 });
 
-test("Personalization lists the library top first, each entry with its switch", async () => {
+test("Appearance lists the library top first, each entry with its switch", async () => {
   await open();
   expect(card()).not.toBeNull();
   expect(names()).toEqual(["night", "roomy", "pr-widget", "vim-keys", "paper"]);
@@ -134,13 +134,13 @@ test("a list read a toggle overtakes doesn't draw the old switch back over the t
   await open();
   let release = () => {};
   page!.provider.libraryReadHold = new Promise<void>((resolve) => (release = resolve));
-  // Back on Personalization past the section's fresh time: the library is read again in the
+  // Back on Appearance past the section's fresh time: the library is read again in the
   // background, and that read (held) sees night on.
   setSystemTime(new Date(Date.now() + 60_000));
   try {
     const before = listed();
     await run(() => page!.history.push("/settings/general"));
-    await run(() => page!.history.push("/settings/personalization"));
+    await run(() => page!.history.push("/settings/appearance"));
     await settle();
     expect(listed()).toBeGreaterThan(before);
     expect(toggle("night").disabled).toBe(false);
@@ -172,9 +172,9 @@ async function scrolledWhile(body: (scrolled: HTMLElement[]) => Promise<void>) {
   }
 }
 
-test("?focus=card.customizeLibrary opens Personalization scrolled to the library", async () => {
+test("?focus=card.customizeLibrary opens Appearance scrolled to the library", async () => {
   await scrolledWhile(async (scrolled) => {
-    page = await renderPage({ path: "/settings/personalization?focus=card.customizeLibrary" });
+    page = await renderPage({ path: "/settings/appearance?focus=card.customizeLibrary" });
     await settle();
     expect(card()).not.toBeNull();
     expect(scrolled).toContain(card()!);
@@ -197,4 +197,25 @@ test("with fifty entries, Remove on an early row scrolls its confirmation into v
     expect(document.activeElement).toBe(confirm.querySelector('[data-library-action="cancel"]'));
     expect(page!.provider.libraryRuns).toEqual([]);
   });
+});
+
+test("a try-on that reverts reads the library again, so the entry it turned on shows off", async () => {
+  const tried = mockLibrary();
+  await open({
+    library: tried,
+    tryOn: {
+      generation: 7,
+      revert_to: 6,
+      started_ms: Date.now() - 60_000,
+      expires_ms: Date.now() + 5 * 60_000,
+      label: "profile night",
+      origin: "cli",
+    },
+  });
+  expect(toggle("night").getAttribute("aria-checked")).toBe("true");
+  // The engine's revert turns the try-on's entry off in the library it lists.
+  page!.provider.library = runLibrary(tried, { verb: "off", name: "night" })!;
+  await click(page!.container.querySelector<HTMLElement>("[data-try-on-revert]")!);
+  await settle();
+  expect(toggle("night").getAttribute("aria-checked")).toBe("false");
 });

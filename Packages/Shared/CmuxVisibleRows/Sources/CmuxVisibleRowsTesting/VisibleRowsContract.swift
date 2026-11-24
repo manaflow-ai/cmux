@@ -19,6 +19,7 @@ public import Testing
 /// (one file, so the count of known failures is one number): `check` then runs it inside `withKnownIssue`. When its
 /// fix lands the known issue stops happening, the test fails, and the fix takes the list out of the baseline. The
 /// baseline only shrinks. scripts/cmux-next/lint (`visible-only-*` rules) finds lists not registered here.
+// lint:allow namespace-type: the contract is a test helper with no receiver; every list's fixture calls the one check.
 @MainActor public enum VisibleRowsContract {
     /// The sizes every list is measured at.
     public static let sizes = [100, 10_000]

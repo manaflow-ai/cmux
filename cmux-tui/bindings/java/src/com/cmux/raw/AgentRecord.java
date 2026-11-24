@@ -25,6 +25,8 @@ public final class AgentRecord implements WireValue {
     /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
     private final Field<AgentState> status;
     private final UInt64 surface;
+    /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+    private final Field<String> terminalId;
     private final UInt64 updatedAtMs;
 
     private AgentRecord(Builder builder) {
@@ -41,6 +43,7 @@ public final class AgentRecord implements WireValue {
         this.status = builder.status;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
+        this.terminalId = builder.terminalId;
         if (!builder.updatedAtMsSet) throw new IllegalArgumentException("updated_at_ms is required");
         this.updatedAtMs = Wire.nonNull(builder.updatedAtMs, "updated_at_ms");
     }
@@ -56,6 +59,7 @@ public final class AgentRecord implements WireValue {
     public AgentState state() { return state; }
     public Field<AgentState> status() { return status; }
     public UInt64 surface() { return surface; }
+    public Field<String> terminalId() { return terminalId; }
     public UInt64 updatedAtMs() { return updatedAtMs; }
 
     public static AgentRecord fromWire(Object value) {
@@ -89,6 +93,10 @@ public final class AgentRecord implements WireValue {
         }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "AgentRecord.surface"));
+        Object rawTerminalId = Wire.optional(object, "terminal_id");
+        if (!Wire.isMissing(rawTerminalId)) {
+            builder.terminalId(Wire.string(rawTerminalId, "AgentRecord.terminal_id"));
+        }
         Object rawUpdatedAtMs = Wire.required(object, "updated_at_ms");
         builder.updatedAtMs(Wire.uint64(rawUpdatedAtMs, "AgentRecord.updated_at_ms"));
         return builder.build();
@@ -106,6 +114,7 @@ public final class AgentRecord implements WireValue {
         Wire.put(object, "state", state);
         Wire.put(object, "status", status);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "updated_at_ms", updatedAtMs);
         return Collections.unmodifiableMap(object);
     }
@@ -113,11 +122,11 @@ public final class AgentRecord implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentRecord that)) return false;
-        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(status, that.status) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(status, that.status) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agent, agentSessionId, lastPrompt, session, sinceMs, source, state, status, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, agentSessionId, lastPrompt, session, sinceMs, source, state, status, surface, terminalId, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentRecord" + toWire(); }
@@ -136,6 +145,7 @@ public final class AgentRecord implements WireValue {
         private Field<AgentState> status = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
+        private Field<String> terminalId = Field.omitted();
         private UInt64 updatedAtMs;
         private boolean updatedAtMsSet;
 
@@ -177,6 +187,10 @@ public final class AgentRecord implements WireValue {
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
+            return this;
+        }
+        public Builder terminalId(String value) {
+            this.terminalId = Field.of(value);
             return this;
         }
         public Builder updatedAtMs(UInt64 value) {

@@ -14,11 +14,12 @@ public import Foundation
 /// pre-warmed this way and then renamed reached Home's first page in 1281 ms against 4688 ms for a cold
 /// copy and 3984 ms for one only `gktool scan`ned, as Sparkle does (a full launch first: 1303 ms).
 ///
-/// What runs, one after another, each stopped after `timeout`: the staged app's executable with
+/// What runs, all at once, each stopped after `timeout` and all of them after `total`: the staged app's executable with
 /// ``argument`` (`CmuxNextApp.main()` exits on it before anything else, so exec, dyld and static
-/// initializers run and nothing more), then the bundled `cmux` and `cmux-tui` with `--version`, then
-/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s), then every
-/// page of `Contents/Frameworks` read once (``readPages(under:)``), the framework code the helpers never ran.
+/// initializers run and nothing more), the bundled `cmux` and `cmux-tui` with `--version`, and
+/// each Chromium helper app with `--version` (the first loads the CEF framework, about 1.4 s); once those
+/// ended, the app's Chromium start (``chromiumArgument``); then every page of `Contents/Frameworks` read once
+/// (``readPages(under:)``), the framework code the helpers never ran.
 /// Nothing is written, verified or skipped: Gatekeeper, quarantine and the code signature checks
 /// run as they always do, only earlier.
 public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
@@ -112,6 +113,17 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return runs
     }
 
+    /// Raised once someone waits for the pre-warm (an install click, ``UpdaterService/installAfterPrewarm(_:)``):
+    /// a run that starts from then on runs at ``WorkPriority/userBlocking``, not best effort. A run already
+    /// started keeps its priority.
+    public final class Urgency: Sendable {
+        private let raised = Atomic<Bool>(false)
+        public init() {}
+        public func raise() { raised.store(true, ordering: .relaxed) }
+        public var isRaised: Bool { raised.load(ordering: .relaxed) }
+        var priority: TaskPriority { (isRaised ? WorkPriority.userBlocking : .bestEffort).taskPriority }
+    }
+
     /// Finds the staged bundle on `work`'s files lane, then starts each run (``AsyncProcess``, nothing
     /// waits on a thread). `progress` gets a line for the update log once the scan ends and as each run
     /// ends, so a pre-warm cut short by the relaunch still says how far it got. Returns the last line.
@@ -125,8 +137,16 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
     /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
     /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
+    ///
+    /// The runs start together, each stopped at `timeout`, and all of them at `total` (a stop ends the child's own
+    /// process group, ``AsyncProcess``). One after another under a load like Leo's (about 150-200), they took 95 s
+    /// and three passed a 20 s cap, the first helper among them, which pays the CEF framework's cold load for the
+    /// others (desktop-leo's third read-back). A helper started with no `--type` loads the framework, then
+    /// `CefExecuteProcess` returns -1 (CEFShim/src/helper_main.mm): exit 255 is a helper that ran to its end.
+    /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil,
+                        timeout: Duration = Self.runTimeout, total: Duration = Self.totalTimeout,
+                        clock: any Clock<Duration> = ContinuousClock(), marker: URL? = nil, urgency: Urgency = Urgency(),
                         progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
@@ -138,21 +158,53 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         let bundle = staged.0, planned = staged.1
         progress?("launch pre-warm of \(build): \(planned.count) runs in \(bundle.lastPathComponent) (scan \(scan) ms)")
-        var parts: [String] = []
-        for run in planned {
-            let started = ContinuousClock.now
-            let status: String
-            do {
-                let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
-                // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
-                status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
-            } catch {
-                status = "failed (\(error))"
+        var parts: [Int: String] = [:]
+        let build = build, runsStarted = ContinuousClock.now
+        // Two waves under one cap: every `--version` run and the app's own exec together, then the app's Chromium
+        // start, which needs the CEF framework's first load (the helpers') already paid.
+        let chromium = planned.indices.filter { planned[$0].arguments == [Self.chromiumArgument] }
+        let first = planned.indices.filter { !chromium.contains($0) }
+        for wave in [first, chromium] where !wave.isEmpty {
+            let remaining = total - (ContinuousClock.now - runsStarted)
+            await withTaskGroup(of: (Int, String)?.self) { group in
+                for index in wave {
+                    let run = planned[index]
+                    group.addTask(priority: urgency.priority) {
+                        let started = ContinuousClock.now
+                        let status: String
+                        do {
+                            try Task.checkCancellation()
+                            // A stop reaches the run's whole process group: the Chromium start's renderer and GPU
+                            // helpers would outlive a stop of the app alone.
+                            let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout,
+                                                                                 terminationScope: .processGroup))
+                            // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
+                            status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
+                        } catch {
+                            status = error is CancellationError ? "stopped at the \(Self.milliseconds(total)) ms cap" : "failed (\(error))"
+                        }
+                        return (index, "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms")
+                    }
+                }
+                // The whole pre-warm's cap: cancelling the group stops every run still going.
+                group.addTask {
+                    try? await clock.sleep(for: max(remaining, .zero)) // wakeup-allow: one cap per wave of a staged build's pre-warm, cancelled once every run ended
+                    return nil
+                }
+                var ended = 0
+                for await result in group {
+                    guard case let (index, part)? = result else {
+                        group.cancelAll()
+                        continue
+                    }
+                    progress?("launch pre-warm of \(build): \(part)")
+                    parts[index] = part
+                    ended += 1
+                    if ended == wave.count { group.cancelAll() }
+                }
             }
-            let part = "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms"
-            progress?("launch pre-warm of \(build): \(part)")
-            parts.append(part)
         }
+        var ran = parts.keys.sorted().compactMap { parts[$0] }
         // The framework's pages a renderer and the GPU process run, which the helpers' --version never touched
         // (``readPages(under:)``). Its own idle slot on the files lane: the best-effort one may still hold the
         // rollback keep, and nobody waits for this.
@@ -160,15 +212,19 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         if let pages = try? await work.run(.idle, mayBlock: .files, { Self.readPages(under: frameworks) }) {
             let part = "Frameworks read \(pages.files) files, \(pages.pages) pages \(Self.milliseconds(ContinuousClock.now - started)) ms"
             progress?("launch pre-warm of \(build): \(part)")
-            parts.append(part)
+            ran.append(part)
         }
         if let marker {
-            let build = build
             try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
         }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
-            + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+            + (ran.isEmpty ? "nothing to run" : ran.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
     }
+
+    /// One run's cap: under a load like Leo's the first helper's cold framework load passed 20 s.
+    public static let runTimeout: Duration = .seconds(60)
+    /// The whole pre-warm's cap.
+    public static let totalTimeout: Duration = .seconds(90)
 
     /// A run's exit status for the update log. A Chromium helper with no `--type` exits 255 once it has loaded the
     /// CEF framework (`CefExecuteProcess` returns -1, "this is the browser process"; a failed load exits 1,
