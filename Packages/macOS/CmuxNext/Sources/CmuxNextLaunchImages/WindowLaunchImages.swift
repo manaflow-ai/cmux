@@ -1,5 +1,6 @@
 import AppKit
 import CCmuxLaunchImageFFI
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextWakeups
@@ -137,7 +138,7 @@ public final class WindowLaunchImages {
         let published = try? await work.run(.userVisible, mayBlock: .files) { () -> Published? in
             guard let image = NSWindow.windowServerImage(of: Int(number)), abs(image.width - expected.width) <= 1, abs(image.height - expected.height) <= 1,
                   let png = image.unfilteredPNGData() else { return nil }
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             var out = CmuxLaunchImage()
             let ok = png.withUnsafeBytes { bytes in
                 cmux_launch_image_publish(directory.path, id, bytes.bindMemory(to: UInt8.self).baseAddress, png.count, &out)

@@ -1681,6 +1681,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunchImages",
       "targets": [
         "CCmuxAppFFI",
+        "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDesign",
         "CmuxNextWakeups"
