@@ -128,23 +128,27 @@ public final class CloudPlaceDriver {
         let queue = plan.moves.compactMap { session in all.first { $0.session == session } }
         guard !queue.isEmpty else { return }
         place.beginEvacuation(direction: request.direction, chats: queue.map { ($0.session, $0.title) })
-        // task-owner: one-shot; ends when the last move ends.
-        Task { @MainActor in
-            var next = queue.makeIterator()
-            await withTaskGroup(of: Void.self) { group in
-                @MainActor func launch() -> Bool {
-                    guard !self.place.evacuationStopped, let chat = next.next() else { return false }
+        // Up to `plan.parallel` moves at once, each worker taking the next chat as its move ends. Plain tasks sharing
+        // one queue, not a task group: the compiler cannot check `group.addTask { @MainActor in }` here.
+        let pending = PendingMoves(queue)
+        for _ in 0..<max(1, plan.parallel) {
+            // task-owner: one-shot; ends when no chat is left or the evacuation is stopped.
+            Task { @MainActor in
+                while !self.place.evacuationStopped, let chat = pending.next() {
                     self.place.evacuationPhase(chat.session, .running)
-                    group.addTask { @MainActor in
-                        await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
-                        self.place.evacuationPhase(chat.session, .ended)
-                    }
-                    return true
+                    await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
+                    self.place.evacuationPhase(chat.session, .ended)
                 }
-                for _ in 0..<max(1, plan.parallel) { if !launch() { break } }
-                for await _ in group { _ = launch() }
             }
         }
+    }
+
+    /// The chats a bulk move has not started yet, shared by its workers.
+    @MainActor
+    private final class PendingMoves {
+        private var chats: IndexingIterator<[CloudPlaceChat]>
+        init(_ chats: [CloudPlaceChat]) { self.chats = chats.makeIterator() }
+        func next() -> CloudPlaceChat? { chats.next() }
     }
 
     // MARK: Running a move
