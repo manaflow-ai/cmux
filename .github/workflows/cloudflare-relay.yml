@@ -116,7 +116,7 @@ jobs:
   cloudflare-relay:
     name: Cloudflare Durable Object relay
     if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }} # owned-pool-unfit: the Rust toolchain and Worker builder install exited 101 twice on cmux-linux hosts (#48644); stays on its old pool until it fits
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # owned-pool-unfit: the Rust toolchain and Worker builder install exited 101 twice on cmux-linux hosts (#48644); stays on its old pool until it fits
     timeout-minutes: 30
     permissions:
       contents: read

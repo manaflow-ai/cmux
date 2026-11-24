@@ -673,7 +673,7 @@ jobs:
   release:
     needs: [validate, prepare_release, build, build-linux, sign-linux]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 30
     permissions:
       contents: write
