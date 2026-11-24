@@ -69,7 +69,7 @@ final class HomeChiefOnboardingCard: NSView {
     enum Style: String { case card, chat, chatPlain }
     static let styleKey = "home.chiefOnboarding.style"
     static var storedStyle: Style { UserDefaults.standard.string(forKey: styleKey).flatMap(Style.init(rawValue:)) ?? .card }
-    private var isChat: Bool { style != .card }
+    var isChat: Bool { style != .card }
 
     private struct Colors {
         var primary, secondary, tertiary, fill, hover, border, accent, onAccent, lit, danger: NSColor
@@ -148,7 +148,7 @@ final class HomeChiefOnboardingCard: NSView {
         primary.title = isChat ? HomeChiefOnboardingStrings.chatReply(state.step)
             : state.isLast ? HomeChiefOnboardingStrings.start : HomeChiefOnboardingStrings.next
         body.stringValue = isChat ? HomeChiefOnboardingStrings.chatBody(state.step) : body.stringValue
-        surface.isHidden = isChat
+        surface.isHidden = false
         progress.isHidden = isChat
         title.isHidden = isChat
         bodyBubble.isHidden = style != .chat
@@ -287,8 +287,9 @@ final class HomeChiefOnboardingCard: NSView {
 
     private func applyStoredColors() {
         guard let colors else { return }
-        surface.layer?.backgroundColor = colors.fill.cgColor
-        surface.layer?.borderColor = colors.border.cgColor
+        // In chat the surface is the chat's own page behind Chief's messages, so the transcript under it stays out.
+        surface.layer?.backgroundColor = (isChat ? Palette.pageBackground : colors.fill).cgColor
+        surface.layer?.borderColor = (isChat ? NSColor.clear : colors.border).cgColor
         for bubble in bubbles {
             bubble.layer?.backgroundColor = colors.fill.cgColor
             bubble.layer?.cornerRadius = Metrics.surfaceCornerRadius * scale
@@ -483,6 +484,9 @@ final class HomeChiefOnboardingCard: NSView {
     override func layout() {
         super.layout()
         surface.frame = bounds
-        for (view, frame) in frames(width: bounds.width).place where view.frame != frame { view.frame = frame }
+        // Chat styles fill the panel and sit their messages at its bottom, over the message box, as new messages do.
+        let laid = frames(width: bounds.width)
+        let drop = isChat ? max(0, bounds.height - laid.height) : 0
+        for (view, frame) in laid.place where view.frame != frame.offsetBy(dx: 0, dy: drop) { view.frame = frame.offsetBy(dx: 0, dy: drop) }
     }
 }

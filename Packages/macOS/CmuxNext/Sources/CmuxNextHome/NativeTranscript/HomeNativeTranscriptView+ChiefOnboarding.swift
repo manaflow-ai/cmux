@@ -32,6 +32,13 @@ extension HomeNativeTranscriptView {
     func layoutChiefOnboarding(in panel: CGRect) {
         guard !chiefOnboarding.isHidden else { return }
         let scale = chiefOnboarding.scale
+        if chiefOnboarding.isChat {
+            // Chief's messages: the whole panel, its messages along the bottom like the chat's own.
+            let frame = panel.insetBy(dx: 0, dy: 0).integral
+            let inset = CGRect(x: 20 * scale, y: frame.minY, width: max(0, frame.width - 40 * scale), height: max(0, frame.height - 12 * scale))
+            if chiefOnboarding.frame != inset { chiefOnboarding.frame = inset }
+            return
+        }
         let width = max(0, min(HomeChiefOnboardingCard.maxWidth * scale, panel.width - 48 * scale)).rounded()
         let height = chiefOnboarding.height(for: width)
         let y = panel.minY + max(0, (panel.height - height) / 2)
