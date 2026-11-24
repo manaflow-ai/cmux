@@ -457,7 +457,7 @@ fn relay_plan(
     // Both sides join as the dial starts only when both said `first` (an older
     // peer says `ready` and keeps the 3 s rule; one with no other path, `now`).
     let first = !now && options.relay_first && peer == RELAY_FIRST;
-    // A join started on `wg-early` is kept only when this plan joins as the dial
+    // A join started on an early `wg-relay` is kept only when this plan joins as the dial
     // starts; else it is dropped here, which closes it.
     let early = if first || now { early } else { None };
     Some(roam::RelayPlan { endpoint, now, first, ticket, early })
@@ -2491,12 +2491,8 @@ pub(super) fn dial_wireguard<'a>(
         // Relay first: tell the Mac now, before the gather that `wg-init` waits
         // for, so it joins the relay meanwhile (an older Mac ignores the kind).
         if options.relay.is_some() && options.relay_first {
-            let _ = signaling.send_signal(
-                mac,
-                session_id,
-                SignalPayload::WgEarly { relay: Some(RELAY_FIRST.to_owned()) },
-            );
-            options.timeline.mark("wg_early_sent");
+            let _ = signaling.send_signal(mac, session_id, SignalPayload::WgRelay {});
+            options.timeline.mark("early_wg_relay_sent");
         }
         let socket = bind_udp().map_err(transport_error)?;
         let (gathered, turn) = match early {
@@ -2721,10 +2717,10 @@ impl Dialer for WireGuardDialer {
         Box::pin(async move {
             let effective = effective_options(options);
             let options: &DialOptions = &effective;
-            // The phone's `wg-early` came first (relay first): join the relay now,
+            // The phone's an early `wg-relay` came first (relay first): join the relay now,
             // while its `wg-init` is still being gathered, then wait for that.
             let mut early_join = None;
-            if matches!(first.payload, SignalPayload::WgEarly { .. }) {
+            if matches!(first.payload, SignalPayload::WgRelay { .. }) {
                 if let (Some(endpoint), true, Some(ticket)) =
                     (options.relay.clone(), options.relay_first, first.relay_ticket.clone())
                 {

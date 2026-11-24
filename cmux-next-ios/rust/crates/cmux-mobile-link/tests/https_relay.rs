@@ -678,7 +678,7 @@ async fn an_older_phone_against_a_new_mac_keeps_the_three_second_relay_rule() {
 /// Direct UDP and TURN fail and the phone's STUN gather is slow (a TURN host
 /// that never answers), so its `wg-init` is late. How long the link takes, and
 /// when the Mac joined the relay against when the server forwarded `wg-init`
-/// to it. `early_signal` is whether the Mac's build gets the phone's `wg-early`.
+/// to it. `early_signal` is whether the Mac's build gets the phone's `early wg-relay`.
 async fn dial_with_a_slow_gather(
     phone_first: bool,
     mac_first: bool,
@@ -689,7 +689,8 @@ async fn dial_with_a_slow_gather(
     let fake = FakeOptions {
         // A relay join takes a while, as over a real network (loopback takes 2 ms).
         relay_join_delay: Duration::from_millis(200),
-        drop_wg_early: !early_signal,
+        enforce_signal_kinds: true,
+        drop_early_wg_relay: !early_signal,
         ..FakeOptions::default()
     };
     let rig = rig(fake, mac_options, true).await;
@@ -726,7 +727,7 @@ async fn dial_with_a_slow_gather(
     (up, mac_joined, init_at, phone_joined)
 }
 
-/// The Mac's relay join does not wait for `wg-init`: the phone's `wg-early`
+/// The Mac's relay join does not wait for `wg-init`: the phone's `early wg-relay`
 /// (sent before its gather) starts it, so it is up before `wg-init` is even sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_mac_joins_the_relay_before_the_phones_wg_init_arrives() {
@@ -739,10 +740,10 @@ async fn the_mac_joins_the_relay_before_the_phones_wg_init_arrives() {
     assert!(up < Duration::from_secs(5), "link up after {up:?}");
 }
 
-/// A Mac that does not know `wg-early` (an older build; the server drops it
+/// A Mac that does not know `early wg-relay` (an older build; the server drops it
 /// here) joins only after `wg-init`, as before, and the dial still comes up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_mac_that_never_saw_wg_early_joins_after_wg_init() {
+async fn a_mac_that_never_saw_early_wg_relay_joins_after_wg_init() {
     let (up, mac_joined, init_at, phone_joined) = dial_with_a_slow_gather(true, true, false).await;
     eprintln!(
         "no early: link up {up:?}, Mac joined at {mac_joined:?}, wg-init at {init_at:?}, phone joined at {phone_joined:?}"
@@ -750,7 +751,7 @@ async fn a_mac_that_never_saw_wg_early_joins_after_wg_init() {
     assert!(mac_joined >= init_at, "the Mac joined at {mac_joined:?}, wg-init arrived at {init_at:?}");
 }
 
-/// A new phone against an older Mac (no `wg-early`, and it offers `relay: "ready"`):
+/// A new phone against an older Mac (no `early wg-relay`, and it offers `relay: "ready"`):
 /// the phone sees `ready` and keeps the three-second rule, as today.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_new_phone_against_an_older_mac_keeps_the_three_second_relay_rule() {
@@ -762,9 +763,9 @@ async fn a_new_phone_against_an_older_mac_keeps_the_three_second_relay_rule() {
     assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
 }
 
-/// A new Mac that does not offer relay first still ignores `wg-early`: no early join.
+/// A new Mac that does not offer relay first still ignores `early wg-relay`: no early join.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_mac_without_relay_first_ignores_wg_early() {
+async fn a_mac_without_relay_first_ignores_early_wg_relay() {
     let (_, mac_joined, init_at, _) = dial_with_a_slow_gather(true, false, true).await;
     assert!(mac_joined >= init_at, "the Mac joined at {mac_joined:?}, wg-init arrived at {init_at:?}");
     assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");

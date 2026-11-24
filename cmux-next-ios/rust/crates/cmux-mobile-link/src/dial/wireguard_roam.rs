@@ -100,7 +100,7 @@ pub(super) enum Control {
     KillRelay,
 }
 
-/// A relay join the Mac started on the phone's `wg-early`, before `wg-init`.
+/// A relay join the Mac started on the phone's an early `wg-relay`, before `wg-init`.
 /// The relay watch takes its result instead of joining again; dropped unused
 /// it aborts the join (and closes a socket that finished).
 pub(super) struct EarlyJoin {
@@ -149,7 +149,7 @@ impl std::fmt::Debug for EarlyJoin {
 /// This session's relay, when both sides offered it.
 #[derive(Debug, Clone)]
 pub(super) struct RelayPlan {
-    /// The Mac's join started on `wg-early`, if the plan joins as the dial
+    /// The Mac's join started on an early `wg-relay`, if the plan joins as the dial
     /// starts ([`Self::first`]).
     pub early: Option<Arc<EarlyJoin>>,
     pub endpoint: super::super::relay::RelayEndpoint,

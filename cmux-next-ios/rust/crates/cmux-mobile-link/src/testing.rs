@@ -50,9 +50,13 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
-    /// Do not forward `wg-early` (an older Mac does not know the kind and
-    /// ignores it).
-    pub drop_wg_early: bool,
+    /// Refuse a signal whose kind is not in team-hub.ts `SIGNAL_KINDS` with a
+    /// session-scoped `bad_request`, as the real hub does.
+    pub enforce_signal_kinds: bool,
+    /// Do not forward a `wg-relay` that comes before any `wg-init` of its
+    /// session: what an older Mac does with it (it drops signals of a session it
+    /// has not seen), so only the phone's early cue is lost.
+    pub drop_early_wg_relay: bool,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -306,8 +310,38 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                     let relayed = value["payload"]["relayed"].clone();
                     value["payload"]["endpoints"] = if relayed.is_array() { relayed } else { json!([]) };
                 }
-                if options.drop_wg_early && value["payload"]["kind"] == "wg-early" {
+                if options.enforce_signal_kinds
+                    && !matches!(
+                        value["payload"]["kind"].as_str(),
+                        Some(
+                            "webrtc-offer"
+                                | "webrtc-answer"
+                                | "webrtc-ice"
+                                | "wg-init"
+                                | "wg-resp"
+                                | "wg-endpoints"
+                                | "wg-relay"
+                                | "bye"
+                        )
+                    )
+                {
+                    let _ = out_tx.send(Message::Text(
+                        json!({"type":"error","code":"bad_request","message":"unknown payload kind","sessionId":session})
+                            .to_string()
+                            .into(),
+                    ));
                     continue;
+                }
+                if options.drop_early_wg_relay && value["payload"]["kind"] == "wg-relay" {
+                    let seen = state
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .forwarded
+                        .iter()
+                        .any(|(s, k, _)| *s == session && k == "wg-init");
+                    if !seen {
+                        continue;
+                    }
                 }
                 let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
                 let existing = state.sessions.get(&session).cloned();
