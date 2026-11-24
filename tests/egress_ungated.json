@@ -1,9 +1,9 @@
 {
  "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
- "ungated": 161,
- "file_count": 141,
+ "ungated": 165,
+ "file_count": 144,
  "by_language": {
-  "rs": 83,
+  "rs": 87,
   "swift": 78
  },
  "files": {
@@ -239,6 +239,9 @@
   "cmux-tui/crates/acpmux/src/chatgpt/oauth.rs": {
    "reqwest-client": 1
   },
+  "cmux-tui/crates/acpmux/src/cli/ci_wait.rs": {
+   "reqwest-client": 1
+  },
   "cmux-tui/crates/acpmux/src/cli/cloud_join.rs": {
    "reqwest-client": 1
   },
@@ -287,6 +290,9 @@
   "cmux-tui/crates/acpmux/src/hub/mcp_probe.rs": {
    "reqwest-client": 1
   },
+  "cmux-tui/crates/acpmux/src/install_share.rs": {
+   "reqwest-client": 1
+  },
   "cmux-tui/crates/acpmux/src/machine_wake.rs": {
    "reqwest-client": 1
   },
@@ -333,7 +339,7 @@
    "reqwest-client": 1
   },
   "cmux-tui/crates/cmux-projection/src/peers.rs": {
-   "reqwest-client": 1
+   "reqwest-client": 2
   },
   "cmux-tui/crates/cmux-server/src/cloud_http_transport.rs": {
    "reqwest-client": 1
@@ -343,6 +349,9 @@
    "ws-connect": 1
   },
   "cmux-tui/crates/cmux-server/src/store/fetch.rs": {
+   "reqwest-client": 1
+  },
+  "cmux-tui/crates/cmux-session-cloud/src/store.rs": {
    "reqwest-client": 1
   },
   "cmux-tui/crates/cmux-stack-auth/src/wire.rs": {

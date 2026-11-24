@@ -56,7 +56,7 @@ site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the
 reserved names pass. The gate's host list is generated from this page, so the two stay equal.
 
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
-(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (161 today), and that list may only
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
 shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
 
 ## Hosts
