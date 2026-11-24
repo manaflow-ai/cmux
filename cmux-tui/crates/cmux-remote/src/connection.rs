@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_braid_session::LinkFacts;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -241,6 +242,10 @@ pub struct ClientConnection {
     /// gets its welcome one round trip sooner. Cleared when a reconnect fails past its carrier's
     /// open (a daemon rolled back to a build without IK), so the next one runs XX and relearns.
     daemon_takes_ik: AtomicBool,
+    /// The daemon's last welcome said it takes early data: a reconnect's IK Control link carries
+    /// the Control lane's replay in its first message, so the daemon reads it when the link group
+    /// commits instead of a round trip later. Cleared with `daemon_takes_ik`.
+    daemon_takes_early_data: AtomicBool,
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
     receiving: Mutex<()>,
@@ -362,8 +367,14 @@ impl ClientConnection {
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
-        let (link, daemon_public_key, _, daemon_takes_ik) =
-            establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false).await?;
+        let Established {
+            link,
+            daemon_key: daemon_public_key,
+            daemon_takes_ik,
+            daemon_takes_early_data,
+            ..
+        } = establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false, Vec::new())
+            .await?;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
         let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
@@ -389,6 +400,7 @@ impl ClientConnection {
             next_generation: AtomicU64::new(1),
             daemon_public_key,
             daemon_takes_ik: AtomicBool::new(daemon_takes_ik),
+            daemon_takes_early_data: AtomicBool::new(daemon_takes_early_data),
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
@@ -873,26 +885,52 @@ impl ClientConnection {
             ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
             other => other,
         };
+        let takes_ik = self.daemon_takes_ik.load(Ordering::Acquire);
+        let early_facts = LinkFacts {
+            invitation: false,
+            pinned_peer: true,
+            peer_takes_ik: takes_ik,
+            // A resume re-admits the same key with no grant (`crypto::complete_handshake`).
+            carries_bearer_secret: false,
+        };
+        let early = if cmux_braid_session::may_send_early(
+            early_facts,
+            generation,
+            self.daemon_takes_early_data.load(Ordering::Acquire),
+        ) {
+            current.early_replay(generation, cmux_braid_session::EARLY_DATA_MAX_BYTES)
+        } else {
+            Vec::new()
+        };
         let established = establish_physical_links(
             group.clone(),
             &reconnect_config,
             generation,
             current.resume_cursors(),
-            self.daemon_takes_ik.load(Ordering::Acquire),
+            takes_ik,
+            early,
         )
         .await;
-        let (link, daemon_key, daemon_resume, daemon_takes_ik) = match established {
+        let Established {
+            link,
+            daemon_key,
+            daemon_resume,
+            daemon_takes_ik,
+            daemon_takes_early_data,
+        } = match established {
             Ok(established) => established,
             Err(error) => {
                 // A carrier that would not open says nothing about the daemon; anything past
                 // it might be a daemon that no longer takes IK.
                 if !matches!(error, ConnectionError::Provider(_)) {
                     self.daemon_takes_ik.store(false, Ordering::Release);
+                    self.daemon_takes_early_data.store(false, Ordering::Release);
                 }
                 return Err(error);
             }
         };
         self.daemon_takes_ik.store(daemon_takes_ik, Ordering::Release);
+        self.daemon_takes_early_data.store(daemon_takes_early_data, Ordering::Release);
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
@@ -1585,19 +1623,101 @@ fn jittered_delay(ceiling: Duration, full_jitter: bool) -> Duration {
     ceiling.mul_f64(fraction)
 }
 
+/// One attempt's links, and what their welcomes said.
+struct Established {
+    link: LaneMuxLink,
+    daemon_key: [u8; 32],
+    daemon_resume: BTreeMap<Lane, u64>,
+    daemon_takes_ik: bool,
+    daemon_takes_early_data: bool,
+}
+
+/// The early data for a link carrying `lanes`: the Control link's, none for the rest.
+fn early_for(lanes: &[Lane], early: &[Bytes]) -> Vec<Bytes> {
+    if lanes.contains(&Lane::Control) { early.to_vec() } else { Vec::new() }
+}
+
 async fn establish_physical_links(
     group: Arc<dyn LinkGroup>,
     config: &ClientConnectionConfig,
     generation: u64,
     resume: BTreeMap<Lane, u64>,
     daemon_takes_ik: bool,
-) -> Result<(LaneMuxLink, [u8; 32], BTreeMap<Lane, u64>, bool), ConnectionError> {
+    early: Vec<Bytes>,
+) -> Result<Established, ConnectionError> {
     let mut connection_attempt = [0_u8; 16];
     getrandom::fill(&mut connection_attempt)
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
     let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
+    let subsequent_auth = match config.auth {
+        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+        ref other => other.clone(),
+    };
+    // A reconnect that pins the daemon's key and holds its IK offer learns nothing from its
+    // first link's welcome, so every lane link opens at once: the reconnect costs one link's
+    // setup, not two in a row (`cmux_braid_session::open_lanes_at_once`).
+    if let Some(pinned) = config.expected_daemon.filter(|_| {
+        cmux_braid_session::open_lanes_at_once(LinkFacts {
+            invitation: matches!(config.auth, ClientAuthMode::Invitation { .. }),
+            pinned_peer: true,
+            peer_takes_ik: daemon_takes_ik,
+            carries_bearer_secret: matches!(config.auth, ClientAuthMode::Grant { .. }),
+        })
+    }) {
+        let context = LinkHandshakeContext {
+            generation,
+            expected_daemon: Some(pinned),
+            connection_attempt,
+            daemon_takes_ik,
+        };
+        let mut pending = bindings
+            .into_iter()
+            .enumerate()
+            .map(|(index, lanes)| {
+                let auth = if index == 0 { config.auth.clone() } else { subsequent_auth.clone() };
+                let early = early_for(&lanes, &early);
+                let link = authenticate_one(
+                    group.clone(),
+                    config,
+                    auth,
+                    lanes,
+                    resume.clone(),
+                    context,
+                    early,
+                );
+                async move { (index, link.await) }
+            })
+            .collect::<FuturesUnordered<_>>();
+        let mut opened = Vec::new();
+        let mut daemon_resume = None;
+        // Every welcome has to offer IK (and early data) for the next reconnect to keep it.
+        let mut takes_ik = true;
+        let mut takes_early = true;
+        while let Some((index, result)) = pending.next().await {
+            let (lanes, link, link_resume) = result?;
+            if daemon_resume.get_or_insert_with(|| link_resume.clone()) != &link_resume {
+                return Err(ConnectionError::Protocol(
+                    "daemon reported inconsistent resume cursors across lane links".into(),
+                ));
+            }
+            takes_ik &= link.peer_takes_ik();
+            takes_early &= link.peer_takes_early_data();
+            opened.push((index, LinkRoute { lanes, link: Arc::new(link) }));
+        }
+        opened.sort_by_key(|(index, _)| *index);
+        let routes = opened.into_iter().map(|(_, route)| route).collect();
+        let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
+        return Ok(Established {
+            link,
+            daemon_key: pinned,
+            daemon_resume: daemon_resume.unwrap_or_default(),
+            daemon_takes_ik: takes_ik,
+            daemon_takes_early_data: takes_early,
+        });
+    }
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
+    let first_early = early_for(&first_lanes, &early);
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
         config,
@@ -1610,20 +1730,19 @@ async fn establish_physical_links(
             connection_attempt,
             daemon_takes_ik,
         },
+        first_early,
     )
     .await?;
     let daemon_key = first.remote_static();
     // The first link's welcome is in: the rest of this attempt's links run IK if it offered it,
     // a first connect's included.
     let daemon_takes_ik = first.peer_takes_ik();
+    let daemon_takes_early_data = first.peer_takes_early_data();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
-    let subsequent_auth = match config.auth {
-        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
-        ref other => other.clone(),
-    };
     let mut pending = FuturesUnordered::new();
     for lanes in bindings.into_iter().skip(1) {
+        let link_early = early_for(&lanes, &early);
         pending.push(authenticate_one(
             group.clone(),
             config,
@@ -1636,6 +1755,7 @@ async fn establish_physical_links(
                 connection_attempt,
                 daemon_takes_ik,
             },
+            link_early,
         ));
     }
     while let Some(result) = pending.next().await {
@@ -1648,7 +1768,7 @@ async fn establish_physical_links(
         routes.push(LinkRoute { lanes, link: Arc::new(link) });
     }
     let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
-    Ok((link, daemon_key, daemon_resume, daemon_takes_ik))
+    Ok(Established { link, daemon_key, daemon_resume, daemon_takes_ik, daemon_takes_early_data })
 }
 
 #[derive(Clone, Copy)]
@@ -1666,6 +1786,7 @@ async fn authenticate_one(
     lanes: Vec<Lane>,
     resume: BTreeMap<Lane, u64>,
     context: LinkHandshakeContext,
+    early: Vec<Bytes>,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
     // Every step of a link's setup shares the attempt's deadline: opening the carrier (a direct
@@ -1707,6 +1828,7 @@ async fn authenticate_one(
             connection_attempt: context.connection_attempt,
             resume,
             daemon_takes_ik: context.daemon_takes_ik,
+            early,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
     );
