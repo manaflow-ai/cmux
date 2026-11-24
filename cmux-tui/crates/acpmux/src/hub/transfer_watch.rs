@@ -227,7 +227,7 @@ impl Hub {
         }
         let Some(watch) = self.claim_move_watch(transfer_id) else { return };
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("move-watch-restart", async move {
             let dir = transfers_dir().join(&watch.transfer_id);
             if dir.is_dir()
                 && fully_read(&dir) == Some(false)
