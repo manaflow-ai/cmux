@@ -13,6 +13,7 @@ final class TabPreviewSource: TabPreviewProvider {
     private unowned let cache: TabContentCache
     private let pages: InternalPageTabStore  // AppServices owns both; the store holds nothing of this
     let chats: AgentPanePictures
+    let pictures = PanePictures()  // a terminal's and a page's, taken again only after a change
 
     init(cache: TabContentCache, pages: InternalPageTabStore, images: AgentPaneLaunchImages, chats: @escaping @MainActor (String) -> AgentPaneView?) {
         (self.cache, self.pages) = (cache, pages)
@@ -21,7 +22,10 @@ final class TabPreviewSource: TabPreviewProvider {
 
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
         if let page = pages.existingView(tab.rawValue) { return await pages.pictures.picture(of: page, maxPixelSize: maxPixelSize) }
-        let image = await chats.picture(tab.rawValue, fit: maxPixelSize) { await cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize) }
+        let image = await chats.picture(tab.rawValue, fit: maxPixelSize) { [key = tab.rawValue] in
+            await pictures.picture(key, terminalChanges: cache.terminals[key]?.session.frameChanges.generation, pageVersion: cache.browsers[key]?.tab.state.pictureVersion,
+                                   maxPixelSize: maxPixelSize) { await cache.previewImage(for: key, maxPixelSize: maxPixelSize) }
+        }
         return await Self.shown(image, key: tab.rawValue, cache: cache)
     }
 
