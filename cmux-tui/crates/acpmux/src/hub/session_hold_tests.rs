@@ -119,6 +119,25 @@ async fn the_fleet_hold_keeps_all_but_its_allowlist() {
     assert_eq!(hub.set_fleet_hold(&json!({})).unwrap()["fleetHold"]["on"], false);
 }
 
+/// `*TERM*` lets any name containing TERM run, in any case: the coordinators' KEEP list
+/// (`cloud|hybrid|coord|...`) as allowlist entries.
+#[test]
+fn a_star_term_star_entry_matches_a_substring_in_any_case() {
+    let hold = FleetHold {
+        on: true,
+        allow: vec!["*cloud*".into(), "lane-*".into(), "exact".into(), "**".into()],
+        ..FleetHold::default()
+    };
+    assert!(hold.allows("gcp-Cloud-sync", ""));
+    assert!(hold.allows("cloud", ""));
+    assert!(!hold.allows("clou-d", ""));
+    assert!(hold.allows("lane-7", ""));
+    assert!(!hold.allows("my-lane-7", ""), "a prefix entry matched mid-name");
+    assert!(hold.allows("exact", ""));
+    assert!(!hold.allows("exactly", ""));
+    assert!(!hold.allows("anything", ""), "an empty term let every chat run");
+}
+
 /// The person releasing one chat under a fleet hold exempts it until it is held again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn released_under_a_fleet_hold_stays_released() {
