@@ -1053,7 +1053,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
         l.selection.cornerRadius = SidebarMetrics.selectionRadius
         let ar = metrics.rowAvatar(rowHeight: frame.height)
-        if metrics.compact, neutralSelection { // cmux: the compact row's selection is a disc behind the avatar, not a slab
+        if metrics.compact { // cmux: the compact row's selection is a disc behind the avatar, not a slab
             l.selection.frame = ar.insetBy(dx: -4, dy: -4)
             l.selection.cornerRadius = l.selection.frame.width / 2
         }
@@ -1062,8 +1062,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         // The separator under the text, hidden next to the selection (as NSTableView does).
         let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false
         l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
-        let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
-        l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
+        // cmux: Messages' separator is 1 pt (2 px at 2x), not a hairline.
+        let s: CGFloat = 1
+        l.separator.frame = CGRect(x: SidebarMetrics.separatorX, y: frame.height - s, width: frame.width - SidebarMetrics.separatorX - SidebarMetrics.separatorInsetRight, height: s)
         l.separator.backgroundColor = palette.separator
         // Avatar and unread dot: no dependence on the width (only their x in the compact list, where
         // the avatar is a tile's: one bitmap at the largest pin size, scaled, as the pinned tiles).
@@ -1252,7 +1253,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.isHidden = c.id != highlightID
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         let ar = SidebarDraw.tileAvatar(metrics)
-        if metrics.compact, neutralSelection { // cmux: the compact tile's selection is a disc behind the avatar
+        if metrics.compact { // cmux: the compact tile's selection is a disc behind the avatar
             l.selection.frame = ar.insetBy(dx: -4, dy: -4)
             l.selection.cornerRadius = l.selection.frame.width / 2
         }
