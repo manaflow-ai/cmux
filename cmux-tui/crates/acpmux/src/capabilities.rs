@@ -62,6 +62,11 @@ pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 /// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
 pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
 
+/// A `session/prompt` with `_meta.acpmux.waitForLink: true` for a chat on a peer that is down is
+/// held, with `_acpmux/prompt_held`, until the link is back, instead of refused as unreachable
+/// (`server/peer_forward.rs` `hold_for_link`). Older daemons ignore the field and refuse it.
+pub const PROMPT_LINK_WAIT: &str = "prompt-link-wait-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -199,6 +204,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability { id: PROMPT_LINK_WAIT, wire: &[method::SESSION_PROMPT, method::MUX_PROMPT_HELD] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {

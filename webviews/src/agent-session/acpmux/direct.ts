@@ -887,6 +887,10 @@ const SECRET_GONE = ["no secret request with that id", "the agent stopped waitin
 /// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
 /// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
 const TURN_SHOTS_CAPABILITY = "turn-shots-v1";
+/// The capability id an acpmux that holds a prompt for a chat on a machine that is down until its link
+/// is back names (`_meta.acpmux.waitForLink`, `_acpmux/prompt_held`): only to it does a send ask to
+/// wait, since the app build that bundles it is the one whose host lets the key through.
+const PROMPT_LINK_WAIT_CAPABILITY = "prompt-link-wait-v1";
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
 /// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
@@ -1459,6 +1463,10 @@ export class AcpmuxDirectClient {
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, (accepted?: { steer?: unknown; state?: unknown }) => void>();
+  /// What a prompt's send hears when acpmux holds it for its chat's link (`_acpmux/prompt_held`: the
+  /// machine the chat lives on is down or resuming), by prompt id: it waits on as "sending when
+  /// ready" instead of failing, and goes once the link is back (prompt-link-wait-v1).
+  private promptHolds = new Map<string, () => void>();
   /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
   /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
   private readonly sentPrompts = new Set<string>();
@@ -3905,6 +3913,11 @@ export class AcpmuxDirectClient {
         this.promptAccepts.get(promptId)?.(notification.params);
         this.promptShown?.(promptId);
       }
+    }
+    // acpmux holds a prompt this connection sent until its chat's link is back.
+    else if (notification.method === "_acpmux/prompt_held") {
+      const promptId = notification.params?.promptId;
+      if (typeof promptId === "string") this.promptHolds.get(promptId)?.();
     }
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
@@ -11693,6 +11706,7 @@ export class AcpmuxDirectClient {
       // none, so the hand-off turn it claimed is the next prompt's.
       if (accepted?.steer === true || accepted?.state === "steered") unclaim();
       this.promptAccepts.delete(promptId);
+      this.promptHolds.delete(promptId);
       if (taken) return;
       taken = true;
       // acpmux has it, durably: not the host's to keep any more.
@@ -11706,6 +11720,11 @@ export class AcpmuxDirectClient {
       onTaken?.();
     };
     this.promptAccepts.set(promptId, accept);
+    // Held by acpmux for the chat's link: no request goes unanswered, so it never fails on the clock.
+    this.promptHolds.set(promptId, () => {
+      heldForHost = true;
+      if (this.setDelivery(promptId, { waitingForHost: true })) this.emit();
+    });
     this.sentPrompts.add(promptId);
     // A prompt behind the turn is drawn in the queue now: that row shows the send, so the composer
     // is free for the next prompt without waiting for acpmux (a lagged event stream can lose its
@@ -11814,6 +11833,9 @@ export class AcpmuxDirectClient {
               _meta: {
                 acpmux: {
                   promptId,
+                  // A chat on a machine that is down or resuming: held until its link is back, not
+                  // refused (prompt-link-wait-v1). Asked only of an acpmux that lists it.
+                  ...(this.capabilities?.has(PROMPT_LINK_WAIT_CAPABILITY) ? { waitForLink: true } : {}),
                   ...(steer ? { steer: true } : {}),
                   ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
                   ...(context ? { context } : {}),
@@ -11857,6 +11879,7 @@ export class AcpmuxDirectClient {
     } catch (error) {
       unhold?.();
       this.promptAccepts.delete(promptId);
+      this.promptHolds.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
       // pane no prompt_refused record): the turn it ended reads as ended. A transport error (a
       // closed socket fails every request with `native.*`) is no refusal: acpmux still runs it.
@@ -16098,6 +16121,7 @@ export class AcpmuxDirectClient {
     this.promptRowKeys = new Map();
     this.optimisticPromptTexts = new Map();
     this.promptAccepts = new Map();
+    this.promptHolds = new Map();
     this.compactionHeardAt = new Map();
     this.interrupting = undefined;
     this.awaiting = undefined;

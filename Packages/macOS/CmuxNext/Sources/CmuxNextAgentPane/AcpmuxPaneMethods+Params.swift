@@ -30,7 +30,9 @@ nonisolated extension AcpmuxPaneMethods {
         // validates them against those blocks and keeps them out of the agent's request.
         // `promptSuggestion: "taken"`: the person sent the suggested next prompt (direct.ts, #34496);
         // acpmux only counts it taken for the suggestion gate (suggestion_gate.rs marked_taken).
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
+        // `waitForLink: true`: a chat on a machine that is down is held until its link is back, not
+        // refused (acpmux prompt-link-wait-v1, server/peer_forward.rs hold_for_link).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion", "waitForLink"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
