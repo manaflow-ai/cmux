@@ -323,6 +323,15 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
         "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/billing.yml":
+        "ios-billing takes the billing lane's pick (scripts/ci/ios_runner_pool.py: an owned pool label with "
+        "glaeda-ios-sim) on attempt 1 and retry_runs_on (Blacksmith macOS 26) from attempt 2, as "
+        "ios-reliability-matrix.yml's phone cells do, so a stuck or refused job ends at its 30-minute timeout and a "
+        "person's re-run lands on Blacksmith",
+    ".github/workflows/billing-nightly.yml":
+        "its lane job calls billing.yml, whose ios-billing takes the billing lane's pick on attempt 1 and Blacksmith "
+        "macOS 26 from attempt 2; a stuck night ends at the 30-minute timeout and the next night or a re-run lands "
+        "on Blacksmith",
     ".github/workflows/ios-review-gate.yml":
         "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
         "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "

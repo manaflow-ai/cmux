@@ -313,6 +313,10 @@ LANES = {
     # Not sim-first: its runs_on serves Reviewer path jobs, which the sim-first
     # runner does not class as simulator jobs.
     "review-gate": Lane(jobs=2, measured=True),
+    # billing.yml's ios-billing: the billing packages' swift test and the
+    # StoreKit Testing slot on one iPhone simulator, one Mac. Not sim-first:
+    # glaeda does not class ios-billing as a simulator job.
+    "billing": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -388,7 +392,7 @@ def retry_label(default: str) -> str:
 
 def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = None) -> int:
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
-    if lane in ("screenshots", "kit", "phone-cells"):
+    if lane in ("screenshots", "kit", "phone-cells", "billing"):
         return 1
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.
