@@ -9,7 +9,7 @@ A Linux x64 picker (a size pool `fromJSON(vars.RUNNER_POOLS).linux_N`, `vars.LIN
 vendor `<N>vcpu-ubuntu-2404` label, the overflow switch, `CI_TRUSTED_RUNNER`, the gate runner variable or
 the old fleet label) becomes:
 
-    ${{ <owner guard> || <fork pull request> && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || <pins> || 'cmux-linux' }}
+    ${{ <owner guard> || <fork pull request> && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || <pins> || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
 
 A fork repository and a fork pull request never reach an owned host: a fork pull request takes the
 `CI_FORK_LINUX_RUNNER` repository variable, GitHub-hosted Ubuntu by default. Nightly and release pins

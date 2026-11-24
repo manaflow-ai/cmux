@@ -239,7 +239,7 @@ class WebValidationTests(unittest.TestCase):
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("linux_16", runs_on)
         # Own-branch Linux jobs take the one cmux-linux label since #48644; linux_4 was the pool before it.
-        self.assertTrue(runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}", "|| 'cmux-linux' }}")), runs_on)
+        self.assertTrue(runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}", "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")), runs_on)
         sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
         sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
         for vcpu in (int(a or b) for a, b in sizes):

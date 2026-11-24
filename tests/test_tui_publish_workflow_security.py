@@ -545,7 +545,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') "
-            "|| 'cmux-linux' }}" in block
+            "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in block
         )
     assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance publishing" in publish
     assert "id-token: write" in bootstrap
@@ -575,7 +575,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -638,7 +638,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -2533,7 +2533,7 @@ def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
-    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"]
+    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"]
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])
