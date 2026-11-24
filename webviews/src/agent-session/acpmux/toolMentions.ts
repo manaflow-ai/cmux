@@ -12,6 +12,9 @@
 import type { StringKey, Translate } from "./i18n";
 import { codeSpans, type SlashCommand } from "./slashCommands";
 
+/// Computer Use's tile (the midnight cursor): the composer's @computer-use and the setup window's head.
+export const COMPUTER_USE_TILE = new URL("./icons/computerUseTile.png", import.meta.url).href;
+
 export type ToolMentionId = "computer-use" | "browser-use";
 
 export type ToolMention = {
@@ -33,7 +36,7 @@ export const TOOL_MENTIONS: readonly ToolMention[] = [
     hint: "mention.computerUseHint",
     icon: "computeruse.observe",
     // Lucas 2026-11-23: "lets use this icon here for computer use" (the midnight cursor tile).
-    image: new URL("./icons/computerUseTile.png", import.meta.url).href,
+    image: COMPUTER_USE_TILE,
     words: ["computer-use", "computer use", "cu"],
   },
   {
