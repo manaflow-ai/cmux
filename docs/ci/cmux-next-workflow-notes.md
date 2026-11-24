@@ -5016,3 +5016,15 @@ tier is routed. So fast-tier, fast-tier-fleet, fast-tier-rerun-placement, swift-
 lost their pull request clause here (fast-tier-handback-placement follows fast-tier-fleet), and
 macos-placement no longer places them for a pull request. A push to feat-cmux-next and a dispatch still run
 them here, unchanged.
+
+Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,
+`cmux-next generated files` ran 581 times for 17,010 runner-min and passed 0 times: base push runs went 41 red,
+0 green, and every PR run was red for the base's reasons. There were two shapes. The first was SwiftPM exiting 1 with
+`error: cannot find 'PaneMoreShotsTests' in scope` buried in about 43k warning lines; base fixed it at e627e833 but
+long-queued PR merge refs predated the fix. The second was the action and settings export judges failing because the
+CCmuxAppFFI pin (app-ffi-pin.json) lags the Rust catalog, so the Swift tests read the old catalog; it waits on the
+re-pin PR. A PR run of a job red on the base tells nobody anything gh-merge-green does not already excuse, so a pull
+request skips it while the newest base push verdict is red (scripts/ci/base_red_skip.py: fails open, 10% audit, the
+full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.

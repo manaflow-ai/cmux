@@ -2844,6 +2844,11 @@ jobs:
           "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
+            # 75 (EX_TEMPFAIL): the fleet kept the job queued past --queue-timeout. A red here sent every PR to a re-run that queued
+            # again (652 of 1030 red runs, 7,900 gateway minutes, 2026-11-23/24); like the fast tier's queued verdict it is a warning,
+            # and the Release compile at land, plus the fallback where mac_release asks for it, still compile the head.
+            75) verdict=unavailable; summary="The build fleet kept the compile of \`$REF\` queued past the queue timeout, so nothing compiled this head here; the Release compile at land compiles it."
+              echo "::warning title=Build fleet compile: still queued::no verdict for $REF; the Release compile at land compiles it" ;;
             1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
             *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
           esac
@@ -3457,6 +3462,7 @@ jobs:
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
@@ -5132,6 +5138,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
