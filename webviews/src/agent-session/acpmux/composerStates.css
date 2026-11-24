@@ -1000,36 +1000,6 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   display: block;
   color: var(--acpmux-composer-dim);
 }
-/* acpmux's own prompts to the agent (ComposerQueue.tsx `SystemNotes`): a surge digest, a subagent's
-   resume. Leo, 2026-11-24: "they should be separated out from the user visible steer ui area. maybe
-   not even interactable?" Their own small card above the person's queued prompts, rounded whole and
-   a gap apart, so it never reads as part of the steer list: muted, a size down, no actions, and a
-   click only opens the whole text. `below` and `summary` are its gallery arms. */
-.acpmux-composer > .acpmux-composer-queue.acpmux-queue-system {
-  border-radius: var(--acpmux-strip-radius, 18px);
-  margin-bottom: 4px;
-  max-height: none;
-}
-.acpmux-composer > .acpmux-composer-queue.acpmux-queue-system[data-look="below"] {
-  margin-block: 4px 4px;
-}
-.acpmux-queue-system > .acpmux-queued-system {
-  min-height: 22px;
-  padding-block: 2px;
-  color: var(--acpmux-composer-dim);
-}
-.acpmux-queue-system .acpmux-queued-text {
-  font-size: var(--text-detail);
-  line-height: 18px;
-  cursor: default;
-}
-.acpmux-queue-system .acpmux-queued-text:hover {
-  color: var(--agent-text);
-}
-.acpmux-queue-system[data-look="summary"] > li + li {
-  padding-left: 24px;
-}
-
 /* The prompts the pane holds for the folder's trust answer (ComposerQueue.tsx, trustHeld.ts) follow
    one note, drawn as the paused note is but muted: it waits on the trust question above, not on an
    error. */

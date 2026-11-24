@@ -53,7 +53,7 @@ import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 
-import { lacksImageBytes, ownQueue, queuedAttachments, systemQueue } from "./conversation/queuedMessages";
+import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
@@ -184,10 +184,20 @@ function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | 
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
-  // The actions that show on hover lie over the text's end (`.ui-reveal-text`): text under them is cut too.
+  // The actions that show on hover lie over the text's end (`.ui-reveal-text`): text under them is cut
+  // too. A one-line box's scrollWidth is never under its clientWidth, so a text that fits is measured
+  // by its own content's width.
   const covered = parseFloat(getComputedStyle(text).getPropertyValue("--ui-reveal-controls-w")) || 0;
-  if (text.scrollWidth > text.clientWidth - covered || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
+  const cut = text.scrollWidth > text.clientWidth || (covered > 0 && contentWidth(text) > text.clientWidth - covered);
+  if (cut || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
   else button.removeAttribute("title");
+}
+
+/** The width `el`'s content lays out at, whatever its box cuts. */
+function contentWidth(el: Element): number {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return range.getBoundingClientRect?.().width ?? 0;
 }
 
 /// Bridge failures whose request may already have reached acpmux (it answered late, the socket
@@ -222,11 +232,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   onSideChat,
   commands,
   wakeNoteDelayMs = RESUME_NOTE_DELAY_MS,
-  systemLook = "band",
 }: {
-  /// Where acpmux's own prompts draw (`SystemNotes`): `band`, their own quiet card above the steer
-  /// rows (ships); `below`, under them; `summary`, one line that opens to them. Gallery arms.
-  systemLook?: SystemLook;
   /// How long a prompt held for a waking Cloud machine waits before its note says so (afterDelay.ts);
   /// the gallery's settled variants pass 0.
   wakeNoteDelayMs?: number;
@@ -679,11 +685,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // `goes_in_by_itself`), and acpmux reads that hold as not paused, so no note stands over nothing of
   // the person's (Leo, 2026-11-05: "don't show these kinds of things"). A Stop's hold of them waits
   // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
-  // acpmux's own prompts (a surge digest, a subagent's resume): quiet notes apart from the steer
-  // rows, with none of the person's actions (`SystemNotes`; Leo, 2026-11-24).
-  const system = systemQueue(queue);
-  const notes = system.length > 0 && <SystemNotes key="system" entries={system} look={systemLook} t={t} />;
-  if (shown.length === 0 && !(paused && queue.length > 0)) return notes || null;
+  // acpmux's own prompts (a surge digest, a subagent's resume) are never the person's rows: they list
+  // in Session Info's Background tasks (session-info/agentSide.ts; Leo, 2026-11-24).
+  if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
@@ -1110,7 +1114,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   );
   return (
     <>
-      {systemLook !== "below" && notes}
       <ol
         ref={attachList}
         className="ui-glass ui-glass-floats acpmux-composer-queue"
@@ -1226,89 +1229,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
           </button>
         </div>
       )}
-      {systemLook === "below" && notes}
     </>
   );
 });
-
-export type SystemLook = "band" | "below" | "summary";
-
-/// acpmux's own prompts to the chat's agent while they wait for the turn (model.ts `system`): a surge
-/// digest, a subagent's resume, a cut turn's continuation. Leo, 2026-11-24: "these held during
-/// message surge, esume subagent things... maybe shouldn't look liek they're in the steer thing.
-/// because why would a user steer or whatever on these? they should be separated out from the user
-/// visible steer ui area. maybe not even interactable?" So they are their own quiet card, out of the
-/// steer rows' keys and count, one muted line each with no Steer, edit or delete; a click only opens
-/// a note to its whole text, to read what the agent will be told.
-function SystemNotes({ entries, look, t }: { entries: readonly QueuedEntry[]; look: SystemLook; t: Translate }) {
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const [shut, setShut] = useState(true);
-  const toggle = (id: string) =>
-    setOpen((current) => {
-      const next = new Set(current);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  const label = t("composer.queueSystem");
-  return (
-    <ul
-      className="ui-glass ui-glass-floats acpmux-composer-queue acpmux-queue-system"
-      data-look={look}
-      aria-label={`${label} (${entries.length})`}
-    >
-      {look === "summary" && (
-        <li className="acpmux-queued acpmux-queued-system">
-          <button
-            type="button"
-            className="acpmux-queued-text"
-            aria-expanded={!shut}
-            onClick={() => setShut((was) => !was)}
-          >
-            <span className="acpmux-queued-clamp ui-reveal-text">
-              <span className="acpmux-queued-kind">{label}</span>
-              {entries.map((entry) => systemTitle(entry, t)).join(" · ")}
-            </span>
-          </button>
-        </li>
-      )}
-      {(look !== "summary" || !shut) &&
-        entries.map((entry) => (
-          <li
-            key={entry.id}
-            className="acpmux-queued acpmux-queued-system"
-            data-prompt-id={entry.id}
-            data-system={entry.system ?? "subagent_retry"}
-          >
-            <button
-              type="button"
-              className="acpmux-queued-text"
-              title={open.has(entry.id) ? undefined : shownText(entry, t)}
-              data-open={open.has(entry.id) ? "" : undefined}
-              aria-expanded={open.has(entry.id)}
-              onClick={() => toggle(entry.id)}
-            >
-              <span className="acpmux-queued-clamp ui-reveal-text">
-                {entry.retry && (
-                  <span className="acpmux-queued-kind" data-kind="retry">
-                    {t("composer.queuedSubagentRetry")}
-                  </span>
-                )}
-                {entry.retry ? (entry.retry.name ?? entry.retry.agentId) : entry.prompt}
-                {open.has(entry.id) && entry.retry?.error && (
-                  <span className="acpmux-queued-detail">{entry.retry.error}</span>
-                )}
-              </span>
-            </button>
-          </li>
-        ))}
-    </ul>
-  );
-}
-
-/// A system note's one-line title: a resume names its subagent, any other note its first line.
-function systemTitle(entry: QueuedEntry, t: Translate): string {
-  return shownText(entry, t).split("\n", 1)[0] ?? "";
-}
 
 /// A queued prompt's text, edited in its row: Return saves (it keeps its place), Shift-Return adds
 /// a line, Esc cancels. A textarea, so a prompt's lines stay lines.

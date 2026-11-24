@@ -62,13 +62,15 @@ const observe = (el: Element) => {
   observer ??=
     typeof ResizeObserver === "undefined"
       ? undefined
-      : new ResizeObserver((entries) => {
-          for (const entry of entries) write(controlsOf.get(entry.target) ?? entry.target);
+      : // A stand-in observer (a test's, a polyfill's) may call back with no entries.
+        new ResizeObserver((entries?: readonly ResizeObserverEntry[]) => {
+          for (const entry of entries ?? []) write(controlsOf.get(entry.target) ?? entry.target);
         });
   observer?.observe(el);
 };
 
-/// A callback ref for a row's trailing controls: it measures them for the row's text's cover.
+/// A callback ref for a row's trailing controls: it measures them for the row's text's cover. Once
+/// they leave (a row that turns out to be a teammate's draws none) the row's text covers nothing.
 export function revealControls(el: HTMLElement | null): (() => void) | void {
   if (!el) return;
   write(el);
@@ -86,5 +88,8 @@ export function revealControls(el: HTMLElement | null): (() => void) | void {
       controlsOf.delete(target);
       observer?.unobserve(target);
     }
+    if (!host) return;
+    host.style.removeProperty(VAR);
+    for (const name of [CROWDED, COVERS, CUT]) mark(host, name, false);
   };
 }
