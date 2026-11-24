@@ -36,6 +36,8 @@ public final class LinkController {
     public var dialGeneration: Int { machine.generation }
     /// The Mac holds the current link while the app is suspended.
     public var isParked: Bool { machine.isParked }
+    /// The app is in the background as far as this link knows (`.background` until `.resume`).
+    public var isBackgrounded: Bool { machine.isBackgrounded }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
