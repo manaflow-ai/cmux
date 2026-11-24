@@ -54,6 +54,8 @@ import { failureWord, useInStep } from "./toolFailureCauseModel";
 import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
+import { ComputerUseSetupCard } from "../computerUse/ComputerUseSetupCard";
+import { computerUseSetupFor } from "../computerUse/computerUseSetup";
 
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
@@ -103,6 +105,8 @@ export const ToolRow = memo(function ToolRow({
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
+  // A Computer Use call macOS refused for a missing permission offers Set Up Computer Use (computerUseSetup.ts).
+  const computerUseSetup = useMemo(() => computerUseSetupFor(tool) !== undefined, [tool]);
   const failed = rowFailed(tool) && !recovery;
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
@@ -292,6 +296,7 @@ export const ToolRow = memo(function ToolRow({
       <WrittenArtifactButtons tools={[tool]} />
       <WebSources sources={sources} fetched={fetched} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
+      {computerUseSetup && !asRun && <ComputerUseSetupCard />}
       <ToolFailureCause failure={failure} />
       {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
       {/* An installed extension's card for this call (cmux.chat.widget/1), when the daemon routes one. */}

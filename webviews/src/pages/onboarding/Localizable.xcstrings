@@ -14439,6 +14439,138 @@
           }
         }
       }
+    },
+    "onboarding.computerUse.lookFor": {
+      "comment": "Computer Use setup window: the line under the two permission rows while a permission is missing; %@ is the helper app's name as System Settings lists it (e.g. cmux NIGHTLY Helper)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In System Settings, turn on “%@” in each list."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في إعدادات النظام، فعّل „%@“ في كل قائمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U System Settings uključite „%@” na svakoj listi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå “%@” til på hver liste i Systemindstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere in den Systemeinstellungen „%@“ in jeder Liste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Ajustes del Sistema, activa “%@” en cada lista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans Réglages Système, activez « %@ » dans chaque liste."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Impostazioni di Sistema, attiva “%@” in ogni elenco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定の各リストで「%@」をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅក្នុង System Settings សូមបើក “%@” នៅក្នុងបញ្ជីនីមួយៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정의 각 목록에서 “%@”을(를) 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på «%@» i hver liste i Systeminnstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W Ustawieniach systemowych włącz „%@” na każdej liście."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nos Ajustes do Sistema, ative “%@” em cada lista."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В Системных настройках включите «%@» в каждом списке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในการตั้งค่าระบบ ให้เปิด “%@” ในแต่ละรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Ayarları'nda her listede “%@” öğesini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У Системних параметрах увімкніть «%@» у кожному списку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong Cài đặt hệ thống, hãy bật “%@” trong từng danh sách."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“系统设置”中，在每个列表里打开“%@”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「系統設定」中，於每個列表裡開啟「%@」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

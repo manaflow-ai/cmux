@@ -1,5 +1,6 @@
 // Settings > Computer Use: every cmux Computer Use setting on one page. cmux Computer Use is built
-// in, so the card leads with one line saying no install is needed, then the status (engine,
+// in, so the card leads with one line saying no install is needed, then (while a macOS grant is
+// missing) Set Up Computer Use, which opens the step-by-step window, then the status (engine,
 // macOS permissions with Grant buttons that run the shared catalog actions, the worker), the mode
 // with a plain line per choice, the denied apps, the saved approvals and the switches. The status
 // comes from the host lists' `computer_use`, live through cmux.settings.host.changed; every
@@ -53,6 +54,29 @@ function Grant({ granted }: { granted: boolean | null }) {
 
 type Run = (action: SettingsPageAction, args?: Record<string, unknown>) => void;
 
+/** Whether Computer Use is on and answered, with a macOS grant still missing: the card then leads with Set Up. */
+export function needsSetUp(state: ComputerUseState | null): boolean {
+  return state?.phase === "ready" && (state.accessibility === false || state.screen_recording === false);
+}
+
+/** The card's first row while a grant is missing: one line and the one button that opens the step-by-step window. */
+function SetUpCallout({ run }: { run: Run }) {
+  return (
+    <div className="computer-use-setup" data-setup="">
+      <p className="computer-use-setup-line">{t("settingsWindow.computerUse.setUpNeeded")}</p>
+      <Button
+        type="button"
+        variant="solid"
+        className="button computer-use-setup-button"
+        data-action="palette.computerUse.setup"
+        onClick={() => run("palette.computerUse.setup")}
+      >
+        {t("settingsWindow.computerUse.setUpButton")}
+      </Button>
+    </div>
+  );
+}
+
 /** Engine, permissions and worker. A policy lock or Off leaves only the status line. */
 function StatusRows({ state, mode, run }: { state: ComputerUseState | null; mode: unknown; run: Run }) {
   const locked = state?.phase === "disabled_by_policy";
@@ -63,7 +87,14 @@ function StatusRows({ state, mode, run }: { state: ComputerUseState | null; mode
     granted: boolean | null,
     action: "palette.computerUse.accessibility" | "palette.computerUse.screenRecording",
   ) => (
-    <ActionRow title={t(`settingsWindow.computerUse.${pane}`)} help={t(`settingsWindow.computerUse.${pane}.help`)}>
+    <ActionRow
+      title={t(`settingsWindow.computerUse.${pane}`)}
+      help={
+        granted === false && state?.helper
+          ? `${t(`settingsWindow.computerUse.${pane}.help`)} ${t("settingsWindow.computerUse.grantHolder", state.helper)}`
+          : t(`settingsWindow.computerUse.${pane}.help`)
+      }
+    >
       <Grant granted={granted} />
       {granted !== true && (
         <Button type="button" className="button" data-action={action} onClick={() => run(action)}>
@@ -359,6 +390,7 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
       <p className="computer-use-builtin" data-builtin="">
         {t("settingsWindow.computerUse.builtIn")}
       </p>
+      {needsSetUp(state) && <SetUpCallout run={run} />}
       <div className="rows">
         <StatusRows state={state} mode={mode.value} run={run} />
         <ModePicker focused={focus === COMPUTER_USE_MODE} />

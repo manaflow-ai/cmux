@@ -67,6 +67,26 @@ pub struct CallContext {
 /// where in the result's JSON it was (`tree` or `state.tree`).
 pub const OUTLINE_META: &str = "cmux/outline";
 
+/// The command that walks the person through Computer Use's OS grants.
+pub const SETUP_COMMAND: &str = "cmux computer-use setup";
+/// The app action behind Set Up Computer Use (command palette, Settings, the chat's button).
+pub const SETUP_ACTION: &str = "palette.computerUse.setup";
+
+/// What a `permission_missing` result tells the agent to do: ask the person, then call again.
+pub fn setup_hint(permission: &str) -> String {
+    let grant = match permission {
+        "screen_capture" => "Screen Recording",
+        "accessibility" | "input" => "Accessibility",
+        other => other,
+    };
+    format!(
+        "Computer Use needs the {grant} permission, which only the person at this computer can \
+         grant. Ask them to open Set Up Computer Use in cmux (the command palette, or the button \
+         cmux shows in this chat) or to run `{SETUP_COMMAND}` in a terminal, then call this tool \
+         again"
+    )
+}
+
 /// A tool's result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolOutput {
@@ -94,7 +114,19 @@ impl ToolOutput {
         Self::error(refusal.code(), refusal.message(app))
     }
     fn desktop(e: &DesktopError) -> Self {
-        Self::error(e.code(), e.to_string())
+        let DesktopError::PermissionMissing(which) = e else {
+            return Self::error(e.code(), e.to_string());
+        };
+        // A missing OS grant is the person's to fix, never the agent's: the result says how, as
+        // Codex's does ("in the ChatGPT Computer Use window"), and names the setup the app and
+        // the CLI offer, so a chat can show its Set Up Computer Use button.
+        let mut out = Self::error(e.code(), format!("{e}. {}", setup_hint(which)));
+        if let Some(body) = out.body.as_object_mut() {
+            body.insert("permission".into(), json!(which));
+            body.insert("setup".into(), json!(SETUP_COMMAND));
+            body.insert("setup_action".into(), json!(SETUP_ACTION));
+        }
+        out
     }
 
     /// The MCP `tools/call` result. An outline (`tree`, or the state's

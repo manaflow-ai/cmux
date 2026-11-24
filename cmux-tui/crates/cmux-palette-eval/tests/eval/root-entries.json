@@ -8434,7 +8434,7 @@
         "keywords": ["agent", "automation"],
         "rankBias": 0,
         "sectionIndex": 9,
-        "title": "Computer Use Setup",
+        "title": "Set Up Computer Use",
         "typingSectionIndex": 16
       },
       "id": "action:palette.computerUse.setup"

@@ -1,5 +1,6 @@
 // Computer Use setup: the helper app's large icon, a heading, a short line (the ready line once
-// every grant is on), a card per grant with one trailing control (Done with a check, Allow filled
+// every grant is on), a card per grant with one trailing control, the line naming the app to turn
+// on in System Settings while a grant is missing (Done with a check, Allow filled
 // only on the next missing row, or nothing), and a footer with the note on why Allow cannot help on
 // the left and Not Now / Restart / Done on the right. Allow and Done share one slot, so a grant
 // landing swaps them in place. When the host counts a comeback (a grant landed, or the drag panel's
@@ -62,6 +63,13 @@ export function ComputerUseStep({ computerUse }: { computerUse: ComputerUseState
     primary?.focus({ preventScroll: true });
   }, [computerUse.comebacks]);
   const note = computerUseNote(strings, computerUse.note);
+  // The grants are the helper's: System Settings lists it by its own name, beside a plain cmux row
+  // that does nothing for Computer Use, so the page says which one to turn on while one is missing.
+  const helperName = computerUse.helperName?.trim();
+  const lookFor =
+    helperName && !computerUse.allGranted && computerUse.note === null
+      ? strings.format("onboarding.computerUse.lookFor", helperName)
+      : null;
   const done = strings.t("onboarding.computerUse.done");
   const restart = strings.t("onboarding.computerUse.restart");
   return (
@@ -80,6 +88,11 @@ export function ComputerUseStep({ computerUse }: { computerUse: ComputerUseState
           <GrantRow key={row.pane} row={row} />
         ))}
       </ul>
+      {lookFor && (
+        <p className="onb-cu-look-for" data-helper-name="">
+          {lookFor}
+        </p>
+      )}
       <footer className="onb-cu-footer">
         <output className="onb-cu-note" aria-live="polite">
           {note ?? ""}

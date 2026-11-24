@@ -171,17 +171,17 @@ pub(super) fn evaluate(
         (
             "screen_capture",
             "Screen Recording",
-            "Allow cmux in System Settings > Privacy & Security > Screen & System Audio Recording (or run `cmux computer-use call request_permission --args '{\"permission\":\"screen_capture\"}'` from the person's session).",
+            "Run `cmux computer-use setup` (or Set Up Computer Use in the cmux command palette): it opens System Settings > Privacy & Security > Screen & System Audio Recording and names the cmux helper app to turn on there.",
         ),
         (
             "accessibility",
             "Accessibility",
-            "Allow cmux in System Settings > Privacy & Security > Accessibility (or run `cmux computer-use call request_permission --args '{\"permission\":\"accessibility\"}'`). On Linux, start the AT-SPI bus (at-spi-bus-launcher).",
+            "Run `cmux computer-use setup` (or Set Up Computer Use in the cmux command palette): it opens System Settings > Privacy & Security > Accessibility and names the cmux helper app to turn on there. On Linux, start the AT-SPI bus (at-spi-bus-launcher).",
         ),
         (
             "input",
             "input events",
-            "Allow cmux to post input: System Settings > Privacy & Security > Accessibility on macOS; on Linux a session with XTEST or a wlroots virtual-input compositor.",
+            "On macOS, run `cmux computer-use setup` (input needs the Accessibility permission of the cmux helper app); on Linux, a session with XTEST or a wlroots virtual-input compositor.",
         ),
     ] {
         let g = grants.get(key).and_then(Value::as_str).unwrap_or("unknown");
@@ -297,6 +297,19 @@ fn helper(body: &Value) -> Check {
 
 /// Reads everything, prints the report, returns the exit code.
 pub(super) fn run(global: &GlobalArgs, machine: Option<&str>, json_flag: bool) -> i32 {
+    let (report, checks, ok) = read(global, machine);
+    match (json_flag, global.output) {
+        (true, _) | (_, OutputMode::Json | OutputMode::JsonLines) => println!("{report}"),
+        (_, OutputMode::Quiet) => {}
+        (_, OutputMode::Human) => print!("{}", human(&checks, ok)),
+    }
+    if ok { 0 } else { 1 }
+}
+
+/// The live checks (the worker's status, its grants and its displays): the JSON report, each
+/// check, and whether all passed. Read-only, no prompts; `cmux computer-use setup` runs it as its
+/// quick test once the grants are in.
+pub(super) fn read(global: &GlobalArgs, machine: Option<&str>) -> (Value, Vec<Check>, bool) {
     let endpoint = if machine.is_some() {
         Endpoint::Skipped
     } else {
@@ -332,12 +345,7 @@ pub(super) fn run(global: &GlobalArgs, machine: Option<&str>, json_flag: bool) -
             _ => Value::Null,
         },
     });
-    match (json_flag, global.output) {
-        (true, _) | (_, OutputMode::Json | OutputMode::JsonLines) => println!("{report}"),
-        (_, OutputMode::Quiet) => {}
-        (_, OutputMode::Human) => print!("{}", human(&checks, ok)),
-    }
-    if ok { 0 } else { 1 }
+    (report, checks, ok)
 }
 
 pub(super) fn human(checks: &[Check], ok: bool) -> String {

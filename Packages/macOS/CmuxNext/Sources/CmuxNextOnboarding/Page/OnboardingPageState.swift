@@ -242,6 +242,8 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
 
     struct ComputerUse: Encodable, Equatable {
         let helperIcon: Image?
+        /// The app System Settings lists for both grants ("cmux NIGHTLY Helper"), nil until the helper is found.
+        let helperName: String?
         let rows: [GrantRow]
         let allGranted: Bool
         let note: String?
@@ -251,6 +253,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
             try c.encodeNullable(helperIcon, forKey: .helperIcon)
+            try c.encodeNullable(helperName, forKey: .helperName)
             try c.encode(rows, forKey: .rows)
             try c.encode(allGranted, forKey: .allGranted)
             try c.encodeNullable(note, forKey: .note)
@@ -258,7 +261,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encode(comebacks, forKey: .comebacks)
         }
 
-        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks }
+        private enum Keys: String, CodingKey { case helperIcon, helperName, rows, allGranted, note, showsRestart, comebacks }
     }
 
     /// One background of Make cmux Yours (ops.ts `MakeItYoursBackground`).
@@ -489,11 +492,19 @@ extension OnboardingPageState {
     @MainActor
     private static func computerUse(_ model: ComputerUseStepModel, _ images: OnboardingPageImages) -> ComputerUse {
         ComputerUse(helperIcon: images.helper(model.helperAppURL),
+                    helperName: helperName(model.helperAppURL),
                     rows: ComputerUsePermissionPane.allCases.map { pane in
                         GrantRow(pane: pane.rawValue, control: control(pane, model), icon: images.grant(pane))
                     },
                     allGranted: model.allGranted, note: note(model), showsRestart: model.permissions.helperFailed,
                     comebacks: model.comebacks)
+    }
+
+    /// The name System Settings lists the helper by: its bundle's file name ("cmux NIGHTLY Helper.app").
+    nonisolated static func helperName(_ url: URL?) -> String? {
+        guard let url, url.pathExtension == "app" else { return nil }
+        let name = url.deletingPathExtension().lastPathComponent
+        return name.isEmpty ? nil : name
     }
 
     /// The row's trailing control for the current grants.

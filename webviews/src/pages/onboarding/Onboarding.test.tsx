@@ -181,6 +181,19 @@ describe("computer use", () => {
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
   });
+  test("a missing grant names the app to turn on in System Settings: the helper, not cmux", () => {
+    for (const kind of ["fresh", "oneGranted"] as const)
+      expect(text(render(computerUseState(kind)))).toContain(
+        "In System Settings, turn on \u201ccmux NIGHTLY Helper\u201d in each list.",
+      );
+    // Ready, a helper that did not answer, Computer Use off, or no helper yet: nothing to turn on.
+    for (const kind of ["allGranted", "helperFailed", "off", "unavailable"] as const)
+      expect(render(computerUseState(kind))).not.toContain("onb-cu-look-for");
+    // An older host names no helper: no line.
+    const older = computerUseState("fresh");
+    if (older.computerUse) delete older.computerUse.helperName;
+    expect(render(older)).not.toContain("onb-cu-look-for");
+  });
 });
 
 describe("store", () => {

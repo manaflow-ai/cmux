@@ -41,6 +41,10 @@ extension AgentPaneModel {
     /// path (``UpgradeToPro``) as the model router's paywall, with its fixed `source`. webviews
     /// accessOffer.ts ACCESS_ACTIONS names the same one. It opens app UI, so it needs the person's gesture.
     static let accessActions: Set<String> = ["palette.pro.upgrade"]
+    /// Set Up Computer Use from a chat's Computer Use call that macOS refused (`permission_missing`, webviews
+    /// computerUseSetup.ts): the guided window the palette and Settings open. It shows a window, so it needs the
+    /// person's gesture.
+    static let computerUseSetupActions: Set<String> = ["palette.computerUse.setup"]
     /// The arguments an access action runs with; the page names none.
     static let accessArguments: [String: [String: String]] = ["palette.pro.upgrade": ["source": "inference"]]
 
@@ -57,6 +61,7 @@ extension AgentPaneModel {
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
+            || Self.computerUseSetupActions.contains(id)
             || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")

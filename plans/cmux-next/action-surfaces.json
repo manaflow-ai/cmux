@@ -32544,7 +32544,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Computer Use Setup",
+      "title" : "Set Up Computer Use",
       "title_key" : "action.palette.computerUse.setup",
       "title_table" : "ActionCatalog"
     },

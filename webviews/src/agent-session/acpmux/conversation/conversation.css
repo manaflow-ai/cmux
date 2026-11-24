@@ -8838,6 +8838,17 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   font-size: var(--text-detail);
 }
 .cv-repo-recovery--quiet { color: var(--cv-text-dim); }
+/* Under a Computer Use call macOS refused (computerUse/ComputerUseSetupCard.tsx): the line and
+   Set Up Computer Use (a ui/Button, whose own look holds the press), on the tool row's text column. */
+.cv-cu-setup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  padding-inline-start: var(--cv-tool-text-inset);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
 .cv-repo-recovery--error { color: var(--agent-status-failure); }
 .cv-repo-recovery--done { color: var(--agent-status-success); }
 .cv-repo-recovery button {

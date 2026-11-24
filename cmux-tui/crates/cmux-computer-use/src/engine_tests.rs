@@ -1592,3 +1592,31 @@ fn default_acting_calls_wait_no_virtual_time() {
         assert!(rows[0] >= 120);
     }
 }
+
+/// A missing OS grant tells the agent to ask the person and how they set it up (the app's
+/// Set Up Computer Use, or `cmux computer-use setup`), and names the setup for a chat's button.
+#[test]
+fn a_missing_permission_says_how_the_person_sets_it_up() {
+    let out = ToolOutput::desktop(&DesktopError::PermissionMissing("screen_capture".into()));
+    assert!(out.is_error);
+    assert_eq!(out.code.as_deref(), Some("permission_missing"));
+    let message = out.body["error"].as_str().unwrap_or_default();
+    assert!(message.starts_with("the screen_capture permission is not granted. "), "{message}");
+    assert!(message.contains("Screen Recording"), "{message}");
+    assert!(message.contains("Set Up Computer Use"), "{message}");
+    assert!(message.contains("`cmux computer-use setup`"), "{message}");
+    assert!(message.ends_with("then call this tool again"), "{message}");
+    assert_eq!(out.body["permission"], "screen_capture");
+    assert_eq!(out.body["setup"], SETUP_COMMAND);
+    assert_eq!(out.body["setup_action"], "palette.computerUse.setup");
+    let accessibility = ToolOutput::desktop(&DesktopError::PermissionMissing("input".into()));
+    assert!(
+        accessibility.body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("the Accessibility permission")
+    );
+    // Any other failure keeps its plain message and no setup fields.
+    let other = ToolOutput::desktop(&DesktopError::Failed("boom".into()));
+    assert!(other.body.get("setup").is_none());
+}

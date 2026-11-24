@@ -628,4 +628,14 @@ struct ComputerUseSetupWindowTests {
         }
         #expect(name == "camera.viewfinder")
     }
+
+    /// The page names the app System Settings lists (the helper's bundle name), so the person
+    /// turns on "cmux NIGHTLY Helper" and not the plain cmux row; nothing until the helper is found.
+    @Test func thePageNamesTheHelperSystemSettingsLists() {
+        #expect(OnboardingPageState.helperName(URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Helper.app"))
+                == "cmux NIGHTLY Helper")
+        #expect(OnboardingPageState.helperName(URL(fileURLWithPath: "/tmp/cmux DEV Helper.app")) == "cmux DEV Helper")
+        #expect(OnboardingPageState.helperName(nil) == nil)
+        #expect(OnboardingPageState.helperName(URL(fileURLWithPath: "/usr/bin/cmux-screen-sharing")) == nil)
+    }
 }

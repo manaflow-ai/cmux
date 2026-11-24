@@ -245,3 +245,51 @@ test("a failed worker offers Restart; a policy lock leaves no action", async () 
   expect(locked.querySelector('[data-row-key="computerUse.mode"]')).not.toBeNull();
   page.unmount();
 });
+
+test("a missing grant leads the card with Set Up Computer Use, names the helper, and goes once both are in", async () => {
+  const page = await renderPage({ path: PATH });
+  const helper = "cmux NIGHTLY Helper";
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      computer_use: { ...ready, accessibility: false, screen_recording: false, helper },
+    }),
+  );
+  await settle();
+  const element = card(page.container)!;
+  const setup = element.querySelector<HTMLElement>("[data-setup]");
+  expect(setup).not.toBeNull();
+  // It comes before the status rows, right under the built-in line.
+  expect(element.querySelector("[data-builtin]")!.nextElementSibling).toBe(setup);
+  expect(setup!.textContent).toContain("Set Up Computer Use walks you through two macOS permissions");
+  // Each missing grant's row names the app System Settings lists.
+  expect(element.textContent).toContain(`System Settings lists it as “${helper}”.`);
+  await act(async () => setup!.querySelector<HTMLButtonElement>('[data-action="palette.computerUse.setup"]')!.click());
+  await settle();
+  expect(ran(page.provider.log, "palette.computerUse.setup")).toBe(true);
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      computer_use: { ...ready, accessibility: true, screen_recording: true, helper },
+    }),
+  );
+  await settle();
+  expect(card(page.container)!.querySelector("[data-setup]")).toBeNull();
+  expect(card(page.container)!.textContent).not.toContain("System Settings lists it as");
+  page.unmount();
+});
+
+test("Set Up Computer Use waits for the helper's answer: none while starting, off, failed or locked", async () => {
+  const page = await renderPage({ path: PATH });
+  for (const phase of ["starting", "off", "failed", "disabled_by_policy", "unavailable", "version_mismatch"] as const) {
+    await act(async () =>
+      page.provider.setHost({
+        ...page.provider.host,
+        computer_use: { phase, accessibility: null, screen_recording: null, helper: null },
+      }),
+    );
+    await settle();
+    expect(card(page.container)!.querySelector("[data-setup]")).toBeNull();
+  }
+  page.unmount();
+});

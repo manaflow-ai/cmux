@@ -954,7 +954,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "palette.computerUse.setup",
         group: GROUP,
-        title: t("ActionCatalog", "action.palette.computerUse.setup", "Computer Use Setup"),
+        title: t("ActionCatalog", "action.palette.computerUse.setup", "Set Up Computer Use"),
         keywords: &["agent", "automation"],
         category: "agents",
         symbol: "cursorarrow.click.2",
