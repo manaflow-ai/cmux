@@ -30,6 +30,8 @@ public enum CmuxMobilePreferences {
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
+        /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
+        public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
@@ -48,6 +50,9 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
     public static let defaultDismissKeyboardAfterSend = true
+    /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
+    /// easily toggle" it).
+    public static let defaultSwipeDownCollapsesComposer = false
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
     public static let steerFollowUp = "steer"
@@ -90,6 +95,12 @@ public enum CmuxMobilePreferences {
     public static func terminalFitToPhone(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.terminalFitToPhone) == nil
             ? defaultTerminalFitToPhone : defaults.bool(forKey: Key.terminalFitToPhone)
+    }
+
+    /// A downward swipe inside a composer's text collapses it (`ComposerSwipeCollapse`). Read as each swipe begins.
+    public static func swipeDownCollapsesComposer(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.swipeDownCollapsesComposer) == nil
+            ? defaultSwipeDownCollapsesComposer : defaults.bool(forKey: Key.swipeDownCollapsesComposer)
     }
 
     public static func dismissKeyboardAfterSend(_ defaults: UserDefaults = .standard) -> Bool {
