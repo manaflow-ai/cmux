@@ -178,6 +178,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hfr/out/driver-logs"
           find "$HOME/Library" "$HOME/.local" "$HOME/.cmux" "$TMPDIR" -path '*hybrid-start/*.log' -type f 2>/dev/null \
             -exec cp {} "$RUNNER_TEMP/hfr/out/driver-logs/" \; || true
+          # The app's own move lines (Move to Cloud logs to the unified log, not a file): only the
+          # lines that name a move, a transfer or a seed, so a move that never reports can be read.
+          # Bounded: the three runs and a move's 20 min wait fit in 90 min.
+          log show --last 90m --predicate 'subsystem == "com.cmuxterm.app.next"' --info --debug \
+            --style compact 2>/dev/null \
+            | grep -iE 'move|transfer|seed' \
+            | tail -n 20000 > "$RUNNER_TEMP/hfr/out/app-move.log" || true
+          wc -l "$RUNNER_TEMP/hfr/out/app-move.log" || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
