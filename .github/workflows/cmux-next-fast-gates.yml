@@ -34,9 +34,11 @@ name: cmux-next fast gates
 # Pull request code never runs next to a write token: `resolve` names the head
 # and base and routes the change without running any code the pull request
 # changed (its route runs the router only when its blobs are the base's; a dispatch refuses a fork head
-# or another base before anything is fetched), `fast-gates` and `panic-ratchet`
-# run the PR's code with contents: read only, and `post` writes the status from
-# resolve's outputs and those jobs' results, never from anything they wrote.
+# or another base before anything is fetched; its receipt steps, which hold
+# statuses: write, run the base commit's verifier copied out of git), `fast-gates`
+# and `panic-ratchet` run the PR's code with contents: read only, and `post` writes
+# the status from resolve's outputs and those jobs' results, never from anything
+# they wrote.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -70,10 +72,14 @@ jobs:
     # A light job: the persistent cmux-linux pool on every attempt, never GitHub-hosted Ubuntu (it left light
     # jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    # Five minutes for resolve and the route, three more for the receipt steps (their own bound below).
+    timeout-minutes: 8
     permissions:
       contents: read
       pull-requests: read
+      # The receipt steps: the verifier reads the receipt's Fast checks run, and a valid one posts the status.
+      actions: read
+      statuses: write
     outputs:
       head_sha: ${{ steps.resolve.outputs.head_sha }}
       base: ${{ steps.resolve.outputs.base }}
@@ -81,6 +87,12 @@ jobs:
       head_tree: ${{ steps.resolve.outputs.head_tree }}
       merge_tree: ${{ steps.resolve.outputs.merge_tree }}
       fast_gates: ${{ steps.route.outputs.fast_gates }}
+      # A receipt step that failed (its status post included) or ran past its bound counts as no receipt: the gates
+      # run, and post writes the status.
+      receipt_valid: ${{ steps.receipt-verify.outcome == 'success' && steps.receipt-post.outcome != 'failure' && steps.receipt-verify.outputs.valid || '' }}
+      receipt_audit: ${{ steps.receipt-verify.outputs.audit }}
+      receipt_run_url: ${{ steps.receipt-verify.outputs.run_url }}
+      receipt_producer: ${{ steps.receipt-verify.outputs.producer }}
     steps:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
@@ -190,7 +202,7 @@ jobs:
             [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
             head=$PR_HEAD
             base=$(git rev-parse HEAD^1)
-            # The receipt job (a local test receipt) compares these trees.
+            # The receipt steps below (a local test receipt) compare these trees.
             { echo "head_tree=$(git rev-parse 'HEAD^2^{tree}')"; echo "merge_tree=$(git rev-parse 'HEAD^{tree}')"; } >> "$GITHUB_OUTPUT"
             # A fork pull request's token cannot write statuses.
             post=false
@@ -228,80 +240,69 @@ jobs:
           done
           python3 -I scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
 
-  # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
-  # skipped. Only for a same-repository pull request whose body names
-  # one (`CI-Receipt: fast-gates <Fast checks run URL>`), so every other run spends no runner and no API call here.
-  # The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce fast-gates` on this
-  # head (`cmux-ci test`), which GitHub attests: no key. The verifier comes from the base commit, never the pull
-  # request. A valid receipt posts cmux-next/fast-gates success here at once, naming the receipt's base, and the
-  # fast-gates job is skipped before it takes a runner; CI_RECEIPT_AUDIT_PERCENT (default 10) of them still run in
-  # full, and a red there posts failure naming the receipt and its producer. A rejected receipt runs everything.
-  receipt:
-    name: local test receipt
-    needs: [resolve]
-    # The body line is optional: with none, the verifier finds the passing Fast checks run of one of this pull request's
-    # commits itself (ci_receipt.py discover), so a lane's green `cmux-ci test -- python3 scripts/ci/ci_receipt.py
-    # produce fast-gates` counts with no one writing a pointer. It runs only where the gates would run (the route) and
-    # on a `lane/` branch (the lanes are who run cmux-ci; a human's PR spends no runner on a search),
-    # and vars.CI_RECEIPT_DISCOVER=0 returns to the body line alone.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-      statuses: write
-    outputs:
-      valid: ${{ steps.verify.outputs.valid }}
-      audit: ${{ steps.verify.outputs.audit }}
-      run_url: ${{ steps.verify.outputs.run_url }}
-      producer: ${{ steps.verify.outputs.producer }}
-    steps:
-      - name: Check out the trusted receipt verifier
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          persist-credentials: false
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /scripts/ci/ci_receipt.py
-            /scripts/ci/deadline_http.py
-            /scripts/ci/cmux_next_fast_gates.py
-
+      # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the gates are
+      # skipped. The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce fast-gates`
+      # on this head (`cmux-ci test`), which GitHub attests: no key. A valid receipt posts cmux-next/fast-gates success
+      # here at once, naming the receipt's base, and the fast-gates job is skipped before it takes a runner;
+      # CI_RECEIPT_AUDIT_PERCENT (default 10) of them still run in full, and a red there posts failure naming the
+      # receipt and its producer. A rejected receipt runs everything.
+      #
+      # Only for a same-repository pull request whose body names one (`CI-Receipt: fast-gates <Fast checks run URL>`),
+      # or on a `lane/` branch, where the verifier finds the passing Fast checks run of one of this pull request's
+      # commits itself (ci_receipt.py discover; the lanes are who run cmux-ci, and a human's PR spends no API call on a
+      # search); vars.CI_RECEIPT_DISCOVER=0 returns to the body line alone. Only where the gates would run (the route).
+      #
+      # Steps here, not a job of their own: the receipt job was a second runner and a second checkout for about 1,100
+      # lane pull request events a day (45% of ~2,500 runs, 2026-11-23..24), each billed a whole minute for a 15 s p50,
+      # to run one script. The verifier is the base commit's (resolve's base, the merge's first parent), copied out of
+      # git into a directory of its own, never the pull request's: python3 -I puts no checked-out file on sys.path, and
+      # the verifier adds only its own directory.
       - name: Verify the local test receipt
-        id: verify
+        id: receipt-verify
+        if: ${{ github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0')) }}
+        continue-on-error: true
+        timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DISCOVER: ${{ vars.CI_RECEIPT_DISCOVER }}
-          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
-          BASE: ${{ needs.resolve.outputs.base }}
-          HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
-          MERGE_TREE: ${{ needs.resolve.outputs.merge_tree }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          BASE: ${{ steps.resolve.outputs.base }}
+          HEAD_TREE: ${{ steps.resolve.outputs.head_tree }}
+          MERGE_TREE: ${{ steps.resolve.outputs.merge_tree }}
           AUDIT_PERCENT: ${{ vars.CI_RECEIPT_AUDIT_PERCENT }}
         run: |
           set -euo pipefail
-          if [[ ! -f scripts/ci/ci_receipt.py ]]; then
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no base to take the verifier from"; exit 1; }
+          if ! git cat-file -e "$BASE:scripts/ci/ci_receipt.py" 2>/dev/null; then
             echo "valid=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=CI receipt::the base has no receipt verifier yet; the gates run"
             exit 0
           fi
+          verifier="$RUNNER_TEMP/receipt-verifier/scripts/ci"
+          mkdir -p "$verifier"
+          for file in ci_receipt.py deadline_http.py cmux_next_fast_gates.py; do
+            git show "$BASE:scripts/ci/$file" > "$verifier/$file"
+          done
           DISCOVER_ARGS=()
           # The base's verifier decides: one from before discover existed has no --pr.
-          if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' scripts/ci/ci_receipt.py; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
-          python3 scripts/ci/ci_receipt.py verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
+          if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
+          python3 -I "$verifier/ci_receipt.py" verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
             ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"} --output "$GITHUB_OUTPUT"
 
       - name: Post the cmux-next/fast-gates status from the receipt
-        if: ${{ steps.verify.outputs.valid == 'true' && needs.resolve.outputs.post == 'true' }}
+        id: receipt-post
+        if: ${{ steps.receipt-verify.outcome == 'success' && steps.receipt-verify.outputs.valid == 'true' && steps.resolve.outputs.post == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 1
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
-          RECEIPT_BASE: ${{ steps.verify.outputs.base }}
-          RUN_URL: ${{ steps.verify.outputs.run_url }}
-          PRODUCER: ${{ steps.verify.outputs.producer }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+          RECEIPT_BASE: ${{ steps.receipt-verify.outputs.base }}
+          RUN_URL: ${{ steps.receipt-verify.outputs.run_url }}
+          PRODUCER: ${{ steps.receipt-verify.outputs.producer }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$RECEIPT_BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or receipt base"; exit 1; }
@@ -312,11 +313,11 @@ jobs:
 
   fast-gates:
     name: fast gates
-    needs: [resolve, receipt]
+    needs: [resolve]
     # Skipped before it takes a runner when the change touches no gate input (resolve's route), or when a valid
-    # local test receipt covers it and the receipt job posted its status (a receipt job that failed, the status
-    # post included, runs everything), unless audited.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
+    # local test receipt covers it and resolve's receipt steps posted its status (a receipt step that failed, the
+    # status post included, runs everything), unless audited.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true') }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
@@ -570,9 +571,9 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, receipt, fast-gates, panic-ratchet]
+    needs: [resolve, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
-    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
+    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.resolve.outputs.receipt_valid != 'true' || needs.resolve.outputs.receipt_audit == 'true') }}
     # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
     # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
@@ -590,9 +591,9 @@ jobs:
           RATCHET: ${{ needs.panic-ratchet.result }}
           # The route (resolve) skipped the gates: the pull request touches none of their inputs.
           ROUTED_OUT: ${{ needs.resolve.outputs.fast_gates == 'false' }}
-          RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
-          RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
-          RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
+          RECEIPT_AUDIT: ${{ needs.resolve.outputs.receipt_audit }}
+          RECEIPT_RUN: ${{ needs.resolve.outputs.receipt_run_url }}
+          RECEIPT_PRODUCER: ${{ needs.resolve.outputs.receipt_producer }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
