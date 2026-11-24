@@ -481,3 +481,91 @@ async fn a_dropped_connection_ends_the_command_on_the_other_machine() {
     tokio::time::sleep(Duration::from_secs(9)).await;
     assert!(!late.exists(), "the command ran on after the connection dropped");
 }
+
+/// Leo, 2026-11-17, on the chip over `python3 tools/merge_hold.py explain ...`: "WHY IS THIS
+/// HERE". A command that waits on another machine or a timer is never offered a bigger one, by
+/// its words alone and however busy the session's other processes are.
+#[test]
+fn a_command_that_waits_on_the_network_is_never_offered() {
+    for cmd in [
+        "python3 tools/merge_hold.py explain manaflow-ai/cmux 44505 2>&1 | tail -20",
+        "gh pr checks 44505 --watch",
+        "glaeda-gh wait pr 44505 --timeout 900",
+        "curl -sS https://example.com/big.tar.gz -o big.tar.gz",
+        "git fetch origin feat-cmux-next",
+        "git-fetch-once -q origin main",
+        "sleep 30 && echo done",
+        "cmux-ci test -- cargo test -p acpmux",
+        "bun install",
+        "npm ci",
+        "uv run tools/merge_hold.py explain x 1",
+        "tail -f build.log",
+    ] {
+        assert_eq!(shape(cmd), Shape::Wait, "{cmd}");
+        for busy in [None, Some(0.1), Some(BUSY_CORES * 4.0)] {
+            let o = offer(cmd, busy);
+            assert!(!o.show, "{cmd} at {busy:?}: {o:?}");
+            assert!(o.why.contains("wait"), "{cmd}: {o:?}");
+        }
+    }
+    // A command that stays here (ssh) is not offered either.
+    assert!(!offer("ssh box make", Some(8.0)).show);
+}
+
+#[test]
+fn a_build_or_test_that_computes_is_offered() {
+    for cmd in [
+        "cargo build --release",
+        "cargo test -p acpmux 2>&1 | tail -50",
+        "swift build -c release",
+        "xcodebuild -scheme cmux build",
+        "bun test",
+        "bun run typecheck",
+        "npm run build",
+        "pnpm -r test",
+        "zig build test",
+        "make -j8",
+        "cmake --build build",
+        "go test ./...",
+        "./scripts/test.sh",
+        "cd crates/core && cargo nextest run",
+        "cargo build && gh pr create --fill",
+    ] {
+        assert_eq!(shape(cmd), Shape::Build, "{cmd}");
+        // Busy, or unread (Linux, where the tree's CPU time is not read): offered.
+        for busy in [None, Some(IDLE_CORES), Some(6.0)] {
+            assert!(offer(cmd, busy).show, "{cmd} at {busy:?}");
+        }
+        // A build that waits (on a lock, a download) gains nothing from more cores.
+        assert!(!offer(cmd, Some(0.05)).show, "{cmd}");
+    }
+}
+
+#[test]
+fn any_other_command_is_offered_only_when_its_cpu_time_says_it_computes() {
+    for cmd in ["python3 train.py --epochs 3", "./a.out", "ffmpeg -i in.mov out.mp4"] {
+        assert_eq!(shape(cmd), Shape::Other, "{cmd}");
+        assert!(!offer(cmd, None).show, "{cmd}: unread");
+        assert!(!offer(cmd, Some(0.9)).show, "{cmd}: one core");
+        let busy = offer(cmd, Some(7.5));
+        assert!(busy.show, "{cmd}");
+        assert!(busy.why.contains("7.5 cores"), "{busy:?}");
+    }
+}
+
+#[test]
+fn busy_cores_is_cpu_time_per_second_of_the_window() {
+    let window = std::time::Duration::from_secs(2);
+    assert!((busy_cores(1_000, 9_000, window) - 4.0).abs() < 1e-9);
+    // A process that ended between the reads takes its time with it: never negative.
+    assert_eq!(busy_cores(9_000, 1_000, window), 0.0);
+}
+
+#[test]
+fn an_offer_reads_as_camel_case_json() {
+    let o = serde_json::to_value(offer("cargo build", Some(3.0))).unwrap_or_default();
+    assert_eq!(o["show"], serde_json::json!(true));
+    assert_eq!(o["busyCores"], serde_json::json!(3.0));
+    let unread = serde_json::to_value(offer("gh pr view 1", None)).unwrap_or_default();
+    assert!(unread.get("busyCores").is_none(), "{unread}");
+}

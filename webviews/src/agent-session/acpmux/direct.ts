@@ -5090,6 +5090,13 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/run_elsewhere/plan", { sessionId, command }, 45_000);
   }
 
+  /// Whether running `command` is worth offering another machine at all, as acpmux judges it from
+  /// the command and its session's measured CPU time (conversation/runElsewhereModel.ts RunOffer):
+  /// `{offer: {show, why, busyCores?}}`. It reads no files and takes about 2 s (the window).
+  offerRunElsewhere(sessionId: string, command: string): Promise<unknown> {
+    return this.request("_acpmux/run_elsewhere/plan", { sessionId, command, offerOnly: true }, 15_000);
+  }
+
   /// Runs `command` on connected machine `peer` as a background task of chat `sessionId`, if the
   /// tree still has `digest`; returns `{task: {id, ...}}`.
   startRunElsewhere(

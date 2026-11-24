@@ -1,5 +1,5 @@
 // "Run on a bigger machine" (runElsewhereModel.ts): a chip at the edge of a shell row that has run
-// for 20 s, and under the row either the panel that shows exactly what would go (the commit, each
+// for 20 s and that acpmux says computes (never one waiting on the network: `RunOffer`), and under the row either the panel that shows exactly what would go (the commit, each
 // changed file, the secret-looking files left out, the untracked files that stay) and where, or
 // the run itself, its output streaming from the other machine. The chip sits in the row's trailing
 // column, where a running row has no mark, so its arrival moves nothing; the panel and the run open
@@ -17,9 +17,11 @@ import {
   decodeChunk,
   firstMachine,
   nextReadDelay,
+  RUN_ELSEWHERE_RECHECK_MS,
   useHostRelays,
   useRun,
   type RunElsewhere as Runs,
+  type RunOffer,
   type RunPlan,
   type RunState,
 } from "./runElsewhereModel";
@@ -95,8 +97,56 @@ function openPanel(runs: Runs, toolCallId: string, command: string) {
   );
 }
 
-/** The chip, on a foreground shell row running from 20 s on, while no run of it is open and the
- * pane's host relays the run's requests. */
+/** Asks `runs` whether `command` is worth a bigger machine now and, while the answer is no, again
+ * every {@link RUN_ELSEWHERE_RECHECK_MS}; each answer goes to `onAnswer` and the store. Returns the
+ * stop, which ends the asking and drops a pending answer. */
+function askOffer(runs: Runs, toolCallId: string, command: string, onAnswer: (answer: RunOffer) => void): () => void {
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const again = () => {
+    timer = setTimeout(ask, RUN_ELSEWHERE_RECHECK_MS);
+  };
+  const ask = () => {
+    runs.client.offer(command).then(
+      (answer) => {
+        if (cancelled) return;
+        runs.store.setOffer(toolCallId, answer);
+        onAnswer(answer);
+        if (!answer.show && !answer.final) again();
+      },
+      (error: unknown) => {
+        if (cancelled) return;
+        // The host does not relay the run's requests: no row offers it (afterPlanError).
+        if ((error as { code?: unknown } | null)?.code === "transport.method_refused") runs.store.hostRefused();
+        else again();
+      },
+    );
+  };
+  ask();
+  return () => {
+    cancelled = true;
+    clearTimeout(timer);
+  };
+}
+
+/** acpmux's answer to whether row `toolCallId`'s command is worth a bigger machine, asked once the
+ * row is `due` and again every {@link RUN_ELSEWHERE_RECHECK_MS} while the answer is no (a build may
+ * stop fetching and start to compute). A yes is kept: the chip never comes and goes. The answer
+ * stays in the store, so a row shown again does not ask anew. Undefined until acpmux answers. */
+function useOffer(runs: Runs | undefined, toolCallId: string, command: string | undefined, due: boolean) {
+  const [offer, setOffer] = useState<RunOffer | undefined>(() => runs?.store.offer(toolCallId));
+  useEffect(() => {
+    if (!runs || !due || !command) return;
+    const known = runs.store.offer(toolCallId);
+    if (known?.show || known?.final) return;
+    return askOffer(runs, toolCallId, command, setOffer);
+  }, [runs, toolCallId, command, due]);
+  return offer;
+}
+
+/** The chip, on a foreground shell row running from 20 s on whose command acpmux says a bigger
+ * machine would speed up (`RunOffer`: it computes; never one waiting on the network), while no run
+ * of it is open and the pane's host relays the run's requests. */
 export function RunElsewhereChip({
   toolCallId,
   kind,
@@ -121,9 +171,10 @@ export function RunElsewhereChip({
   const relays = useHostRelays(runs);
   const due = runs && relays ? chipDueAt({ kind, command, startedAt, running, background }) : undefined;
   const past = usePast(due, now);
+  const offer = useOffer(runs, toolCallId, command, past && due !== undefined);
   // A note that may pass (no machine yet, a lost connection) keeps the chip to ask again.
   const shown = run && !(run.phase === "note" && run.retry);
-  if (!runs || !relays || !past || !command || shown) return null;
+  if (!runs || !relays || !past || !command || shown || !offer?.show) return null;
   const open = (event: MouseEvent | KeyboardEvent) => {
     // The chip sits in the row's toggle: it never opens or closes the row (as PreviewChip.tsx).
     event.preventDefault();
@@ -131,7 +182,9 @@ export function RunElsewhereChip({
     openPanel(runs, toolCallId, command);
   };
   return (
-    <WithFacts facts={[{ value: t("runElsewhere.chipHint") }]}>
+    <WithFacts
+      facts={[{ value: offer.why ? `${t("runElsewhere.chipHint")} (${offer.why})` : t("runElsewhere.chipHint") }]}
+    >
       {(facts) => (
         <span
           {...facts}

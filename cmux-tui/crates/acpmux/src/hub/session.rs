@@ -609,6 +609,21 @@ pub struct Session {
 }
 
 impl Session {
+    /// The CPU time its running harness and the processes under it used so far, in milliseconds,
+    /// and the harness's pid (`cpu_class::harness_state`: macOS, at most 64 processes of its own
+    /// tree, none listed beyond it). None with no harness running or where it cannot be read.
+    /// "Run on a bigger machine" reads it twice to see whether a command computes or waits.
+    pub async fn harness_tree_cpu_ms(&self) -> Option<(u32, u64)> {
+        let child = self.child.try_lock().ok()?.clone()?;
+        let seen = tokio::time::timeout(std::time::Duration::from_secs(1), child.harness_seen())
+            .await
+            .ok()?;
+        match seen {
+            crate::cpu_class::HarnessSeen::Running(state) => Some((state.pid, state.cpu_ms)),
+            _ => None,
+        }
+    }
+
     /// The chat's inbox, restored from its log first when its log is read and nothing has read
     /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
     /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
