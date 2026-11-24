@@ -1,9 +1,9 @@
 {
  "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
- "ungated": 58,
- "file_count": 52,
+ "ungated": 55,
+ "file_count": 49,
  "by_language": {
-  "rs": 58
+  "rs": 55
  },
  "files": {
   "cmux-next-ios/rust/crates/cmux-mobile-host/src/auth.rs": {
@@ -18,11 +18,8 @@
   "cmux-next-ios/rust/crates/cmux-mobile-link/src/signaling.rs": {
    "ws-connect": 1
   },
-  "cmux-tui/crates/acpmux/src/happy_dial.rs": {
+  "cmux-tui/crates/acpmux/src/range_fetch.rs": {
    "reqwest-client": 1
-  },
-  "cmux-tui/crates/acpmux/src/managed_codex.rs": {
-   "reqwest-get": 1
   },
   "cmux-tui/crates/chatmux-relay/src/journal_forwarder.rs": {
    "reqwest-client": 1
@@ -47,9 +44,6 @@
   },
   "cmux-tui/crates/cmux-projection/src/peers.rs": {
    "reqwest-client": 2
-  },
-  "cmux-tui/crates/cmux-projection/src/s3.rs": {
-   "reqwest-client": 1
   },
   "cmux-tui/crates/cmux-server/src/cloud_http_transport.rs": {
    "reqwest-client": 1
@@ -130,9 +124,6 @@
    "reqwest-client": 1
   },
   "cmux-tui/crates/cmux-tui/src/cli/machine_join.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/video.rs": {
    "reqwest-client": 1
   },
   "cmux-tui/crates/cmux-tui/src/cloud_conversations_backend.rs": {

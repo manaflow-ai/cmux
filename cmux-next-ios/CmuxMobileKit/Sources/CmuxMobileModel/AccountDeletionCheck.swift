@@ -1,5 +1,8 @@
 import CmuxEgress
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// What Delete Account learns before it asks (App Store Review Guideline
 /// 5.1.1(v)): deleting a cmux account does not cancel an App Store

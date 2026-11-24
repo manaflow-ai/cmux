@@ -1,6 +1,11 @@
 import CmuxEgress
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(OSLog)
 import OSLog
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "chief-call")
 
