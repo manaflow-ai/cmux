@@ -63,7 +63,7 @@ fn relay_bad_revision_retains_the_consumed_unknown_request() {
         else {
             panic!()
         };
-        let (request, _) = vm
+        let (request, _) = *vm
             .prepare_pause("original")
             .complete(json!({"machine":record("pausing", revision)}), revision.into())
             .unwrap_err();
@@ -80,7 +80,7 @@ fn an_old_observation_cannot_restore_running_after_an_uncertain_pause() {
         panic!()
     };
     let pending = Pending::new(vm, Intent::Pause, "same-key".into()).into_unknown();
-    let (pending, error) = pending.reconcile(record("running", "7")).unwrap_err();
+    let (pending, error) = *pending.reconcile(record("running", "7")).unwrap_err();
     assert_eq!(error, ObserveError::InvalidRevision);
     assert_eq!(pending.key(), "same-key");
     assert_eq!(pending.revision(), "7");
@@ -211,7 +211,7 @@ fn reconciliation_rejects_foreign_records_without_losing_the_pending_intent() {
             "team" => wrong.team = "team_other".into(),
             _ => wrong.status = CloudMachineStatus::Unknown("ready".into()),
         }
-        let (kept, error) = pending.reconcile(wrong).unwrap_err();
+        let (kept, error) = *pending.reconcile(wrong).unwrap_err();
         match kind {
             "machine" => assert!(matches!(error, ObserveError::MachineMismatch)),
             "team" => assert!(matches!(error, ObserveError::TeamMismatch { .. })),

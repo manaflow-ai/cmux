@@ -73,7 +73,7 @@ pub struct Report {
 pub fn client() -> Result<reqwest::Client> {
     // The workspace builds reqwest with `rustls-no-provider` (as `managed_codex::install`).
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("acpmux::range_fetch")
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::limited(10))
         .connect_timeout(Duration::from_secs(15))
