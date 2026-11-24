@@ -38,7 +38,14 @@ import CmuxMobileSupport
         let bounds = controller.view.bounds
         let inView = CGRect(x: 0, y: bounds.maxY - 374, width: bounds.width, height: 374)
         let shown = controller.view.convert(inView, to: window.screen.coordinateSpace)
-        print("KEYBOARDRECONCILE scene=\(scene != nil) bounds=\(bounds) shown=\(shown) back=\(controller.view.convert(shown, from: window.screen.coordinateSpace)) guide=\(controller.view.keyboardLayoutGuide.layoutFrame)")
+        // Preconditions for the notified fallback, with their values: the guide rests full width
+        // at the bottom (no real keyboard), and the posted frame reads back where it was built.
+        let guide = controller.view.keyboardLayoutGuide.layoutFrame
+        #expect(guide.width >= bounds.width - 1 && guide.minY > inView.minY + 40,
+                "guide at rest: \(guide) in \(bounds), scene=\(scene != nil)")
+        let back = controller.view.convert(shown, from: window.screen.coordinateSpace)
+        #expect(abs(back.minY - inView.minY) < 1 && abs(back.width - inView.width) < 1,
+                "posted frame reads back: \(back) from \(shown), built \(inView)")
         let userInfo: [AnyHashable: Any] = [
             UIResponder.keyboardFrameEndUserInfoKey: NSValue(cgRect: shown),
             UIResponder.keyboardAnimationDurationUserInfoKey: 0.0,
