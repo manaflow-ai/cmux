@@ -1,4 +1,4 @@
-//! New-session placement on a fork of the parent's Cloud machine (RFD 0154), behind the hidden
+//! New-session placement on a fork of the parent's Cloud machine (RFD 0168), behind the hidden
 //! setting `cloud.autoCloud` (default off).
 //!
 //! A new chat started from a chat that runs on a Cloud machine is best placed on a running copy
