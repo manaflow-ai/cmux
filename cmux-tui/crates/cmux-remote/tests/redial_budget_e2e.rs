@@ -182,6 +182,8 @@ struct TestGroup {
     silent: Arc<AtomicBool>,
     links: Mutex<Vec<(Arc<Pipe>, Arc<Pipe>)>>,
     dials: Mutex<Vec<Instant>>,
+    /// When the connection dropped the failed link's carrier, one entry per `abandon`.
+    abandoned: Mutex<Vec<Instant>>,
 }
 
 impl TestGroup {
@@ -270,6 +272,10 @@ impl LinkGroup for TestGroup {
     async fn close(&self) -> Result<(), ProviderError> {
         Ok(())
     }
+
+    fn abandon(&self) {
+        lock(&self.abandoned).push(Instant::now());
+    }
 }
 
 /// Transport discovery after a failed redial: hands back the same carrier, or hangs (a relay
@@ -352,6 +358,7 @@ async fn harness_leased(
         silent: Arc::new(AtomicBool::new(false)),
         links: Mutex::new(Vec::new()),
         dials: Mutex::new(Vec::new()),
+        abandoned: Mutex::new(Vec::new()),
     });
     let source = discovery.then(|| {
         Arc::new(TestSource {
@@ -440,6 +447,22 @@ async fn a_silent_link_is_redialed_within_6_s() {
     let first = h.group.first_dial_since(start).expect("the silent link was never redialed");
     let took = first - start;
     assert!(took <= Duration::from_secs(6), "a silent link took {took:?} to be declared dead");
+}
+
+/// A link the heartbeat declares dead has its carrier dropped before the first redial, so the
+/// redial dials fresh: an iroh connection kept would hold the redial's stream on the dead path
+/// until its 15 s path idle timeout (a ~30 s reconnect in the black-hole bench, 4.2 s without).
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_drops_its_carrier_before_the_redial() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_millis(2_100)).await;
+    assert!(lock(&h.group.abandoned).is_empty(), "a live link's carrier was dropped");
+    let start = Instant::now();
+    h.group.silent.store(true, Ordering::Release);
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    let first_dial = h.group.first_dial_since(start).expect("the dead link was never redialed");
+    let abandoned = lock(&h.group.abandoned).first().copied().expect("the carrier was kept");
+    assert!(abandoned <= first_dial, "the redial ran on the dead carrier");
 }
 
 /// An action passes its deadline; the recovery it waits on ends by then with the typed

@@ -203,6 +203,10 @@ pub trait LinkGroup: Send + Sync {
     async fn wait_closed(&self) {
         std::future::pending::<()>().await;
     }
+    /// Drops the carrier of a link that just failed, keeping the group: its next `open` dials
+    /// fresh instead of opening a stream on a connection that waits out its idle timeout on a
+    /// dead path. A no-op for a group that opens its socket with each link.
+    fn abandon(&self) {}
 }
 
 /// Returns an endpoint label safe for diagnostics and user-facing status.
