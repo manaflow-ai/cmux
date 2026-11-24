@@ -11,6 +11,8 @@ import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attac
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
+import { attachStripSize } from "./composer/attachStrip.experiment";
+import { experimentArm } from "../../experiments/experiment";
 import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
@@ -29,6 +31,7 @@ import { holdFlag, setRef } from "./heldFlag";
 import { Slot } from "../../slots/Slot";
 import { composerCaretSlot } from "../../slots/composerCaret";
 import { watchFocusVisible } from "./focusVisibleMark";
+import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -341,8 +344,11 @@ export function ComposerBox({
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
+        data-attach-size={experimentArm(attachStripSize)}
         data-composer-v2={composerV2}
         data-has-text={hasText ? "true" : undefined}
+        // Where +, the mic and Send stand as the prompt grows (composerControlsAnchor.experiment.ts).
+        data-controls-anchor={experimentArm(composerControlsAnchor)}
         onMouseDown={focusFromCard}
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>

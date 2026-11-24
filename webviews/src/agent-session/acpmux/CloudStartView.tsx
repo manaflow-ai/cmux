@@ -17,6 +17,7 @@ import { ShimmerText } from "./conversation/ShimmerText";
 import { Thinking } from "./conversation/Thinking";
 import { formatDuration } from "./conversation/turns";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
+import { CloudSetupSteps, cloudSetupStep, type CloudSetupStepsLook } from "./conversation/CloudSetupSteps";
 import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
@@ -34,6 +35,7 @@ import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlan
 import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist, type QuietStage, quietStage } from "./cloudStartViewModel";
+import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
 import { WithFacts } from "./chips/FactsHoverCard";
 
 type QuietLook = "inline" | "stacked" | "hint" | "thinking";
@@ -219,7 +221,10 @@ function PlanCard({
   onRunHere,
   onDismiss,
   runHereLabel,
+  steps,
 }: {
+  /// A first send's plan step (no team refusal): the setup strip in place of the alert mark.
+  steps?: CloudSetupStepsLook;
   refusal?: CloudPlanTeamRefusal;
   plans?: readonly CloudPlanId[];
   look: CloudPlanTeamLook;
@@ -285,6 +290,17 @@ function PlanCard({
       {subscriber.state.error}
     </output>
   );
+  if (steps && !refusal) {
+    return (
+      <div className="acpmux-cloud-plan-team" data-look={look} data-plans="true" data-setup-step="plan">
+        <CloudSetupSteps current="plan" look={steps} />
+        {title}
+        {plans}
+        {actions}
+        {error}
+      </div>
+    );
+  }
   return (
     <div className="acpmux-cloud-plan-team" data-look={look} data-plans="true" role="alert">
       {look === "banner" ? (
@@ -567,6 +583,7 @@ export function CloudStartView({
   githubStore,
   planStore,
   planTeamLook = "notice",
+  setupStepsLook = "rail",
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
@@ -605,6 +622,8 @@ export function CloudStartView({
   planStore?: CloudPlanSubscribeStore;
   /// The plan-in-a-team look (galleries compare them); the pane draws `notice`.
   planTeamLook?: CloudPlanTeamLook;
+  /// The first-send setup strip's look (galleries compare them); the pane draws `rail`.
+  setupStepsLook?: CloudSetupStepsLook;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -622,6 +641,7 @@ export function CloudStartView({
   const [expanded, setExpanded] = useState(autoOpen);
   const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
+  const signInTitleId = useId();
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     if (autoOpen) setExpanded(true);
@@ -666,6 +686,7 @@ export function CloudStartView({
   const planTeamRefusal = failed && start.code === "cloud_plan_required" && (
     <PlanCard
       look={planTeamLook}
+      steps={setupStepsLook}
       runHereLabel={planLabels.runHere}
       {...(start.planTeam ? { refusal: start.planTeam } : {})}
       {...(start.plans ? { plans: start.plans } : {})}
@@ -688,10 +709,75 @@ export function CloudStartView({
         )}
         <CloudSetupCard
           need={setup}
+          steps={setupStepsLook}
           waiting={!failed}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
         />
+      </section>
+    );
+  }
+  // Not signed in (checked before anything starts): the first setup step, not a failure. The card says what Cloud
+  // needs and keeps the prompt; Sign in opens the browser and the start goes again by itself, This Mac runs it here,
+  // Not now leaves the draft. While the browser is out the same card waits, so the person keeps their place.
+  if (cloudSetupStep(start) === "account") {
+    const timedOut = failed && start.message === CLOUD_SIGN_IN_ANSWERS.expired.message;
+    return (
+      <section className="acpmux-cloud-start" data-state="setup" data-setup-step="account">
+        {bubble && (
+          <div className="cv-user">
+            <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
+          </div>
+        )}
+        <section
+          className="acpmux-cloud-setup"
+          aria-labelledby={signInTitleId}
+          data-waiting={waitingForSignIn || undefined}
+        >
+          <CloudSetupSteps current="account" look={setupStepsLook} />
+          <strong className="acpmux-cloud-setup__title" id={signInTitleId}>
+            {t("cloudSetup.title")}
+          </strong>
+          <p className="acpmux-cloud-setup__body">
+            {timedOut ? start.message : t("cloudSetup.signIn.body")} {t("cloudSetup.keepsPrompt")}
+          </p>
+          {waitingForSignIn && signInStatus}
+          <span className="acpmux-cloud-ask__actions acpmux-cloud-setup__actions">
+            <button
+              type="button"
+              className="acpmux-cloud-ask__button acpmux-cloud-start__sign-in"
+              data-role="default"
+              data-action="sign-in"
+              onClick={signIn}
+              disabled={signingIn || waitingForSignIn || !onSignIn}
+              aria-busy={signingIn || waitingForSignIn}
+            >
+              {t("cloudStart.signInToContinue")}
+            </button>
+            {/* Only once the start has failed: while the browser is out the prompt is held for the sign-in, so
+                Run on This Mac there would switch modes and send an empty composer. */}
+            {onRunHere && failed && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-action="run-here"
+                onClick={() => onRunHere()}
+              >
+                {planLabels.runHere}
+              </button>
+            )}
+            {onDismiss && failed && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-action="dismiss"
+                onClick={() => onDismiss()}
+              >
+                {t("harness.notNow")}
+              </button>
+            )}
+          </span>
+        </section>
       </section>
     );
   }

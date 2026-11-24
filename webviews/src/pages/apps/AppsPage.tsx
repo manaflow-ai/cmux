@@ -117,7 +117,7 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           placeholder={t("store.search")}
           aria-label={t("store.search")}
           value={snap.query}
-          disabled={snap.connection === "disconnected"}
+          // The search filters the list on screen: it stays live while the link comes back (Leo, 2026-11-24 11:57Z).
           onChange={(event) => store.setQuery(event.target.value)}
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
             if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && snap.query) {
