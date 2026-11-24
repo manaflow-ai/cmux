@@ -310,11 +310,10 @@ async fn settle_arrivals(observer: &Client, outcomes: &mut [Outcome]) {
         o.reachable = Some(why.is_none());
         if let Some((_, why)) = why {
             eprintln!(
-                "move: {}: moved to {}, but this machine does not list it reachable there after \
-                 {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                "move: {}: moved to {}, but this machine does not list it reachable there \
+                 ({why}); it runs there, and `acpmux ls` shows it once the link is up",
                 o.name,
                 o.host.as_deref().unwrap_or("?"),
-                ARRIVAL_WAIT.as_secs()
             );
         }
     }
