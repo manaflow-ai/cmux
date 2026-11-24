@@ -182,6 +182,8 @@ impl Hub {
         // daemon, alongside the sessions below.
         let ((), kept) =
             tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, true));
+        // Its tasks' ends are the next daemon's to send (`bg_notify_resume`).
+        self.bg_unwatch_all();
         self.seal();
         kept
     }
@@ -319,6 +321,8 @@ impl Hub {
         self.cold_wake.notify_one();
         // So does the cold segments' worker (`cold_segments.rs`).
         self.cold_sealed_wake.notify_one();
+        // So does the worker that packs chats' logs as they grow (`pack_as_it_grows.rs`).
+        self.pack_grown_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
@@ -417,7 +421,7 @@ impl Hub {
                 settled.extend(turn.map(|t| t.turn_id));
             }
             if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
+                self.set_status(s, NotWaiting::Idle);
             }
         }
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));

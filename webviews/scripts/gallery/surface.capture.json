@@ -1,0 +1,22 @@
+{
+  "shots": [
+    {
+      "name": "ask-card",
+      "entry": "agent-pane.permission-card",
+      "variant": "external-access",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": { "now": "" }
+    },
+    {
+      "name": "surface-roles",
+      "entry": "ui.surface",
+      "variant": "roles",
+      "width": 900,
+      "height": 900,
+      "deviceScaleFactor": 1,
+      "arms": { "now": "" }
+    }
+  ]
+}

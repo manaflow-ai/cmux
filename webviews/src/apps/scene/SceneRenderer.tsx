@@ -24,14 +24,14 @@ import {
 import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
-  sceneGradient,
   sceneNumber,
   sceneStyle,
   sceneText,
   textStyle,
+  sceneGlass,
+  sceneGradient,
   sceneRecord,
   type SceneStyle,
-  sceneGlass,
 } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
@@ -119,7 +119,21 @@ function SceneRow({ node }: { node: SceneNode }) {
   );
 }
 
-function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
+/** `TextField`: the text is the person's while they type. Each change goes into the scene mirror
+ * (`SceneStore.reflectText`), as the host takes it from each edit, submit and cancel, so the app's
+ * `text` replaces what the field shows only when it differs from it: an app that clears its draft
+ * after a submit clears the field, and the host never echoes an edit back over newer typing. */
+function SceneTextField({
+  node,
+  store,
+  dispatch,
+  disabled,
+}: {
+  node: SceneNode;
+  store: SceneStore;
+  dispatch: SceneDispatch;
+  disabled: boolean;
+}) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
   const input = useRef<HTMLInputElement>(null);
@@ -142,6 +156,7 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
       onChange={(event) => {
         const next = event.currentTarget.value;
         setText(next);
+        store.reflectText(node.id, next);
         if (node.props.onEdit === true) dispatch(node.id, "edit", { text: next });
       }}
       onKeyDown={(event) => {
@@ -153,7 +168,7 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          dispatch(node.id, "cancel");
+          dispatch(node.id, "cancel", { text });
         }
       }}
     />
@@ -289,7 +304,13 @@ const HSTACK_ALIGN: Record<string, string> = {
   lastTextBaseline: "last baseline",
 };
 
-function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
+function contentOf(
+  node: SceneNode,
+  children: ReactNode,
+  store: SceneStore,
+  dispatch: SceneDispatch,
+  disabled: boolean,
+): ReactNode {
   const props = node.props;
   switch (node.type) {
     case "VStack":
@@ -363,7 +384,7 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
       );
     }
     case "TextField":
-      return <SceneTextField node={node} dispatch={dispatch} disabled={disabled} />;
+      return <SceneTextField node={node} store={store} dispatch={dispatch} disabled={disabled} />;
     case "Circle":
     case "Capsule":
     case "Rectangle":
@@ -420,7 +441,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     ) : (
       shown.map(childView)
     );
-  const content = contentOf(node, children, dispatch, disabled);
+  const content = contentOf(node, children, store, dispatch, disabled);
   if (content === undefined) return null;
   const style: SceneStyle = sceneStyle(props);
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");

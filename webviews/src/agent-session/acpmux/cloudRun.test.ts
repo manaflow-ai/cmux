@@ -558,13 +558,12 @@ test("a Cloud start waits only for the grant of the folder it sends", async () =
   expect(host.calls.at(-1)).toBe("cloud.startChat");
 });
 
-test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
+test("the pane builds its Cloud start from grantedCloudStart and uses the existing New Tab folder grants", () => {
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
     /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
-  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   // The New Tab page's pick is drawn in the pane body (pane/PaneBody.tsx).
   const body = readFileSync(join(import.meta.dir, "pane", "PaneBody.tsx"), "utf8");
   expect(body).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);
