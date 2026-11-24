@@ -26,6 +26,7 @@ use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, LinkProfile};
+use cmux_mobile_link_ffi::{AttachmentUploads, UploadObserver, UploadProgress, UploadSpec, UploadStage};
 use cmux_mobile_link_ffi::{ChannelMessage, ConnectRequest, LinkHandle, Transport, connect_inner};
 
 /// `LinkUpload.chunkBytes`.
@@ -88,16 +89,19 @@ async fn netem_host_child() {
 
 struct Shape {
     profile: Option<LinkProfile>,
-    blackout: bool,
+    /// Seconds of 100% loss once DROP_AT_PERCENT of the bytes are through (0: none).
+    blackout: u64,
 }
 
 fn shape_for(name: &str) -> Shape {
     match name {
-        "none" => Shape { profile: None, blackout: false },
+        "none" => Shape { profile: None, blackout: 0 },
         // Not in cmux-fault's link-profiles.json (it has elevator-30s, a different blackout): the
         // lte row, then 100% loss for DROP_SECS once DROP_AT_PERCENT of the bytes are through.
-        "link-drop" => Shape { profile: Some(LinkProfile::named("lte")), blackout: true },
-        other => Shape { profile: Some(LinkProfile::named(other)), blackout: false },
+        "link-drop" => Shape { profile: Some(LinkProfile::named("lte")), blackout: DROP_SECS },
+        // Past the link's 45 s keepalive: the link itself dies, not just the bytes.
+        "link-drop-60" => Shape { profile: Some(LinkProfile::named("lte")), blackout: 60 },
+        other => Shape { profile: Some(LinkProfile::named(other)), blackout: 0 },
     }
 }
 
@@ -159,13 +163,7 @@ type Engine = fn(UploadJob) -> UploadFuture;
 fn engine(name: &str) -> Engine {
     match name {
         "current" => |job| Box::pin(upload_current(job)),
-        // TODO(ios-attachment-send): the resumable engine. When src/attachment_upload.rs lands, wire
-        // `AttachmentUploads::start/wait` here with the same contract: update `job.progress.acked` as
-        // bytes are acknowledged, set `last_byte_ms`, `open_ms`, `reply_ms`, return Ok(()) once the
-        // Mac holds `job.size` bytes. Then: NETEM_ENGINE=new upload-netem-bench.sh.
-        "new" => {
-            |_job| Box::pin(async { Err("engine new is not wired yet (see TODO in upload_netem.rs)".into()) })
-        }
+        "new" => |job| Box::pin(upload_new(job)),
         other => panic!("unknown NETEM_ENGINE {other}"),
     }
 }
@@ -212,6 +210,59 @@ async fn upload_current(job: UploadJob) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("{code}: sent {sent} of {size}; reply {reply}"))
+    }
+}
+
+/// The resumable engine (`AttachmentUploads`, src/attachment_upload.rs) as the app drives it:
+/// one link set for the Mac, one upload started, `wait` for the path. `acked` is the Mac's own
+/// ack here, not a returned `send`.
+struct BenchObserver {
+    started: Instant,
+    progress: Arc<Progress>,
+}
+
+impl UploadObserver for BenchObserver {
+    fn on_progress(&self, update: UploadProgress) {
+        let p = &self.progress;
+        if update.stage == UploadStage::Uploading && p.open_ms.load(Ordering::Relaxed) == 0 {
+            p.open_ms.store(ms(self.started), Ordering::Relaxed);
+        }
+        if update.stage != UploadStage::Compressing {
+            p.acked.fetch_max(update.acked_bytes, Ordering::Relaxed);
+        }
+        if update.total_bytes > 0
+            && update.sent_bytes >= update.total_bytes
+            && p.last_byte_ms.load(Ordering::Relaxed) == 0
+        {
+            p.last_byte_ms.store(ms(self.started), Ordering::Relaxed);
+        }
+    }
+}
+
+async fn upload_new(job: UploadJob) -> Result<(), String> {
+    let UploadJob { handle, source, size, root, started, progress } = job;
+    let uploads = AttachmentUploads::new(Arc::new(BenchObserver { started, progress: progress.clone() }));
+    uploads.set_link("bench".into(), Some(handle));
+    let spec = UploadSpec {
+        upload_id: None,
+        mac_id: "bench".into(),
+        name: "big.bin".into(),
+        cwd: Some(root.to_str().unwrap().into()),
+    };
+    let id = uploads.start(spec, source.to_str().unwrap().into());
+    let result = uploads.wait(id.clone()).await;
+    progress.reply_ms.store(ms(started), Ordering::Relaxed);
+    if progress.last_byte_ms.load(Ordering::Relaxed) == 0 {
+        progress.last_byte_ms.store(ms(started), Ordering::Relaxed);
+    }
+    let attempts = uploads.progress(id).map(|p| p.attempt).unwrap_or(0);
+    match result {
+        Ok(path) => match std::fs::metadata(&path) {
+            Ok(meta) if meta.len() == size => Ok(()),
+            Ok(meta) => Err(format!("short: {} of {size} at {path}", meta.len())),
+            Err(error) => Err(format!("missing {path}: {error}")),
+        },
+        Err(error) => Err(format!("{error} (attempts {attempts})")),
     }
 }
 
@@ -372,12 +423,12 @@ async fn upload_netem_cell() {
                         };
                         eprintln!("HANG? no progress {stall} ms, acked {acked} B, {phase}");
                     }
-                    if blackout && !dropped && acked * 100 >= size * DROP_AT_PERCENT {
+                    if blackout > 0 && !dropped && acked * 100 >= size * DROP_AT_PERCENT {
                         dropped = true;
                         let lte = lte.clone().unwrap();
-                        eprintln!("link-drop: 100% loss for {DROP_SECS} s at {acked} B");
+                        eprintln!("link-drop: 100% loss for {blackout} s at {acked} B");
                         apply_netem(&lte, 100.0);
-                        tokio::time::sleep(Duration::from_secs(DROP_SECS)).await;
+                        tokio::time::sleep(Duration::from_secs(blackout)).await;
                         apply_netem(&lte, lte.loss_percent);
                     }
                 }
