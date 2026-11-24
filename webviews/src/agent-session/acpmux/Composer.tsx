@@ -707,8 +707,20 @@ function useRelayProps(props: Props): Props {
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  return <MemoComposer {...useStableHandlers(useRelayProps(props), EVENT_CALLBACKS)} />;
 }
+
+/// The callbacks the composer calls only from an event, not named `on*`, held stable with its handlers. The
+/// pane builds `holdsSend` inline, so each streamed chunk's pane render handed the composer a new one and
+/// drew it again: 50 composer renders in 100 keys of the composer-typing bench's L1, none after.
+const EVENT_CALLBACKS = [
+  "holdsSend",
+  "transcriptFollowing",
+  "queueImage",
+  "capture",
+  "upload",
+  "localPaths",
+] as const satisfies readonly (keyof Props)[];
 
 /// The prompt box with the agent's `/` command menu:
 /// the prompt over a bar with + at the left, the mode and model chips, and a

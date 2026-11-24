@@ -15,6 +15,12 @@ type LoadReceipt = {
   error?: string;
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+/// The page's percentile (perf.ts `summary`): the nearest rank, rounded to 0.01 ms.
+const stage = (xs: number[], p: number) => {
+  const sorted = [...xs].sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  return Math.round(sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * p))]! * 100) / 100;
+};
 const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
 
 export async function seedComposer(surface: Surface, turns: number, errors?: string[]) {
@@ -211,7 +217,19 @@ export async function runComposerLoad(
     paint: number;
     frame: number;
     paint_epoch_ms: number;
+    painted?: number;
+    submitted?: number;
   }[];
+  // Keydown to the paint of the frame that draws the key: that frame's own paint time where the page reports it
+  // (Chromium's element timing, keyPresentation.ts `painted`), else the after-frame proxy (`paint`: a task posted
+  // from the key's frame callback). Under a stream Chromium holds that posted task while input keeps coming: in a
+  // traced L1 run the main thread sat idle for half of a 70 to 84 ms wait after the key's frame had painted (keydown
+  // to that paint p95 18.4 ms, to the posted task 75 ms), so the proxy read the browser's task order, not the key.
+  // WebKit reports no element timing and keeps the proxy.
+  const toPaint = samples.map((s) => (Number.isFinite(s.painted) && s.painted! >= 0 ? s.painted! : s.paint));
+  const presented = samples.flatMap((s) => (Number.isFinite(s.submitted) ? [s.submitted!] : []));
+  const paintP95 = stage(toPaint, 0.95);
+  const paintP99 = stage(toPaint, 0.99);
   const clocksAfter = await readClocks(page, loads);
   const frames = new Map<number, number>();
   for (const sample of samples) frames.set(sample.frame_timestamp_ms, (frames.get(sample.frame_timestamp_ms) ?? 0) + 1);
@@ -271,15 +289,22 @@ export async function runComposerLoad(
     acceptance_eligible: errors.length === 0 && keys >= 200,
     minimum_acceptance_keys: 200,
     errors,
-    measurement: "DOM-keydown-to-rAF; after-frame is a paint proxy; mock daemon",
+    measurement: samples.some((s) => Number.isFinite(s.painted))
+      ? "DOM-keydown-to-rAF; to_paint is the key's frame's paint (element timing); mock daemon"
+      : "DOM-keydown-to-rAF; after-frame is a paint proxy; mock daemon",
+    painted_keys: samples.filter((s) => Number.isFinite(s.painted)).length,
     load_topology:
       mode === "L2" ? "5 visible + 5 hidden same-origin iframe documents; not native host tabs" : "focused document",
     to_frame_p50: result.typing.to_frame.p50_ms,
     to_frame_p95: result.typing.to_frame.p95_ms,
     to_frame_p99: result.typing.to_frame.p99_ms,
     to_frame_max: result.typing.to_frame.max_ms,
-    to_paint_p95: result.typing.to_paint.p95_ms,
-    to_paint_p99: result.typing.to_paint.p99_ms,
+    to_paint_p95: paintP95,
+    to_paint_p99: paintP99,
+    // Report only: the after-frame proxy as before, and Chromium's presentation of the key's frame.
+    to_paint_proxy_p95: result.typing.to_paint.p95_ms,
+    to_paint_proxy_p99: result.typing.to_paint.p99_ms,
+    to_presented_p95: presented.length ? stage(presented, 0.95) : undefined,
     to_listener_p95: result.typing.to_listener.p95_ms,
     to_work_p95: result.typing.to_work.p95_ms,
     frames_over_16_ms: result.watch.frames.filter((ms: number) => ms > 16).length,
@@ -292,8 +317,7 @@ export async function runComposerLoad(
     budget_p95_ms: 16,
     budget_p99_ms: 33,
     budget_policy: "report-only",
-    target_met:
-      errors.length === 0 && keys >= 200 && result.typing.to_paint.p95_ms <= 16 && result.typing.to_paint.p99_ms <= 33,
+    target_met: errors.length === 0 && keys >= 200 && paintP95 <= 16 && paintP99 <= 33,
     renders: result.renders,
     samples,
   };
