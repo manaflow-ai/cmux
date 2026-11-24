@@ -185,6 +185,8 @@ mod vm;
 #[cfg(unix)]
 mod vm_bootstrap;
 #[cfg(unix)]
+mod vm_tailnet;
+#[cfg(unix)]
 mod vm_cleanup;
 mod vm_gcp;
 #[cfg(unix)]
