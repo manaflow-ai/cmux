@@ -417,7 +417,7 @@ impl Hub {
                 settled.extend(turn.map(|t| t.turn_id));
             }
             if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
+                self.set_status(s, NotWaiting::Idle);
             }
         }
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));

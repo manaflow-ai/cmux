@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 681,
+  "count": 689,
   "sections": [
     {
       "id": "general",
@@ -239,6 +239,18 @@
           }
         },
         {
+          "key": "agents.appControl",
+          "title": "Agents Can Change cmux",
+          "help": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes.",
+          "kind": "choice",
+          "default": "change",
+          "group": "cmux Tools",
+          "values": [
+            "change",
+            "read"
+          ]
+        },
+        {
           "key": "agents.autoRetry.attempts",
           "title": "Retries per Error",
           "help": "How many times the chat tries again before it stops and waits for you.",
@@ -330,6 +342,27 @@
           }
         },
         {
+          "key": "agents.chats.coldSegments",
+          "title": "Compress Long Chats",
+          "help": "Compresses the older parts of long chats. Run cmux chats warm to undo.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.coldSegmentsLevel",
+          "title": "Long Chat Compression Level",
+          "help": "Higher levels use less disk and take longer to compress.",
+          "kind": "number",
+          "default": 3,
+          "group": "Chats",
+          "range": {
+            "min": 1,
+            "max": 19,
+            "unit": "count"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -364,12 +397,11 @@
         {
           "key": "agents.cmuxMcp",
           "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
           "kind": "choice",
-          "default": "ask",
+          "default": "on",
           "group": "cmux Tools",
           "values": [
-            "ask",
             "on",
             "off"
           ]
@@ -818,23 +850,7 @@
             "org.keepassxc.KeePassXC",
             "1password",
             "bitwarden",
-            "com.apple.systempreferences",
-            "com.apple.Terminal",
-            "com.googlecode.iterm2",
-            "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty",
-            "com.github.wez.wezterm",
-            "org.alacritty",
-            "dev.warp.*",
-            "windowsterminal.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "pwsh.exe",
-            "org.gnome.Terminal",
-            "org.gnome.Ptyxis",
-            "org.kde.konsole",
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.*"
+            "com.apple.systempreferences"
           ],
           "group": "Computer Use"
         },
@@ -886,7 +902,7 @@
           "title": "After Each Action",
           "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
           "kind": "choice",
-          "default": "adaptive",
+          "default": "openai",
           "group": "Computer Use",
           "values": [
             "adaptive",
@@ -1569,7 +1585,7 @@
         {
           "key": "tabs.newTabApp",
           "title": "New Tab App",
-          "help": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+          "help": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
           "kind": "text",
           "default": null,
           "group": "Tabs"
@@ -1734,7 +1750,7 @@
           "title": "Download Updates Automatically",
           "help": "Off: cmux asks before downloading. It always asks before restarting.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {
@@ -3667,6 +3683,18 @@
           }
         },
         {
+          "key": "appearance.tabShape",
+          "title": "Tab Shape",
+          "help": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules.",
+          "kind": "choice",
+          "default": "block",
+          "group": "Panes",
+          "values": [
+            "block",
+            "rounded"
+          ]
+        },
+        {
           "key": "appearance.theme",
           "title": "Theme",
           "help": "Colors for terminals. A space, workspace or terminal theme overrides it.",
@@ -3742,6 +3770,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Window Background"
+        },
+        {
+          "key": "customize.doctorNotice",
+          "title": "Customization notices",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "App Theme"
         },
         {
           "key": "diff.colors",
@@ -4273,7 +4309,10 @@
             "auto",
             "glass",
             "solid",
-            "sections"
+            "sections",
+            "chip",
+            "tree",
+            "card"
           ]
         },
         {
@@ -4603,6 +4642,22 @@
             "lines",
             "linesIcons"
           ]
+        },
+        {
+          "key": "sidebar.sections.hidden",
+          "title": "Hidden Sections",
+          "help": "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.sections.order",
+          "title": "Section Order",
+          "help": "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Sidebar"
         },
         {
           "key": "sidebar.sessionTree",
