@@ -29,7 +29,7 @@ mod queue_restore;
 mod queue_approve;
 pub use queue_approve::Approver;
 pub(crate) use queue_approve::approved_prompts_error;
-pub(super) use queue_approve::{approved_error, declined_error, released};
+pub(super) use queue_approve::{HeldFold, approved_error, declined_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]
