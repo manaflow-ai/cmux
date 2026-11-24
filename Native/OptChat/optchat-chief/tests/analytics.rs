@@ -188,7 +188,7 @@ fn landed_reads_commit_ranges_and_unlanded_words() {
 }
 
 #[test]
-fn consent_sends_only_when_nothing_turns_it_off() {
+fn consent_sends_only_after_the_person_turns_it_on() {
     let none = BTreeMap::new();
     let no_env = |_: &str| None;
     let base = |forced: &'static BTreeMap<String, Value>,
@@ -205,9 +205,23 @@ fn consent_sends_only_when_nothing_turns_it_off() {
     };
     let none: &'static BTreeMap<String, Value> = Box::leak(Box::new(none));
     let no_env: &'static dyn Fn(&str) -> Option<String> = Box::leak(Box::new(no_env));
-    assert_eq!(base(none, None, true, no_env), Consent::Send("production"));
+    // A fresh install (no choice anywhere) sends nothing: analytics are opt-in.
+    assert_eq!(
+        base(none, None, true, no_env),
+        Consent::Off("anonymous telemetry was never turned on")
+    );
+    let on: &'static Value = Box::leak(Box::new(json!({"app": {"sendAnonymousTelemetry": true}})));
+    assert_eq!(base(none, Some(on), true, no_env), Consent::Send("production"));
+    let app_on = consent::decide(&Inputs {
+        managed_forced: none,
+        settings: None,
+        app_choice: Some(true),
+        release_build: true,
+        env: no_env,
+    });
+    assert_eq!(app_on, Consent::Send("production"));
     assert!(
-        matches!(base(none, None, false, no_env), Consent::Off(_)),
+        matches!(base(none, Some(on), false, no_env), Consent::Off(_)),
         "debug and DEV builds stay off"
     );
     let forced: &'static BTreeMap<String, Value> = Box::leak(Box::new(BTreeMap::from([(
@@ -215,7 +229,7 @@ fn consent_sends_only_when_nothing_turns_it_off() {
         json!(true),
     )])));
     assert_eq!(
-        base(forced, None, true, no_env),
+        base(forced, Some(on), true, no_env),
         Consent::Off("managed policy DisableTelemetry")
     );
     let off: &'static Value =
@@ -227,17 +241,17 @@ fn consent_sends_only_when_nothing_turns_it_off() {
     let dnt: &'static dyn Fn(&str) -> Option<String> = Box::leak(Box::new(|k: &str| {
         (k == "DO_NOT_TRACK").then(|| "1".to_owned())
     }));
-    assert_eq!(base(none, None, true, dnt), Consent::Off("DO_NOT_TRACK"));
+    assert_eq!(base(none, Some(on), true, dnt), Consent::Off("DO_NOT_TRACK"));
     let chief_off: &'static dyn Fn(&str) -> Option<String> = Box::leak(Box::new(|k: &str| {
         (k == "CMUX_CHIEF_ANALYTICS").then(|| "off".to_owned())
     }));
     assert_eq!(
-        base(none, None, true, chief_off),
+        base(none, Some(on), true, chief_off),
         Consent::Off("CMUX_CHIEF_ANALYTICS=off")
     );
     let ci: &'static dyn Fn(&str) -> Option<String> =
         Box::leak(Box::new(|k: &str| (k == "CI").then(|| "true".to_owned())));
-    assert_eq!(base(none, None, true, ci), Consent::Off("CI"));
+    assert_eq!(base(none, Some(on), true, ci), Consent::Off("CI"));
     let dev: &'static dyn Fn(&str) -> Option<String> = Box::leak(Box::new(|k: &str| {
         (k == "CMUX_CHIEF_ANALYTICS").then(|| "dev".to_owned())
     }));
