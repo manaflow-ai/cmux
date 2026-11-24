@@ -259,7 +259,7 @@ async fn one(
 ) -> Result<Value> {
     let qualified = qualified(key, args.from.as_deref())?;
     let source = qualified.split('/').next().unwrap_or_default().to_owned();
-    if targets.named.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&source)) {
+    if targets.lock().await.named.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&source)) {
         bail!("the chat is on {source}: name another machine");
     }
     if let Some(peer) =
