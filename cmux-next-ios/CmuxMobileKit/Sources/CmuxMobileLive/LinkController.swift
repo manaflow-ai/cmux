@@ -327,7 +327,8 @@ public final class LinkController {
             endpoint.relayOnly = machine.relayOnly
             endpoint.blockUDP = machine.blockUDP
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public)")
+            endpoint.forceRelay = DeveloperOptions.forceRelay
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
