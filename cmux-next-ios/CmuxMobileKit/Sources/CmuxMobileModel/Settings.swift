@@ -158,6 +158,8 @@ public final class SettingsStore {
     public var terminalFontSize: Int { didSet { save(terminalFontSize, "terminalFontSize") } }
     /// Read by the agent composer (`CmuxMobilePreferences`) through the same key.
     public var dismissKeyboardAfterSend: Bool { didSet { save(dismissKeyboardAfterSend, "dismissKeyboardAfterSend") } }
+    /// Read by every composer's text view (`CmuxMobilePreferences.swipeDownCollapsesComposer`) through the same key.
+    public var swipeDownCollapsesComposer: Bool { didSet { save(swipeDownCollapsesComposer, "swipeDownCollapsesComposer") } }
     /// Read by the agent composer: Steer sends a message typed while the
     /// agent works as acpmux `steer`, Queue sends it after the turn.
     public var followUp: FollowUpBehavior { didSet { save(followUp.rawValue, "followUp") } }
@@ -216,6 +218,8 @@ public final class SettingsStore {
         hapticsEnabled = bool("hapticsEnabled", true)
         terminalFontSize = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
+        swipeDownCollapsesComposer = defaults.object(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer")
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
@@ -245,9 +249,21 @@ public final class SettingsStore {
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
+        #if canImport(Darwin)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
         }
+        #else
+        // swift-corelibs-foundation posts to `queue: .main` and waits for it, which deadlocks a post from the
+        // main actor (the Linux test build): deliver on the posting thread, hopping to main from elsewhere.
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: nil) { [weak self] _ in
+            guard Thread.isMainThread else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.reloadTerminalFontSize() } }
+                return
+            }
+            MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
+        }
+        #endif
         // Retired settings that never took effect (a terminal theme the phone
         // cannot read from the Mac, and a connection-details switch).
         for key in Self.retiredKeys { defaults.removeObject(forKey: "cmuxMobile.settings.\(key)") }
