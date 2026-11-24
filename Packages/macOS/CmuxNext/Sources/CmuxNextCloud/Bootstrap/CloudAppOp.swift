@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// Cloud ops through the Cloud app server (`cmux/cloud`, contract 2.1):
 /// `apps-run` on the local daemon; the server checks the args and origin,
