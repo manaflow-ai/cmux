@@ -2720,6 +2720,7 @@ name = "cmux-tailnet-local"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "serde",
  "serde_json",
 ]

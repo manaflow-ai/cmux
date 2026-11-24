@@ -2,10 +2,7 @@
 //! prints the same `ipnstate.Status` document. Bounded like a socket call;
 //! the child is killed at the deadline.
 
-use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
 use crate::Error;
 use crate::transport::Limits;
@@ -32,19 +29,30 @@ pub fn cli_candidates() -> Vec<PathBuf> {
 }
 
 /// Runs `tailscale status --json` with the first CLI found.
+#[cfg(target_os = "ios")]
+pub fn cli_status(_: &Limits) -> Result<Vec<u8>, Error> {
+    Err(Error::Unavailable("no tailscale CLI on iOS"))
+}
+
+/// Runs `tailscale status --json` with the first CLI found.
+#[cfg(not(target_os = "ios"))]
 pub fn cli_status(limits: &Limits) -> Result<Vec<u8>, Error> {
-    if cfg!(target_os = "ios") {
-        return Err(Error::Unavailable("no tailscale CLI on iOS"));
-    }
     let bin = cli_candidates()
         .into_iter()
         .next()
         .ok_or(Error::Unavailable("no tailscaled LocalAPI and no tailscale CLI"))?;
-    run_bounded(Command::new(bin).args(["status", "--json"]), limits)
+    run_bounded(cmux_process::Command::new(bin).args(["status", "--json"]), limits)
 }
 
-pub(crate) fn run_bounded(cmd: &mut Command, limits: &Limits) -> Result<Vec<u8>, Error> {
-    let deadline = Instant::now() + limits.timeout;
+#[cfg(not(target_os = "ios"))]
+pub(crate) fn run_bounded(
+    cmd: &mut cmux_process::Command,
+    limits: &Limits,
+) -> Result<Vec<u8>, Error> {
+    use std::io::Read;
+
+    use cmux_process::Stdio;
+
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -53,6 +61,8 @@ pub(crate) fn run_bounded(cmd: &mut Command, limits: &Limits) -> Result<Vec<u8>,
         .map_err(|e| Error::Io(format!("spawn tailscale: {e}")))?;
     let mut stdout = child.stdout.take().ok_or_else(|| Error::Io("no stdout".into()))?;
     let cap = limits.max_body as u64 + 1;
+    // Drains stdout while the child runs (a full pipe would stall it); ends
+    // when the child exits or is killed and the pipe closes.
     let reader = std::thread::Builder::new()
         .name("tailnet-cli-read".into())
         .spawn(move || {
@@ -61,18 +71,11 @@ pub(crate) fn run_bounded(cmd: &mut Command, limits: &Limits) -> Result<Vec<u8>,
             out
         })
         .map_err(|e| Error::Io(format!("spawn: {e}")))?;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(Error::Timeout);
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
-            Err(e) => return Err(Error::Io(e.to_string())),
-        }
-    };
+    // Dropping `child` on the timeout path kills and reaps it (cmux-process).
+    let status = child
+        .wait_timeout(limits.timeout)
+        .map_err(|e| Error::Io(e.to_string()))?
+        .ok_or(Error::Timeout)?;
     let out = reader.join().map_err(|_| Error::Io("reader panicked".into()))?;
     if out.len() > limits.max_body {
         return Err(Error::TooLarge);
