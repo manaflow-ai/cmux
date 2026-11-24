@@ -41,17 +41,21 @@ final class TopBarSwipeLoadUITests: XCTestCase {
                         continue
                     }
                     _ = settle(app, after: Date(), atLeast: 2.0)
+                    // The first swipe opens the other chat for the first time (no cache yet): its own
+                    // line; every later one lands on a page whose store and rows were seen before.
+                    var first: [Sample] = []
                     var left: [Sample] = []
                     var right: [Sample] = []
-                    for index in 0 ..< Self.swipes * 2 {
+                    for index in 0 ... Self.swipes * 2 {
                         let toLeft = index % 2 == 0
                         let before = probe(app)
                         swipe(app, address: address, toLeft: toLeft)
                         let released = Date()
                         let after = settle(app, after: released, atLeast: 1.2)
                         let sample = Sample(before: before, after: after, from: released)
-                        if toLeft { left.append(sample) } else { right.append(sample) }
+                        if index == 0 { first.append(sample) } else if toLeft { left.append(sample) } else { right.append(sample) }
                     }
+                    lines.append(Self.line(flow: "swipe-first-visit", load: load, link: link, memory: memory, samples: first, lastMoved: ""))
                     lines.append(Self.line(flow: "swipe", load: load, link: link, memory: memory, samples: left + right,
                                            lastMoved: probe(app).lastMoved))
                     app.terminate()
