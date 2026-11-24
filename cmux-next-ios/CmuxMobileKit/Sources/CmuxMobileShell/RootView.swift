@@ -669,7 +669,7 @@ struct ShellView: View {
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.cloudChats) { item in
-            CloudChatsScreen(shell: shell, attention: item.attention)
+            CloudChatsScreen(shell: shell, attention: item.attention, task: item.task)
         }
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }

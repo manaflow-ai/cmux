@@ -11,6 +11,8 @@ import SwiftUI
 struct CloudChatsScreen: View {
     let shell: ShellModel
     let attention: CloudChatAttention?
+    /// A New Task on a Cloud machine: opens that machine and starts its chat with the task.
+    var task: CloudChatTask? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var selectedMac = ""
     @State private var locations: [CloudChatLocation] = []
@@ -41,7 +43,7 @@ struct CloudChatsScreen: View {
     var body: some View {
         NavigationStack {
             List {
-                if attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
+                if attention == nil, task == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
                     Picker("Mac", selection: Binding(get: { macID }, set: { selectedMac = $0 })) {
                         ForEach(macs) { mac in Text(mac.name).tag(mac.id) }
                     }
@@ -80,7 +82,8 @@ struct CloudChatsScreen: View {
             }
             .navigationDestination(item: $selectedLocation) { location in
                 CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
-                                        macName: macName(location.macID), preferredSession: attention?.sessionID)
+                                        macName: macName(location.macID), preferredSession: attention?.sessionID,
+                                        firstPrompt: task?.location == location ? task?.prompt : nil)
             }
             .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
                            live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
@@ -89,6 +92,13 @@ struct CloudChatsScreen: View {
                 locations = []
                 error = nil
                 needsMac = false
+                // New Task named the machine and its Mac: open it at once (its screen connects).
+                if let task {
+                    loading = false
+                    locations = [task.location]
+                    selectedLocation = task.location
+                    return
+                }
                 guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
                     loading = false
                     needsMac = true
@@ -205,6 +215,10 @@ private struct CloudMachineChatsScreen: View {
     let machine: CloudChatMachine
     let macName: String
     let preferredSession: String?
+    /// New Task's prompt: once connected, a new chat starts and this is its first message.
+    var firstPrompt: String? = nil
+    /// The first message's chat was started (a reconnect never starts a second).
+    @State private var startedFirst = false
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
     @State private var error: String?
@@ -274,6 +288,9 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         .alert("Couldn't start the chat", isPresented: $startFailed) {
+            if firstPrompt != nil, !startedFirst {
+                Button("Try Again") { startFirst() }
+            }
             Button("OK", role: .cancel) {}
         } message: {
             Text(startError)
@@ -303,6 +320,10 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
+        // New Task's chat starts once the machine is connected.
+        .onChange(of: relay?.hub.isReady == true, initial: true) { _, ready in
+            if ready { startFirst() }
+        }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
             guard ready, !openedPreferred, let preferredSession,
@@ -319,6 +340,25 @@ private struct CloudMachineChatsScreen: View {
         if relay?.error != nil || relay?.hub.lastError != nil { return "\(machine.name) didn't open its chats through \(macName)." }
         if timedOut { return "No answer from \(machine.name) through \(macName) in \(cloudConnectBudget.components.seconds) s." }
         return nil
+    }
+
+    /// New Task's chat: started once, its prompt sent as the first message, then opened. A
+    /// failed start keeps the prompt here for Try Again.
+    private func startFirst() {
+        guard let firstPrompt, !startedFirst, let relay, relay.hub.isReady, !starting else { return }
+        starting = true
+        Task {
+            defer { starting = false }
+            do {
+                let session = try await relay.startChat()
+                startedFirst = true
+                relay.store(sessionID: session)?.send(prompt: firstPrompt)
+                selectedSession = session
+            } catch {
+                startError = ((error as? CloudChatStartError)?.message ?? "Try again.")
+                startFailed = true
+            }
+        }
     }
 
     /// The new chat opens as soon as the machine started it; the Mac shows the same tab.

@@ -7,8 +7,8 @@ import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
 
-/// Task Options (classic's): the workspace's name, Chat or Terminal, then where it runs (Mac
-/// and folder).
+/// Task Options (classic's): the workspace's name, Chat or Terminal, then where it runs (a Mac
+/// and its folder, or a Cloud machine).
 struct TaskComposerOptionsSheet: View {
     @Bindable var creator: WorkspaceCreator
     let sameNames: MacNameDisambiguation
@@ -21,15 +21,18 @@ struct TaskComposerOptionsSheet: View {
     private var mac: MacDevice? { creator.taskMac(for: draft) }
     private var folders: [String] { mac.map { creator.taskFolders(on: $0.id) } ?? [] }
     private var folder: String? { mac.flatMap { creator.taskFolder(for: draft, on: $0.id) } }
+    private var cloud: CloudTaskTarget? { creator.taskCloud(for: draft) }
+    /// A Cloud machine is chosen (it may be unreachable now: the row still names the choice).
+    private var onCloud: Bool { draft.cloudID != nil }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     nameCard
-                    launchCard
+                    if !onCloud { launchCard }
                     routeCard
-                    if let blocker, blocker == .noFolder || blocker == .noMac {
+                    if let blocker, [.noFolder, .noMac, .noCloud, .cloudTextOnly].contains(blocker) {
                         Text(blocker.message)
                             .font(theme.type.meta)
                             .foregroundStyle(theme.colors.warning.color)
@@ -114,18 +117,28 @@ struct TaskComposerOptionsSheet: View {
         .background(card, in: cardShape)
     }
 
+    /// Where it runs: one of the Macs, or a Cloud machine (listed under its own heading).
     @ViewBuilder private var macRow: some View {
         let macs = creator.taskMacs
-        if macs.count > 1, let mac {
+        let clouds = creator.cloudTaskTargets
+        if macs.count > 1 || !clouds.isEmpty, let shown = placeName {
             Menu {
-                Picker("Mac", selection: Binding(get: { mac.id }, set: { if sent == nil { creator.taskDraft.chooseMac($0) } })) {
-                    ForEach(macs) { Text(sameNames.displayName($0)).tag($0.id) }
+                Picker("Runs on", selection: Binding(get: { placeTag }, set: { choose($0) })) {
+                    ForEach(macs) { Label(sameNames.displayName($0), systemImage: "desktopcomputer").tag("mac:" + $0.id) }
+                }
+                if !clouds.isEmpty {
+                    Section("Cloud") {
+                        Picker("Cloud", selection: Binding(get: { placeTag }, set: { choose($0) })) {
+                            ForEach(clouds) { Label($0.name, systemImage: "cloud").tag("cloud:" + $0.id) }
+                        }
+                    }
                 }
             } label: {
-                routeLabel(symbol: "desktopcomputer", title: "Mac", value: sameNames.displayName(mac), chevron: "chevron.up.chevron.down")
+                routeLabel(symbol: onCloud ? "cloud" : "desktopcomputer", title: onCloud ? "Cloud machine" : "Mac", value: shown,
+                           chevron: "chevron.up.chevron.down")
             }
-            .accessibilityLabel("Mac")
-            .accessibilityValue(sameNames.displayName(mac))
+            .accessibilityLabel(onCloud ? "Cloud machine" : "Mac")
+            .accessibilityValue(shown)
             .accessibilityIdentifier("taskComposer.mac")
         } else {
             routeLabel(symbol: "desktopcomputer", title: "Mac", value: mac.map { sameNames.displayName($0) } ?? "No Mac online", chevron: nil)
@@ -134,8 +147,34 @@ struct TaskComposerOptionsSheet: View {
         }
     }
 
+    /// The chosen place's name: the Cloud machine's, else the Mac's; nil with neither.
+    private var placeName: String? {
+        if onCloud { return cloud?.name ?? "Not reachable now" }
+        return mac.map { sameNames.displayName($0) }
+    }
+
+    private var placeTag: String {
+        if let id = draft.cloudID { return "cloud:" + id }
+        return mac.map { "mac:" + $0.id } ?? ""
+    }
+
+    private func choose(_ tag: String) {
+        guard sent == nil else { return }
+        if tag.hasPrefix("cloud:") {
+            creator.taskDraft.chooseCloud(String(tag.dropFirst(6)))
+        } else if tag.hasPrefix("mac:") {
+            creator.taskDraft.chooseMac(String(tag.dropFirst(4)))
+        }
+    }
+
     @ViewBuilder private var folderRow: some View {
-        if folders.isEmpty {
+        if onCloud {
+            // The Cloud machine makes the chat's own folder (hostd's start takes no folder from a
+            // phone, cloud_acp.rs), and runs Claude asking before it acts.
+            routeLabel(symbol: "folder.fill", title: "Folder", value: "A new folder on the machine", chevron: nil)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("taskComposer.folder.cloud")
+        } else if folders.isEmpty {
             routeLabel(symbol: "folder.fill", title: "Folder", value: "None open on this Mac", chevron: nil)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("taskComposer.folder.none")
