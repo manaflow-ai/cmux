@@ -5,7 +5,8 @@ public import CoreGraphics
 /// slot (the row, its hover or selection fill) shows through the mark. Leo 2026-11-24 (ask-97938b6c84): "terminal
 /// agent chats. can they be demarcated a bit differently/should they? than gui agent chats." The geometry is the
 /// web `TerminalChatMark`'s (`terminalTileRadius`, `terminalTileMarkSize`), so every surface draws one tile.
-public enum TerminalMarkTile {
+public struct TerminalMarkTile {
+    public init() {}
     /// The smallest slot that holds a tile. Below it the mark inside would leave the 12/16/20 icon scale,
     /// so a 12 pt slot keeps the bare mark.
     public static let minimumSlot: CGFloat = 16
