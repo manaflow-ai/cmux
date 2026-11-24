@@ -23,6 +23,7 @@ import { newTabHost, type NewTabHost } from "../newTabModel";
 import { setDeviceChats } from "../newtab/deviceChats";
 import { setRecentlyClosed } from "../newtab/recentlyClosed";
 import { setNowPlaying } from "../newtab/nowPlaying";
+import { setWhatsNew } from "../newtab/whatsNew";
 import { setAttentionTabs } from "../needsYou/attentionTabs";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { type useEarlyNewTabContext, type useLostSharedPart, withHandshakeNewTab } from "../newtab/adoption";
@@ -750,6 +751,9 @@ export function paneSnapshotEffect({
     },
     applyNowPlaying(track) {
       setNowPlaying(track);
+    },
+    applyWhatsNew(notice) {
+      setWhatsNew(notice);
     },
     applyReadAloud(state) {
       setReadAloudState(state);

@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample chats), not shipped UI.
 // The New Tab page (NewTabScreen.tsx, ChatCards.tsx, variant B): the tab opens as the page when
 // the `ready` answer carries `newTab`, as the app's new tab does.
+import looks from "virtual:cmux-gallery/looks";
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { MarkdownFieldElement } from "../MarkdownField";
@@ -318,6 +319,78 @@ function leadProblem(first: string, second: string, title: string) {
     if (navigationTypes(rows).at(-1) !== "search") return "the web search is not the last row";
     return undefined;
   };
+}
+
+/// What's New in the top-right corner as the host would push it after an update (`whatsNew`), in `look`.
+const whatsNewNotice = (look: "link" | "titled" | "dot") => ({
+  title: "Updated to Nightly",
+  whatsNew: "What's New",
+  dismiss: "Dismiss",
+  look,
+});
+
+async function showWhatsNew(ctx: PlayContext, look: "link" | "titled" | "dot"): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+  ctx.document.defaultView?.cmuxAcpmuxBridge?.applyWhatsNew?.(whatsNewNotice(look));
+  await ctx.waitFor(() => ctx.document.querySelector(`.nt-whats-new[data-look="${look}"]`) !== null);
+}
+
+/// Every part of the New Tab page but the corner, by its place: the screen's own children and the
+/// composer's field. The corner must leave each where it was.
+function pagePlaces(document: Document): string {
+  const screen = document.querySelector(".nt-screen")!;
+  const parts = [...screen.children].filter((part) => !part.classList.contains("nt-whats-new"));
+  const field = document.querySelector(".nt-field");
+  if (field) parts.push(field);
+  return parts
+    .map((part) => {
+      const rect = part.getBoundingClientRect();
+      return `${part.className}@${rect.left},${rect.top},${rect.width}x${rect.height}`;
+    })
+    .join(" | ");
+}
+
+/// The first control or the composer's card the corner overlaps at this width, or undefined: at a
+/// narrow pane the corner must still clear the chips row, the composer and every button.
+function whatsNewCovers(document: Document): string | undefined {
+  const corner = document.querySelector(".nt-whats-new")!.getBoundingClientRect();
+  const screen = document.querySelector(".nt-screen")!;
+  const parts = [...screen.querySelectorAll(".nt-box, button, input, textarea, [role=button], [contenteditable=true]")];
+  for (const part of parts) {
+    if (part.closest(".nt-whats-new")) continue;
+    const rect = part.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) continue;
+    if (corner.left < rect.right && corner.right > rect.left && corner.top < rect.bottom && corner.bottom > rect.top)
+      return `${part.className || part.tagName} (corner ${JSON.stringify(corner)}, it ${JSON.stringify(rect)})`;
+  }
+  return undefined;
+}
+
+/// The no-layout-shift check for What's New in the corner (Leo 2026-11-24): every other part of the
+/// page keeps its rect with the corner hidden, shown in each look, and hidden again; and the corner
+/// never covers the composer's card.
+async function whatsNewHoldsThePage(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+  const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
+  const frame = () =>
+    new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  await frame();
+  const without = pagePlaces(ctx.document);
+  for (const look of ["link", "titled", "dot"] as const) {
+    await showWhatsNew(ctx, look);
+    await frame();
+    const shown = pagePlaces(ctx.document);
+    if (shown !== without)
+      throw new Error(`What's New (${look}) moved the page:\n  without: ${without}\n  with:    ${shown}`);
+    const covered = whatsNewCovers(ctx.document);
+    if (covered) throw new Error(`What's New (${look}) covers ${covered}`);
+  }
+  bridge?.applyWhatsNew?.(null);
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-whats-new") === null);
+  await frame();
+  const after = pagePlaces(ctx.document);
+  if (after !== without)
+    throw new Error(`the page moved after What's New went away:\n  before: ${without}\n  after:  ${after}`);
 }
 
 /// Types a prompt, pastes an image and starts Now Playing, then checks that the composer's card
@@ -1056,6 +1129,90 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-player-note") !== null);
       },
     },
+    "whats-new-corner": {
+      note: "What's New after an update (Leo 2026-11-24: \"the what's new only on the top right of the new tab page just like claude code\"): a quiet sparkle and What's New in the page's top-right corner, where the sidebar's Updated card used to tell you. A click opens What's New for the span this update crossed (`whatsNew.command open`); hovering shows a small x that hides it until the next update. It is out of the page's flow, so the composer and the lists sit exactly where they sit without it.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "whatsNew.command": null },
+      play: async (ctx) => {
+        await showWhatsNew(ctx, "link");
+        await ctx.click({ selector: ".nt-whats-new-open" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "whatsNew.command" && call.params?.command === "open",
+          ),
+        );
+      },
+    },
+    "whats-new-titled": {
+      note: "What's New, titled: the update's own line leads (Updated to Nightly \u00b7 What's New), for when the corner should say what happened, not only offer the notes. Same place, same out-of-flow box.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "whatsNew.command": null },
+      play: async (ctx) => {
+        await showWhatsNew(ctx, "titled");
+      },
+    },
+    "whats-new-dot": {
+      note: "What's New, the sparkle alone: a 24pt button in the corner whose tooltip and label say Updated to Nightly: What's New; the x still shows on hover.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "whatsNew.command": null },
+      play: async (ctx) => {
+        await showWhatsNew(ctx, "dot");
+      },
+    },
+    "whats-new-hover": {
+      note: "What's New under the pointer: the link takes the hover fill and the small x beside it appears; its click hides the corner until the next update (`whatsNew.command dismiss`), as the Updated card's x did.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "whatsNew.command": null },
+      play: async (ctx) => {
+        await showWhatsNew(ctx, "link");
+        await ctx.click({ selector: ".nt-whats-new-dismiss" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "whatsNew.command" && call.params?.command === "dismiss",
+          ),
+        );
+      },
+    },
+    "whats-new-holds-the-page": {
+      note: 'The no-layout-shift check (Leo 2026-11-24: "make sure to have no layout shifts and it\'s properly placed"): the play measures every part of the page with no corner, with each of the three looks, and after the x, and fails if any part moved by a pixel or the corner covers the composer.',
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "whatsNew.command": null },
+      play: whatsNewHoldsThePage,
+    },
+    "whats-new-wallpaper": {
+      note: "What's New over a wallpaper: the window is see-through, as over the person's picture in the app. The play runs the same no-layout-shift check (0 px), then leaves the corner showing.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "whatsNew.command": null },
+      background: "busy",
+      play: async (ctx) => {
+        await whatsNewHoldsThePage(ctx);
+        await showWhatsNew(ctx, "link");
+      },
+    },
+    ...Object.fromEntries(
+      looks.looks
+        .filter((look) => ["studio", "plush-addon", "paper-addon"].includes(look.id))
+        .map((look) => [
+          `whats-new-look-${look.id}`,
+          {
+            note: `What's New under the ${look.title} look (its theme, settings and composer): the corner takes the look's inks; the play runs the no-layout-shift check (0 px), then leaves the corner showing.`,
+            ready: newTab(),
+            snapshot: noChat(manySessions(2)),
+            native: { "whatsNew.command": null },
+            look,
+            play: async (ctx: PlayContext) => {
+              await whatsNewHoldsThePage(ctx);
+              await showWhatsNew(ctx, "link");
+            },
+          },
+        ]),
+    ),
     "typed-prompt": {
       note: "A typed instruction: Return asks the agent the model chip names, so its Ask row leads, highlighted; the web search is a Down away. Unrelated creation commands stay hidden; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),

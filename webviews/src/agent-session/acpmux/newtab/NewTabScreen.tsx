@@ -84,6 +84,8 @@ import { OpenTabsList } from "./OpenTabsList";
 import { NowPlayingPlayer } from "./NowPlayingPlayer";
 import { NewTabWidgets } from "./NewTabWidgets";
 import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
+import { WhatsNewCorner } from "./WhatsNewCorner";
+import { type WhatsNewCommand } from "./whatsNew";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { useNewTabChipModel, useNewTabStart } from "./chipDefaults";
@@ -266,6 +268,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
   onNowPlaying?(command: NowPlayingCommand): void;
+  /// What's New in the top-right corner (`whatsNew.command`); without it the page shows no corner.
+  onWhatsNew?(command: WhatsNewCommand): void;
   /// With `environments`, Run as in the picker (Persistent or Sandboxed, hq#3367); while Sandboxed
   /// is the mode, Enter hands the prompt to `onSandbox` instead of starting a chat.
   runMode?: RunModeRows;
@@ -2937,6 +2941,7 @@ export function NewTabScreen(props: Props) {
       data-layout={stage ? "stage" : undefined}
       data-minimal={minimal || undefined}
     >
+      {!allChats && <WhatsNewCorner {...(props.onWhatsNew ? { onCommand: props.onWhatsNew } : {})} />}
       {stage ? (
         <>
           {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the

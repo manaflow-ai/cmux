@@ -7,6 +7,22 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
+/* What's New in the top-right corner (WhatsNewCorner.tsx, Leo 2026-11-24: "the what's new only on the top
+   right of the new tab page just like claude code"). Out of the page's flow, placed in the corner the
+   page's top padding and side inset already leave empty, so nothing moves when it comes or goes (the
+   gallery's whats-new-holds-the-page check). The screen is the corner's containing block; every other
+   absolutely placed part of the page sits in a positioned box of its own (.nt-box, the cards, the player). */
+.nt-screen{position:relative}
+.nt-screen>.nt-whats-new{position:absolute;top:var(--ds-space-2);right:var(--ds-space-2);z-index:var(--layer-raised);width:auto;max-width:min(320px,calc(100% - 2 * var(--ds-space-2)));display:flex;align-items:center;gap:0;height:24px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.nt-whats-new button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;min-width:0;margin:0;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:inherit;font:inherit;letter-spacing:inherit;cursor:default;white-space:nowrap}
+.nt-whats-new button:hover,.nt-whats-new button:focus-visible{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.nt-whats-new button:focus-visible{outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
+.nt-whats-new-open svg{flex:none;color:var(--cmux-accent,currentColor)}
+.nt-whats-new-title,.nt-whats-new-label{overflow:hidden;text-overflow:ellipsis}
+.nt-whats-new-title{color:var(--agent-text)}
+.nt-whats-new button.nt-whats-new-dismiss{width:20px;padding:0;justify-content:center;opacity:0}
+.nt-whats-new:hover .nt-whats-new-dismiss,.nt-whats-new:has([data-popup-open]) .nt-whats-new-dismiss,.nt-whats-new:focus-within .nt-whats-new-dismiss{opacity:1}
+.nt-whats-new[data-look="dot"] .nt-whats-new-open{width:24px;padding:0;justify-content:center}
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
