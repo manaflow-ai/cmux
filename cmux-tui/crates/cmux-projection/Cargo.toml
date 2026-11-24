@@ -22,10 +22,14 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha1 = "0.10"
+# The id check on every byte a peer, the controller SSD or R2 sends: SHA-1 that detects the known
+# collision attacks (the algorithm git itself ships), so a crafted collision is refused (hq RFD 0008).
+sha1collisiondetection = { version = "0.3", default-features = false }
 sha2.workspace = true
 zstd.workspace = true
 # O_NOFOLLOW for the way back (layer.rs), on the Mac too.
 libc.workspace = true
+cmux-file-lock.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # The overlay served over NFSv3 (nfs.rs), which a Mac mounts from localhost with its own mount_nfs:

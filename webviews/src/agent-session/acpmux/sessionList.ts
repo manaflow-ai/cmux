@@ -4,6 +4,7 @@
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { parseSessionIcon, type HarnessIconSpec } from "../shared/harnessIcons";
 import { senderSessionName } from "./senderIdentity";
 import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -12,6 +13,13 @@ import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** The name it was given (acpmux `displayName`, "Mango"): every human-visible surface shows it
+   *  first. Absent when none was given. */
+  displayName?: string;
+  /** Its names before its renames, oldest first (acpmux `formerNames`): "fka" lines read the last. */
+  formerNames?: string[];
+  /** The icon it set (acpmux `icon`), drawn in place of its harness mark (`SessionMark`). */
+  icon?: HarnessIconSpec;
   title?: string;
   name?: string;
   harness?: string;
@@ -290,16 +298,39 @@ function doingLine(session: Record<string, any>): string | undefined {
   return step ?? tool ?? text(session.lane?.step);
 }
 
-/** What a session waits on the person for: only the person answers either, in the app. */
-export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+/** What a session waits on the person for: only the person answers any of them, in the app. acpmux
+ *  names every wait (`waitingOn`, subsession_send.rs `waiting_on`): a question, a tool's permission,
+ *  a secret's value, the password for one command as root, or an MCP server to connect. */
+export type SessionWaiting =
+  | { on: "question"; prompt?: string }
+  | { on: "permission" }
+  | { on: "secret" }
+  | { on: "elevation" }
+  | { on: "mcpConnect" };
 
 /** `waitingOn` while the session waits on the person, with a question's first prompt
  *  (`waitingPrompt`) when acpmux gives it. */
 export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
   if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn === "secret") return { on: "secret" };
+  if (session.waitingOn === "elevation") return { on: "elevation" };
+  if (session.waitingOn === "mcp_connect") return { on: "mcpConnect" };
   if (session.waitingOn !== "question") return undefined;
   const prompt = text(session.waitingPrompt);
   return prompt ? { on: "question", prompt } : { on: "question" };
+}
+
+/** `formerNames` as acpmux sends it (oldest first), its non-blank strings; absent for none. */
+export function formerNamesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = value.filter((name): name is string => typeof name === "string" && name.trim() !== "");
+  return names.length > 0 ? names : undefined;
+}
+
+/** The newest of its former names ("fka claude-sr2-coord-old"), unless it is the name shown now. */
+export function formerName(entry: { formerNames?: string[]; displayTitle?: string }): string | undefined {
+  const last = entry.formerNames?.at(-1);
+  return last && last !== entry.displayTitle ? last : undefined;
 }
 
 /** What a row draws at its right edge, most urgent first. */
@@ -313,6 +344,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    displayName: text(session.displayName),
+    formerNames: formerNamesOf(session.formerNames),
+    icon: parseSessionIcon(session.icon),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -469,12 +503,14 @@ export function isOpaqueName(bare: string): boolean {
 }
 
 /**
- * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
+ * Its given name (acpmux `displayName`) when it has one. Else the title (the agent's title, else
+ * the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
 export function sessionTitle(
   session: {
+    displayName?: string;
     title?: string;
     lastPrompt?: string;
     name?: string;
@@ -485,6 +521,9 @@ export function sessionTitle(
   },
   t: Translate = translate,
 ): string {
+  // The name it was given (acpmux decides it: a given handle) reads everywhere first.
+  const given = session.displayName?.trim();
+  if (given) return given;
   const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
@@ -523,10 +562,12 @@ const shown = (value: unknown): string | undefined => {
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
- * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE), or a DEV build's own,
+ * `~/Library/Application Support/cmux-next/builds/<key>/agent-home/<workspace-id>` (BuildStatePaths `agentHome`).
+ * It is not a project, so it is never shown by its id (cmux#53226: a tagged build listed its own by UUID).
  */
 export function isAgentHome(cwd: string | undefined): boolean {
-  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+  return /\/Library\/Application Support\/(?:cmux|cmux-next\/builds\/[^/]+)\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
 /**
