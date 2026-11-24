@@ -8,7 +8,9 @@
 //! the checkpoint side to NFC before comparing. The hub records it beside
 //! each tool call path (`hub/tool_paths.rs`); clients compare only these.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 /// The canonical form of `path`, a tool call's path as the agent wrote it, in
 /// a session working in `cwd`: absolute (a leading `~` is the home folder),
@@ -22,6 +24,8 @@ use std::path::{Path, PathBuf};
 /// relative one with no `cwd`, or one a dangling link breaks. None on
 /// Windows, where the resolved form `\\?\C:\...` never matches git's `C:/...`.
 pub fn canonical_path(path: &str, cwd: Option<&Path>) -> Option<String> {
+    #[cfg(test)]
+    RESOLUTIONS.with(|n| n.set(n.get() + 1));
     if cfg!(windows) {
         return None;
     }
@@ -50,6 +54,89 @@ pub fn canonical_path(path: &str, cwd: Option<&Path>) -> Option<String> {
     #[cfg(target_os = "macos")]
     let text: String = unicode_normalization::UnicodeNormalization::nfc(text.as_str()).collect();
     Some(text)
+}
+
+/// The most paths one chat's [`CanonCache`] holds: two generations of half each.
+const CACHE_PATHS: usize = 4096;
+
+/// The canonical forms one chat's tool calls already named, by path as the
+/// agent wrote it, for the chat's current folder: a tool call's streamed
+/// updates name the same files again and again, and each [`canonical_path`]
+/// walks the filesystem (a realpath, and on macOS one `getattrlist` per part)
+/// on the agent's reader, ahead of every other record of the chat (acpmux audit
+/// finding 12). Each distinct path is resolved once per chat; a change of the
+/// chat's folder starts over. At most [`CACHE_PATHS`] entries: the newer
+/// generation fills to half, then becomes the older one and the oldest is
+/// dropped, and a hit in the older generation moves to the newer, so each
+/// lookup costs O(1) and the paths in use stay. A resolution runs outside the
+/// lock. A path is resolved as it stood when first named (so a caller that
+/// reads the file itself, like `tool_read_images`, resolves afresh): a file created later
+/// under a name given in another letter case, or a folder later replaced by a
+/// link, keeps the first answer for the chat's life (or until it ages out).
+#[derive(Default)]
+pub struct CanonCache {
+    state: Mutex<CacheState>,
+}
+
+#[derive(Default)]
+struct CacheState {
+    cwd: PathBuf,
+    newer: HashMap<String, Option<String>>,
+    older: HashMap<String, Option<String>>,
+}
+
+impl CacheState {
+    /// Empties it when `cwd` is not the folder its entries were read from.
+    fn for_cwd(&mut self, cwd: &Path) -> &mut Self {
+        if self.cwd != cwd {
+            self.newer.clear();
+            self.older.clear();
+            self.cwd = cwd.to_path_buf();
+        }
+        self
+    }
+
+    fn get(&mut self, path: &str) -> Option<Option<String>> {
+        if let Some(hit) = self.newer.get(path) {
+            return Some(hit.clone());
+        }
+        let hit = self.older.remove(path)?;
+        self.insert(path.to_owned(), hit.clone());
+        Some(hit)
+    }
+
+    fn insert(&mut self, path: String, canonical: Option<String>) {
+        if self.newer.len() >= CACHE_PATHS / 2 {
+            self.older = std::mem::take(&mut self.newer);
+        }
+        self.newer.insert(path, canonical);
+    }
+}
+
+impl CanonCache {
+    /// [`canonical_path`] of `path` in a chat working in `cwd`, read from the
+    /// disk only the first time the chat names it.
+    // perf-hot: 1us acpmux-tool-paths (each path of every streamed tool_call_update; a hit)
+    pub fn canonical(&self, path: &str, cwd: &Path) -> Option<String> {
+        let lock = || self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(hit) = lock().for_cwd(cwd).get(path) {
+            return hit;
+        }
+        let canonical = canonical_path(path, Some(cwd));
+        let mut state = lock();
+        // Not kept if the chat moved to another folder meanwhile.
+        if state.cwd == cwd {
+            state.insert(path.to_owned(), canonical.clone());
+        }
+        canonical
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests only: the [`canonical_path`] calls this thread made, each a walk of
+    /// the filesystem.
+    pub(crate) static RESOLUTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// `path` (resolved: no links, `.` or `..`) with each component that exists
@@ -218,6 +305,28 @@ mod tests {
         let typed = if dir.join("LINK/NOTES.TXT").exists() { "NOTES.TXT" } else { "Notes.txt" };
         assert_eq!(canonical_path(typed, Some(&dir.join("link"))).as_deref(), Some(&*want));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_cache_resolves_each_path_once_per_folder_and_stays_bounded() {
+        let resolved = || RESOLUTIONS.with(std::cell::Cell::get);
+        let cache = CanonCache::default();
+        let (a, b) = (Path::new("/acpmux-canon-a"), Path::new("/acpmux-canon-b"));
+        let start = resolved();
+        assert_eq!(cache.canonical("x.txt", a), canonical_path("x.txt", Some(a)));
+        assert_eq!(cache.canonical("x.txt", a).as_deref(), Some("/acpmux-canon-a/x.txt"));
+        assert_eq!(resolved() - start, 2, "one for the cache, one for the comparison");
+        assert_eq!(cache.canonical("x.txt", b).as_deref(), Some("/acpmux-canon-b/x.txt"));
+        assert_eq!(resolved() - start, 3, "another folder resolves again");
+        for n in 0..3 * CACHE_PATHS {
+            cache.canonical(&format!("f{n}"), b);
+            cache.canonical("x.txt", b);
+        }
+        let state = cache.state.lock().unwrap();
+        assert!(state.newer.len() + state.older.len() <= CACHE_PATHS);
+        assert!(state.newer.contains_key("x.txt") || state.older.contains_key("x.txt"));
+        drop(state);
+        assert_eq!(resolved() - start, 3 + 3 * CACHE_PATHS as u64, "x.txt in use never left");
     }
 
     #[test]

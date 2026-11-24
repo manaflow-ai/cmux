@@ -4,7 +4,6 @@
 //! retry at another spelling once.
 
 use super::*;
-use crate::path_canon::canonical_path;
 
 /// Sets `_meta.acpmux.canonicalPath` beside each path a `tool_call` or
 /// `tool_call_update` record names: each of its `locations`, each `diff` in
@@ -12,7 +11,10 @@ use crate::path_canon::canonical_path;
 /// read from the session's cwd. A place that already carries one (a fork's copy
 /// of its parent's record) keeps it, and nothing else in `_meta` changes.
 /// Every record that passes here also gets a shell call's exit code and command
-/// where clients read them (`tool_shell::add_shell_fields`).
+/// where clients read them (`tool_shell::add_shell_fields`). Each path is read
+/// from the disk once per chat (`Session::canon_paths`), not on every streamed
+/// update; the record still carries it when it is logged and sent, so a replay
+/// reads the same record.
 pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value) {
     if !matches!(kind.strip_suffix(".replay").unwrap_or(kind), "tool_call" | "tool_call_update") {
         return;
@@ -25,7 +27,7 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
         return;
     };
     let cwd = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).cwd.clone();
-    let canonical = |path: Option<&str>| path.and_then(|p| canonical_path(p, Some(&cwd)));
+    let canonical = |path: Option<&str>| path.and_then(|p| session.canon_paths.canonical(p, &cwd));
     if let Some(locations) = update.get_mut("locations").and_then(Value::as_array_mut) {
         for location in locations {
             let path = location.get("path").and_then(Value::as_str).map(str::to_owned);
@@ -44,6 +46,9 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     }
     // A finished read of an image file that returned no image gets the file's image
     // (`tool_read_images.rs`): Codex's View of a PNG drew as its bare path.
+    // Resolved afresh, not from the chat's cache: it reads the file's bytes, so a link
+    // retargeted since the chat first named the path reads what it names now. Once per
+    // finished read, not per streamed update.
     super::tool_read_images::add_read_image(kind, msg, &cwd);
 }
 
@@ -163,6 +168,85 @@ mod tests {
             hub.append_logged(&session, "in", "agent_message_chunk", chunk.clone(), None);
         assert_eq!(said.msg, chunk);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A tool call streams many updates naming the same files: each distinct
+    /// path is read from the disk once per chat, not once per update, however
+    /// deep it is (acpmux audit finding 12). Prints, per depth, the resolutions
+    /// of 200 logged updates, their time, and the time of the path pass alone
+    /// over 200 more (`TOOL-PATHS` lines; nextest.toml keeps them on a pass), then
+    /// checks the counts, so a red run still prints both depths.
+    #[cfg(unix)]
+    #[test]
+    fn streamed_updates_naming_the_same_files_resolve_each_once() {
+        let mut counts = Vec::new();
+        for depth in [1usize, 40] {
+            let store = cmux_unix_socket::short_test_dir("acpmux-tq");
+            let dir = std::env::temp_dir()
+                .join(format!("acpmux-tool-paths-once-{depth}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let deep: std::path::PathBuf = (0..depth).map(|i| format!("d{i}")).collect();
+            std::fs::create_dir_all(dir.join(&deep)).unwrap();
+            let names: Vec<String> = (0..3)
+                .map(|i| {
+                    let rel = deep.join(format!("f{i}.rs"));
+                    std::fs::write(dir.join(&rel), "x\n").unwrap();
+                    rel.to_str().unwrap().to_owned()
+                })
+                .collect();
+            let want: Vec<Value> = names
+                .iter()
+                .map(|n| json!(std::fs::canonicalize(dir.join(n)).unwrap().to_str().unwrap()))
+                .collect();
+            let edit = |n: usize| {
+                let path = &names[n % 3];
+                update(json!({
+                    "sessionUpdate": "tool_call_update", "toolCallId": format!("e{}", n % 3),
+                    "kind": "edit", "status": "in_progress",
+                    "rawInput": {"file_path": path},
+                    "locations": [{"path": path}],
+                    "content": [{"type": "diff", "path": path, "oldText": "x", "newText": format!("{n}")}],
+                }))
+            };
+            let hub = hub_at(store.path());
+            let resolved = || crate::path_canon::RESOLUTIONS.with(std::cell::Cell::get);
+
+            // 200 updates logged as an agent streams them.
+            let session = session_in(&hub, &dir);
+            let before = resolved();
+            let started = std::time::Instant::now();
+            let mut records = Vec::new();
+            for n in 0..200 {
+                let (rec, _) = hub.append_logged(&session, "in", "tool_call_update", edit(n), None);
+                records.push((n % 3, rec.msg));
+            }
+            let appends = started.elapsed();
+            let resolutions = resolved() - before;
+
+            // The path pass alone, as the reader runs it before each append.
+            let msgs: Vec<Value> = (0..200).map(edit).collect();
+            let started = std::time::Instant::now();
+            for mut msg in msgs {
+                add_canonical_paths(&session, "tool_call_update", &mut msg);
+                std::hint::black_box(&msg);
+            }
+            let pass = started.elapsed();
+            eprintln!(
+                "TOOL-PATHS depth={depth} updates=200 paths=3 resolutions={resolutions} appends={appends:?} path_pass_200={pass:?}"
+            );
+            // Every record still carries its file's canonical path, in each place.
+            for (i, msg) in &records {
+                let u = &msg["params"]["update"];
+                assert_eq!(u["_meta"]["acpmux"]["canonicalPath"], want[*i], "{u}");
+                assert_eq!(u["locations"][0]["_meta"]["acpmux"]["canonicalPath"], want[*i]);
+                assert_eq!(u["content"][0]["_meta"]["acpmux"]["canonicalPath"], want[*i]);
+            }
+            counts.push((depth, resolutions));
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        for (depth, resolutions) in counts {
+            assert!(resolutions <= 3, "depth {depth}: {resolutions} resolutions for 3 paths");
+        }
     }
 
     /// The log stores an OpenCode shell call's exit code where clients read it
