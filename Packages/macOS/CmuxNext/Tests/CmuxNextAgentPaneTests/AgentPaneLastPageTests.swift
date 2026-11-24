@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -44,5 +45,18 @@ struct AgentPaneLastPageTests {
         #expect(picture != nil)
         #expect(kept["tab_chat"] != nil)  // the next hover reads it from the app's store
         #expect(await pictures.picture("tab_other", fit: CGSize(width: 640, height: 320)) { nil } == nil)
+    }
+
+    /// A chat's page is clear over its own ground: its hover picture is the page laid over that ground, so an empty
+    /// chat's tile is the chat's color, never the flat white of a Chromium JPEG's clear pixels (2026-11-23 capture).
+    @Test func aChatsCardPictureIsItsClearPageOverItsGround() throws {
+        let clear = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                           space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage())
+        let ground = ThemeRGB(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+        let flat = PageImageBackground.flattened(clear, over: ground)
+        let pixel = NSBitmapImageRep(cgImage: flat).colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB)
+        #expect(abs((pixel?.redComponent ?? 1) - 0.1) < 0.02 && (pixel?.alphaComponent ?? 0) == 1, "the clear page did not take the chat's ground")
+        // A see-through window: no ground of its own, so the backdrop shows through the picture as through the page.
+        #expect(PageImageBackground.flattened(clear, over: ThemeRGB(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.5)) === clear)
     }
 }

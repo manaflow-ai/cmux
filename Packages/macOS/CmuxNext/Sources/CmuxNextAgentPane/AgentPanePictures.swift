@@ -68,8 +68,9 @@ public final class AgentPanePictures {
         }
     }
 
+    /// The chat as the pane shows it: its clear page over its ground (``AgentPaneView/cardPicture(maxPixelWidth:)``).
     private static func picture(of chat: AgentPaneView) async -> CGImage? {
-        await chat.pageImage()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        await chat.cardPicture(maxPixelWidth: CGFloat(side))
     }
 
     /// `key`'s painted, on-screen chat, not pictured within `freshness` nor being pictured; marks it in flight.
