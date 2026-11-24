@@ -109,6 +109,15 @@ on:
         required: false
         default: false
         type: boolean
+      daemon_tests:
+        # A tree-only request (the hot verify rust look, cmux-next-hot-verify.yml) passes false: the look applies
+        # the darwin daemon and the pull request's own run and its merge tree test it, as for a lane-branch push
+        # (daemon-policy). 11-24 05-10Z these dispatches ran 3,096 of 14,308 runner-min in daemon tests
+        # (ci-runner-min-per-day-500k). Default true keeps every other dispatch as it was.
+        description: "Run the cmux_next_ daemon tests (false: publish the tree only, as a lane-branch push does)"
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
@@ -434,12 +443,17 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           STALE: ${{ steps.stale.outputs.stale }}
+          # 'false' only from a dispatch that asks for the tree alone (inputs.daemon_tests).
+          DISPATCH_DAEMON_TESTS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.daemon_tests) || '' }}
         run: |
           set -euo pipefail
           daemon_tests=true
           if [[ "${STALE:-}" == true ]]; then
             daemon_tests=false
             echo "A newer push superseded this one; its daemon tests are not run."
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "${DISPATCH_DAEMON_TESTS:-}" == false ]]; then
+            daemon_tests=false
+            echo "::notice title=daemon tests skipped::this dispatch asked for the tree only (daemon_tests=false); the pull request's own run tests the daemon"
           elif [[ "$EVENT_NAME" == push ]]; then
             case "$REF" in
               refs/heads/main|refs/heads/feat-cmux-next|refs/heads/cmux-tui-pin-*|refs/heads/next-batch/*) ;;

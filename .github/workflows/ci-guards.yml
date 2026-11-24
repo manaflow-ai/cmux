@@ -290,6 +290,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_egress_gate.py
 
+      # Every egress gate site has a test that sends planted secrets through the real client to cmux-egress's
+      # capture server and finds them in no request (tests/egress_seeded.json; its todo count may only go down).
+      - name: Validate every egress gate site has a seeded-secret test
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_seeded.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -354,6 +360,14 @@ jobs:
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
+
+      # scripts/ci/vm-image-qcow2.sh (RFD 0100 step 6): a tiny raw image and rootfs tarball become a qcow2 whose
+      # sha256 file verifies. qemu-img is not on every runner image; the test skips its conversions without it.
+      - name: Validate the VM image qcow2 export
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ !cancelled() && matrix.group == 'ci' }}
