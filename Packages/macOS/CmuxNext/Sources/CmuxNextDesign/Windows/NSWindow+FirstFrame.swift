@@ -1,8 +1,8 @@
 public import AppKit
-import Synchronization
+import os
 
 /// Counts the run loop passes ``NSWindow/commitFirstFrameNow(mark:)`` reports.
-private final class FirstFramePasses: Sendable { let count = Mutex(0) }
+private final class FirstFramePasses: Sendable { let count = OSAllocatedUnfairLock(initialState: 0) }
 
 extension NSWindow {
     /// Lays the window out, draws it and commits the frame now, in the caller's turn (CMUX-629). For the launch
