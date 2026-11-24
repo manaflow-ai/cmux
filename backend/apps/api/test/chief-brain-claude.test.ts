@@ -140,7 +140,10 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
       expect(s.body.model).toBeUndefined()
       expect(s.body.metadata).toBeUndefined()
       // The system prompt is Bedrock's top-level system; no system-role message, no output_config.
-      expect(JSON.stringify(s.body.system)).toContain("You are a Chief")
+      const system = JSON.stringify(s.body.system)
+      expect(system).toContain("You are a Chief")
+      expect(system).toContain("Is my plan ambitious enough for the whole request?")
+      expect(system).toContain("What remains unfinished? When you report the result, briefly answer all three in your reply.")
       expect(s.body.messages.some((m: { role: string; output_config?: unknown }) => m.role === "system" || m.output_config !== undefined)).toBe(false)
       expect(s.stackAuth).toEqual({ accessToken: route.fresh, refreshToken: REFRESH })
       expect(s.apiKey).toBeNull()
