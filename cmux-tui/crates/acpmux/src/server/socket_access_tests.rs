@@ -4,7 +4,7 @@
 //! ```text
 //! cargo test -p acpmux --lib socket_access
 //! ```
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use super::{bind_unix, peer_uid_allowed, tighten_socket_dir};
 
