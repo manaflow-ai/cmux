@@ -44,9 +44,9 @@ enum AgentHarnessHandlers {
             track(registry) { try await center.restore(backup: backup) }
         })
         // task-owner: refresh is one bounded harness list read that answers or fails on its own
-        AgentHarnessIconAction(setIcon: { _ = try await center.setIcon(id: $0, change: $1) }, state: { center.pageState },
-                               refresh: { await center.refresh() }, failure: AgentHarnessCenter.text).bind(into: registry)
+        AgentHarnessIconAction(setIcon: { _ = try await center.setIcon(id: $0, change: $1) }, state: { center.pageState }, refresh: { await center.refresh() }, failure: AgentHarnessCenter.text).bind(into: registry)
         center.updates?.bind(into: registry)
+        AgentHarnessDisableFolderAction(disable: { _ = try await center.call(.disableFolder, ["id": $0, "folder": $1]) }, focusedFolder: { context.scope($0).tab.flatMap { $0.pane.tab($0.id)?.cwd } }, failure: AgentHarnessCenter.text).bind(into: registry)
         registry.bind("agent.harness.doctor", run: { invocation in
             guard let id = nonEmpty(invocation.arguments["id"]?.stringValue) else {
                 guard invocation.origin == .user else { throw ActionFailure(message: AgentHarnessStrings.needsAgent) }

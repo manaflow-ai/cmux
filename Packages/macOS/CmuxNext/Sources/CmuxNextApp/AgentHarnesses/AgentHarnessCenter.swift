@@ -176,7 +176,7 @@ final class AgentHarnessCenter {
         try await call(.health)["harnesses"]?.arrayValue ?? []
     }
 
-    private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {
+    func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {
         guard let environment = environment() else { throw AgentHarnessFailure.noDaemon }
         do {
             return try JSONValue.parse(try await environment.harness(method, params: params))

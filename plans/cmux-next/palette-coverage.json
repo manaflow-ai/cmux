@@ -1141,7 +1141,8 @@
       "reason": "keep: installs or inspects the managed Codex runtime for setup scripts"
     },
     {
-      "verb": "harness disable"
+      "verb": "harness disable",
+      "palette": "agent.harness.disableFolder"
     },
     {
       "verb": "harness doctor",

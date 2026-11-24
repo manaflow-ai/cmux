@@ -21,6 +21,8 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // #51499 (step A) adds the Disable Folder Agent row to the Rust catalog; the re-pin carries it.
+        "agent.harness.disableFolder",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

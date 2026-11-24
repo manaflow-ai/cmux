@@ -40469,6 +40469,28 @@
         }
       }
     },
+    "agentHarness.disableFolder.needsAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the agent with --arg id=<agent>."
+          }
+        }
+      }
+    },
+    "agentHarness.disableFolder.needsFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the folder with --arg path=/absolute/folder."
+          }
+        }
+      }
+    },
     "agentHarness.icon.needsAgent": {
       "comment": "Set Agent Icon refusals; keep --arg text exactly",
       "extractionState": "manual",

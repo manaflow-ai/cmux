@@ -44,6 +44,9 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case remove = "_acpmux/harness/remove"
     case restore = "_acpmux/harness/restore"
     case doctor = "_acpmux/harness/doctor"
+    /// `{folder, id}` answers `{disabled}`: forgets every confirmation of a harness for a folder
+    /// (the undo of `_acpmux/harness_enable`; `cmux harness disable ID --folder DIR`). Unix socket only.
+    case disableFolder = "_acpmux/harness_disable"
     case registry = "_acpmux/registry"
     /// Agent CLI health (cx-ny85): version, install channel, newest version, sign-in, update command.
     case health = "_acpmux/harness/health"
@@ -114,7 +117,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .registry, .health, .models: .seconds(40)
         // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
         case .add: .seconds(90)
-        case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
+        case .list, .remove, .restore, .disableFolder, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
              .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
         case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
