@@ -357,8 +357,6 @@ pub struct Latencies {
     samples: [AtomicU32; LATENCY_RING],
     /// Every sample taken; the next slot is this modulo the ring.
     taken: AtomicU64,
-    /// The canary's sleep before its last wake, in ms (`periodMs`).
-    period_ms: AtomicU64,
 }
 
 impl Default for Latencies {
