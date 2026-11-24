@@ -87,6 +87,8 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+#[cfg(test)]
+mod title_log_tests;
 pub use fork::Retarget;
 #[cfg(test)]
 mod forum_held_turn_tests;
@@ -359,6 +361,7 @@ mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
 mod capacity_retry;
+mod title_log;
 mod titles;
 mod tool_installs;
 mod tool_paths;
