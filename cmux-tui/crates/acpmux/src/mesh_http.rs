@@ -425,6 +425,7 @@ fn rotated_since(sent: &str, now: Option<&str>) -> bool {
 /// string): any other code is dropped, since a free string could carry anything.
 const KNOWN_CODES: &[&str] = &[
     "machine.revoked",
+    "device.proof_refused",
     "mesh.unauthorized",
     "mesh.forbidden",
     "mesh.bad_request",
