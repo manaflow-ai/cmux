@@ -7,7 +7,7 @@
 //! of all stages any and all levels of technical sophistication and teams and organizations of any
 //! size and demand to move to autocloud"
 
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -452,8 +452,8 @@ fn load_ledger() -> Result<Ledger, String> {
     match Ledger::load(&path) {
         Load::None => Ok(Ledger::new()),
         Load::Ledger(ledger) => Ok(ledger),
-        Load::Newer => Err(format!(
-            "{} was written by a newer cmux migrate; run `cmux migrate status` from that cmux, or move the file aside to start a new ledger",
+        Load::Newer(version) => Err(format!(
+            "{} was written by a newer cmux migrate (ledger version {version}); run `cmux migrate status` from that cmux, or move the file aside to start a new ledger",
             path.display()
         )),
         Load::Unreadable(why) => Err(format!("{}: {why}", path.display())),
