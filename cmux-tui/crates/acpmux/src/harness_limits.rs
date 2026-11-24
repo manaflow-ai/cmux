@@ -206,11 +206,20 @@ pub fn claude_env(env: &[(String, String)]) -> Vec<(&'static str, &'static str)>
 /// 503 with no watchdog, and 503 with the capacity scope, both gave up after 11 requests
 /// (184 s, 180 s); 503 with the default scope was still retrying at 300 s (14 requests); 529
 /// with the capacity scope was too, against 11 requests without. The usage-limit wait stays 0,
-/// so a spend, credit or plan limit still fails fast, as before.
+/// so a spend, credit or plan limit still fails fast, as before. The wait is bounded at
+/// [`CLAUDE_CHAT_RETRY_MAX_WAIT_MS`] in all: past it the turn ends with the capacity error, so
+/// acpmux's own capacity resume (and its sustained-overload model failover) takes over and the
+/// chat never sits silent through a long storm.
 pub const CLAUDE_CHAT_RETRY_ENV: &[(&str, &str)] = &[
     ("CLAUDE_CODE_RETRY_WATCHDOG", "1"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", CLAUDE_CHAT_RETRY_MAX_WAIT_MS),
     ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0"),
 ];
+
+/// How long in all a chat's Claude Code waits out a capacity outage before its turn ends
+/// (5 minutes): long enough for a helper to ride out a short burst, short enough that acpmux's
+/// capacity resume and model failover still act on a sustained one.
+pub const CLAUDE_CHAT_RETRY_MAX_WAIT_MS: &str = "300000";
 
 /// [`CLAUDE_CHAT_RETRY_ENV`] for a chat whose `env` sets none of [`CLAUDE_RETRY_CHOICES`];
 /// nothing when the person chose how Claude Code retries.
@@ -476,6 +485,11 @@ mod tests {
         // The default scope: the capacity scope lets the gateway's 503 "no accounts" through.
         assert!(
             !lifted.iter().any(|(k, _)| *k == "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE"),
+            "{lifted:?}"
+        );
+        // Bounded, so acpmux's capacity resume and failover still see a sustained outage.
+        assert!(
+            lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "300000")),
             "{lifted:?}"
         );
         // A spend or plan limit still fails fast: no usage-limit wait.
