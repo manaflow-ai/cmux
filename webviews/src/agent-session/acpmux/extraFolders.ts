@@ -17,9 +17,6 @@ export type ExtraFolderRows = {
   folders: readonly string[];
   onAdd(path: string): void;
   onRemove(path: string): void;
-  /// The machine's folder chooser (this Mac's native panel); its pick is added. None on a machine
-  /// whose folders are only listed (a peer): the menu's rows and a typed path add one there.
-  onBrowse?(): Promise<string | undefined> | string | undefined | void;
 };
 
 const NONE: readonly string[] = [];
@@ -83,12 +80,10 @@ export function extraFolderName(path: string): string {
   return folder.slice(folder.lastIndexOf("/") + 1) || folder;
 }
 
-/// What a surface hands the composer's folder control for a new chat's extra folders: the draft,
-/// its change, and this Mac's folder chooser (ComposerContext `extraFolders`).
+/// The extra folders draft and its change callback (ComposerContext `extraFolders`).
 export type ExtraFolderControl = {
   draft?: ExtraFolderDraft;
   onChange(next: ExtraFolderDraft | undefined): void;
-  onBrowse?(): Promise<string | undefined> | string | undefined | void;
 };
 
 /// The draft as the pane's client sees it: folders of the pane's own machine (`paneMachine`, the
