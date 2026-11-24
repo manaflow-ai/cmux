@@ -997,6 +997,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "overload-gate: PATH" streams "before-gate", blocks on the FIFO at PATH (as "gate:"), then
+    # fails with Claude Code's overload error: a 529 that lands after a daemon restart adopted
+    # the turn.
+    if text.startswith("overload-gate:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[len("overload-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: Repeated 529 Overloaded errors"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
