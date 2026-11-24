@@ -246,8 +246,8 @@ class GeneratedClientMixin:
     def conversation_import(self, conversation: str, messages: List[ConversationImportMessage]) -> ConversationImportResult:
         return self._invoke_command('conversation-import', ConversationImportRequest(conversation=conversation, messages=messages))
 
-    def conversation_inbox_op(self, conversation: str, op: Union[JsonValue, None]) -> ConversationInboxOpResult:
-        return self._invoke_command('conversation-inbox-op', ConversationInboxOpRequest(conversation=conversation, op=op))
+    def conversation_inbox_op(self, conversation: str, op: Union[JsonValue, None], *, op_id: Union[str, None, MissingType] = MISSING) -> ConversationInboxOpResult:
+        return self._invoke_command('conversation-inbox-op', ConversationInboxOpRequest(conversation=conversation, op=op, op_id=op_id))
 
     def conversation_link_resolve(self, url: str) -> ConversationLinkResolveResult:
         return self._invoke_command('conversation-link-resolve', ConversationLinkResolveRequest(url=url))

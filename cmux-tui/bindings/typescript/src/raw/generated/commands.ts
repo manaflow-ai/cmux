@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b. */
+/* cmux-tui mux protocol 12, IR 7c3f644f957de907f2984e181e7b7b409f2f3b9b828314c8bf918be3b8203f18. */
 
 
 import type * as T from "./types.js";
@@ -849,6 +849,7 @@ export interface ConversationInboxOpRequest extends CmuxRequestBase {
   cmd: "conversation-inbox-op";
   "conversation": string;
   "op": (T.JsonValue) | null;
+  "op_id"?: (string) | null;
 }
 export type ConversationInboxOpResult = {
   "conversation": string;
