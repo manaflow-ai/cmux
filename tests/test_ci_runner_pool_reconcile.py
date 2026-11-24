@@ -67,7 +67,9 @@ FROZEN_ROUTE = re.compile(r"\|\| '([a-z0-9-]+)' }}")
 
 def secret_route_failure(route):
     """Why one route of a credentialed job can leave the ephemeral Linux mirror, or None."""
-    if "vars." not in route and "github.event.pull_request.head.repo.full_name != github.repository" in route:
+    # Its fork branch collapses into the label when the two are the same, which leaves only the owner guard.
+    if "vars." not in route and ("github.event.pull_request.head.repo.full_name != github.repository" in route
+                                 or "github.repository_owner != 'manaflow-ai'" in route):
         frozen = FROZEN_ROUTE.fullmatch(route.strip()[route.strip().rfind("|| '"):])
         if frozen is not None and frozen[1] in old_route_labels():
             return None

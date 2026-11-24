@@ -506,11 +506,20 @@ def follow_on(name: str, text: str, report: Report) -> str:
     return text
 
 
+# Workflows a run leaves alone -> why. .github/language-boundaries.toml: a pull request that changes
+# language-boundaries.yml fails its check unless Leo approves it (leo-approved-port), so its runs-on moves only in a PR
+# he approves.
+LEO_GATED = {"language-boundaries.yml": "a change to it needs Leo's leo-approved-port (.github/language-boundaries.toml)"}
+
+
 def workflow_files(args: list[str]) -> list[Path]:
     paths = [Path(a) for a in args] or [ROOT / ".github/workflows"]
     files: list[Path] = []
     for p in paths:
-        files.extend(sorted([*p.glob("*.yml"), *p.glob("*.yaml")]) if p.is_dir() else [p])
+        if p.is_dir():
+            files.extend(f for f in sorted([*p.glob("*.yml"), *p.glob("*.yaml")]) if f.name not in LEO_GATED)
+        else:
+            files.append(p)
     return files
 
 
