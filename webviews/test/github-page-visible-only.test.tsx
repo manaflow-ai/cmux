@@ -345,7 +345,7 @@ test("two-column refresh keeps the focused job even when its partner changes off
   await act(async () => store.loadChecks());
   await settle();
   expect(original.isConnected).toBe(false);
-  expect(dom.window.document.activeElement).toBe(jobLink("job 7"));
+  expect(dom.window.document.activeElement).toBe(jobLink("job 7")!);
   await tab();
   expect(focusedText()).toBe("job 8");
 });
