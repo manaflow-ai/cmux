@@ -84,6 +84,14 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// for a tagged dev build, nil for nightly and stable, and a refusing value for a dev build with no usable tag.
     public var buildSpaceValue: String? { Self.childBuildSpace(build) }
 
+    /// ``egressModeKey``'s value for `build` when the launch passed none.
+    static func childEgressMode(_ build: BuildIdentity) -> String? {
+        switch build.kind {
+        case .nightly, .dev, .staging: "enforce"
+        case .release, .rc, .unbundled: nil
+        }
+    }
+
     static func childBuildSpace(_ build: BuildIdentity) -> String? {
         CMUXBuildSpaceState(devBuild: build.needsBuildSpace, devTag: build.devTag).childEnvironmentValue
     }
@@ -174,6 +182,10 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// `LSEnvironment`, and a harness passes it in its environment instead (the live code proof,
     /// scripts/measure/live-code-app.py). Only a debug, bench or live code build reads it.
     public static let liveCodeDirKey = "CMUX_LIVE_CODE_DIR"
+    /// The egress gate's mode (`enforce`, `log`, `off`) for this app and every Rust child
+    /// (docs/privacy.md, cmux-egress): a value the launch passed wins; else NIGHTLY, DEV and
+    /// staging builds enforce, and a release or rc build keeps the gate's own default (log).
+    public static let egressModeKey = "CMUX_EGRESS"
 
     /// A launch that ignores every customization layer for this run, editing no file: the way back
     /// when the UI itself is broken (`open -a "cmux NIGHTLY" --args --no-customizations`, or
@@ -209,7 +221,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
@@ -257,7 +269,9 @@ public struct LaunchIdentity: Sendable, Equatable {
         let keys = inheritedKeys(processEnvironment: process, bundledEnvironment: bundled, bundleID: bundle.bundleIdentifier)
         // This build's own space replaces any inherited one, so every Rust child that inherits
         // this environment (the `cmux` CLI runs, `cmux link`, the Codex holder, acpmux) sends it.
-        let space = childBuildSpace(BuildIdentity(bundle: bundle))
+        let build = BuildIdentity(bundle: bundle)
+        let space = childBuildSpace(build)
+        let egress = childEgressMode(build)
         let defaults = settingsBuildDefaults.childEnvironmentValue
         // A build without settings defaults never passes on another build's.
         let unset = defaults == nil && process[BuildStatePaths.settingsBuildDefaultsKey] != nil
@@ -269,6 +283,9 @@ public struct LaunchIdentity: Sendable, Equatable {
             // explicit override the launch passed (a harness's CMUX_NEXT_CONFIG_FILE) still wins.
             var values: [String: String] = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
             if let space { values[buildSpaceKey] = space }
+            if let egress, values[egressModeKey] == nil, ProcessInfo.processInfo.environment[egressModeKey] == nil {
+                values[egressModeKey] = egress
+            }
             if let defaults { values[BuildStatePaths.settingsBuildDefaultsKey] = defaults }
             for (key, value) in values { setenv(key, value, 1) }
         }
