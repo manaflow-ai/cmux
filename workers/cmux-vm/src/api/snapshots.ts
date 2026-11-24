@@ -32,10 +32,12 @@ export const Labels = Schema.Record({ key: Schema.String, value: LabelValue })
   });
 
 const RESTORE_NOTE =
-  "A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is " +
-  "reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is " +
-  "not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, " +
-  "and reseed, regenerate and resync them in the guest when that matters.";
+  "A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id " +
+  "on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and " +
+  "SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, " +
+  "and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. " +
+  "On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine " +
+  "id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.";
 
 export class SnapshotSummary extends Schema.Class<SnapshotSummary>("SnapshotSummary")({
   id: SnapshotId,
