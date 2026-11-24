@@ -526,6 +526,33 @@ async fn wireguard_mac_takes_the_turn_allocation_it_missed_while_answering() {
     assert!(run.mac.is_some(), "{run:?}");
 }
 
+/// The phone's STUN server never answers and its TURN server is slow, yet
+/// its WireGuard initiation leaves at once with its host endpoints: the
+/// gather trickles in beside the handshake instead of in front of it, and the
+/// link comes up over the LAN before the gather ends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_dial_sends_its_initiation_before_the_gather() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let silent_stun =
+        cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
+    let timeline = cmux_mobile_link::Timeline::new();
+    let phone = DialOptions {
+        ice_servers: vec![turn.udp_only(), silent_stun],
+        timeline: timeline.clone(),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::Direct, "{run:?}");
+    let init = timeline.get("wg_init_sent").expect("wg_init_sent");
+    let ready = timeline.get("link_ready").expect("link_ready");
+    assert!(init < Duration::from_millis(250), "initiation waited: {}", timeline.summary());
+    if let Some(gathered) = timeline.get("endpoints_gathered") {
+        assert!(init < gathered, "initiation after the gather: {}", timeline.summary());
+        assert!(ready < gathered, "link waited for the gather: {}", timeline.summary());
+    }
+}
+
 /// While set, the Mac's plain UDP to anything but TURN relayed addresses is
 /// lost (`wireguard_upgrades_from_the_peers_turn_once_direct_works`).
 static MAC_LAN_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
