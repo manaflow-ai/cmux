@@ -151,3 +151,4 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     });
   }
 });
+// chat-width-check probe: comment only, triggers webviews CI
