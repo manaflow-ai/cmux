@@ -2085,6 +2085,8 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // Context surgery's counters (`surgery.rs`).
+                        o.extend(super::surgery::turn_fields(&session.id));
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }

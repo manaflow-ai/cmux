@@ -315,6 +315,8 @@ mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
+// Mask old tool output instead of summarizing it (harness magic).
+pub(crate) mod surgery;
 pub(crate) use seen::{Look, reader_of};
 mod session;
 pub(crate) mod session_pages;
