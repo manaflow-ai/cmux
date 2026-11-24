@@ -116,7 +116,9 @@ pub(crate) fn is_filler(session: &super::Session) -> bool {
 /// that turn is stopped first (filler work is preemptible), then hibernated. In the background:
 /// the start never waits for it. The filler resumes its conversation on its next prompt.
 pub(crate) fn free_filler(hub: std::sync::Arc<super::Hub>, id: String, reason: Reason) {
-    tokio::spawn(async move {
+    // The hub's scope owns it: a closing hub ends it.
+    let owner = hub.clone();
+    owner.scope.spawn_named("free-filler", async move {
         let Some(session) = hub.session_by_id(&id) else { return };
         let mut stopped = false;
         let mut last = String::new();
