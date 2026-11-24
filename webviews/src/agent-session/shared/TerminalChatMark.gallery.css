@@ -1,0 +1,223 @@
+/* TerminalChatMark.gallery.tsx: three lists side by side. The Mac and iOS lists are web replicas of native rows;
+   their numbers are the native ones (points as px). The web list is pages/sidebar-chats' own stylesheet. */
+.tcm-gallery {
+  --tcm-selected-ground: linear-gradient(var(--cmux-selection), var(--cmux-selection)) var(--cmux-surface-background);
+  --tcm-ios-ground: var(--cmux-surface-background);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 16px;
+  background: var(--cmux-surface-background);
+  color: var(--cmux-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+.tcm-panel {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tcm-caption {
+  max-width: 260px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--cmux-text-tertiary);
+}
+
+.tcm-slot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mac: Default density. Sidebar 260 wide; fill 6 from each edge (rowEdgeGap), content inset 7, glyph 16, gap 7,
+   title 14 regular in primary ink, detail 11 (caption) in secondary, row 30 + caption line 14 = 44, corner 9, gap 2. */
+.tcm-mac {
+  width: 260px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tcm-mac-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 7px;
+  border-radius: 9px;
+  color: var(--cmux-text-secondary);
+}
+
+.tcm-mac-row[data-selected] {
+  background: var(--cmux-selection);
+}
+
+.tcm-mac-icon {
+  display: inline-flex;
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  align-items: center;
+  margin-right: 7px;
+}
+
+.tcm-mac-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.tcm-mac-title,
+.tcm-mac-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tcm-mac-title {
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--cmux-text);
+}
+
+.tcm-mac-detail {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--cmux-text-secondary);
+}
+
+.tcm-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--cmux-app-success, #32d74b);
+}
+
+.tcm-dot[data-status="waiting"],
+.tcm-ios-dot[data-status="waiting"] {
+  background: var(--cmux-app-warning, #ff9f0a);
+}
+
+/* Web: the sidebar chat history's own rows; the strip stands in for the sidebar list, 260 wide. */
+.tcm-web {
+  width: 260px;
+}
+
+.tcm-web .sc-row[data-selected] {
+  background: var(--cmux-selection);
+}
+
+.tcm-web .sc-mark {
+  width: auto;
+  min-width: var(--sc-icon-box);
+}
+
+/* iOS: a plain list on the app's ground, 375 wide (iPhone); 16 inset, 11 above and below, 12 between frame and text,
+   17 body, 13 footnote, the 6 pt status dot 6 before the line, hairline separators from the text column. */
+.tcm-ios {
+  width: 375px;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+.tcm-ios-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+}
+
+.tcm-ios-row[data-selected] {
+  background: var(--cmux-selection);
+}
+
+.tcm-ios-row + .tcm-ios-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 60px;
+  right: 0;
+  height: 1px;
+  background: var(--cmux-sidebar-line);
+}
+
+.tcm-ios-frame {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  min-width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.tcm-ios-circle > .tcm-slot,
+.tcm-ios-circle > [data-terminal-chat="badge"],
+.tcm-ios-circle > [data-terminal-chat="chevron"] > span:last-child {
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cmux-text) 6%, transparent);
+}
+
+.tcm-ios-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tcm-ios-title,
+.tcm-ios-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tcm-ios-title {
+  font-size: 17px;
+  line-height: 22px;
+  color: var(--cmux-text);
+}
+
+.tcm-ios-detail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--cmux-text-secondary);
+}
+
+.tcm-ios-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cmux-app-success, #32d74b);
+}
+
+.tcm-ios-age {
+  flex: none;
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--cmux-text-secondary);
+}
+
+/* The web row places its title at a fixed x (--sc-text-x), so a chevron before the mark pushes the terminal rows'
+   titles right by its width (the chevron's own advance at 14 px plus its 2 px gap, 11 px with SF Mono). */
+.tcm-gallery[data-look="chevron"] .tcm-web .sc-row[data-terminal] .sc-title {
+  margin-left: calc(var(--sc-text-x) + 11px);
+}
