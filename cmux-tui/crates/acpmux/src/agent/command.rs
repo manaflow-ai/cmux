@@ -466,6 +466,13 @@ fn build_harness_command(
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
+    // The compiler cache on a Cloud VM (`sccache_env.rs`): last, so a value the profile, the
+    // login shell or this daemon's env gives wins, and a RUSTC_WRAPPER of theirs turns it off.
+    #[cfg(unix)]
+    {
+        let env = command_env_with(&cmd, !remote_environment);
+        crate::sccache_env::apply(&mut cmd, &env);
+    }
     #[cfg(target_os = "linux")]
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
