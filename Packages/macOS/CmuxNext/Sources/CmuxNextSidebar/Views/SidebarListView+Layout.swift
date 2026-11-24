@@ -41,6 +41,8 @@ extension SidebarListViewComponents {
         let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? page?.options ?? options(includeGap: true) : nil
         let layout = spliced?.layout ?? removed?.layout ?? page?.layout
             ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
+        // A full layout reads every listed row; a splice or a kept page reads none here.
+        if spliced == nil, removed == nil, page == nil { listWork.walked(layout.rows.count) }
         // Focus belongs to a displayed disclosure, so a structural reload clears it before
         // row reuse can configure the same view for a later fold.
         if let key = focusedFold, layout.row(for: key) == nil {
@@ -321,7 +323,10 @@ extension SidebarListViewComponents {
         // realized ones (they move to their new slots) and the reopened ones (their view goes). Any other row skips
         // here as before, with no frame computed: frame(for:) over every listed row was O(rows) on each change (m23).
         var framesComputed = 0
-        defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
+        defer {
+            SidebarPerfCounters.add(.rowFrames, framesComputed)
+            listWork.laidOut(framesComputed)
+        }
         for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
             let row = layout.rows[index]
             let target = drawnFrame(for: row)
@@ -507,6 +512,7 @@ extension SidebarListViewComponents {
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
+        listWork.configured()
         view.isHovered = hoveredKey == row.key && drag == nil
         view.isSelected = selectedRowKey == row.key
         switch (row.key, view) {
@@ -628,6 +634,7 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews {
             guard let row = displayed.row(for: key) else { continue }
             let target = frame(for: row)
+            listWork.laidOut()
             view.targetSize = target.size
             view.frame = target
         }
@@ -652,6 +659,7 @@ extension SidebarListViewComponents {
             let row = displayed.rows[index]
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
+            listWork.laidOut()
             guard target.intersects(realize) else { continue }
             let opening = openingRows[row.key].flatMap { $0.until > CACurrentMediaTime() ? $0 : nil }
             let view = dequeue(row.key, rebinding: opening == nil)
