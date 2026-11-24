@@ -36,7 +36,7 @@ struct CloudAPIClientProvisionAPITests {
     private func api(_ daemon: FakeDaemon) throws -> CloudAPIClient {
         var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")), accessToken: { "access" },
                                                    teamID: { "team-1" })
-        worker.daemonCall = { input, _ in try daemon.run(input) }
+        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
         return worker.previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 
@@ -106,7 +106,7 @@ struct CloudAPIClientProvisionAPITests {
         let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                        process: [:], isDebugBuild: true)
         var classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" })
-        classic.daemonCall = { input, _ in try daemon.run(input) }
+        classic.daemon.daemonCall = { input, _ in try daemon.run(input) }
         await #expect(throws: CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)) {
             try await classic.listPublications()
         }
