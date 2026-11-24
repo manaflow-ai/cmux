@@ -33,6 +33,7 @@ extension LiveCoordinator: SignOutSession {}
 /// (`willSignOut`), so a signed-out phone gets no notifications.
 @MainActor
 public struct AccountSignOut {
+    public var lastKnownLists: LastKnownListStore
     public var snapshots: LiveSnapshotStore
     public var feedStore: FeedStore
     public var feedArchive: (String) -> FeedArchive
@@ -43,7 +44,7 @@ public struct AccountSignOut {
     /// list, every agent chat's newest messages): none of them stays for the next account.
     public var discardKeptChats: @MainActor () -> Void
 
-    public init(snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
+    public init(lastKnownLists: LastKnownListStore = .standard, snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
                 feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
                 readMarks: @escaping (String) -> FeedReadMarks = FeedReadMarks.forAccount,
                 preferences: AccountPreferences = .standard,
@@ -57,6 +58,7 @@ public struct AccountSignOut {
                     AgentChatsMemory.shared.removeAll()
                     AgentTranscriptCache.standard.removeAll()
                 }) {
+        self.lastKnownLists = lastKnownLists
         self.snapshots = snapshots
         self.feedStore = feedStore
         self.feedArchive = feedArchive
@@ -96,6 +98,7 @@ public struct AccountSignOut {
                 readMarks(userID).remove()
             }
         }
+        lastKnownLists.removeAll()
         snapshots.removeAll()
         discardChiefTranscripts()
         discardKeptChats()
