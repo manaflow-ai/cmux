@@ -1,0 +1,23 @@
+$ bash ../scripts/ci/run-webviews-tests.sh src/pages/onboarding
+running 9 webviews test files, 12 at a time, beside 0 browser files 4 at a time (0 dev server files after, 4 at a time), 120s each
+START src/pages/onboarding/agentsReadiness.test.tsx (hard limit 120s)
+START src/pages/onboarding/Onboarding.test.tsx (hard limit 120s)
+START src/pages/onboarding/importExpress.test.tsx (hard limit 120s)
+START src/pages/onboarding/importRowClicks.test.tsx (hard limit 120s)
+START src/pages/onboarding/makeItYours.test.tsx (hard limit 120s)
+START src/pages/onboarding/importList.test.tsx (hard limit 120s)
+START src/pages/onboarding/returnRepeat.test.tsx (hard limit 120s)
+START src/pages/onboarding/offline.test.tsx (hard limit 120s)
+START src/pages/onboarding/text.test.ts (hard limit 120s)
+PASS src/pages/onboarding/text.test.ts (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/Onboarding.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/returnRepeat.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/offline.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/agentsReadiness.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/makeItYours.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/importExpress.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/importList.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/onboarding/importRowClicks.test.tsx (raw log retained for the final bounded summary)
+::group::TAP final named results
+::endgroup::
+### webviews tests: 9 files, 0 failed or timed out (0 retried alone, 0 passed alone)
