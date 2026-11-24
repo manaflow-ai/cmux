@@ -135,6 +135,58 @@ def mac_workspace(app, sock, home):
     return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'}"
 
 
+def has_attach_leg():
+    """Whether this ref's app has the DEBUG demo step `live-attach` (DemoDriver.swift)."""
+    path = os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DemoDriver.swift")
+    return os.path.exists(path) and '"live-attach"' in open(path).read()
+
+
+ATTACH_BYTES = 8 << 30  # sparse: takes no disk on the host; far more than the link moves before the cancel
+ATTACH_NAME = "cmux-attach-e2e.mov"
+ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
+
+
+def attach_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
+    """A picked 8 GiB video in the paired Mac's first terminal composer (DEBUG demo `live-attach`)
+    shows progress on its tile while it uploads to the real Mac's hostd, then is removed mid-send
+    and text is sent at once. Screens at each step; passes on the app's own step lines. Link speed
+    is whatever the host gives (loopback-class): the leg does not shape it."""
+    data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+    source = os.path.join(data, "tmp", ATTACH_NAME)
+    os.makedirs(os.path.dirname(source), exist_ok=True)
+    sparse_file(source, ATTACH_BYTES)
+    since = time.monotonic()
+    try:
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-attach",
+                                 "-CmuxMobileAttachE2EFile", source], env=phone_env, check=True, capture_output=True)
+        seen = {}
+        for step, shot in (("tile", "attach-1-tile"), ("progress", "attach-2-progress"), ("progress-later", "attach-3-progress-later"),
+                           ("cancelled-and-sent", "attach-4-cancelled-typed"), ("shown", "attach-5-terminal")):
+            hit = phone_log.wait_at(re.compile(r"demo step: live-attach (%s|no \S+)\b ?(.*)" % re.escape(step)), 300, since=since)
+            if not hit:
+                note(f"- attach: FAIL, no `live-attach {step}` line in 300 s")
+                return False
+            if hit[1].group(1).startswith("no"):
+                note(f"- attach: FAIL, {hit[1].group(0)}")
+                phone_shot("attach-fail")
+                return False
+            seen[step] = hit[1].group(2)
+            note(f"- attach {step}: {seen[step]} -> {phone_shot(shot)}")
+            since = hit[0]
+        sent = seen["cancelled-and-sent"]
+        ok = "attachments=0" in sent and "uploading=false" in sent and "composerFree=true" in sent and "text=sent" in sent
+        note(f"- attach: {'PASSED' if ok else 'FAIL'}: progress on the tile before the cancel ({seen['progress']!r}), "
+             f"removed mid-send, composer free at once: {sent}")
+        return ok
+    finally:
+        try:
+            os.unlink(source)
+        except OSError:
+            pass
+
+
 def sha256(path):
     digest, total = hashlib.sha256(), 0
     with open(path, "rb") as f:
@@ -343,6 +395,7 @@ def main():
     account = dev_credential()
     email = account["email"]
     probe = has_upload_probe()
+    attach, attach_ok = has_attach_leg(), True
     # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
     # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
     upload_root = os.path.join(os.path.realpath(a.work), "pair-rig", "upload-root")
@@ -601,6 +654,8 @@ def main():
                                             size=a.upload_bytes, random_bytes=a.upload_random, wait=a.upload_wait,
                                             relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
                 note(f"- upload: {line}")
+            if paired and attach:
+                attach_ok = attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note)
             if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -642,7 +697,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok else 1
 
 
 # The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks

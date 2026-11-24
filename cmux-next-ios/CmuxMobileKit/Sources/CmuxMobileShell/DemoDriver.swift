@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-cancel-send", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-cancel-send", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-attach", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -277,6 +277,7 @@ struct DemoDriver {
         case "onboarding": break  // driven by CmuxMobileOnboarding's script until the shell appears
         case "live": await live()
         case "live-terminal": await liveTerminal()
+        case "live-attach": await liveAttach()
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
@@ -833,6 +834,49 @@ struct DemoDriver {
         let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
         step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
         step("live-terminal shown")
+    }
+
+    /// Live end to end (real Mac), the pair-e2e rig's attachment leg: a big video picked into the
+    /// first terminal's composer (`-CmuxMobileAttachE2EFile PATH`) uploads to the Mac with progress on
+    /// its tile; the rig screenshots at each `demo step: live-attach ...` line. Then the tile is removed
+    /// mid-send (what its X does) and, with no pause, text is typed and sent: the composer must be free.
+    private func liveAttach() async {
+        step("live-attach start")
+        guard let path = UserDefaults.standard.string(forKey: "CmuxMobileAttachE2EFile") else { return step("live-attach no file") }
+        shell.tab = .workspaces
+        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-attach no link") }
+        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
+              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-attach no terminal") }
+        shell.store.requestOpen(tabID: tab.id, in: ws.id)
+        shell.workspacesPath = [ws]
+        await pause(2)
+        WorkspaceDemoDirector.shared.post(.activate(tab.id))
+        guard await until(30, { shell.terminalTabs.model(forTabID: tab.id) != nil }),
+              let model = shell.terminalTabs.model(forTabID: tab.id) else { return step("live-attach no model") }
+        await until(30) { model.connectionState.isAttached }
+        await pause(1.5)
+        step("live-attach ready")
+        model.demoAttachVideo(at: URL(fileURLWithPath: path))
+        step("live-attach tile added: \(model.attachments.count) attachment(s), \(model.demoUploadState())")
+        guard await until(180, { model.demoUploadAcked }) else {
+            return step("live-attach no progress: \(model.demoUploadState())")
+        }
+        step("live-attach progress \(model.demoUploadState())")
+        await pause(4)
+        step("live-attach progress-later \(model.demoUploadState())")
+        await pause(2)
+        let t0 = ContinuousClock.now
+        model.demoRemoveFirstAttachment()
+        model.composerText = "echo attach-e2e-after-cancel"
+        let free = model.attachments.isEmpty && !model.isUploading
+        model.send()
+        let ms = (ContinuousClock.now - t0).components.attoseconds / 1_000_000_000_000_000
+        step("live-attach cancelled-and-sent attachments=\(model.attachments.count) uploading=\(model.isUploading) composerFree=\(free) text=\(model.composerText.isEmpty ? "sent" : "NOT sent") in \(ms) ms")
+        await pause(3)
+        step("live-attach after-cancel \(model.demoUploadState())")
+        await pause(3)
+        step("live-attach shown")
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's
