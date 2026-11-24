@@ -118,6 +118,20 @@ impl FleetHoldCache {
     }
 }
 
+/// The allowlist `session hold --fleet` sets: `current` plus `add`, in order, each entry once,
+/// or `set` (`--set-allow`) plus `add` when it is given. `--allow` only ever adds, so admitting
+/// one more session never drops the ones already allowed.
+pub fn next_allow(current: &[String], set: Option<&[String]>, add: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for a in set.unwrap_or(current).iter().chain(add) {
+        let a = a.trim();
+        if !a.is_empty() && !out.iter().any(|o| o == a) {
+            out.push(a.to_owned());
+        }
+    }
+    out
+}
+
 fn tag_of(session: &Session) -> Option<String> {
     session
         .meta
@@ -236,7 +250,7 @@ impl Hub {
         }
         Some(
             RpcError::invalid_params(format!(
-                "fleet_hold: this machine's sessions are held{}; `{}` is not on the allowlist. `acpmux session release --fleet` lifts the hold, or `acpmux session hold --fleet --allow NAME` adds it",
+                "fleet_hold: this machine's sessions are held{}; `{}` is not on the allowlist. `acpmux session release --fleet` lifts the hold, or `acpmux session hold --fleet --allow NAME` adds it to the allowlist",
                 fleet.reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default(),
                 if name.is_empty() { "a session with no name" } else { name },
             ))
