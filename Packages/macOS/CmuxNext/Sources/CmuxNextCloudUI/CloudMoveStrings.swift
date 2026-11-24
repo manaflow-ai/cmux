@@ -22,6 +22,10 @@ public struct CloudMoveStrings {
         default: String(localized: "cloud.move.vmCouldNotStart", defaultValue: "Its Cloud VM could not start.", table: "Cloud", bundle: .localizedModule)
         }
     }
+    /// The palette's place and Evacuate actions while Settings > Experiments' Cloud Toggle (`experiments.cloudToggle`) is off.
+    public static var placeExperimentOff: String {
+        String(localized: "cloud.place.experimentOff", defaultValue: "Turn on Cloud Toggle in Settings > Experiments first.", table: "Cloud", bundle: .localizedModule)
+    }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
     public static var notAChat: String {
         String(localized: "cloud.move.notAChat", defaultValue: "Move to Cloud works on a chat tab.", table: "Cloud", bundle: .localizedModule)

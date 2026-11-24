@@ -3,6 +3,8 @@ import { MoveProgress, type MoveProgressLook } from "./MoveProgress";
 import { PlaceControl, type PlaceControlLook } from "./PlaceControl";
 import { placeActions, type PlaceClaims } from "./usePlace";
 import { useHeaderState } from "../header/headerState";
+import { useExperimentSwitch } from "../../../experiments/switches";
+import { CLOUD_TOGGLE_SWITCH } from "../hybrid/hybridModel";
 
 /// What ships: the chip in the composer's location row, and the card over the composer
 /// (PlaceControl.gallery.tsx and MoveProgress.gallery.tsx compare the other looks).
@@ -23,8 +25,9 @@ export function PlaceChip({
   look?: PlaceControlLook;
 }) {
   const { place } = useHeaderState();
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  if (!place || !actions) return null;
+  if (!on || !place || !actions) return null;
   return <PlaceControl place={place} look={look} onMode={actions.setMode} />;
 }
 
@@ -43,7 +46,8 @@ export function MoveDock({
 }) {
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const move = place?.move;
-  if (!move || !actions || (move.session && session && move.session !== session)) return null;
+  if (!on || !move || !actions || (move.session && session && move.session !== session)) return null;
   return <MoveProgress move={move} look={look} onCancel={actions.cancel} onRetry={actions.retry} />;
 }
