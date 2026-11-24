@@ -391,6 +391,7 @@
         "terminal.fontFamily",
         "terminal.fontSize",
         "terminal.term",
+        "terminal.predictiveLocalEcho",
         "sidebar.sectionLook",
         "sidebar.sections.hidden",
         "sidebar.sections.order",

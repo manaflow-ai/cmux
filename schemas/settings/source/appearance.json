@@ -1412,7 +1412,10 @@
             "opacity",
             "wallpaper",
             "tui",
-            "claude"
+            "claude",
+            "codex",
+            "pi",
+            "opencode"
           ]
         }
       ]
