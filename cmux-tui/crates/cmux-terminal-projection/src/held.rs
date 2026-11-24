@@ -21,7 +21,9 @@
 //!   Code's full-screen mode: cursor moves, no scroll region, no `IND` or
 //!   `SU`), is compared after each batch of its bytes with the screen before
 //!   it. When a band of rows moved up by `k` (at least
-//!   [`SHIFT_MATCH_ROWS`] of its rows with text match, `k` rows higher), the
+//!   [`SHIFT_MATCH_ROWS`] of its rows with text, each unlike the row above
+//!   it, match `k` rows higher; a blank screen or one repeated line never
+//!   counts), the
 //!   `k` rows that left the band's top are held, as if it had scrolled; rows
 //!   above and below the band (a header, an input box, a status line) stay
 //!   put on a pan.
@@ -47,7 +49,8 @@ pub const HELD_ROW_CAP: usize = 3_000;
 pub const FRAME_REDRAW_ROWS: usize = 2;
 
 /// Rows with text that must match, one band `k` rows higher, for a repaint
-/// to count as the band moving up `k` rows.
+/// to count as the band moving up `k` rows; a row the same as the one
+/// above it (a rule, a repeated line) does not count.
 pub const SHIFT_MATCH_ROWS: usize = 3;
 
 /// The rows a full-screen app moved off its screen, oldest first.
@@ -212,7 +215,8 @@ fn has_text(cells: &[Cell]) -> bool {
 /// `top` moved up `k` rows (the rows `top..top + k` of `before` left the
 /// screen), with `bottom` the band's last row now. Rows the same in both,
 /// at the top, are a header and not part of the band; the smallest `k`
-/// whose matching run has [`SHIFT_MATCH_ROWS`] rows with text wins.
+/// whose matching run has [`SHIFT_MATCH_ROWS`] rows with text, each unlike
+/// the row above it, wins.
 fn inferred_shift(before: &[Vec<Cell>], now: &[Vec<Cell>]) -> Option<(usize, usize, usize)> {
     let n = now.len();
     if before.len() != n || n < SHIFT_MATCH_ROWS + 1 {
@@ -223,7 +227,7 @@ fn inferred_shift(before: &[Vec<Cell>], now: &[Vec<Cell>]) -> Option<(usize, usi
         let mut run = 0;
         let mut text = 0;
         while top + k + run < n && before[top + k + run] == now[top + run] {
-            if has_text(&now[top + run]) {
+            if has_text(&now[top + run]) && (run == 0 || now[top + run] != now[top + run - 1]) {
                 text += 1;
             }
             run += 1;
