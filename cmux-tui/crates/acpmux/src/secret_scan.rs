@@ -175,7 +175,8 @@ struct Rules {
     ids: Allow,
     /// Every rule's keywords in one automaton, so a text is searched once for all of them
     /// (`Rules::gated`) instead of once per keyword per rule.
-    keyword_search: aho_corasick::AhoCorasick,
+    /// `None` only if the automaton cannot be built; then every rule is tried (slower, same answer).
+    keyword_search: Option<aho_corasick::AhoCorasick>,
     /// For each pattern of `keyword_search`, the rules whose keyword it is.
     keyword_rules: Vec<Vec<usize>>,
 }
@@ -184,10 +185,15 @@ impl Rules {
     /// Which rules a text can match at all: those with no keywords, and those with one of
     /// theirs in `lower` (the text, ASCII-lowercased). Same answer as asking each rule.
     fn candidates(&self, lower: &str) -> Vec<bool> {
+        let Some(search) = &self.keyword_search else {
+            return vec![true; self.rules.len()];
+        };
         let mut open: Vec<bool> = self.rules.iter().map(|r| r.keywords.is_empty()).collect();
-        for m in self.keyword_search.find_overlapping_iter(lower) {
-            for &rule in &self.keyword_rules[m.pattern().as_usize()] {
-                open[rule] = true;
+        for m in search.find_overlapping_iter(lower) {
+            for &rule in self.keyword_rules.get(m.pattern().as_usize()).into_iter().flatten() {
+                if let Some(slot) = open.get_mut(rule) {
+                    *slot = true;
+                }
             }
         }
         open
@@ -326,7 +332,11 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
     for (index, rule) in rules.iter().enumerate() {
         for keyword in &rule.keywords {
             match keywords.iter().position(|k| *k == keyword.as_str()) {
-                Some(at) => keyword_rules[at].push(index),
+                Some(at) => {
+                    if let Some(list) = keyword_rules.get_mut(at) {
+                        list.push(index);
+                    }
+                }
                 None => {
                     keywords.push(keyword);
                     keyword_rules.push(vec![index]);
@@ -334,7 +344,7 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
             }
         }
     }
-    let keyword_search = aho_corasick::AhoCorasick::new(&keywords).expect("constant keywords"); // crash-allow: constant keywords
+    let keyword_search = aho_corasick::AhoCorasick::new(&keywords).ok();
     Rules { rules, global, ids, keyword_search, keyword_rules }
 });
 
@@ -473,7 +483,7 @@ pub fn find(text: &str) -> Vec<Found> {
     let mut all: Vec<(usize, Found)> = Vec::new();
     let candidates = rules.candidates(&lower);
     for (order, rule) in rules.rules.iter().enumerate() {
-        if !candidates[order] {
+        if !candidates.get(order).copied().unwrap_or(true) {
             continue;
         }
         for caps in rule.re.captures_iter(bytes) {
