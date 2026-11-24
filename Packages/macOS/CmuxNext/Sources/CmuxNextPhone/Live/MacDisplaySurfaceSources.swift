@@ -38,6 +38,10 @@ public final class MacDisplaySurfaceSources {
         return UInt32(digits)
     }
 
+    /// The most pixels on a captured picture's long edge: the encoder's own limit, so a capture never
+    /// makes pixels the encoder scales away.
+    public nonisolated static let maximumLongEdge = SurfaceFrameEncoder.maximumLongSide
+
     /// The `surface` tab key of a display.
     public nonisolated static func tab(display: UInt32) -> String { "d~\(display)" }
 
@@ -46,6 +50,15 @@ public final class MacDisplaySurfaceSources {
 
     public init(grant: @escaping @MainActor (UInt32) async throws -> CloudDesktopSurfaceSources.Grant) {
         self.grant = grant
+    }
+
+    /// Sources granted while `sharing` (Share This Mac) reads true, each with the feed `capture` makes
+    /// for the display (it throws why it cannot capture it), stopped once `sharing` turns false.
+    public convenience init(sharing: @escaping @MainActor () -> Bool, capture: @escaping @MainActor (UInt32) throws -> SurfaceFrameFeed) {
+        self.init { display in
+            guard sharing() else { throw Failure.notShared }
+            return CloudDesktopSurfaceSources.Grant(feed: try capture(display), label: "display \(display)", stillLive: sharing)
+        }
     }
 
     public func start(tab: String, onExit: @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String) {

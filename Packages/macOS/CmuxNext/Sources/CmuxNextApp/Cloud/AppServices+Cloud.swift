@@ -6,6 +6,7 @@ import CmuxNextCloudUI
 import CmuxNextDaemon
 public import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextMacScreen
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
@@ -130,9 +131,9 @@ extension AppServices {
 }
 
 extension AppServices {
-    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators
-    /// (``SimulatorSurfaceSources``, when SimulatorKit loads) and the owner's Cloud desktops
-    /// `c~<machine>~<team>`, view only (``CloudDesktopSurfaceSources``), on any Mac.
+    /// What hostd's `surface` service streams: phone tabs `s<surface>` as streamed simulators (``SimulatorSurfaceSources``,
+    /// when SimulatorKit loads), the owner's Cloud desktops `c~<machine>~<team>` (``CloudDesktopSurfaceSources``), and
+    /// this Mac's displays `d~<display>` while Share This Mac is on (``MacDisplaySurfaceSources``), these two view only.
     func phoneSurfaceHosts() -> any MobileHostSurfaceHosting {
         let phoneTabs = SimulatorSurfaceSources.available(phones) ? SimulatorSurfaceSources(phones: phones) { [weak self] raw in
             guard let self, let tab = self.daemon.store.tab(surface: SurfaceID(rawValue: raw)),
@@ -141,10 +142,9 @@ extension AppServices {
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
         } : nil
         // No Cloud desktop for the phone until it has a carrier route of its own (phoneCloudLinks says so).
-        return MobileHostSurfaceClosures(start: { tab, onExit in
-            guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
-            return try await phoneTabs.start(tab: tab, onExit: onExit)
-        }, stop: { tab in await phoneTabs?.stop(tab: tab) }, stopAll: { await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
+        let sources = PhoneSurfaceSources(phoneTabs: phoneTabs, macDisplays: MacDisplayCapture.surfaceSources { [weak self] in self?.macScreenPages.hubHost.isSharing ?? false })
+        return MobileHostSurfaceClosures(start: { try await sources.start(tab: $0, onExit: $1) }, stop: { await sources.stop(tab: $0) },
+                                         stopAll: { await sources.stopAll() }, streamsSimulators: phoneTabs != nil, streamsMacDisplays: true)
     }
 
     /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
