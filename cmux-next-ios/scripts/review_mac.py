@@ -40,6 +40,8 @@ phone (cmux-next-ios/SECURITY.md "Dev auto-approve").
 """
 import argparse
 import json
+import subprocess
+import shutil
 import os
 import plistlib
 import socket
@@ -206,6 +208,19 @@ def status(sock):
 PAIR_DIALOG = "cmux.dialog.iphonePair"
 
 
+def computer_name():
+    """This computer's name as the phone lists it (System Settings > General > About). The Settings page's iPhone card
+    has no Mac name since the Mobile Pairing page went (#48532), and the tagged Mac app runs on this computer."""
+    tool = shutil.which("scutil")
+    if not tool:
+        return None
+    try:
+        out = subprocess.run([tool, "--get", "ComputerName"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None if out.returncode == 0 else None
+
+
 def allow_state(sock, ids):
     """One read of what the Mac shows for the phone with device ids `ids` (lowercase): see allow-state."""
     value = status(sock)
@@ -225,7 +240,7 @@ def allow_state(sock, ids):
         state = "waiting"
     else:
         state = "none" if value else "unreachable"
-    return {"state": state, "mac_name": value.get("mac_name") or None,
+    return {"state": state, "mac_name": value.get("mac_name") or computer_name(),
             "request": (waiting[0].get("title") if waiting else None),
             "prompt": prompt if state == "waiting" else None,
             "connected": any(r.get("paired") is True and r.get("connected") is True for r in rows)}

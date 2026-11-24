@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod composer_outbox;
 mod follow_camera;
 mod link_side;
 mod mac_screen;
@@ -27,6 +28,9 @@ mod window_layout;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use composer_outbox::{
+    ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
+};
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
@@ -285,6 +289,8 @@ pub struct LinkHandle {
     _signaling: Arc<WarmSocket>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
+    /// A direct path's peer address (`peer_scope`).
+    peer: cmux_mobile_link::dial::PeerAddr,
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
     session_id: String,
@@ -531,6 +537,14 @@ impl LinkHandle {
 
     pub fn path(&self) -> LinkPath {
         (*self.path.borrow()).into()
+    }
+
+    /// Where the direct path's peer address is: `lan`, `tailnet` (100.64.0.0/10 or Tailscale's
+    /// IPv6 range), `wan`, or empty on a relayed path or before a route
+    /// (`cmux_mobile_link::dial::peer_scope`). The app's DEBUG hand-off receipt names it, so a dev
+    /// link over Tailscale says so.
+    pub fn peer_scope(&self) -> String {
+        cmux_mobile_link::dial::peer_scope(*self.peer.borrow()).to_owned()
     }
 
     pub fn is_closed(&self) -> bool {
@@ -907,6 +921,7 @@ async fn connect_on(
         _signaling: signaling,
         transport,
         path: connected.path,
+        peer: connected.peer,
         watcher: Mutex::new(Some(watcher)),
         timeline,
         session_id: connected.session_id,

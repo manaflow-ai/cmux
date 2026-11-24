@@ -293,10 +293,13 @@ export class AcpmuxPerf {
       page.addEventListener("input", input, { capture: true, once: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
+        // A trace's handle on the key's frame callback and its paint (bench/keyFrameTrace.ts).
+        performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
         page.removeEventListener("input", input, { capture: true });
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
+          performance.mark?.("acpmux:key-paint");
           sample.frame = frame - start;
           const painted = performance.now();
           sample.paint = painted - start;

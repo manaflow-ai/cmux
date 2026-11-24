@@ -935,9 +935,12 @@ impl Customize {
             .map(|bytes| jsonc::parse(&String::from_utf8_lossy(&bytes)).unwrap_or(Value::Null))
             .unwrap_or(Value::Null);
         let schema = Schema::embedded();
-        let settings = settled
-            .profile
-            .settings
+        // As they install: a pick of the repo's own views app names the setup's layer.
+        let mut planned = settled.profile.settings.clone();
+        if installed_layer_name(setup).is_some() {
+            layers::point_at_layer(&mut planned, &manifest.id);
+        }
+        let settings = planned
             .iter()
             .map(|(key, value)| {
                 let row = schema.row(key);
@@ -1201,7 +1204,10 @@ impl Customize {
                 other.id
             )));
         }
-        let (profile, views) = layers::split_views(profile);
+        let (mut profile, views) = layers::split_views(profile);
+        if !views.is_empty() {
+            layers::point_at_layer(&mut profile.settings, id);
+        }
         let had = self.library_names()?;
         // The fonts first, so a theme file never points at fonts that are not
         // there; until `keep`, a failed step puts the earlier ones back.
