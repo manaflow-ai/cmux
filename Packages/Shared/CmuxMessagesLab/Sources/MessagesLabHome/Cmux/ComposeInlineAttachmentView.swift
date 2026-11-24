@@ -89,7 +89,7 @@ final class ComposeInlineAttachmentView: NSView {
             }.forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(MenuAction(title: CmuxStrings.removeAttachment, symbol: "xmark.circle") { [weak self] in self?.removeClicked() })
-        return menu
+        return NSMenu.systemFree(menu)
     }
 
     @objc func removeClicked() {

@@ -45,6 +45,18 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Where a scrolled-to id lands. The ends pin to their edge; a section in
+    /// the middle is centered, since `.top` aligns its header with the top of
+    /// the scroll view, under the inline bar and the menu button (iOS release
+    /// bar read-back: "Settings: menu button clears section header").
+    static func anchor(_ target: String) -> UnitPoint {
+        switch target {
+        case "bottom": .bottom
+        case "top": .top
+        default: .center
+        }
+    }
+
     public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
         self.callChief = callChief
@@ -185,9 +197,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    // The new-issue page, not the Mac's prefilled bug report form: that form requires a macOS
-                    // version, a Mac chip and an install method, none of which an iPhone report has.
-                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                    // The Mac's bug report form, marked so HQ counts the report (FeedbackFormLink); its macOS,
+                    // chip and install fields describe the paired Mac.
+                    LinkRow("Send feedback", symbol: "envelope", url: Self.feedbackURL)
                         .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
@@ -220,7 +232,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
-                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: Self.anchor(target)) }
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
@@ -307,6 +319,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .longPressMenus:
             LongPressMenusPage()
         }
+    }
+
+    /// Settings > Send feedback: the bug report form with HQ's report marker (FeedbackFormLink).
+    static var feedbackURL: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return FeedbackFormLink.url(
+            appVersion: info["CFBundleShortVersionString"] as? String ?? "?",
+            build: info["CFBundleVersion"] as? String ?? "?",
+            osVersion: UIDevice.current.systemVersion
+        ).absoluteString
     }
 }
 

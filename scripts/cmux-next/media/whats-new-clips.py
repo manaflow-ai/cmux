@@ -497,17 +497,30 @@ def failure_marker(url: str) -> dict | None:
     return marker if isinstance(marker, dict) else None
 
 
-def published(url: str) -> bool:
+def published(url: str, attempts: int = 3, pause: float = 2.0) -> bool:
+    """Whether the media URL answers 200. A 404 is no; any other failure (a 5xx, a
+    timeout, a reset: one ended the nightly plan 45160205493 with a traceback, so no
+    clip recorded) is retried, then counts as unpublished: recording a clip again
+    costs a tour slot, planning none costs the night's clips."""
+    import time
     import urllib.error
     import urllib.request
     request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "cmux-whats-new-clips/1"})
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return response.status == 200
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return False
-        raise
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status == 200
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return False
+            problem = f"HTTP {error.code}"
+        except (urllib.error.URLError, OSError) as error:
+            problem = str(getattr(error, "reason", error))
+        if attempt + 1 < attempts:
+            time.sleep(pause * (attempt + 1))
+    print(f"::warning title=What's New clip::{url}: {problem} after {attempts} tries; planning it as unpublished",
+          file=sys.stderr)
+    return False
 
 
 def tour_module():

@@ -2154,6 +2154,8 @@ those two hours, 11 were at the limit (2,775 runner-min/day). Both hosts build a
 crate. acpmux tests made the same fix in #49482. `cmux-next-car-guards.yml` reads this cache with the
 same key.
 
+The same toggle is now on every `Swatinem/rust-cache` step (42 more in 27 workflows; `cloud-journey-prod.yml` runs main's copy on its schedule, so it is left for a main PR). The macOS-on-Linux build (`cmux-tui-build-package.yml`) showed it: after #49976 saved its first entry (key hash `2a69944b`, 2026-11-22 19:26Z), the next 4 sampled legs on pool runners computed `6ec71d0a`, `1ca27fd1`, `6ec71d0a` and `2a69944b`. The difference was `rustup toolchain list`: 1.95.0 alone, or with 1.98.1 and 1.100.0 left over. All 4 found no cache, and cargo took 20 min each. In the 11.5 h after the save, green `build aarch64-apple-darwin` legs averaged 33.3 min on pull requests and lanes (25.7 before) and 29.5 min on feat-cmux-next (29.7 before). The entry was evicted from the full store by 07:00Z on 11-23.
+
 ## note-210b
 
 Above `fast-tier-cargo: environment`, `fast-tier-cargo: Key the cargo build in R2` and `Strip the workspace's own output before the R2 save` in `.github/workflows/cmux-next.yml`.
@@ -2178,13 +2180,28 @@ write credentials, for NEXT's own bucket cmux-ci-cache-next (as note-171); a pul
 (tests/test_ci_pull_request_caches_are_read_only.py). Each restore is bounded at 4 minutes and each save at 6,
 both continue-on-error, so a slow store costs the build at most that and never fails or outlasts the job's 20.
 
+## note-210c
+
+Above `build: Key the cargo build in R2`, `Strip the workspace's own output before the R2 save` and the `environment:` line of `build` in `.github/workflows/cmux-tui-build-package.yml`.
+
+note-210b's R2 route for the three shipped build legs that run on pool hosts (aarch64-apple-darwin built on Linux, and both musl
+targets). Their Swatinem/rust-cache entries lived in the full 10 GB GitHub store and were evicted within hours, so a leg spent
+about 20 minutes in cargo. Off Blacksmith (which keeps rust-cache and the sticky disks) the leg now restores `cmux-tui/target` and the
+cargo registry from R2 (scripts/ci/r2-cache.sh, public reads, no credentials), keyed by the leg, the lto mode, the lockfiles,
+rustc and cargo versions, the cross toolchain and a hash of the workspace path. A feat-cmux-next build that missed the exact key
+strips the workspace crates' own output (scripts/ci/cargo_target_strip.py, now also under `target/groups/N`) after staging and the
+uploads, and saves. The build job holds the `next-cache-writer` environment on feat-cmux-next only; every other ref only reads.
+The darwin cross-toolchain install moved above these steps so the key can name it. Evidence: docs/findings/2026-11-23-rust-cache-pool-keys.md (cmuxterm-hq#20570).
+
 ## note-211
 
-Above `fast-tier-cargo: Fetch the ghostty-next Zig packages (cached, deadlined, retried)` in `.github/workflows/cmux-next.yml`.
+Retired: `fast-tier-cargo` no longer fetches the ghostty-next Zig packages first.
 
-ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
-unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
-them first, each attempt under a deadline and retried.
+The step was added because zig's own unretried download failed the job
+(pkg/highway ReadFailed). ghostty-vt-sys's build.rs now seeds the packages it
+needs from the mirror itself (`curl --retry 3 --retry-all-errors`) and runs zig
+mirror-only in CI, and on a warm cargo cache build.rs does not run at all. The
+step cost about 50 s per run even with every package already present.
 
 ## note-212
 
@@ -4935,3 +4952,53 @@ lan_cache_fetch.py's own bound is 5,420 s, longer than the 60-minute jobs that r
 ("LAN cache host unavailable (...: stalled)"), and the direct download then took 9 more: restores of
 1,289-1,600 s, in jobs cancelled at the 60-minute limit while still building CmuxNext. A healthy host
 serves the 3.6 GB seed in about 40 s, or 343 s when it first fills it from the bucket (wait 304 s).
+
+## note-553
+
+Above `jobs:` in `.github/workflows/cmux-next.yml`.
+
+The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml: Trusted runs (a same-repository
+pull request, a push or a dispatch) stay on vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while
+owned pools are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback. Manual reruns stay
+minis-first. The rescue re-admits a queued run after the five-minute queue alarm: placement first uses a free
+owned GUI/session Mac, then the workflow's Blacksmith macOS route. macos-placement records idle side runners
+with the main picker's idle_placement() and publishes free role labels for the bot retry, so a job does not
+keep a shared concurrency slot on a busy Blacksmith label indefinitely. When a job takes the side label,
+macos-placement uploads the owned-pool-watch marker: ci-owned-pool-rescue.yml's sweeper on main adopts the run
+(owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves queued or refuses. Bot attempt 2 and
+later drop the stale placement output and re-admits it through the same fast-checks/owned-Mac/Blacksmith
+order; a person's re-run stays on the side label.
+
+## note-554
+
+Above `SUPERSEDED_GATE` and `superseded="" head_read=""` in compile-status, and above `if [[ "$state" == superseded ]]` in
+release-compile-fast, in `.github/workflows/cmux-next.yml`.
+
+A feat-cmux-next push the controller will not check (its receipt reads `"state": "superseded"`, a newer push tip
+is checked instead: note-551, cmuxterm-hq cmux_next_tip_debounce.go) gets no compile result, ever. compile-status
+did not take that state as final: it read it every 30 s for its whole 40 minutes, then posted
+`[no-verdict] No compile result for this head in 40 minutes` and failed, and release-compile-fast then read it for
+20 more minutes and handed the head to the Mac fallback. 2026-11-21 04Z..11-23 05Z: 159 failed compile-status jobs
+on feat-cmux-next pushes, 5,774 runner-min (p50 40.1 min each), about 4 min per merged PR.
+
+Now both read the branch head once (anonymous `git ls-remote`, no token) when the receipt says superseded and the run
+has no pull request. A head that moved on ends the wait at once: compile-status posts cmux-next/compile `error`
+`[no-verdict] [superseded] ...` (still no verdict to base_red_excuse.py's COMPILE_STATUS_NO_VERDICT) and ends green;
+release-compile-fast ends green with verdict `superseded`, so neither the admission job nor the Mac Release compile
+runs, as for a push the preflight found superseded. A head that has not moved, or that cannot be read, waits as
+before. Nothing that compiles is skipped: the newer tip's check covers these commits, and a red there names them.
+Undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0'.
+
+## note-555
+
+Above `macos-placement: CI_FAST_TIER_FLEET_SPILL` in `.github/workflows/cmux-next.yml`.
+
+With Blacksmith macOS off, a FLEET_CLIENT_JOBS job (the fast tier) that no idle mini took is listed in
+fleet_jobs, so its build-fleet client runs it on an idle gateway runner instead of waiting on the owned
+label (next_macos_cascade.fleet_spill()). 2026-11-23 09-11Z the fast tier queued 46 to 65 min on
+glaeda-side-std-xcode-26.6 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
+76 over 10 min), oldest 318 min, and all 31 of its slots busy, while placement logged idle gateway runners.
+fleet_gateway() still keeps the job only with an idle gateway runner of its own, and a fleet verdict
+`queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
+no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
+spill off; unset or any other value leaves it on.

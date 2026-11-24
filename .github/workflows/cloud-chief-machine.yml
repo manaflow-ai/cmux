@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
   push:
     branches: [feat-cmux-next]
-    paths: &paths
+    paths:
       - Native/OptChat/optchat-chief/**
       - cmux-tui/bindings/rust/**
       - cmux-tui/crates/cmux-conversation/**
@@ -36,7 +36,22 @@ on:
       - .github/workflows/cloud-chief-machine.yml
   pull_request:
     branches: [feat-cmux-next]
-    paths: *paths
+    paths:
+      - Native/OptChat/optchat-chief/**
+      - cmux-tui/bindings/rust/**
+      - cmux-tui/crates/cmux-conversation/**
+      - cmux-tui/crates/cmux-chief/**
+      - cmux-tui/crates/cmux-server-core/**
+      - cmux-tui/crates/cmux-build-space/**
+      - cmux-tui/crates/cmux-unix-socket/**
+      - cmux-tui/crates/cmux-config/**
+      - cmux-tui/crates/cmux-panic-log/**
+      - cmux-tui/crates/cmux-mcp-connect/**
+      - cmux-tui/crates/cmux-image-linear/**
+      - images/cmux-vm/chief/**
+      - web/scripts/cmux-vm-image/chief-host.ts
+      - scripts/cmux-next/cloud-chief-check.ts
+      - .github/workflows/cloud-chief-machine.yml
 
 permissions:
   contents: read
@@ -101,7 +116,8 @@ jobs:
 
   check:
     needs: build
-    if: github.event_name == 'pull_request'
+    # Same-repository pull requests only (build is skipped for a fork, so this was already); said here so a fork can never reach the pool read below.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment:
       name: cmux-next-vm-image-dev
@@ -143,7 +159,7 @@ jobs:
   publish:
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     environment:
       name: artifacts
       deployment: false

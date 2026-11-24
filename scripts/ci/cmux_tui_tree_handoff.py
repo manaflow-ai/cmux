@@ -96,8 +96,9 @@ GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" /
 class QuotaRefused(RuntimeError):
     """The repo installation's API limit refused a hand-off call."""
 
-    def __init__(self, retry_before: str):
+    def __init__(self, retry_before: str, run_id: int | None = None):
         self.retry_before = retry_before
+        self.run_id = run_id
         super().__init__(retry_before)
 
 
@@ -207,7 +208,7 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
     return True, f"attempt {attempt}"
 
 
-def _gh(*args: str) -> subprocess.CompletedProcess[str]:
+def _gh(*args: str, run_id: int | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
     refused = f"{result.stderr}\n{result.stdout}"
@@ -219,15 +220,15 @@ def _gh(*args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(["gh", *args], capture_output=True, text=True)
         refused = f"{result.stderr}\n{result.stdout}"
     if result.returncode != 0 and RATE_LIMIT_TEXT.search(refused):
-        raise QuotaRefused(_rate_limit_retry_before(refused))
+        raise QuotaRefused(_rate_limit_retry_before(refused), run_id)
     return result
 
 
-def _list(path: str, key: str) -> list[dict]:
+def _list(path: str, key: str, *, run_id: int | None = None) -> list[dict]:
     """Every item of the `key` list of a paginated endpoint, one bounded `gh api` call per page
     (scripts/ci/gh_pages.py; the gh quota wrapper refuses an unbounded paginating call)."""
     def fetch(url: str) -> Any:
-        result = _gh("api", url)
+        result = _gh("api", url, run_id=run_id)
         if result.returncode != 0:
             raise RuntimeError(f"gh api {url} failed: {result.stderr.strip()}")
         return {key: json.loads(result.stdout)[key]}
@@ -241,21 +242,21 @@ def rerun_manifest(repo: str, run_id: int) -> tuple[subprocess.CompletedProcess[
     """Re-run what writes run `run_id`'s commit manifest: its adopt job alone (GitHub re-runs the jobs that need
     it too), else the whole run. (the rerun's result, what was re-run)."""
     try:
-        jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+        jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs", run_id=run_id)
     except RuntimeError as error:
         print(f"::notice::could not read the jobs of run {run_id} ({error}); re-running the whole run")
         jobs = []
     adopt = next((job for job in jobs if job.get("name") == ADOPT_JOB_NAME
                   and job.get("conclusion") in ADOPT_JOB_RAN and job.get("id")), None)
     if adopt is not None:
-        return _gh("run", "rerun", "--job", str(adopt["id"]), "--repo", repo), f"job {adopt['id']} ({ADOPT_JOB_NAME})"
-    return _gh("run", "rerun", str(run_id), "--repo", repo), "the whole run"
+        return _gh("run", "rerun", "--job", str(adopt["id"]), "--repo", repo, run_id=run_id), f"job {adopt['id']} ({ADOPT_JOB_NAME})"
+    return _gh("run", "rerun", str(run_id), "--repo", repo, run_id=run_id), "the whole run"
 
 
 def _delete_marker(repo: str, artifact: int, deferred: int) -> None:
     # Right after the re-run the delete can answer 404: the marker is gone already
     # (2026-11-13: run 43364473890 re-ran its deferred run and went red on that 404).
-    deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
+    deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}", run_id=deferred)
     if deleted.returncode != 0 and MARKER_GONE.search(deleted.stderr):
         print(f"Deferred marker {artifact} of run {deferred} was already gone.")
     elif deleted.returncode != 0:
@@ -271,13 +272,17 @@ def deferred_runs(repo: str, candidates: Sequence[tuple[int, int, str, Mapping[s
         return embedded
     # Artifact workflow_run objects do not include status/run_attempt/created_at. Read one page scoped to this
     # workflow, never the repository-wide run list (which is far past gh_pages.MAX_PAGES on this repository).
-    page = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=100&page=1")
+    # If this shared metadata read is refused, name the first rerunnable candidate rather than the
+    # publishing run. The marker remains actionable: it identifies a deferred workflow to retry.
+    candidate_run = candidates[0][1] if candidates else None
+    page = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=100&page=1",
+               run_id=candidate_run)
     if page.returncode == 0:
         runs = json.loads(page.stdout).get("workflow_runs", [])
         embedded.update({int(run["id"]): run for run in runs if run.get("id") is not None})
     still_missing = [row for row in missing if row[1] not in embedded]
     for _, deferred, _, _ in still_missing:
-        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
+        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}", run_id=deferred)
         if result.returncode == 0 and result.stdout.strip():
             embedded[deferred] = json.loads(result.stdout)
     return embedded
@@ -367,8 +372,9 @@ def main(argv: list[str]) -> int:
         try:
             rerun_published(args.repo, args.run_id, args.key)
         except QuotaRefused as error:
+            rerunnable = error.run_id or args.run_id
             print(f"::error title=deferred runs not re-run::[quota-only] deferred runs not re-run for the "
-                  f"published tree; run {args.run_id}; no attempt before {error.retry_before}; the repo "
+                  f"published tree; run {rerunnable}; no attempt before {error.retry_before}; the repo "
                   "installation's API limit refused its API call. Deferred markers remain for the next run.")
             return 1
         except Exception as error:  # the step fails its job: a deferred commit is left without its manifest

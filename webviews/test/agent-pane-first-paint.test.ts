@@ -95,6 +95,13 @@ class Daemon {
   status = { peers: [{ name: "remote-box", connected: true }] };
   /// The turn opener's own read answers these records of the chat.
   readonly prompts = new Map<string, Step[]>();
+  /// A daemon with the paged prompt-index reply shape: each page is oldest-first, while the next
+  /// request moves `beforeSeq` to that page's first event. Undefined keeps today's whole-index reply.
+  readonly promptIndexPages = new Map<
+    string,
+    (before: number | undefined) => { events: unknown[]; hasMore: boolean }
+  >();
+  readonly turnCounts = new Map<string, number>();
   /// Asks the attach lists as still pending, per chat (`detail.pending`).
   readonly pending = new Map<string, Record<string, unknown>[]>();
   holding?: (message: Message) => boolean;
@@ -144,7 +151,7 @@ class Daemon {
       family: "codex",
       model: "gpt-6.1-sol",
       status: "idle",
-      turnCount: 1,
+      turnCount: this.turnCounts.get(sessionId) ?? 1,
       updatedAt: START,
     };
   }
@@ -187,6 +194,13 @@ class Daemon {
         ...(this.servesOpener ? { turnOpener: null } : {}),
       };
     } else if (message.method === "_acpmux/events") {
+      if (message.params?.promptIndex === true && this.promptIndexPages.has(sessionId)) {
+        const before = typeof message.params?.beforeSeq === "number" ? Number(message.params.beforeSeq) : undefined;
+        const page = this.promptIndexPages.get(sessionId)!(before);
+        result = { ...page, lastSeq: 102 };
+        this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
+        return;
+      }
       const events =
         Array.isArray(message.params?.kinds) && message.params.kinds.includes("user_message")
           ? this.records(sessionId, this.prompts.get(sessionId) ?? [])
@@ -292,6 +306,46 @@ test("a cold tail draws before the full prompt index is read, then fills its lab
     scope.cancelAnimationFrame = savedCancel;
     if (visibility) Object.defineProperty(dom.window.document, "visibilityState", visibility);
     else Reflect.deleteProperty(dom.window.document, "visibilityState");
+  }
+});
+
+test("a paged prompt index prepends older pages and follows the first event cursor", async () => {
+  const daemon = new Daemon("paged-index");
+  const A = daemon.sessionA;
+  daemon.turnCounts.set(A, 4);
+  daemon.pages.set(A, { steps: [prompt("Latest"), reply(A, "Tail ready.")], from: 101, hasMore: true });
+  const requests: (number | undefined)[] = [];
+  const event = (seq: number, text: string) => ({
+    sessionId: A,
+    seq,
+    at: START + seq * 1000,
+    dir: "mux",
+    kind: "user_message",
+    msg: { text },
+  });
+  daemon.promptIndexPages.set(A, (before) => {
+    requests.push(before);
+    if (before === 101) return { events: [event(70, "Older 70"), event(90, "Older 90")], hasMore: true };
+    if (before === 70) return { events: [event(10, "Oldest 10"), event(30, "Older 30")], hasMore: false };
+    throw new Error(`unexpected prompt-index cursor ${String(before)}`);
+  });
+  const { client, last } = await paneOn(daemon);
+  try {
+    await turns(30);
+    expect(requests).toEqual([101, 70]);
+    const earlier = last().earlierPrompts;
+    expect(earlier && Array.from({ length: earlier.length }, (_, index) => PromptHeads.text(earlier, index))).toEqual([
+      "Oldest 10",
+      "Older 30",
+      "Older 70",
+      "Older 90",
+    ]);
+    expect(
+      earlier && Array.from({ length: earlier.length }, (_, index) => PromptHeads.head(earlier, index).seq),
+    ).toEqual([10, 30, 70, 90]);
+    expect(last().promptCount).toBeUndefined();
+  } finally {
+    client.close();
   }
 });
 

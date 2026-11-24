@@ -427,6 +427,23 @@ def table(report):
     return "\n".join(lines)
 
 
+def _settled(summary, unsettled_ms=None):
+    """(settled ms the headline counts, whether it is a floor); inf when nothing was measured."""
+    value = summary.get("settled_ms")
+    if summary.get("unsettled") and not summary.get("failed_rounds") and _number(unsettled_ms):
+        return (max(value, unsettled_ms) if _number(value) else unsettled_ms), True
+    if summary.get("unsettled") or summary.get("failed_rounds") or not _number(value):
+        return float("inf"), False
+    return value, False
+
+
+def unmeasured(cells, unsettled_ms=None):
+    """The cells with a transition that gave no settled time (the headline's None): failed cells, so a report
+    never says 0 failed while its worst cell has no number (the b2dab851a nightly: s1-empty-w1 side_open)."""
+    return sorted({cell for cell, per in cells.items() for summary in per.values()
+                   if _settled(summary, unsettled_ms)[0] == float("inf")})
+
+
 def headline(cells, flat, unsettled_ms=None):
     """The goal check's one number: the worst cell's settled time over all transitions, with the cell, its
     transition and the worst flatness ratio. A cell with a failed round is the worst (settled None: nothing was
@@ -435,11 +452,7 @@ def headline(cells, flat, unsettled_ms=None):
     worst = None
     for cell, per in cells.items():
         for name, summary in per.items():
-            value, floor = summary.get("settled_ms"), False
-            if summary.get("unsettled") and not summary.get("failed_rounds") and _number(unsettled_ms):
-                value, floor = max(value, unsettled_ms) if _number(value) else unsettled_ms, True
-            elif summary.get("unsettled") or summary.get("failed_rounds") or value is None:
-                value = float("inf")
+            value, floor = _settled(summary, unsettled_ms)
             if worst is None or value > worst["settled_ms"]:
                 worst = {"cell": cell, "transition": name, "settled_ms": value, "settled_at_least": floor}
     if worst is None:

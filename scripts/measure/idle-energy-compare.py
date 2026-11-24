@@ -303,7 +303,7 @@ def measure_window(mac: Mac, app_pid: int, roots: tuple[str, ...], seconds: floa
     started_mono = time.monotonic()
     load_before = loadavg()
     pm_thread, pm = mac.powermetrics_async(seconds)
-    time.sleep(seconds)  # test script: the measured idle window
+    time.sleep(seconds)  # sleep-ok: the measured idle window
     end_members = members(process_table(), app_pid, roots)
     last = {pid: mac.counters(pid) for pid in end_members}
     elapsed = time.monotonic() - started_mono
@@ -327,7 +327,7 @@ def measure_window(mac: Mac, app_pid: int, roots: tuple[str, ...], seconds: floa
 def calibrate(mac: Mac, seconds: float) -> dict:
     pm_thread, pm = mac.powermetrics_async(seconds)
     before = loadavg()
-    time.sleep(seconds)  # test script: the no-app calibration window
+    time.sleep(seconds)  # sleep-ok: the no-app calibration window
     pm_thread.join(timeout=40)
     idle = {"seconds": seconds, "loadavg_before": before, "loadavg": loadavg(), "powermetrics": pm,
             "package_mw": pm.get("combined_power_mw") or pm.get("cpu_power_mw")}
@@ -335,7 +335,7 @@ def calibrate(mac: Mac, seconds: float) -> dict:
     try:
         a = mac.counters(control.pid)
         t0 = time.monotonic()
-        time.sleep(5)  # test script: the known-active control's window
+        time.sleep(5)  # sleep-ok: the known-active control's measured window
         b = mac.counters(control.pid)
         elapsed = time.monotonic() - t0
     finally:
