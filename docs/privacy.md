@@ -50,14 +50,16 @@ deletes them.
 
 The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
 HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
-looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
+looked up; the Mac and iPhone apps' Swift makes its sessions, WebSockets and network connections through the same
+gate's Swift side (`Packages/Shared/CmuxEgress`): in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
 site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
-reserved names pass. The gate's host list is generated from this page, so the two stay equal.
+reserved names, single-label names and private-network names (`.ts.net`, `.internal`, `.lan`) pass. Both gates'
+host lists are generated from this page, so they stay equal.
 
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
-(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
-shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
+pages' Content Security Policy comes next.
 
 ## Hosts
 
@@ -102,7 +104,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
-| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast and release notes |
+| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime |
 | `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
