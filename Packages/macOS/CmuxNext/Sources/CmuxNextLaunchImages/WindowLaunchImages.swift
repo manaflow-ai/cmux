@@ -1,9 +1,9 @@
-import AppKit
+public import AppKit
 import CCmuxLaunchImageFFI
 import CmuxNextCompat
-import CmuxNextControl
-import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextControl
+public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// Saves each window's last frame for the next launch's stage 0 (`LaunchShell`): a capture of the
 /// window, published into the launch image store (cmux-launch-image) and keyed in the launch record
