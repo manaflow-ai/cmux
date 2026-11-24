@@ -2095,8 +2095,11 @@ static CELLULAR_PATH: AtomicBool = AtomicBool::new(false);
 /// cellular interface (iOS `NWPath.usesInterfaceType(.cellular)`). Every
 /// tunnel in Auto reads it live ([`ultra_for_dial`]): on cellular its repair
 /// data stays within its data bytes, and its peer is told to keep to that.
+/// On cellular, uploads also wait for consent ([`crate::metered`]); leaving
+/// it releases them.
 pub fn set_cellular_path(cellular: bool) {
     CELLULAR_PATH.store(cellular, Ordering::Relaxed);
+    crate::metered::refresh();
 }
 
 /// The last value [`set_cellular_path`] stored.

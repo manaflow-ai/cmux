@@ -395,7 +395,38 @@ struct Queues {
     turns: VecDeque<u32>,
     /// Queued payload bytes per channel (input and bulk).
     bytes: HashMap<u32, usize>,
+    /// The phone's bulk channels whose data waits for consent on a metered network
+    /// ([`crate::metered`]), and their queued data bytes.
+    consent: std::collections::HashSet<u32>,
+    consent_bytes: usize,
     shutdown: bool,
+}
+
+impl Queues {
+    /// A consent channel's data frame at the head of its queue, held while bulk may not go.
+    fn holds(&self, channel: u32, allowed: bool) -> bool {
+        !allowed
+            && self.consent.contains(&channel)
+            && self.bulk.get(&channel).and_then(VecDeque::front).is_some_and(|frame| is_data(frame.kind))
+    }
+
+    /// The next bulk channel whose head frame may go: round robin, past held ones.
+    fn next_turn(&mut self, allowed: bool) -> Option<u32> {
+        let index = (0..self.turns.len()).find(|index| !self.holds(self.turns[*index], allowed))?;
+        self.turns.remove(index)
+    }
+}
+
+impl Drop for Queues {
+    fn drop(&mut self) {
+        if self.consent_bytes > 0 {
+            crate::metered::dequeued(self.consent_bytes);
+        }
+    }
+}
+
+fn is_data(kind: FrameType) -> bool {
+    matches!(kind, FrameType::Data | FrameType::DeflatedData | FrameType::Sequenced)
 }
 
 enum Next {
@@ -420,6 +451,9 @@ struct Outbox {
     ready: Notify,
     /// Wakes senders waiting for room in their channel's queue.
     room: Notify,
+    /// Consent-channel data bytes written while the phone was metered ([`crate::metered`]).
+    metered_consented: AtomicU64,
+    metered_unconsented: AtomicU64,
 }
 
 impl Outbox {
@@ -436,6 +470,14 @@ impl Outbox {
             }
             Class::Bulk => {
                 let channel = frame.channel;
+                if queues.consent.contains(&channel) {
+                    if is_data(frame.kind) {
+                        queues.consent_bytes += frame.queue_bytes();
+                        crate::metered::queued(frame.queue_bytes());
+                    } else if frame.kind == FrameType::Close {
+                        Self::drop_held(queues, channel);
+                    }
+                }
                 *queues.bytes.entry(channel).or_default() += frame.queue_bytes();
                 let queue = queues.bulk.entry(channel).or_default();
                 if queue.is_empty() {
@@ -444,6 +486,43 @@ impl Outbox {
                 queue.push_back(frame);
             }
         }
+    }
+
+    /// A consent channel closes while its data is held (a cancelled upload on a metered
+    /// network): its held data is never sent, so the close goes alone.
+    fn drop_held(queues: &mut Queues, channel: u32) {
+        queues.consent.remove(&channel);
+        if crate::metered::bulk_allowed() {
+            return;
+        }
+        let Some(queue) = queues.bulk.get_mut(&channel) else { return };
+        let mut dropped = 0;
+        queue.retain(|frame| {
+            let data = is_data(frame.kind);
+            if data {
+                dropped += frame.queue_bytes();
+            }
+            !data
+        });
+        if queue.is_empty() {
+            queues.bulk.remove(&channel);
+            queues.turns.retain(|turn| *turn != channel);
+        }
+        if dropped > 0 {
+            queues.consent_bytes = queues.consent_bytes.saturating_sub(dropped);
+            crate::metered::dequeued(dropped);
+            if let Some(used) = queues.bytes.get_mut(&channel) {
+                *used = used.saturating_sub(dropped);
+                if *used == 0 {
+                    queues.bytes.remove(&channel);
+                }
+            }
+        }
+    }
+
+    /// Hold `channel`'s data for consent on a metered network (before its open is queued).
+    fn hold_for_consent(&self, channel: u32) {
+        self.lock().consent.insert(channel);
     }
 
     /// Queue without waiting (control frames, open, close). `false` once
@@ -498,15 +577,27 @@ impl Outbox {
         if held && !queues.shutdown {
             return None;
         }
+        let allowed = queues.consent.is_empty() || crate::metered::bulk_allowed();
         let frame = if let Some(frame) = queues.input.pop_front() {
             frame
-        } else if let Some(channel) = queues.turns.pop_front() {
+        } else if let Some(channel) = queues.next_turn(allowed) {
             let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
             let frame = queue.pop_front().expect("a turn has a frame");
             if queue.is_empty() {
                 queues.bulk.remove(&channel);
             } else {
                 queues.turns.push_back(channel);
+            }
+            if queues.consent.contains(&channel) && is_data(frame.kind) {
+                let bytes = frame.queue_bytes();
+                queues.consent_bytes = queues.consent_bytes.saturating_sub(bytes);
+                crate::metered::dequeued(bytes);
+                if crate::metered::is_metered() {
+                    let counter = if allowed { &self.metered_consented } else { &self.metered_unconsented };
+                    counter.fetch_add(bytes as u64, Ordering::Relaxed);
+                }
+            } else if frame.kind == FrameType::Close {
+                queues.consent.remove(&channel);
             }
             frame
         } else if queues.shutdown {
@@ -530,10 +621,16 @@ impl Outbox {
             let ready = self.ready.notified();
             tokio::pin!(ready);
             ready.as_mut().enable();
+            // Held consent data goes once the metered gate opens.
+            let mut gate = crate::metered::subscribe();
+            gate.borrow_and_update();
             if let Some(next) = self.pop(held.load(Ordering::Acquire)) {
                 return next;
             }
-            ready.await;
+            tokio::select! {
+                () = ready => {}
+                _ = gate.changed() => {}
+            }
         }
     }
 
@@ -1176,6 +1273,18 @@ impl Link {
         self.inner.media.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    /// Consent-channel bytes this link sent while the phone was metered, with and without the
+    /// person's yes ([`crate::metered`]; the scoreboard's "bulk bytes sent without consent").
+    pub fn metered_bulk_sent(&self) -> crate::metered::MeteredBulkSent {
+        let sum = |pick: fn(&Outbox) -> &AtomicU64| {
+            self.inner.outboxes.iter().map(|outbox| pick(outbox).load(Ordering::Relaxed)).sum()
+        };
+        crate::metered::MeteredBulkSent {
+            consented: sum(|outbox| &outbox.metered_consented),
+            unconsented: sum(|outbox| &outbox.metered_unconsented),
+        }
+    }
+
     pub fn role(&self) -> Role {
         self.inner.role
     }
@@ -1328,6 +1437,9 @@ impl Link {
         };
         let class = Class::from(lane);
         let id = self.inner.next_channel.fetch_add(2, Ordering::Relaxed);
+        if self.inner.role == Role::Phone && lane == Lane::Bulk && crate::metered::needs_consent(service) {
+            self.inner.outboxes[stream].hold_for_consent(id);
+        }
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
         let inbox = Inbox::new(tx, &self.inner, stream, id);

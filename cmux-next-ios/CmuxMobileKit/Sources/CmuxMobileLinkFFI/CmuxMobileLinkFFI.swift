@@ -5376,6 +5376,105 @@ public func FfiConverterTypeMacScreenIceServer_lower(_ value: MacScreenIceServer
 
 
 /**
+ * The metered-upload gate: ask the person when `waiting_bytes > 0`.
+ */
+public struct MeteredBulkState: Equatable, Hashable {
+    /**
+     * The phone is on cellular, or an expensive or constrained network.
+     */
+    public var metered: Bool
+    /**
+     * The person said yes for this metered network.
+     */
+    public var consent: Bool
+    /**
+     * Upload bytes held for consent (0 when uploads may go).
+     */
+    public var waitingBytes: UInt64
+    /**
+     * The person chose to wait for Wi-Fi for this waiting batch.
+     */
+    public var deferred: Bool
+    /**
+     * Monotonic change cursor for race-free observers.
+     */
+    public var revision: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The phone is on cellular, or an expensive or constrained network.
+         */metered: Bool, 
+        /**
+         * The person said yes for this metered network.
+         */consent: Bool, 
+        /**
+         * Upload bytes held for consent (0 when uploads may go).
+         */waitingBytes: UInt64, 
+        /**
+         * The person chose to wait for Wi-Fi for this waiting batch.
+         */deferred: Bool, 
+        /**
+         * Monotonic change cursor for race-free observers.
+         */revision: UInt64) {
+        self.metered = metered
+        self.consent = consent
+        self.waitingBytes = waitingBytes
+        self.deferred = deferred
+        self.revision = revision
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MeteredBulkState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMeteredBulkState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MeteredBulkState {
+        return
+            try MeteredBulkState(
+                metered: FfiConverterBool.read(from: &buf), 
+                consent: FfiConverterBool.read(from: &buf), 
+                waitingBytes: FfiConverterUInt64.read(from: &buf), 
+                deferred: FfiConverterBool.read(from: &buf), 
+                revision: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MeteredBulkState, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.metered, into: &buf)
+        FfiConverterBool.write(value.consent, into: &buf)
+        FfiConverterUInt64.write(value.waitingBytes, into: &buf)
+        FfiConverterBool.write(value.deferred, into: &buf)
+        FfiConverterUInt64.write(value.revision, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMeteredBulkState_lift(_ buf: RustBuffer) throws -> MeteredBulkState {
+    return try FfiConverterTypeMeteredBulkState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMeteredBulkState_lower(_ value: MeteredBulkState) -> RustBuffer {
+    return FfiConverterTypeMeteredBulkState.lower(value)
+}
+
+
+/**
  * One cell to draw. `standing`: 0 speculative (underlined), 1 confirmed
  * (plain, held until its frame), 2 erased (the cell's background only).
  */
@@ -8515,6 +8614,14 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
         )
 }
 /**
+ * The person chose to wait for Wi-Fi for this waiting upload batch.
+ */
+public func deferMeteredBulk()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_defer_metered_bulk($0
+    )
+}
+}
+/**
  * Milliseconds from now until the next keepalive beat of `period_ms`, for
  * the app's own timers (presence, Cloud Chief, the link heartbeat), so
  * they share the Rust keepalives' instants.
@@ -8523,6 +8630,35 @@ public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_keepalive_beat_delay_ms(
         FfiConverterUInt64.lower(periodMs),$0
+    )
+})
+}
+/**
+ * Wait for the gate's next change (it turns metered or not, the consent
+ * changes, or upload bytes start or stop waiting; never per byte) and
+ * return the new state. Loop on it to show and hide the consent prompt.
+ */
+public func meteredBulkChanged(afterRevision: UInt64)async  -> MeteredBulkState  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_metered_bulk_changed(FfiConverterUInt64.lower(afterRevision)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMeteredBulkState_lift,
+            errorHandler: nil
+            
+        )
+}
+/**
+ * The metered-upload gate now.
+ */
+public func meteredBulkState() -> MeteredBulkState  {
+    return try!  FfiConverterTypeMeteredBulkState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_metered_bulk_state($0
     )
 })
 }
@@ -8607,11 +8743,24 @@ public func setBuildSpace(value: String?)  {try! rustCall() {
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
  * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
- * live: on cellular its repair data stays within its data bytes.
+ * live: on cellular its repair data stays within its data bytes, and
+ * uploads wait for `set_metered_bulk_consent(true)`.
  */
 public func setCellularPath(cellular: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_cellular_path(
         FfiConverterBool.lower(cellular),$0
+    )
+}
+}
+/**
+ * The network is expensive or constrained, or not (iOS `NWPath.isExpensive
+ * || NWPath.isConstrained`, Low Data Mode; every path update). With
+ * `set_cellular_path` it makes the phone metered: uploads then wait for
+ * `set_metered_bulk_consent(true)`.
+ */
+public func setConstrainedPath(constrained: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_constrained_path(
+        FfiConverterBool.lower(constrained),$0
     )
 }
 }
@@ -8624,6 +8773,19 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
 public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
         FfiConverterBool.lower(on),$0
+    )
+}
+}
+/**
+ * The person's answer for uploads on this metered network: `true` sends
+ * what waits and every upload until the phone leaves the metered network
+ * (cellular or Low Data Mode), when the yes is forgotten; `false` holds
+ * uploads again. A yes while not metered is not kept. Keystrokes, chat,
+ * pings and screen state never wait.
+ */
+public func setMeteredBulkConsent(consent: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_metered_bulk_consent(
+        FfiConverterBool.lower(consent),$0
     )
 }
 }
@@ -8827,7 +8989,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_with_options() != 39046) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_defer_metered_bulk() != 65514) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_metered_bulk_changed() != 33110) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_metered_bulk_state() != 52254) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
@@ -8842,10 +9013,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 34885) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_constrained_path() != 6801) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_metered_bulk_consent() != 24810) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
