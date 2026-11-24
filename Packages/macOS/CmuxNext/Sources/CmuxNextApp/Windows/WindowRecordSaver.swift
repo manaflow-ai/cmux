@@ -54,7 +54,8 @@ final class WindowRecordSaver {
             self?.host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
         })
     private(set) lazy var launchImages = WindowLaunchImages(windows: { [weak self] in self?.owner?.launchImageWindows ?? [] }, // stage 0's frames
-        isTerminating: { [weak self] in self?.owner?.isTerminating ?? true }, work: work, record: launchRecord, bundleID: host?.environment.launch.bundleID)
+        isTerminating: { [weak self] in self?.owner?.isTerminating ?? true }, work: work,
+        image: { [weak self] window in guard let services = self?.host else { return nil }; return try? await AppWindowImage(services: services).capture(window, overlays: false) }, record: launchRecord, bundleID: host?.environment.launch.bundleID)
     /// Every window's layout, for the next launch to draw already placed.
     private(set) lazy var layoutCache = LayoutCacheWriter(bundleID: host?.environment.launch.bundleID, work: work,
         restored: { [weak self] in self?.host?.windows.restored ?? false }, snapshot: { [weak self] in self?.host?.layoutCacheJSON() })

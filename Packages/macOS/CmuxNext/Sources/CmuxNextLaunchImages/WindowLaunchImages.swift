@@ -21,6 +21,13 @@ public final class WindowLaunchImages {
     private let isTerminating: @MainActor () -> Bool
     private let work: BackgroundWork
     private let record: AppLaunchRecord
+    /// The window as the person sees it, Chromium's pages painted in (the app's `AppWindowImage`): the
+    /// window server alone leaves a browser tab or app page blank. Nil: no image now.
+    private let image: @MainActor (NSWindow) async -> CGImage?
+    /// Each window's last capture or removal, by id: the next one for that window starts after it (a
+    /// close's removal never races a capture still publishing), and the quit waits for them all.
+    private var pending: [String: (serial: UInt64, task: Task<Void, Never>)] = [:]
+    private var serial: UInt64 = 0
     /// `<support>/launch-images`, nil with no bundle id (as the launch record). Lives as long as the app.
     private struct Published: Sendable { let generation: UInt64; let pixelWidth: UInt32; let pixelHeight: UInt32 }
     private let directory: URL?
@@ -37,8 +44,9 @@ public final class WindowLaunchImages {
     }
 
     public init(windows: @escaping @MainActor () -> [(id: String, window: NSWindow)], isTerminating: @escaping @MainActor () -> Bool,
-                work: BackgroundWork, record: AppLaunchRecord, bundleID: String?) {
+                work: BackgroundWork, image: @escaping @MainActor (NSWindow) async -> CGImage?, record: AppLaunchRecord, bundleID: String?) {
         liveWindows = windows
+        self.image = image
         self.isTerminating = isTerminating
         self.work = work
         self.record = record
@@ -97,9 +105,22 @@ public final class WindowLaunchImages {
         let now = Self.nowMs
         for (id, window) in windows {
             guard let schedule = schedules[id], cmux_launch_image_schedule_take_due(schedule, now) else { continue }
-            Task { await capture(id: id, window: window, schedule: schedule) }
+            queue(id) { [weak self, weak window] in
+                if let self, let window { await self.capture(id: id, window: window, schedule: schedule) }
+            }
         }
         arm()
+    }
+
+    /// Runs `body` after the window's previous capture or removal, and keeps it for the quit.
+    private func queue(_ id: String, _ body: @escaping @MainActor () async -> Void) {
+        serial += 1
+        let serial = serial, prior = pending[id]?.task
+        pending[id] = (serial, Task { [weak self] in
+            await prior?.value
+            await body()
+            if self?.pending[id]?.serial == serial { self?.pending[id] = nil }
+        })
     }
 
     /// The quit: every shown window changed since its last capture (or never captured) is captured
@@ -107,6 +128,9 @@ public final class WindowLaunchImages {
     public func captureForQuit() async {
         guard directory != nil else { return }
         timer.cancel()
+        // Captures already running finish first: one that failed or went stale marks its window
+        // changed again, so the quit's own pass below takes it.
+        for running in pending.values.map(\.task) { await running.value }
         var captures: [Task<Void, Never>] = []
         for (id, window) in windows {
             guard let schedule = schedules[id], cmux_launch_image_schedule_take_quit(schedule) else { continue }
@@ -121,7 +145,9 @@ public final class WindowLaunchImages {
         resizing.remove(id)
         guard let directory else { return }
         record.setImage(nil, forWindow: id)
-        work.post(.bestEffort, mayBlock: .files) { _ = cmux_launch_image_remove_window(directory.path, id) }
+        queue(id) { [work] in
+            _ = try? await work.run(.bestEffort, mayBlock: .files) { cmux_launch_image_remove_window(directory.path, id) }
+        }
     }
 
     private func forget(_ id: String) {
@@ -131,13 +157,12 @@ public final class WindowLaunchImages {
     private func capture(id: String, window: NSWindow, schedule: OpaquePointer) async {
         guard let directory else { return }
         let epoch = cmux_launch_image_schedule_epoch(schedule)
-        let number = CGWindowID(window.windowNumber)
         let scale = window.backingScaleFactor
         let expected = (width: Int((window.frame.width * scale).rounded()), height: Int((window.frame.height * scale).rounded()))
         let live = windows.map(\.id)
+        let shot = await image(window).flatMap { abs($0.width - expected.width) <= 1 && abs($0.height - expected.height) <= 1 ? $0 : nil }
         let published = try? await work.run(.userVisible, mayBlock: .files) { () -> Published? in
-            guard let image = NSWindow.windowServerImage(of: Int(number)), abs(image.width - expected.width) <= 1, abs(image.height - expected.height) <= 1,
-                  let png = image.unfilteredPNGData() else { return nil }
+            guard let shot, let png = shot.unfilteredPNGData() else { return nil }
             try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             var out = CmuxLaunchImage()
             let ok = png.withUnsafeBytes { bytes in
