@@ -647,7 +647,18 @@ fn action_list_export_matches() {
                 cmux_action_catalog::json::shortcut(&c.second)
             ])
         });
-        assert_eq!(row["default_chord"], chord, "{id}");
+        // A chord added to an action the pinned app already has waits for the re-pin like a
+        // shortcut does; once the export has it, the marker's /defaultChord line is stale.
+        if field_awaits_repin(id, "/defaultChord") {
+            assert_ne!(
+                row["default_chord"],
+                chord,
+                "action-surfaces.json has {id}'s chord: the re-pin landed, so take /defaultChord out of {}",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["default_chord"], chord, "{id}");
+        }
         assert_eq!(
             row["palette_suggested"],
             serde_json::json!(action.palette_suggestion_rank()),
