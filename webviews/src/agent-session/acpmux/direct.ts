@@ -7951,8 +7951,12 @@ export class AcpmuxDirectClient {
     return loading;
   }
 
-  /// A rail jump to a prompt newer than the window (`laterPrompts`): one read of the page that starts at the
-  /// prompt, by its seq, which becomes the window; nothing between is read. True once the prompt is held.
+  /// A rail jump to a prompt newer than the window (`laterPrompts`): the page that starts at the prompt, by its
+  /// seq, becomes the window, with the whole turns of the rest page just before it read in the same round trip;
+  /// nothing further between is read. True once the prompt is held.
+  /// The page before: a window that started at the prompt put the view at its top edge, so the transcript's older
+  /// check read that page right after, and its fold was a second heavy commit before the prompt painted (a rail
+  /// click on a later prompt took 254-338 ms, bench/chat-fast-scroll.bench.ts, rail_click_paint p95).
   private async jumpNewer(seq: number): Promise<boolean> {
     const left = this.newerLeft;
     const sessionId = this.selectedSessionId;
@@ -7960,6 +7964,15 @@ export class AcpmuxDirectClient {
     if (this.loadingNewer) await this.loadingNewer.catch(() => undefined);
     if (this.newerLeft !== left || seq <= left.after) return this.loadThrough(seq);
     const generation = this.selectionGeneration;
+    const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
+    // A failed read of the page before costs only the room above: the jump lands as it did without it.
+    const before = this.typed("_acpmux/events", {
+      sessionId,
+      beforeSeq: seq,
+      limit: OLDER_REST_PAGE_RECORDS,
+      maxBytes: OLDER_REST_PAGE_BYTES,
+      kinds,
+    }).catch(() => undefined);
     let result: any;
     try {
       result = await this.typed("_acpmux/events", {
@@ -7967,16 +7980,23 @@ export class AcpmuxDirectClient {
         afterSeq: seq - 1,
         limit: OLDER_PAGE_RECORDS,
         maxBytes: OLDER_PAGE_BYTES,
-        kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
+        kinds,
       });
     } catch {
       return false;
     }
+    const prior = await before;
     if (this.closed || this.newerLeft !== left || generation !== this.selectionGeneration) return false;
     const page = records(result?.events)
       .filter((event) => event.seq >= seq)
       .sort((a, b) => a.seq - b.seq);
     if (page[0]?.seq !== seq) return false;
+    // The page before, from its first whole turn on, so the window still folds from a turn's start.
+    const older = records(prior?.events)
+      .filter((event) => event.seq > 0 && event.seq < seq)
+      .sort((a, b) => a.seq - b.seq);
+    const start = older.length === 0 ? -1 : startsTurn(older[0]!) ? 0 : newerCut(older, 0, () => Infinity);
+    const above = start >= 0 ? older.slice(start) : [];
     // The window's prompts stay on the rail as earlier ones.
     for (const head of this.promptsHeldIn(-Infinity, Infinity)) this.shedPrompts.set(head.seq, head);
     this.shedPromptsVersion += 1;
@@ -7987,7 +8007,7 @@ export class AcpmuxDirectClient {
       left.after = page.at(-1)!.seq;
       left.fold = undefined;
     }
-    this.events = page;
+    this.events = above.length > 0 ? [...above, ...page] : page;
     this.turnOpener = undefined;
     this.historyExhausted = false;
     this.historyEpoch += 1;
