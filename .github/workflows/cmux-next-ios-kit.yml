@@ -27,6 +27,7 @@ name: cmux-next-ios kit tests
 # (#43476).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
@@ -137,7 +138,7 @@ concurrency:
   # GitHub still cancels a run that is pending in a group when a newer one joins it, so the
   # nightly, queued behind a running push run, was dropped by the next push (43572826977,
   # 2026-11-14, by push run 43574629185), and the bench went stale.
-  group: cmux-next-ios-kit-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
+  group: cmux-next-ios-kit-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -149,6 +150,7 @@ jobs:
   # on retries. Keeping this picker ahead of the test job lets the rescue
   # sweeper re-admit a job that stalls on a dead owned label.
   runner:
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
@@ -299,7 +301,7 @@ jobs:
     # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
     # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    if: ${{ (!fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
