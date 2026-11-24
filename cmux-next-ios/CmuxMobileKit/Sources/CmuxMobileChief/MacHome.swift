@@ -454,6 +454,8 @@ public final class MacHomeFeed {
 
     /// The `retry-home-failed` demo: the last read failed on a live link.
     public func setProblemForDemo(_ text: String) { problem = text }
+    /// The `retry-home-updating` demo: the rows show as the ones this phone kept, the Mac's not in yet.
+    public func setKeptForDemo() { isShowingKeptRows = true }
 
     /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
     /// a few other conversations, with no link.

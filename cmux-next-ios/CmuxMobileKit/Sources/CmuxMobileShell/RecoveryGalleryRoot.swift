@@ -38,6 +38,9 @@ import SwiftUI
 /// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
 ///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
 ///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `quiet-before`, `quiet-a`, `quiet-b`, `quiet-c`: the places that said "Updating…" over rows
+///   the phone had, before and in three variants (Leo 2026-11-24: "they dont need to know that
+///   it's updating before they KNOW it's updating"); A is the one the app shows (`QuietUpdatingGallery`).
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -56,7 +59,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "quiet"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -91,6 +94,8 @@ public struct RecoveryGalleryRoot: View {
                 connectionChips
             case "chiplist":
                 listChips
+            case "quiet":
+                QuietUpdatingGallery(variant: variant ?? "a")
             case "cloudmachines-held":
                 NavigationStack { CloudMachinesScreen(model: .gallery(held: true), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
