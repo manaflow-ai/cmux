@@ -10109,9 +10109,10 @@ export class AcpmuxDirectClient {
       // After a cut only the cut message's own text goes on in its row; anything else starts below.
       if (this.assistantCut && messageId !== this.streamingAssistantMessageId) this.endAssistantSegment();
       // acpmux ends a reply's segment where the pane cuts its row (hub/stream.rs `cuts_reply`): a
-      // chunk of another segment starts its own row. Under the same messageId it goes on in the row:
-      // acpmux numbered the message again without a step (a turn that started under it, a restart),
-      // and a step the pane saw already ended the row.
+      // chunk of another segment starts its own row, even under the same messageId, so a page that
+      // lacks the record the cut was at (a thought, a call) still draws the two rows. Under the same
+      // messageId, a segment of another turn or boot goes on in the row: acpmux numbered the message
+      // again without a step (a turn that started under it, a restart), never a cut.
       const stampedSegment = replySegment(event);
       const stamped = stampedSegment === undefined ? undefined : replyRowKey(stampedSegment, messageId);
       const segment = this.streamingSegment;
@@ -10120,7 +10121,7 @@ export class AcpmuxDirectClient {
         this.streamingAssistant &&
         segment?.row === this.streamingAssistant &&
         segment.segment !== stamped &&
-        (!messageId || messageId !== this.streamingAssistantMessageId)
+        (!messageId || messageId !== this.streamingAssistantMessageId || !renumberedSegment(segment.segment, stamped))
       ) {
         const prior = this.rows.get(this.streamingAssistant);
         if (prior) this.rows.set(prior.id, { ...prior, version: prior.version + 1, streaming: false });
@@ -16895,4 +16896,12 @@ const probeRefusals = new Set(["remote.unsupported", "transport.method_refused",
 function refusedByHost(error: AcpmuxRpcError): boolean {
   const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
   return data?.origin === "native";
+}
+
+/// Whether `next` is `previous` numbered again rather than cut: acpmux names a segment
+/// `<turn>.<boot>.<n>` (hub/stream.rs `reply_segment_for`), and a cut keeps the turn and boot and
+/// bumps `n`, while a new turn or a daemon restart changes the prefix.
+function renumberedSegment(previous: string, next: string): boolean {
+  const prefix = (segment: string) => segment.slice(0, Math.max(0, segment.lastIndexOf(".")));
+  return prefix(previous) !== prefix(next);
 }
