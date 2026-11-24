@@ -5602,6 +5602,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
   }, []);
+  // Rows in the strict viewport advance the daemon's persisted seen cursor. The client keeps this
+  // callback cheap by reducing the rows to one highest event sequence and sending only forward.
+  const seenRows = useCallback(
+    (rows: readonly AcpmuxRow[]) => {
+      if (shownSessionId) directClient.current?.markSeenRows(shownSessionId, rows);
+    },
+    [shownSessionId],
+  );
   // A return (a chat picked, its tab or window shown again; Leo, 2026-11-15, of the terminal's
   // "157 new messages" rule: "we needto properly do somthing like this in the gui somehow") with
   // something new to read lands at the line, not the latest: the view opens where the new part
@@ -9260,6 +9268,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   sinceKey={childRows ? undefined : sinceKey}
                                                                   promptAuthor={directClient.current?.presence.selfId}
                                                                   onJumpToSince={jumpToSince}
+                                                                  onSeenRows={childRows ? undefined : seenRows}
                                                                   clockOffset={snapshot.clockOffsetMs ?? 0}
                                                                   coldOpen={
                                                                     !childRows && opened.cold ? opened.open : undefined
