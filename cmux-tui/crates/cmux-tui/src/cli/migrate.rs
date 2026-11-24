@@ -317,19 +317,26 @@ pub(super) fn read_source(source: &str) -> Result<Plan, String> {
     if !root.is_dir() {
         return Err(format!("{source}: not a folder or a known source (see cmux migrate --help)"));
     }
-    if !devcontainer::find(&root).is_empty() {
-        return Ok(devcontainer::plan(&root));
-    }
-    if compose::find(&root).is_some() {
-        return Ok(compose::plan(&root));
-    }
-    if nix::project(&root).is_some() {
-        return Ok(nix::plan(&root));
+    // A checkout's CI config and secret references join whichever project the reader below makes.
+    let routed = if !devcontainer::find(&root).is_empty() {
+        Some(devcontainer::plan(&root))
+    } else if compose::find(&root).is_some() {
+        Some(compose::plan(&root))
+    } else if nix::project(&root).is_some() {
+        Some(nix::plan(&root))
+    } else {
+        None
+    };
+    if let Some(mut plan) = routed {
+        cmux_migrate::sources::merge_ci_and_secrets(&root, &mut plan);
+        return Ok(plan);
     }
     let root = root.canonicalize().map_err(|e| format!("{source}: {e}"))?;
     let mut options = laptop::Options::new(laptop::host_name());
-    options.roots = Some(vec![root]);
-    Ok(laptop::plan(&home, &options, &laptop::GitCli::default()))
+    options.roots = Some(vec![root.clone()]);
+    let mut plan = laptop::plan(&home, &options, &laptop::GitCli::default());
+    cmux_migrate::sources::merge_ci_and_secrets(&root, &mut plan);
+    Ok(plan)
 }
 
 fn product_named(word: &str) -> Option<Product> {
