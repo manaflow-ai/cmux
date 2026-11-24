@@ -34,6 +34,9 @@ export type FooterFact = {
   since?: number;
   /// Worth a counter in the footer row itself now.
   live: boolean;
+  /// Worth its words in the footer at rest (the machine of a chat on another machine); the pane
+  /// draws it only behind `composer-machine-at-rest`.
+  atRest?: boolean;
 };
 
 export type ComposerStatus = { items: StatusItem[]; facts: FooterFact[] };
@@ -151,6 +154,7 @@ function readFact(value: unknown): FooterFact | undefined {
   if (fraction !== undefined) fact.fraction = Math.min(1, Math.max(0, fraction));
   const since = time(raw.since);
   if (since !== undefined) fact.since = since;
+  if (raw.atRest === true) fact.atRest = true;
   return fact;
 }
 
