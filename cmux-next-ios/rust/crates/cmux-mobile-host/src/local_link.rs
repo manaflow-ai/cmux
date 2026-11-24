@@ -114,7 +114,11 @@ pub async fn start(
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     });
-    let tag = services.pairing.as_ref().map(|p| local::key_tag(p.identity.public_key().as_bytes()));
+    // The identity as of now; a Mac paired later advertises without a tag
+    // until its next start, and a phone then matches on the id alone.
+    let tag = services.pairing.as_ref().and_then(|p| {
+        p.identity.borrow().as_ref().map(|identity| local::key_tag(identity.public_key().as_bytes()))
+    });
     let ad = LocalAd { device_id: config.device_id.clone(), version: AD_VERSION, tag };
     let mdns = advertise(&ad, hub.port());
     tracing::info!(port = hub.port(), advertised = mdns.is_some(), "local link hub up");

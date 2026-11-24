@@ -248,7 +248,11 @@ mod tests {
         let addr: SocketAddr = format!("127.0.0.1:{}", hub.port()).parse().unwrap();
         let phone = crate::local::connect_hub(&[addr], "phone").await.unwrap();
         assert!(phone.is_local() && mac.is_local());
-        phone.send_signal("mac", "s1", SignalPayload::Bye { reason: "hi".into() }).unwrap();
+        // A wg-init opens a session on the Mac's side (a bye alone would not).
+        let init: SignalPayload = serde_json::from_value(json!(
+            {"kind":"wg-init","publicKey":"k","endpoints":["192.168.1.4:5"],"overlayIP":"10.77.0.2"}))
+        .unwrap();
+        phone.send_signal("mac", "s1", init).unwrap();
         let session = tokio::time::timeout(std::time::Duration::from_secs(5), mac.next_session())
             .await
             .unwrap()
