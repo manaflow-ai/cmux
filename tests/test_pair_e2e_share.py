@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from cmux_next_pair_share_host import TaggedShareHost, share_without_asking_off
-from cmux_next_pair_share_phone import PairSharePhone
+from cmux_next_pair_share_phone import PairShareFailure, PairSharePhone, screen_sharing_page_state
 from cmux_next_screen_sharing_proof import positive_fps
 
 
@@ -105,3 +105,33 @@ class ShareWithoutAskingOffTests(unittest.TestCase):
                       {"value": None}, {"exists": True, "value": None}, None):
             with self.subTest(reply=reply):
                 self.assertFalse(share_without_asking_off(reply))
+
+
+class MacRowTests(unittest.TestCase):
+    """The phone's row for the rig Mac, whatever case the hub spells its id in."""
+
+    def test_the_page_state_names_only_fixed_words_and_a_count(self):
+        nodes = [{"AXIdentifier": "screenSharing.empty"}, {"AXIdentifier": "screenSharing.device.ABC", "AXLabel": "Mac"}]
+        self.assertEqual(screen_sharing_page_state(nodes), "page state: empty; Mac rows: 1")
+        self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0")
+
+    def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
+        row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig"}
+        alert = {"type": "StaticText", "AXLabel": "rig isn't sharing its screen"}
+        button = {"type": "Button", "AXLabel": "Share rig"}
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([row, alert, button])
+        taps = []
+        phone.ui.tap = taps.append
+        phone.request_share("rig", "abc-1")
+        self.assertEqual(taps, [row, button])
+
+    def test_a_missing_row_says_what_the_page_showed(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"AXIdentifier": "screenSharing.failed"}])
+        phone.ui.run = lambda *args, **kwargs: None
+        phone.ui.udid = "sim"
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0"):
+                phone.request_share("rig", "abc-1")
