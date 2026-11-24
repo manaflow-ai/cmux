@@ -277,7 +277,7 @@ fn capacity_and_rate_limits_are_waited_out() {
     assert!(super::waits_it_out(RetryReason::RateLimit, &delays));
     assert!(!super::waits_it_out(RetryReason::Transport, &delays));
     assert!(!super::waits_it_out(RetryReason::RateLimit, &[]));
-    // Both errors on gcp-agent-lane-2's 18 failed lanes (2026-11-23) are one of the two.
+    // Both errors on the 18 lanes one machine left failed on 2026-11-23 are one of the two.
     for (error, reason) in [
         (
             "API Error: 503 no non-exhausted claude accounts available; next account frees up in 9m (retry after 540s)",
