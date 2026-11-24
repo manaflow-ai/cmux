@@ -312,25 +312,6 @@ final class PaneCommitMotion {
         return act == .zoom || act == .unzoom ? (act: act, change: changes[0]) : nil
     }
 
-    /// Where a pane that comes into `rect` starts: with no room, on the edge of `rect` that is away from the pane
-    /// that gave it its room (the one of `staying` that had the most of `rect`). The edge between the two then goes
-    /// with that pane's edge. Nil: no pane had that room, or it is on no side of `rect`; the pane shows at once.
-    private static func start(of rect: CGRect, among staying: [Change]) -> CGRect? {
-        var giver: Change?
-        var most: CGFloat = 0
-        for change in staying {
-            let shared = change.old.intersection(rect)
-            let area = shared.isNull ? 0 : shared.width * shared.height
-            if area > most { (giver, most) = (change, area) }
-        }
-        guard let now = giver?.new else { return nil }
-        if now.maxX <= rect.minX + 1 { return CGRect(x: rect.maxX, y: rect.minY, width: 0, height: rect.height) }
-        if now.minX >= rect.maxX - 1 { return CGRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height) }
-        if now.maxY <= rect.minY + 1 { return CGRect(x: rect.minX, y: rect.maxY, width: rect.width, height: 0) }
-        if now.minY >= rect.maxY - 1 { return CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: 0) }
-        return nil
-    }
-
     /// One frame tick of the motion's time. The tick in which the time is spent takes the moves away, but not under a
     /// change that waits for its frame: the pass that shows that change ends the motion or adds to it
     /// (``panesPlaced(on:)``). The frame clock steps before that pass, and a change can wait for its panes' surfaces,
