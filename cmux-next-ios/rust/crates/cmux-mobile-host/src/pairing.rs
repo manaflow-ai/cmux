@@ -1297,7 +1297,7 @@ mod tests {
         let n = 20_000u32;
         for (name, message) in [("v1", &v1), ("v2", &v2)] {
             let started = Instant::now();
-            let signature = (0..n).map(|_| id.sign(message).unwrap()).last().unwrap();
+            let signature = (0..n).map(|_| id.sign(message).unwrap()).next_back().unwrap();
             let sign = started.elapsed() / n;
             let started = Instant::now();
             assert!((0..n).all(|_| verify(id.public_key(), message, &signature)));
