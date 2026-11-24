@@ -33,10 +33,16 @@ extension WorkspaceDetailView {
         }
     }
 
-    /// The paired Mac behind this workspace, or `nil` for SSH workspaces.
-    var browserTunnelMacID: String? {
+    /// The exact paired Mac app instance behind this workspace, or `nil`
+    /// for SSH workspaces. Only a row without a Mac identity uses the
+    /// foreground connection's identity.
+    var browserTunnelMacKey: MacPairingKey? {
         guard sshHostID == nil else { return nil }
-        return workspace.macDeviceID ?? store.connectedMacDeviceID
+        if let macID = workspace.macDeviceID {
+            return MacPairingKey(macDeviceID: macID, instanceTag: workspace.macInstanceTag)
+        }
+        guard let macID = store.connectedMacDeviceID else { return nil }
+        return MacPairingKey(macDeviceID: macID, instanceTag: store.connectedMacInstanceTag)
     }
 
     /// In a Mac workspace whose Mac serves the browser tunnel, the native
@@ -44,13 +50,13 @@ extension WorkspaceDetailView {
     /// mirrored onto the phone's, `*.localhost` names go through a SOCKS
     /// proxy to the Mac, and other hosts go through the Mac only when the Mac
     /// allows it (otherwise over the phone's own network). One data store per
-    /// Mac.
+    /// Mac app instance.
     var macBrowserRoute: BrowserServerRoute? {
-        guard let macID = browserTunnelMacID,
-              store.macBrowserTunnelAvailability(macDeviceID: macID).bindsBrowserToMac else { return nil }
+        guard let pairingKey = browserTunnelMacKey,
+              store.macBrowserTunnelAvailability(pairingKey: pairingKey).bindsBrowserToMac else { return nil }
         let store = store
-        return BrowserServerRoute.route(id: "mac:\(macID)") { loopbackPort in
-            try await store.prepareMacBrowserNetwork(macDeviceID: macID, loopbackPort: loopbackPort)
+        return BrowserServerRoute.route(id: pairingKey.browserNetworkID) { loopbackPort in
+            try await store.prepareMacBrowserNetwork(pairingKey: pairingKey, loopbackPort: loopbackPort)
         }
     }
 
@@ -95,7 +101,7 @@ extension WorkspaceDetailView {
 
     /// Why "On iPhone" cannot be chosen in this Mac workspace, or nil.
     private var macOnDeviceUnavailableReason: String? {
-        switch store.macBrowserTunnelAvailability(macDeviceID: browserTunnelMacID) {
+        switch store.macBrowserTunnelAvailability(pairingKey: browserTunnelMacKey) {
         case .available:
             nil
         case .needsMacUpdate:
