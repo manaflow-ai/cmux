@@ -108,7 +108,7 @@ extension DaemonLanePolicy {
         "send-key": ["keys", "surface"],
         "server-stats": ["include"],
         "set-cell-pixels": ["height_px", "width_px"],
-        "set-client-info": ["api_revision", "capabilities", "device_id", "device_kind", "device_name", "display_name", "install", "kind", "name", "remote", "user_id", "version"],
+        "set-client-info": ["api_revision", "api_version", "capabilities", "device_id", "device_kind", "device_name", "display_name", "install", "kind", "name", "remote", "user_id", "version"],
         "set-client-sizing": ["client", "enabled", "exclusive", "surface"],
         "set-host-size-policy": ["policy"],
         "set-personal-workspace": ["browser_profile_id", "group", "index", "remote_localhost", "session_id", "theme", "workspace_key"],
