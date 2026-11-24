@@ -836,6 +836,207 @@ fn resend_scale_bench() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A busy chat's id of turn `turn`, as long as the UUIDs its records carry.
+#[cfg(unix)]
+fn busy_id(prefix: char, turn: u64) -> String {
+    format!("{prefix}{turn:035}")
+}
+
+#[cfg(unix)]
+/// A busy chat's turn as Leo's coordinators log one: its prompt records, a dozen process and
+/// background task updates (indexed, never asked of a keyed scan), agent updates (not indexed),
+/// and an inbox message and its notice every third turn.
+fn append_busy_turn(
+    store: &LocalStore,
+    id: &str,
+    seq: &mut u64,
+    turn: u64,
+    log: &mut Vec<EventRecord>,
+) {
+    let mut kinds = vec!["queued", "user_message", "turn_started"];
+    if turn.is_multiple_of(3) {
+        kinds.extend(["inbox", "inbox_noticed"]);
+    }
+    for _ in 0..6 {
+        kinds.extend(["process_update", "background_task_update"]);
+    }
+    kinds.extend(std::iter::repeat_n("tool_call_update", 10));
+    kinds.extend(["turn_result", "turn_end"]);
+    for kind in kinds {
+        *seq += 1;
+        let pad = match kind {
+            "user_message" => 2048,
+            "tool_call_update" => 640,
+            _ => 120,
+        };
+        let msg = match kind {
+            "inbox" => json!({"promptId": busy_id('m', turn), "text": "x".repeat(pad)}),
+            "inbox_noticed" => {
+                json!({"promptIds": [busy_id('m', turn)], "turnId": busy_id('t', turn)})
+            }
+            _ => {
+                json!({"promptId": busy_id('p', turn), "turnId": busy_id('t', turn), "text": "x".repeat(pad)})
+            }
+        };
+        let dir = if kind == "tool_call_update" { "in" } else { "mux" };
+        let r = EventRecord {
+            seq: *seq,
+            at: *seq,
+            dir: dir.into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        store.append(id, &r).unwrap();
+        log.push(r);
+    }
+}
+
+#[cfg(unix)]
+/// The records a resend's keyed scans read of `prompt` and its turn (as [`resend_reads`] keeps).
+fn resend_records(log: &[EventRecord], prompt: &str) -> u64 {
+    const INBOX: &[&str] = &["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
+    let turn = prompt.replacen('p', "t", 1);
+    let names = |r: &EventRecord| {
+        r.msg["promptIds"].as_array().is_some_and(|ids| ids.iter().any(|v| v == prompt))
+    };
+    let own = |r: &EventRecord| r.msg["promptId"] == prompt || names(r);
+    let inbox = log.iter().filter(|r| INBOX.contains(&r.kind.as_str()) && own(r)).count();
+    let state = log
+        .iter()
+        .filter(|r| PROMPT_KINDS.contains(&r.kind.as_str()))
+        .filter(|r| own(r) || r.msg["turnId"] == turn.as_str() || r.kind == "turn_stop_requested")
+        .count();
+    (inbox + state) as u64
+}
+
+/// Detector for a resend that reads its chat's copies again (cmux NEXT nightly, 2026-11-22:
+/// `prompt_with`'s `logged_inbox_answer` and `logged_prompt_records` 23% of the daemon's CPU,
+/// `read_kind_index`, `fnv_on` and `Head::read` most of it). The held heads were of every indexed
+/// kind, so a chat whose process updates alone passed the heads' budget had each segment's heads
+/// evicted, least recently read first, just before its next scan asked for them: every resend
+/// read and parsed every copy whole. Heads are held of the kinds a keyed scan asks only, and a
+/// chat's scan never evicts its own, so once a chat is read a resend reads no copy.
+#[cfg(unix)]
+#[test]
+fn a_resend_of_a_chat_past_the_heads_budget_reads_no_copy_again() {
+    // 10 resends (20 keyed scans) of a chat of many segments under `budget`: the copies they read
+    // whole for heads, the chat's segments, and the heads' bytes held after.
+    let reads = |every_kind: bool, budget: Option<usize>| {
+        let root = root();
+        let store = LocalStore::new(root.clone(), 64 << 10).unwrap();
+        let (mut seq, mut log) = (0, Vec::new());
+        for turn in 0..240 {
+            append_busy_turn(&store, "c", &mut seq, turn, &mut log);
+        }
+        store.flush().unwrap();
+        let segments = store.segments("c").unwrap().len() as u64;
+        kind_heads::EVERY_KIND.with(|k| k.set(every_kind));
+        kind_heads::BUDGET_FOR.with(|b| b.set(budget));
+        // The first resends read each copy once (and make those the log lacks).
+        resend_reads(&store, "c", &busy_id('p', 0));
+        resend_reads(&store, "c", &busy_id('p', 0));
+        kind_heads::COPY_READS.with(|n| n.set(0));
+        for call in 0..10u64 {
+            let prompt = busy_id('p', (call * 37) % 240);
+            assert_eq!(
+                resend_reads(&store, "c", &prompt),
+                resend_records(&log, &prompt),
+                "{prompt}"
+            );
+        }
+        let copies = kind_heads::COPY_READS.with(|n| n.get());
+        let held = store.kind_heads.held_bytes();
+        kind_heads::EVERY_KIND.with(|k| k.set(false));
+        kind_heads::BUDGET_FOR.with(|b| b.set(None));
+        let _ = std::fs::remove_dir_all(&root);
+        (copies, segments, held)
+    };
+    let scans = 20u64;
+    // With no budget to speak of, every segment's heads are held either way, and no copy is read
+    // again; the heads of the kinds asked are a fraction of every indexed kind's.
+    let (copies, segments, every_bytes) = reads(true, Some(usize::MAX));
+    assert!(segments >= 30, "a log of many segments ({segments})");
+    assert_eq!(copies, 0);
+    let (copies, _, keyed_bytes) = reads(false, Some(usize::MAX));
+    assert_eq!(copies, 0);
+    assert!(keyed_bytes * 2 < every_bytes, "{keyed_bytes} of {every_bytes} heads' bytes");
+    // A budget the chat's asked heads fit in and its every indexed head do not.
+    let budget = Some((keyed_bytes + every_bytes) / 2);
+    let (before, ..) = reads(true, budget);
+    assert!(
+        before >= segments * scans * 9 / 10,
+        "every head held: {scans} scans read {before} copies of {segments} segments"
+    );
+    let (after, ..) = reads(false, budget);
+    assert_eq!(after, 0, "{scans} keyed scans of a {segments}-segment chat read {after} copies");
+    // A chat whose asked heads alone pass the budget keeps those it fit: a scan reads only the
+    // rest's copies, not every one.
+    let (over, ..) = reads(false, Some(keyed_bytes / 2));
+    assert!(over > 0 && over < segments * scans * 3 / 4, "{over} copies of {}", segments * scans);
+}
+
+/// A resend's reads of a chat the size of Leo's busiest, timed (one harness, before and after):
+/// `ACPMUX_PROMPT_BENCH=1 cargo test --release -p acpmux --lib resend_past_budget_bench --
+/// --ignored --nocapture`. One chat of `ACPMUX_PROMPT_BENCH_TURNS` turns (default 12,000: about
+/// 220,000 indexed lines with ids as long as UUIDs, in 8 MiB segments, as his chat of 221,388
+/// indexed lines in 771 segments, half of them process and background task updates).
+/// `before`: the heads of every indexed kind held, least recently read evicted across chats, as
+/// the NIGHTLY ran; past the heads' 32 MiB budget, so each resend reads every copy again.
+#[cfg(unix)]
+#[test]
+#[ignore = "a timing harness, run by hand"]
+fn resend_past_budget_bench() {
+    let root = root();
+    let turns: u64 = std::env::var("ACPMUX_PROMPT_BENCH_TURNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(12_000);
+    {
+        let store = LocalStore::new(root.clone(), 8 << 20).unwrap();
+        let (mut seq, mut log) = (0, Vec::new());
+        for turn in 0..turns {
+            append_busy_turn(&store, "coord", &mut seq, turn, &mut log);
+            log.clear();
+        }
+        store.flush().unwrap();
+        // The copies made, as a running daemon's log loads made them.
+        store.scan_kinds("coord", INDEXED_KINDS, &mut |_| true).unwrap();
+    }
+    let cpu = || {
+        // SAFETY: getrusage fills a zeroed struct this closure owns.
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+        let ms = |v: libc::timeval| v.tv_sec as f64 * 1e3 + v.tv_usec as f64 / 1e3;
+        ms(usage.ru_utime) + ms(usage.ru_stime)
+    };
+    for (label, every_kind) in [("before", true), ("after", false)] {
+        let store = LocalStore::new(root.clone(), 8 << 20).unwrap();
+        let segments = store.segments("coord").unwrap().len();
+        kind_heads::EVERY_KIND.with(|k| k.set(every_kind));
+        resend_reads(&store, "coord", &busy_id('p', 0));
+        kind_heads::COPY_READS.with(|n| n.set(0));
+        let calls = 50u64;
+        let (started, cpu0) = (std::time::Instant::now(), cpu());
+        for call in 0..calls {
+            resend_reads(&store, "coord", &busy_id('p', (call * 7919) % turns));
+        }
+        let (wall, cpu_ms) = (started.elapsed().as_secs_f64() * 1e3, cpu() - cpu0);
+        let copies = kind_heads::COPY_READS.with(|n| n.get());
+        println!(
+            "PROMPT_BENCH {label} turns={turns} segments={segments} resends={calls} \
+             heads_held_mib={:.1} copy_reads_per_resend={:.1} wall_ms_per_resend={:.2} \
+             cpu_ms_per_resend={:.2}",
+            store.kind_heads.held_bytes() as f64 / f64::from(1 << 20),
+            copies as f64 / calls as f64,
+            wall / calls as f64,
+            cpu_ms / calls as f64,
+        );
+        kind_heads::EVERY_KIND.with(|k| k.set(false));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
 fn thread_read_bytes() -> u64 {
     std::fs::read_to_string("/proc/thread-self/io")

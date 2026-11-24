@@ -30,6 +30,8 @@ mod kind_heads;
 mod kind_index;
 mod sealed_segments;
 mod segment_starts;
+#[cfg(test)]
+pub(crate) use kind_heads::KEYED_KINDS;
 mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS, carry_copy as carry_kind_index};
