@@ -120,7 +120,8 @@ extension SidebarViewComponents {
             rowFlows = CornerFlush.sidebarRowFlows
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
-            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
+            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize,
+                              DesignSettings.shared.overrides[.spaceButtonSpacing] ?? 0]
             // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
             topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
                       "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",

@@ -116,12 +116,15 @@ final class ProfileBarView: NSView {
 
     /// Where every space and the "+" sit now.
     var strip: SpaceStrip {
-        ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
-                              center: Double(centerX ?? bounds.width / 2),
-                              minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
-                              slot: Double(slot), plus: Double(slot),
-                              fullMinimum: Double(Metrics.roomDotSlot * 0.75), compactMinimum: Double(Metrics.roomDotDiameter + Metrics.space1),
-                              plusRidesContent: plusRidesContent)
+        // A user-set pitch stays the same as the row fills and starts scrolling.
+        let fixedSpacing = DesignSettings.shared.overrides[.spaceButtonSpacing] != nil
+        return ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
+                                     center: Double(centerX ?? bounds.width / 2),
+                                     minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
+                                     slot: Double(slot), plus: Double(slot),
+                                     fullMinimum: Double(fixedSpacing ? slot : slot * 0.75),
+                                     compactMinimum: Double(fixedSpacing ? slot : Metrics.roomDotDiameter + Metrics.space1),
+                                     plusRidesContent: plusRidesContent)
     }
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
