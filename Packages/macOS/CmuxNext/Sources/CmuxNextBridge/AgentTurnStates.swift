@@ -320,6 +320,14 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         }
     }
 
+    /// Whether someone renamed the chat (acpmux `rename`): it has former names, and its title is the one
+    /// the new name gave it (`titleSource` `named`, hub/turns.rs `rename_as`). That title is real: the
+    /// sidebar row and the workspace it names follow the rename (Leo, 2026-11-22: "I DON'T KNOW WHO'S BEEN
+    /// RENAMED TO WHAT THE PROPAGATION OF RENAMES ARE INCOMPLETE").
+    static func isRenamed(_ summary: [String: Any]) -> Bool {
+        summary["titleSource"] as? String == "named" && !((summary["formerNames"] as? [Any])?.isEmpty ?? true)
+    }
+
     /// The agent's title, else (with `includingPrompt`) the latest prompt, as ``title(_:includingPrompt:)`` reads them.
     private static func chatTitle(_ summary: [String: Any], includingPrompt: Bool) -> String? {
         if !includingPrompt {
@@ -328,7 +336,7 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
             // may feed durable workspace auto-naming; an absent source is an
             // older daemon and is intentionally treated as unknown.
             let source = summary["titleSource"] as? String
-            guard let source, ["harness", "generated", "adopted"].contains(source) else { return nil }
+            guard let source, ["harness", "generated", "adopted"].contains(source) || isRenamed(summary) else { return nil }
         }
         if let title = summary["title"] as? String, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return promptGist(title)

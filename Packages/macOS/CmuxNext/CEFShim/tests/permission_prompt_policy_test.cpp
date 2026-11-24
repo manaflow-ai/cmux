@@ -3,10 +3,10 @@
 //
 // A page that called Notification.requestPermission() in a Chromium tab waited for good
 // (cmux nightly 1bd15914, 2026-11-10: still pending after 75 s, permission `default`): the
-// request stayed with Chromium, whose bubble cmux never shows. cmux shows no web notification
-// from a Chromium tab, so the request must end at once. It ends unanswered, never refused
-// (Lawrence, 2026-11-11): a refusal is remembered for the site and would block a later real
-// notification feature; unanswered, the permission stays `default`. Camera and microphone
+// request stayed with Chromium, whose bubble cmux never shows. It first ended unanswered
+// (Lawrence, 2026-11-11: no refusal stored against a later notification feature); now that a
+// Chromium tab's notifications reach cmux's banner, it asks in the host's prompt bar, so a site
+// like meet.google.com can turn its notifications on. Camera and microphone
 // requests waited for good the same way (a Meet call never got its camera), so they ask in
 // the host's prompt bar like location.
 #include <cstdint>
@@ -28,8 +28,8 @@ int main() {
   const uint32_t mic = cmux_shim::kPermissionMicrophone;
   const Case cases[] = {
       {"location asks in the host's prompt bar", cmux_shim::kPermissionGeolocation, PermissionPromptRoute::kHost},
-      {"a notification request ends at once, unanswered", cmux_shim::kPermissionNotifications,
-       PermissionPromptRoute::kEndUnanswered},
+      {"a notification request asks in the host's prompt bar", cmux_shim::kPermissionNotifications,
+       PermissionPromptRoute::kHost},
       {"notifications grouped with location stay with Chromium",
        cmux_shim::kPermissionNotifications | cmux_shim::kPermissionGeolocation, PermissionPromptRoute::kChromium},
       {"notifications grouped with another kind stay with Chromium", cmux_shim::kPermissionNotifications | surface,

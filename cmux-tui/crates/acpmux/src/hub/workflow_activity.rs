@@ -844,51 +844,48 @@ impl Hub {
         let mut active = false;
         let mut reply = String::new();
         let mut message_open = false;
-        self.store
-            .scan_strict(&session.id, 0, &mut |record| {
-                if record.dir == "mux" && record.kind == "turn_started" {
-                    if record.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
-                        turn = record.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                        active = true;
-                    } else if active {
-                        return false;
-                    }
-                }
-                if !active {
-                    return true;
-                }
-                if record.dir == "mux"
-                    && matches!(record.kind.as_str(), "turn_end" | "turn_error" | "turn_result")
-                    && record.msg.get("turnId").and_then(Value::as_str) == turn.as_deref()
-                {
+        self.scan_strict_off(&session.id, 0, &mut |record| {
+            if record.dir == "mux" && record.kind == "turn_started" {
+                if record.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
+                    turn = record.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    active = true;
+                } else if active {
                     return false;
                 }
-                if record.dir == "in"
-                    && record.msg.pointer("/params/_meta/acpmux/subagent").is_none()
-                {
-                    match record.kind.as_str() {
-                        "agent_message_chunk" => {
-                            if let Some(text) = record
-                                .msg
-                                .pointer("/params/update/content/text")
-                                .and_then(Value::as_str)
-                            {
-                                if !message_open {
-                                    reply.clear();
-                                    message_open = true;
-                                }
-                                reply.push_str(text);
+            }
+            if !active {
+                return true;
+            }
+            if record.dir == "mux"
+                && matches!(record.kind.as_str(), "turn_end" | "turn_error" | "turn_result")
+                && record.msg.get("turnId").and_then(Value::as_str) == turn.as_deref()
+            {
+                return false;
+            }
+            if record.dir == "in" && record.msg.pointer("/params/_meta/acpmux/subagent").is_none() {
+                match record.kind.as_str() {
+                    "agent_message_chunk" => {
+                        if let Some(text) = record
+                            .msg
+                            .pointer("/params/update/content/text")
+                            .and_then(Value::as_str)
+                        {
+                            if !message_open {
+                                reply.clear();
+                                message_open = true;
                             }
+                            reply.push_str(text);
                         }
-                        "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => {
-                            message_open = false
-                        }
-                        _ => {}
                     }
+                    "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => {
+                        message_open = false
+                    }
+                    _ => {}
                 }
-                true
-            })
-            .map_err(workflow_error)?;
+            }
+            true
+        })
+        .map_err(workflow_error)?;
         if !active {
             return Err(RpcError::internal("workflow prompt has no exact persisted turn"));
         }

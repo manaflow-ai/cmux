@@ -792,6 +792,9 @@ impl Started {
             {
                 *slot = Some(sid.clone());
             }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
+            }
             tr
         });
         let codex = (spec.translator.is_none() && spec.codex_bridge)
@@ -1483,6 +1486,13 @@ impl State {
             }
             // An immediate local answer, as if Claude replied.
             Outbound::Reply(reply) => self.push(Entry::In { msg: reply.to_value() }),
+            // Written first, so Claude Code reads them; then answered without it.
+            Outbound::LinesThenReply(lines, reply) => {
+                for l in lines {
+                    self.write_claude_line(l);
+                }
+                self.push(Entry::In { msg: reply.to_value() });
+            }
         }
     }
 

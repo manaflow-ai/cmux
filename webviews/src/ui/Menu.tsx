@@ -1,11 +1,11 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
+import { PopupResizeGrips, type PopupResizeOptions } from "./PopupResize";
 import {
   createContext,
   use,
   useCallback,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -15,6 +15,7 @@ import {
   type PointerEvent,
   type ReactNode,
   type RefObject,
+  useMemo,
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
@@ -24,6 +25,7 @@ import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
+import { usePointerMenuPosition } from "./pointerMenuPosition";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
@@ -327,6 +329,8 @@ export function MenuButton({
 }
 
 export interface MenuPopupProps {
+  /** The trigger marks a right-click point. Its menu can cross the point to show every row. */
+  atPointer?: boolean;
   id?: string;
   label?: string;
   className?: string;
@@ -367,6 +371,9 @@ export interface MenuPopupProps {
   scroll?: boolean;
   /** Pinned below the scrolling rows, outside their edge fade. */
   footer?: ReactNode;
+  /** Resizable from its edges away from its button, its size kept under `resize.id` (PopupResize.tsx).
+   *  A top or bottom menu only; never a submenu. */
+  resize?: PopupResizeOptions;
   children: ReactNode;
 }
 
@@ -382,6 +389,7 @@ type MenuArmsValue = { look: MenuStyleArm; states: MenuRowStatesArm };
 const MenuArms = createContext<MenuArmsValue | null>(null);
 
 export function MenuPopup({
+  atPointer = false,
   id,
   label,
   className,
@@ -396,6 +404,7 @@ export function MenuPopup({
   matchTrigger = false,
   scroll = true,
   footer,
+  resize,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -428,10 +437,11 @@ export function MenuPopup({
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
       if (node) popupNode.current = node;
-      if (host) setPopup(node);
+      if (host || atPointer) setPopup(node);
     },
-    [host],
+    [host, atPointer],
   );
+  const pointPlace = usePointerMenuPosition(popup, atPointer ? (triggerRef ?? null) : null);
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
     escapes && (side === "top" || side === "bottom") ? host : null,
@@ -449,25 +459,30 @@ export function MenuPopup({
       <BaseMenu.Positioner
         className="ui-positioner"
         positionMethod={positionMethod}
-        anchor={anchor}
-        side={side}
+        anchor={pointPlace?.anchor ?? anchor}
+        side={pointPlace?.side ?? side}
         collisionAvoidance={popupCollision(flip)}
-        collisionPadding={padding}
+        collisionPadding={atPointer ? 0 : padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
-        sideOffset={flush ? MENU_V2_INSET : UI_ANCHOR_GAP}
-        {...(flush ? { alignOffset: -MENU_V2_INSET } : {})}
+        // Base UI types both offsets as `number | OffsetFunction` (internals/useAnchorPositioning.d.ts) and calls a
+        // function on each placement, so a look's tokens are read when the submenu opens, not when it mounts.
+        // Unset, a submenu keeps today's offsets: flush with its row under menu-style-v2, else the anchor gap.
+        sideOffset={atPointer ? 0 : nested ? (flush ? flushSubmenuOffset : submenuOffset) : UI_ANCHOR_GAP}
+        {...(nested ? { alignOffset: flush ? flushSubmenuAlignOffset : submenuAlignOffset } : {})}
       >
         <BaseMenu.Popup
+          data-pointer-menu={atPointer ? "" : undefined}
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
           data-popup-shift={flip === "shift" ? "" : undefined}
-          // Only a page with a host measures its menus; the others render as they did.
+          // A point menu measures its rows, as does a menu that can escape to the host.
           ref={attachPopup}
           id={id}
           aria-label={label}
           // The App's menu glass under the page (glass/hostGlass.ts).
           data-host-glass="menu"
           data-host-glass-cover=""
+          data-surface-role="menu"
           // The experiments' arms (menuStyleV2, menuRowStates), styled in popupSurface.css; off draws none.
           data-menu-style={arms.look === "off" ? undefined : arms.look}
           data-menu-states={arms.states === "off" ? undefined : arms.states}
@@ -501,6 +516,9 @@ export function MenuPopup({
             <PopupBoundary value={collisionBoundary}>
               <MenuArms value={arms}>
                 <PopupSurface value={className}>
+                  {resize && !nested && (side === "top" || side === "bottom") && (
+                    <PopupResizeGrips resize={resize} side={side} align={align === "end" ? "end" : "start"} />
+                  )}
                   {scroll ? (
                     <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
                       {children}
@@ -545,6 +563,33 @@ function focusAfterClose(
   return false;
 }
 
+/** A submenu's distance from its menu: a look's `--menu-submenu-offset` (px, on :root; negative
+ *  overlaps the menu), else the gap every anchored menu takes. Read as the submenu is placed, so a
+ *  look's stylesheet applies on the next open with no reload. */
+function submenuOffset(): number {
+  return rootLength("--menu-submenu-offset") ?? UI_ANCHOR_GAP;
+}
+
+/** A submenu's shift along its row: a look's `--menu-submenu-align-offset` (px; negative moves a
+ *  submenu that grows down up, so its first row lines up with the row that opened it), else none. */
+function submenuAlignOffset(): number {
+  return rootLength("--menu-submenu-align-offset") ?? 0;
+}
+
+/** The same two under menu-style-v2, whose submenu sits flush with its row: unset, MENU_V2_INSET. */
+function flushSubmenuOffset(): number {
+  return rootLength("--menu-submenu-offset") ?? MENU_V2_INSET;
+}
+
+function flushSubmenuAlignOffset(): number {
+  return rootLength("--menu-submenu-align-offset") ?? -MENU_V2_INSET;
+}
+
+function rootLength(token: string): number | undefined {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(token));
+  return Number.isFinite(value) ? value : undefined;
+}
+
 /** What a menu opened from: its `anchor` (an element or a virtual anchor), else its open trigger. */
 function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | null): AnchorBox | null {
   const resolved = typeof anchor === "function" ? anchor() : anchor && "current" in anchor ? anchor.current : anchor;
@@ -563,6 +608,8 @@ export interface MenuItemProps {
    *  the menu-row-states experiment. */
   reason?: string;
   shortcut?: ReactNode;
+  /** A second, quieter line under the row's title (`children`, the title's text). */
+  subtitle?: ReactNode;
   onPointerMove?(event: PointerEvent<HTMLElement>): void;
   onPointerEnter?(event: PointerEvent<HTMLElement>): void;
   onPointerLeave?(event: PointerEvent<HTMLElement>): void;
@@ -593,6 +640,7 @@ export function MenuItem({
   disabled,
   reason,
   shortcut,
+  subtitle,
   onPointerMove,
   onPointerEnter,
   onPointerLeave,
@@ -691,7 +739,14 @@ export function MenuItem({
       }}
     >
       <RowLabel disabled={disabled} reason={reason}>
-        {children}
+        {subtitle ? (
+          <span className="ui-menu-text">
+            <span className="ui-menu-label">{children}</span>
+            <span className="ui-menu-subtitle">{subtitle}</span>
+          </span>
+        ) : (
+          children
+        )}
       </RowLabel>
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
       {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}

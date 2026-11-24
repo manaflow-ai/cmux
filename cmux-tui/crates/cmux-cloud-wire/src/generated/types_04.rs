@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicy {
+    pub version: i64,
+    pub values: TeamPolicyValues,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<String>,
+}
+
 /// Set keys of a team policy; an absent key means the product default and the user's choice.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValues {
