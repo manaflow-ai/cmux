@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "eb8afb3014ad738e2a4790ea3c1ee78348b38b92d2e9169c79ddd97f6a8fd96a",
+  "catalog_sha256": "f372987f95bfc5fce9562b5e0c2d1b51068ba3cf597a1e8aa3e6dd3857614e94",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -200,6 +200,9 @@
       "class": "mutation"
     },
     "cloud.machine.chief_start": {
+      "class": "mutation"
+    },
+    "cloud.machine.fork": {
       "class": "mutation"
     },
     "cloud.machine.io": {
@@ -790,6 +793,9 @@
     "settings.get": {
       "class": "read"
     },
+    "settings.history": {
+      "class": "read"
+    },
     "settings.list": {
       "class": "read"
     },
@@ -797,6 +803,12 @@
       "class": "mutation"
     },
     "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
       "class": "mutation"
     },
     "settings.schema": {
@@ -807,6 +819,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"
