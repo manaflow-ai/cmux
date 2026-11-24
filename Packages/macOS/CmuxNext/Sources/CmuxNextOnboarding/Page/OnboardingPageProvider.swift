@@ -111,11 +111,24 @@ final class OnboardingPageProvider: PageProvider {
             guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
             model.makeItYours.setWorkStyle(value)
         case "cmux.onboarding.makeItYours.density":
-            guard let value = DensityChoice(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
-            model.makeItYours.setDensity(value)
+            guard model.makeItYours.setDensity(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
         case "cmux.onboarding.makeItYours.background":
             // null: no background.
             guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
+        case "cmux.onboarding.makeItYours.opacity":
+            guard let value = params["value"]?.doubleValue, model.makeItYours.setOpacity(value) else { throw PageError.invalidParams("opacity is 0 to 1") }
+        case "cmux.onboarding.makeItYours.material":
+            guard let value = FirstRunMaterial(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown material") }
+            model.makeItYours.setMaterial(value)
+        case "cmux.onboarding.makeItYours.walk":
+            // {writes: [{path: "a.b", value}]}: a missing or null value removes the setting.
+            guard let rows = params["writes"]?.arrayValue, !rows.isEmpty else { throw PageError.invalidParams("writes is required") }
+            let writes = try rows.map { row in
+                guard let path = row["path"]?.stringValue, !path.isEmpty else { throw PageError.invalidParams("path is required") }
+                let value = row["value"].flatMap { $0 == .null ? nil : $0 }
+                return FirstRunWalkWrite(path: path.split(separator: ".").map(String.init), value: value)
+            }
+            guard model.makeItYours.setWalk(writes) else { throw PageError.invalidParams("not a setting the intro writes") }
         default: throw PageError.unknownOp(op)
         }
     }

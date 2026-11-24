@@ -284,25 +284,52 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         private enum Keys: String, CodingKey { case id, name, preview }
     }
 
+    /// One density of Make cmux Yours (ops.ts `MakeItYoursDensity`).
+    struct Density: Encodable, Equatable {
+        let id: String
+        let name: String
+    }
+
     /// The Make cmux Yours step (ops.ts `MakeItYoursState`).
     struct MakeItYours: Encodable, Equatable {
         let workStyle: String
         let density: String
+        let densities: [Density]
         /// The background's id; null: none.
         let background: String?
         let backgrounds: [Background]
+        /// The Opacity slider's value (the one set, else what the window shows); null: unknown.
+        let opacity: Double?
+        /// Whether the person's settings set the Opacity (else it is the theme's).
+        let opacitySet: Bool
+        /// `appearance.backgroundBlur`; null: unset (the theme's).
+        let material: String?
+        let materials: [String]
+        /// The intro walk's other settings now, by dotted path (absent: unset).
+        let walk: [String: JSONValue]
+        /// `experiments.introWalk`: the four screens; false: today's one screen.
+        let introWalk: Bool
         let loaded: Bool
 
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
             try c.encode(workStyle, forKey: .workStyle)
             try c.encode(density, forKey: .density)
+            try c.encode(densities, forKey: .densities)
             try c.encodeNullable(background, forKey: .background)
             try c.encode(backgrounds, forKey: .backgrounds)
+            try c.encodeNullable(opacity, forKey: .opacity)
+            try c.encode(opacitySet, forKey: .opacitySet)
+            try c.encodeNullable(material, forKey: .material)
+            try c.encode(materials, forKey: .materials)
+            try c.encode(walk, forKey: .walk)
+            try c.encode(introWalk, forKey: .introWalk)
             try c.encode(loaded, forKey: .loaded)
         }
 
-        private enum Keys: String, CodingKey { case workStyle, density, background, backgrounds, loaded }
+        private enum Keys: String, CodingKey {
+            case workStyle, density, densities, background, backgrounds, opacity, opacitySet, material, materials, walk, introWalk, loaded
+        }
     }
 
     let step: String
@@ -354,9 +381,13 @@ extension OnboardingPageState {
     @MainActor
     static func makeItYours(_ model: MakeItYoursStepModel) -> MakeItYours {
         let choices = model.choices
-        return MakeItYours(workStyle: choices.workStyle.rawValue, density: choices.density.rawValue, background: choices.background,
+        return MakeItYours(workStyle: choices.workStyle.rawValue, density: choices.density,
+                           densities: model.densities.map { Density(id: $0.id, name: $0.name) },
+                           background: choices.background,
                            backgrounds: model.backgrounds.map { Background(id: $0.id, name: $0.name, preview: $0.preview.map { Image(src: $0, template: false) }) },
-                           loaded: model.loaded)
+                           opacity: model.shownOpacity.map { ($0 * 100).rounded() / 100 }, opacitySet: choices.opacity != nil,
+                           material: choices.material?.rawValue, materials: FirstRunMaterial.allCases.map(\.rawValue),
+                           walk: model.walk, introWalk: model.introWalk, loaded: model.loaded)
     }
 
     /// The footer's quiet button: Skip Importing over the Keychain explainer.

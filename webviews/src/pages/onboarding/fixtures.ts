@@ -8,10 +8,11 @@ import type {
   ImportCounts,
   ImportRow,
   ImportState,
+  MakeItYoursBackground,
+  MakeItYoursDensity,
+  MakeItYoursState,
   OnboardingFooter,
   OnboardingState,
-  MakeItYoursBackground,
-  MakeItYoursState,
 } from "./ops";
 import { agentFamily } from "../shared/signIn/ProviderReadiness";
 import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
@@ -459,30 +460,46 @@ function painting(sky: string, hill: string): HostImage {
 }
 
 const BACKGROUNDS: MakeItYoursBackground[] = [
-  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  {
-    id: "friedrich-forest-moonlight",
-    name: "Forest in the Moonlight — Caspar David Friedrich",
-    preview: painting("#1f2b3a", "#0e151d"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  },
-  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  {
-    id: "rembrandt-storm-galilee",
-    name: "The Storm on the Sea of Galilee — Rembrandt",
-    preview: painting("#2c3236", "#151a1c"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  },
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: fixture painting
+  { id: "van-gogh-starry-night", name: "The Starry Night", preview: painting("#1d2b52", "#0e1424") }, // colour-allow: fixture painting
+  { id: "hokusai-great-wave", name: "The Great Wave off Kanagawa", preview: painting("#d9ccb0", "#2a4a6a") }, // colour-allow: fixture painting
+  { id: "friedrich-wanderer", name: "Wanderer above the Sea of Fog", preview: painting("#8a96a0", "#2a2622") }, // colour-allow: fixture painting
+  { id: "dahl-dresden-moonlight", name: "View of Dresden by Moonlight", preview: painting("#1f2b3a", "#0e151d") }, // colour-allow: fixture painting
+  { id: "monet-water-lilies-setting-sun", name: "Water Lilies, Setting Sun", preview: painting("#c07a3a", "#3a4a2a") }, // colour-allow: fixture painting
+  { id: "hiroshige-kanbara-snow", name: "Night Snow at Kanbara", preview: painting("#2c3236", "#e8e8e8") }, // colour-allow: fixture painting
+  { id: "van-gogh-almond-blossom", name: "Almond Blossom", preview: painting("#6aa6b0", "#e8efe8") }, // colour-allow: fixture painting
+  { id: "bruegel-hunters-snow", name: "The Hunters in the Snow", preview: painting("#9aaca8", "#eaeae4") }, // colour-allow: fixture painting
+  { id: "roerich-himalayas", name: "Himalayas", preview: painting("#3a5a8a", "#a06a4a") }, // colour-allow: fixture painting
+  { id: "vermeer-pearl-earring", name: "Girl with a Pearl Earring", preview: painting("#101418", "#3a4a6a") }, // colour-allow: fixture painting
+];
+
+/** Every built-in density, by Settings' names. */
+const DENSITIES: MakeItYoursDensity[] = [
+  { id: "ultraCompact", name: "Ultra-compact" },
+  { id: "compact", name: "Compact" },
+  { id: "cozy", name: "Default" },
+  { id: "comfortable", name: "Comfortable" },
+  { id: "spacious", name: "Spacious" },
 ];
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
  * Terminal First, and after a person picked Compact and a painting. */
-export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
+export function makeItYoursState(
+  kind: MakeItYoursFixture = "fresh",
+  { introWalk = false }: { introWalk?: boolean } = {},
+): OnboardingState {
   const choices: MakeItYoursState = {
     workStyle: kind === "terminal" ? "terminal" : "gui",
-    density: kind === "picked" ? "compact" : "standard",
-    background: kind === "picked" ? "friedrich-forest-moonlight" : null,
+    density: kind === "picked" ? "compact" : "cozy",
+    densities: DENSITIES,
+    background: kind === "picked" ? "dahl-dresden-moonlight" : null,
     backgrounds: kind === "loading" ? [] : BACKGROUNDS,
+    opacity: kind === "picked" ? 0.6 : 1,
+    opacitySet: kind === "picked",
+    material: kind === "picked" ? "frosted" : null,
+    materials: ["none", "frosted", "glass", "glass-clear"],
     loaded: kind !== "loading",
+    ...(introWalk ? { introWalk: true } : {}),
   };
   return {
     step: "makeItYours",
@@ -493,3 +510,77 @@ export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): Onboarding
     makeItYours: choices,
   };
 }
+
+// MARK: The intro walk's gallery arms (gallery only: no host op, nothing shipped reads these)
+
+/** A whole-app look, applied as one atomic write with one Undo (the walk's step 1). `traits` draw its
+ * miniature; `sets` is what the one write would change, as settings keys. */
+export interface WalkBundle {
+  id: string;
+  name: string;
+  line: string;
+  sets: string[];
+  traits: { glass?: boolean; twoTone?: boolean; solid?: boolean; dense?: boolean };
+}
+
+/** The five bundles the walk's look step offers (House is the control: today's defaults). */
+export const WALK_BUNDLES: readonly WalkBundle[] = [
+  { id: "house", name: "House", line: "Today's cmux, as it ships.", sets: [], traits: {} },
+  {
+    id: "glasshouse",
+    name: "Glasshouse",
+    line: "Glass panes over a painting that shows through.",
+    sets: ["appearance.backgroundImage", "appearance.backgroundBlur: glass", "appearance.backgroundOpacity: 60%"],
+    traits: { glass: true },
+  },
+  {
+    id: "twoToneStudio",
+    name: "Two-Tone Studio",
+    line: "Sidebar and tab bar in a second color from your theme.",
+    sets: ["appearance.twoTone: auto"],
+    traits: { twoTone: true },
+  },
+  {
+    id: "quietSolid",
+    name: "Quiet Solid",
+    line: "Opaque, no picture and no glass: the calmest window.",
+    sets: ["appearance.backgroundImage: none", "appearance.backgroundBlur: none"],
+    traits: { solid: true },
+  },
+  {
+    id: "denseOperator",
+    name: "Dense Operator",
+    line: "Compact rows, so many sessions fit at once.",
+    sets: ["appearance.density: compact"],
+    traits: { dense: true },
+  },
+];
+
+/** `agents.defaultPermissionMode`, with the shipped value (fullAccess) first-picked. */
+export const WALK_PERMISSIONS = [
+  {
+    id: "ask",
+    name: "Ask",
+    line: "Agents ask before they edit a file or run a command.",
+  },
+  {
+    id: "standard",
+    name: "Standard",
+    line: "Each agent keeps its own rules, as it does outside cmux.",
+  },
+  {
+    id: "fullAccess",
+    name: "Full access",
+    line: "Agents edit and run commands without asking; stop one any time.",
+  },
+] as const;
+export const WALK_SHIPPED_PERMISSION = "fullAccess";
+
+/** Notification noise: `notifications.desktop` and `notifications.sound` together. The shipped pair
+ * (unlessFocused, default sound) is Banners and sound. */
+export const WALK_NOISE = [
+  { id: "quiet", name: "Quiet", line: "No banners or sounds; the sidebar marks a chat that needs you." },
+  { id: "banners", name: "Banners", line: "A banner when an agent finishes or needs you, silent." },
+  { id: "bannersSound", name: "Banners and sound", line: "A banner and a sound when an agent finishes or needs you." },
+] as const;
+export const WALK_SHIPPED_NOISE = "bannersSound";

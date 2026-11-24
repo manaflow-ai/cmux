@@ -540,6 +540,13 @@
     },
     {
       "agent": "settable",
+      "why": "The intro walk prototype only changes how Make cmux Yours is drawn; an agent may turn it on to try it.",
+      "keys": [
+        "experiments.introWalk"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
         "home.channelsEnabled"
