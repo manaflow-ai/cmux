@@ -63,7 +63,7 @@ if has resume || has fork || has soak; then
   has soak && tests+=(soak)
   PUBLISHED_BENCH_SAMPLES="$samples" PUBLISHED_BENCH_SOAK_SECS="$soak_secs" \
     cargo test --locked -p acpmux --release --test published_bench -- --ignored --nocapture \
-    --test-threads 1 --exact "${tests[@]}" >"$out/bench.log" 2>&1 || status=$?
+    --test-threads 1 --exact ${tests[@]+"${tests[@]}"} >"$out/bench.log" 2>&1 || status=$?
   # The test harness prints `test NAME ... ` before a test's own output, on the same line.
   grep -oE 'PUBLISHED-BENCH \{.*\}' "$out/bench.log" | tee -a "$out/rows.log" || true
   grep -E '^test result' "$out/bench.log" || true
