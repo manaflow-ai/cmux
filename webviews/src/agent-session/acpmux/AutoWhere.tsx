@@ -4,7 +4,7 @@
 // (autoWhere.css), which hold still under reduced motion.
 import "./autoWhere.css";
 import { useId } from "react";
-import { useT } from "./i18n";
+import { useT, type StringKey } from "./i18n";
 import { type AutoLanding, type AutoLook, landingMove, landingTextKey } from "./autoWhereModel";
 
 /// Auto's icon. `split` (ships): half a computer, half a cloud, cut by an angled slash: this Mac or
@@ -197,6 +197,18 @@ export function AutoArrival({
           </svg>
         </button>
       )}
+    </div>
+  );
+}
+
+/// The one-shot line shown while Auto's scale-up admission starts a machine. It uses the arrival
+/// line's existing Auto styling; the model decides whether the text is present.
+export function AutoAddingMachineLine({ text, look }: { text: StringKey; look: AutoLook }) {
+  const t = useT();
+  return (
+    <div className="acpmux-auto-arrival" data-auto-look={look} data-went="scalingUp" role="status">
+      <AutoIcon look={look} />
+      <span className="acpmux-auto-arrival-text">{t(text)}</span>
     </div>
   );
 }

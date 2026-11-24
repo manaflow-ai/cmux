@@ -237,6 +237,7 @@ import {
 } from "./cloudMachines";
 import {
   AUTO_LOOK,
+  autoAddingMachineLine,
   autoTargets,
   decideAuto,
   landingMove,
@@ -7794,6 +7795,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     autoArrivalShown !== undefined &&
     autoArrivalShown !== "deciding" &&
     offloads.includes(landingMove(autoArrivalShown));
+  const autoAddingMachine =
+    snapshot.startupAdmission &&
+    (snapshot.startupAdmission.sessionId === snapshot.sessionId || (newSession && !snapshot.sessionId))
+      ? autoAddingMachineLine(snapshot.startupAdmission)
+      : undefined;
   useEffect(() => {
     if (cloudRouteHostKind !== "cloud" || !snapshot.sessionId) return;
     const landing = takeCloudLanding(autoCloudStartKey);
@@ -9750,6 +9756,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     showNewTab,
     composerModeRows,
     autoArrival: autoArrivalShown,
+    autoAddingMachine,
     autoArrivalMove,
     onAutoArrivalDismiss: () => setAutoArrival(undefined),
     autoSendGate,
