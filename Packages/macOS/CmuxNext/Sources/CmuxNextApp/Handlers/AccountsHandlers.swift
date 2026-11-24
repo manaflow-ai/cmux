@@ -19,9 +19,10 @@ enum AccountsHandlers {
             try services.settingsWindow.show(section: .accounts, setting: MobileSettings.allowIPhoneConnectionsPath.joined(separator: "."),
                                              focus: invocation.allowsViewChange)
         })
-        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { _ in
-            try services.settingsWindow.show(section: .accounts)
-            return .applied(result: { await services.accounts.github.connectResult() })
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { invocation in
+            // A chat card's Connect (it names the repository) stays in the chat: GitHub's page opens, Settings does not.
+            if invocation["repo"] == nil { try services.settingsWindow.show(section: .accounts) }
+            return .applied(result: { await services.accounts.github.connectResult(invocation) })
         })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
