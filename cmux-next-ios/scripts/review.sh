@@ -294,6 +294,12 @@ sim_step_ended() {
   local step="$1" attempt
   [[ -n "$step" ]] || return 1
   cmux_ci status "$step" 2>/dev/null | grep -Eq '"state": *"(failed|cancelled|timeout|timed_out)"' || return 1
+  sim_next_attempt
+}
+
+# The next head's step gets a new key (sim_key's -rN).
+sim_next_attempt() {
+  local attempt
   attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
   [[ "$attempt" =~ ^[0-9]+$ ]] || attempt=0
   printf '%s\n' "$((attempt + 1))" >"$STATE/sim-attempt"
@@ -353,7 +359,9 @@ fleet_finish_sim() {
   # delivery the controller dropped ("no session was delivered within 10m0s", step 1e1c4a5c2700774f73411917 while
   # the controller timed out, 2026-11-24) says nothing about the build: send one new step, once.
   if [[ $rc -ne 0 ]] && grep -q "no session was delivered" "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null; then
-    sim_step_ended "$SIM_STEP" || true
+    # The step's own log says it ended; a status read that fails (the controller timing out, as when the
+    # delivery was lost) must not resend under the dead step's key, which answers with that step again.
+    sim_step_ended "$SIM_STEP" || sim_next_attempt
     if [[ "${SIM_SIGNIN_RETRIED:-0}" -eq 0 ]]; then
       SIM_SIGNIN_RETRIED=1
       echo "==> iPhone app: step ${SIM_STEP:-?} ended because no sign-in session reached it from this Mac; sending it once more"

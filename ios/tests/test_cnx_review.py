@@ -790,11 +790,13 @@ fleet_start_sim; fleet_finish_sim; fleet_submit_mac; echo "JOB=$MAC_JOB"; echo "
         # Step 1e1c4a5c2700774f73411917 (2026-11-24) ran after 2 h in the queue and failed: "sign-in: no session
         # was delivered within 10m0s" while the controller timed out. Nothing about the build was wrong, so the
         # hand-off sends one new step (a new key) by itself; a second miss is reported as the sign-in delivery.
-        for second_ok in (True, False):
-            with self.subTest(second_ok=second_ok), tempfile.TemporaryDirectory() as temp:
+        # A status read that fails too (the controller timing out) still sends the new step under a new key.
+        for second_ok, status_ok in ((True, True), (False, True), (True, False)):
+            with self.subTest(second_ok=second_ok, status_ok=status_ok), tempfile.TemporaryDirectory() as temp:
                 ci = Path(temp) / 'cmux-ci'
+                status = 'echo \'{"id": "x", "state": "failed"}\'; exit 0' if status_ok else 'echo "cmux-ci: cannot reach the build controller" >&2; exit 69'
                 ci.write_text('#!/bin/sh\n'
-                              'if [ "$1" = status ]; then echo \'{"id": "x", "state": "failed"}\'; exit 0; fi\n'
+                              f'if [ "$1" = status ]; then {status}; fi\n'
                               f'[ "$1" = run ] || exit 0\necho "$@" >> "{temp}/args"\n'
                               f'n=$(wc -l < "{temp}/args" | tr -d " ")\n'
                               'echo "cmux-ci: step 00000000000000000000000$n (simulator, key k)" >&2\n'
