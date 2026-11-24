@@ -109,8 +109,6 @@ struct AccountPage: View {
                 }
                 .disabled(deleting || checkingDeletion)
                 .accessibilityIdentifier("settings.deleteAccount")
-            } footer: {
-                Text("Permanently deletes your account and data across all cmux apps.")
             }
         }
         .settingsPage("Account")
@@ -124,7 +122,7 @@ struct AccountPage: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete Account", role: .destructive) { Task { await delete() } }
         } message: {
-            Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
+            Text("This signs you out everywhere and removes your Macs and phones. This can't be undone.")
         }
         // Deleting the account does not cancel an App Store subscription
         // (Guideline 5.1.1(v)): Apple keeps charging until it is cancelled in
@@ -243,8 +241,6 @@ struct TeamPage: View {
                         }
                     }
                 }
-            } footer: {
-                Text("Only you see these changes.")
             }
             Section {
                 switch members {
@@ -323,8 +319,6 @@ struct TerminalPage: View {
                     SettingsLabel("Terminal Size When Shared", symbol: "rectangle.on.rectangle")
                 }
                 .accessibilityIdentifier("settings.terminalSizing")
-            } footer: {
-                Text("Choose which device controls the shared terminal's size.")
             }
             Section {
                 Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
@@ -335,16 +329,12 @@ struct TerminalPage: View {
             Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
                     .accessibilityIdentifier("settings.predictiveEcho")
-            } footer: {
-                Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
                 Toggle(isOn: $settings.terminalJumpToBottom) {
                     SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
                 }
                 .accessibilityIdentifier("settings.terminalJumpToBottom")
-            } footer: {
-                Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
             }
             Section {
                 Toggle(isOn: $settings.terminalChatToggle) {
@@ -359,8 +349,6 @@ struct TerminalPage: View {
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
                 Text("Code")
-            } footer: {
-                Text("Key clicks follow the silent switch.")
             }
         }
         .settingsPage("Terminal")
@@ -388,9 +376,6 @@ struct ComposerPage: View {
                     SettingsLabel("Follow-up while running", symbol: "arrow.turn.down.right")
                 }
                 .pickerStyle(.menu)
-            } footer: {
-                // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
-                Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
             }
             // Off by default (Leo, 2026-11-22: "im hiding this by default"): voice mode
             // runs on the user's own OpenAI key, so it shows only for people who turn it on.
@@ -458,10 +443,6 @@ struct NotificationsPage: View {
                     SettingsLabel("Allow notifications", symbol: "bell.badge", value: permission?.title)
                 }
                 .accessibilityIdentifier("settings.notifications.allow")
-            } footer: {
-                if !push {
-                    Text("Chief alerts require cmux to stay running.")
-                }
             }
             if push {
                 kindsSection(settings: $settings)
@@ -527,10 +508,6 @@ struct NotificationsPage: View {
             Section {
                 Toggle(isOn: settings.notifyPreviews) { SettingsLabel("Show previews", symbol: "text.bubble") }
                     .accessibilityIdentifier("settings.notifications.previews")
-            } footer: {
-                Text(self.settings.notifyPreviews
-                    ? "Notifications include the question or recent output."
-                    : "The lock screen shows only who needs you and the Mac.")
             }
         }
         .disabled(off)
@@ -582,9 +559,7 @@ struct TransportPage: View {
                 }
             } footer: {
                 if relayAvailable == false {
-                    Text("Relay unavailable. Connections from outside your network may fail. Switching reconnects to your Macs.")
-                } else {
-                    Text("Switching reconnects to your Macs.")
+                    Text("Relay unavailable. Connections outside your network may fail.")
                 }
             }
             Section {
@@ -595,16 +570,12 @@ struct TransportPage: View {
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("settings.transport.ultra")
-            } footer: {
-                Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
             }
             Section {
                 Toggle(isOn: $settings.alignKeepalives) {
                     Text("Align keepalives")
                 }
                 .accessibilityIdentifier("settings.transport.alignKeepalives")
-            } footer: {
-                Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             Section {
                 Toggle(isOn: $settings.agentCLIHybrid) {
@@ -622,7 +593,7 @@ struct TransportPage: View {
             #if DEBUG
             // No icons, as the transport choices above: the page keeps one text column.
             Section {
-                TransportDetails(store: store, explainsDeveloperOptions: true)
+                TransportDetails(store: store)
                 Toggle(isOn: $relayOnly) {
                     Text("Relay only")
                 }
@@ -651,7 +622,6 @@ struct TransportPage: View {
 /// Live connection information is available on demand without filling normal status lines.
 struct TransportDetails: View {
     let store: AppStore
-    var explainsDeveloperOptions = false
     #if DEBUG
     @State private var expanded = UserDefaults.standard.bool(forKey: "cmux-mobile-transport-details")
     #else
@@ -674,16 +644,6 @@ struct TransportDetails: View {
                     .accessibilityElement(children: .combine)
                 }
             }
-            #if DEBUG
-            if explainsDeveloperOptions {
-                Text("Relay only forces TURN. Block UDP uses TURN over TLS for WireGuard; WebRTC is unchanged. Both reconnect immediately.")
-                    .font(theme.type.meta)
-                    .foregroundStyle(theme.colors.label2)
-                Text("Browser video on channel skips the media lane at the next connection.")
-                    .font(theme.type.meta)
-                    .foregroundStyle(theme.colors.label2)
-            }
-            #endif
         }
         .accessibilityIdentifier("settings.transport.details")
     }

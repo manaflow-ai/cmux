@@ -149,14 +149,6 @@ public struct LiveCallScreen: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if session.lines.isEmpty, session.isLive {
-                        Text(LiveCallText.hint)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .multilineTextAlignment(.center)
-                            .padding(.top, 24)
-                    }
                     ForEach(session.lines) { line in
                         LiveCallLineView(line: line)
                             .id(line.id)

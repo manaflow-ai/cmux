@@ -120,8 +120,6 @@ struct TerminalSizingMacsPage: View {
                         SettingsLabel("\(mac.name)", symbol: "laptopcomputer")
                     }
                 }
-            } footer: {
-                Text("How a terminal is sized when this iPhone and other devices show it at once. Each Mac keeps its own setting.")
             }
         }
         .settingsPage("Terminal Size When Shared")

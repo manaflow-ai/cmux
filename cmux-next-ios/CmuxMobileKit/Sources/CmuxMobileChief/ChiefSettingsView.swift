@@ -78,10 +78,6 @@ public struct ChiefSettingsView: View {
             #if DEBUG
             diagnosticsSection
             #endif
-            Section {
-            } footer: {
-                Text("Chief's memory and traces open on the Mac.")
-            }
         }
         .listSectionSpacing(ChiefInfoGeometry.sectionGap)
         .scrollContentBackground(.hidden)
@@ -299,10 +295,6 @@ public struct ChiefSettingsView: View {
             }
         } header: {
             header
-        } footer: {
-            if hasControl {
-                Text("Changes apply to Chief's next turn, on every device.")
-            }
         }
         .listRowBackground(ChiefInfoGeometry.card)
         // Links and actions in system blue, as Messages' rows (the bar and
@@ -344,8 +336,6 @@ public struct ChiefSettingsView: View {
                     guard on != session.sendsReadReceipts else { return }
                     session.setSendsReadReceipts(on) { withAnimation(.default.unlessReduceMotion) { receipts = !on } }
                 }
-        } footer: {
-            Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
         }
         .disabled(session.conversationID == nil)
         .listRowBackground(ChiefInfoGeometry.card)
@@ -725,8 +715,6 @@ struct ChiefIdentityEditor: View {
                     }
                     .accessibilityIdentifier("chief.settings.avatar")
                 }
-            } footer: {
-                Text("Changes apply on your Mac and every device.")
             }
         }
         .navigationTitle("Edit")

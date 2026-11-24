@@ -66,7 +66,7 @@ public struct DiffFileScreen: View {
         Group {
             if isViewed {
                 ScrollView {
-                    Label("Viewed. Tap Viewed to show the diff again.", systemImage: "checkmark.circle.fill")
+                    Label("Viewed", systemImage: "checkmark.circle.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(20)

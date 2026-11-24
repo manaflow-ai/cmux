@@ -40,7 +40,7 @@ struct TeamSidebar: View {
                             .accessibilityIdentifier("sidebar.teams.loading")
                     } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("No teams. Create one to share Macs and workspaces.")
+                            Text("No teams")
                                 .font(theme.type.rowSubtitle)
                                 .foregroundStyle(theme.colors.label2)
                             PrimaryCapsule("Create team", systemImage: "plus", size: .inline) { creatingTeam = true }
@@ -75,8 +75,6 @@ struct TeamSidebar: View {
             Button("Cancel", role: .cancel) { newTeamName = "" }
             Button("Create") { shell.createTeam(named: newTeamName); newTeamName = "" }
                 .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("Teams share Macs and workspaces.")
         }
         .alert("Join with invite link", isPresented: $joiningTeam) {
             // The pasted link stays until the join works (ShellModel.inviteLinkDraft).

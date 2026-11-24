@@ -69,7 +69,7 @@ struct EarlierPromptEditSheet: View {
                         .accessibilityLabel("Message")
                         .accessibilityIdentifier("chat.editEarlier.field")
                 } footer: {
-                    Text("Sends in a new tab with a copy of this chat up to this message. This chat stays as it is.")
+                    Text("Sends in a new tab with a copy of this chat up to this message.")
                 }
             }
             .navigationTitle("Edit Message")

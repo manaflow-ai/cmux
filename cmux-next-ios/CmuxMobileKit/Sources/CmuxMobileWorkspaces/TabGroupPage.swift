@@ -126,8 +126,7 @@ struct TabGroupPage: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         } else {
-            ContentUnavailableView("No Tab Group", systemImage: "rectangle.stack",
-                                   description: Text("This group is no longer in the workspace on \(source.macName)."))
+            ContentUnavailableView("No Tab Group", systemImage: "rectangle.stack")
         }
     }
 

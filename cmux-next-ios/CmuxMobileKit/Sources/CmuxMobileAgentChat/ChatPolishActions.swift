@@ -305,8 +305,6 @@ struct ChatDisplaySettingsSheet: View {
                         .accessibilityIdentifier("chat.display.actualSize")
                 } header: {
                     Text("Text Size")
-                } footer: {
-                    Text("Only this chat changes. Other chats keep your text size.")
                 }
                 Section {
                     Picker("Width", selection: Binding(get: { settings.fullWidth }, set: { full in
@@ -320,8 +318,6 @@ struct ChatDisplaySettingsSheet: View {
                     .accessibilityIdentifier("chat.display.width")
                 } header: {
                     Text("Width")
-                } footer: {
-                    Text("Standard stops the chat at 720 points, as on the Mac. It changes the chat in landscape and on wider screens.")
                 }
             }
             .navigationTitle("Text and Width")

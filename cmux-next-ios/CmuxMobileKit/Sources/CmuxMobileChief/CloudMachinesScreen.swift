@@ -103,8 +103,6 @@ public struct CloudMachinesScreen: View {
                     }
                 } header: {
                     Text("Archives")
-                } footer: {
-                    Text("A deleted machine's disk, kept for a while. Restore makes a new machine from it.")
                 }
             }
         }
@@ -114,8 +112,6 @@ public struct CloudMachinesScreen: View {
             if model.machines.isEmpty && model.archives.isEmpty && !model.isAwaitingApproval(CloudMachinesModel.newMachineID) {
                 ContentUnavailableView {
                     Label("No Cloud Machines", systemImage: "cloud")
-                } description: {
-                    Text("A Cloud machine runs your agents while your Mac sleeps.")
                 } actions: {
                     Button("New Cloud Machine") { creating = true }.buttonStyle(.borderedProminent).disabled(!model.canAct)
                 }
@@ -357,8 +353,6 @@ struct CloudMachineDetail: View {
                         Section {
                             Button("Agent Chats", systemImage: "bubble.left.and.bubble.right") { openChats() }
                                 .accessibilityIdentifier("cloudMachines.chats")
-                        } footer: {
-                            Text("Open and start agent chats on it through your Mac.")
                         }
                     }
                     Section {
@@ -382,8 +376,6 @@ struct CloudMachineDetail: View {
                             }
                             .accessibilityIdentifier("cloudMachines.grow")
                         }
-                    } footer: {
-                        Text("Keep stops cmux from deleting it automatically. A machine can grow but not shrink.")
                     }
                     .disabled(!model.canAct || machine.status.isTransition)
                     Section {
@@ -418,8 +410,6 @@ struct CloudMachineDetail: View {
                     TextField("Name (optional)", text: $snapshotName)
                     Button("Take Snapshot") { Task { await model.takeSnapshot(machine, name: snapshotName) } }
                     Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("Saves the machine's disk so you can restore it as a new machine.")
                 }
                 .confirmationDialog("Delete \(machine.title)?", isPresented: $deleting, titleVisibility: .visible) {
                     Button("Delete Machine", role: .destructive) {
