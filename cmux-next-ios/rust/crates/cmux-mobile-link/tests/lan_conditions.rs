@@ -272,6 +272,7 @@ async fn dial_warm_on(mac: &Mac, radio: &Radio, warm: SignalingClient, timeline:
         let connected =
             dial::connect(&warm, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
                 .await
+                .map_err(|error| eprintln!("WARMDIALERR {error:?}"))
                 .ok()?;
         Some(Up { connected, _signaling: Some(warm) })
     };
