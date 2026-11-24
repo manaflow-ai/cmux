@@ -648,7 +648,7 @@ export function EnvironmentPicker({
   const placeRows: string[] = offersDevices
     ? [MACHINES_MENU, ...(addMachine && !machinesMenu ? [addMachine.value] : [])]
     : [];
-    const main = card
+  const main = card
     ? [...cardActions, ...continueOn].map((action) => action.value)
     : [
         ...autoRows,
@@ -1164,9 +1164,7 @@ export function EnvironmentPicker({
               )}
             {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
             <span className="acpmux-location-check" aria-hidden="true">
-              {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && !autoPicked && (
-                <CheckIcon />
-              )}
+              {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && !autoPicked && <CheckIcon />}
             </span>
           </span>
         )}
