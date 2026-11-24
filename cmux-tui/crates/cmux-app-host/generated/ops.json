@@ -161,6 +161,7 @@
     "diff.comments.delete",
     "diff.comments.list",
     "diff.comments.save",
+    "diff.comments.thread",
     "diffs.cycle_variant",
     "diffs.open_changes",
     "diffs.open_diff",
