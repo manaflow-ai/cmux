@@ -1424,7 +1424,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     // this Mac with two Cloud machines, a Cloud chat moved from this Mac (This Mac and another
     // machine), a Cloud chat that started there (only other machines), and a target greyed with why.
     "started-move-to-menu": {
-      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens a list of them.",
+      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens on This Mac, checked, then the two.",
       props: {
         ...baseProps,
         environments: true,
@@ -1486,6 +1486,28 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
       play: openMachineCardMoves,
+    },
+    "started-move-to-many": {
+      note: "Preview, a started chat on this Mac with five Cloud machines: Move to… opens on This Mac, checked, then the machines.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: ["dev-box", "gpu-box", "docs-box", "ci-box", "a-machine-with-a-very-long-name-for-one-row"].map(
+          (label) => ({ id: `vm-${label}`, label, kind: "cloud" as const }),
+        ),
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-many",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
     },
     "started-move-to-refused": {
       note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",
