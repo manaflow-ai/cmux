@@ -250,7 +250,7 @@ impl Hub {
             return;
         }
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_named("spare-presence", async move {
             let all = hub.spare_enabled().await
                 && hub.want_missing_spares(wanted, "the person is back").await;
             *lock(&hub.pool.spare_presence_retry_at) =
