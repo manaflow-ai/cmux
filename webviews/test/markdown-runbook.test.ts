@@ -89,6 +89,13 @@ describe("runbook steps", () => {
     // Inside an open quote or heredoc only `> ` lines continue: a bare line is output.
     expect(runnableCommand("console", "$ echo 'a\ntouch marker'")).toBe("echo 'a");
     expect(runnableCommand("console", "$ cat <<EOF\ntouch marker\nEOF")).toBe("cat <<EOF");
+    // A `$ ` line while the shell still reads is output, not the next command.
+    expect(runnableCommand("console", "$ cat <<EOF\n$ touch unexpected\nEOF\n$ echo next")).toBe(
+      "cat <<EOF\necho next",
+    );
+    expect(runnableCommand("console", "$ ls |\n$ touch unexpected")).toBe("ls |");
+    expect(runnableCommand("console", "$ echo 'a\n$ touch unexpected")).toBe("echo 'a");
+    expect(runnableCommand("console", "$ if true; then\n$ touch unexpected")).toBe("if true; then");
     // `$'…'` takes `\\'` as an escaped quote, so the quote closes where the shell's does.
     expect(
       runnableCommand("console", "$ printf $'> rm important.txt # it\\'s output\\n'\n> rm important.txt # it's output"),

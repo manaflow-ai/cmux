@@ -437,8 +437,30 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
+      # The guard compares the pushed tree with the previous head's: two commits and no ancestry. checkout's
+      # fetch-depth 0 fetched every branch and tag (80,000+ refs) and died "bad pack header" on all three tries
+      # (jobs 138141296796, 138140836520), and the production promote's G1 counts a staging run only when this
+      # job passed. Each commit comes whole (no blob filter): the lints read the previous head's files with
+      # `git show`, and a file they cannot read counts as absent.
+      - name: Fetch the previous head and feat-cmux-next's tip, one commit each
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # --no-filter: a reused workspace can carry the blob filter another job's partial fetch configured.
+          fetch_one() {
+            for try in 1 2 3; do
+              if git -c protocol.version=2 fetch --no-filter --no-tags --no-recurse-submodules --depth=1 origin "$1"; then return 0; fi
+              echo "fetch of $1: try $try failed" >&2
+              if [ "$try" != 3 ]; then sleep $((try * 15)); fi
+            done
+            return 1
+          }
+          fetch_one "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+          # A new branch has no previous head (all zeros): the step below then lints only. A previous head that
+          # cannot be fetched fails the job here, so a network fault never passes as "nothing to compare".
+          if [ -n "${BEFORE//0/}" ]; then fetch_one "$BEFORE"; fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -457,7 +479,7 @@ jobs:
         run: |
           set -euo pipefail
           dir=backend/db/migrations
-          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch or force push); lint only"; BEFORE=""; fi
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch); lint only"; BEFORE=""; fi
           errors=0
           if [ -n "$BEFORE" ]; then
             while IFS=$'\t' read -r status path; do
@@ -504,12 +526,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
+      # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
+      # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -657,12 +684,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
+      # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
+      # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - name: Dashboard inputs changed since its last deploy
         id: changed
         env:
@@ -827,12 +859,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
+      # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
+      # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
+      - name: Fetch feat-cmux-next's history without blobs
+        working-directory: ${{ github.workspace }}
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"

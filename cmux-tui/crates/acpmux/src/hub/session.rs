@@ -137,6 +137,9 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Orders prompt setup before it reaches `queue_slot`: an upload read or another slow setup
+    /// step must not let a later prompt claim the chat first. Held only until queue admission.
+    pub(crate) prompt_admission: std::sync::Arc<tokio::sync::Mutex<()>>,
     /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
     /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
     /// (its `queued` record, its turn) goes between the restore's check and its settle.
@@ -479,6 +482,11 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The session's own tool calls whose live updates logged no end, bounded (`hub/tap.rs`): a
+    /// load's replay of one's end is the only replayed record kept of a tool call
+    /// (`unread_records.rs`), as a cut turn's continuation counts it ended (`restart_resume.rs`).
+    /// Unlike [`Self::open_tools`], a new agent for the turn keeps them.
+    pub(super) unclosed_tools: StdMutex<std::collections::HashSet<String>>,
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
     pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
