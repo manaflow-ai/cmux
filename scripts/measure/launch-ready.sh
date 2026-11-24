@@ -66,6 +66,10 @@
 #                then Delete, so the line stays as it was) and marks terminal.probe_key_typed, terminal_input_accepted (the
 #                key left the app for the restored terminal's PTY) and terminal_echo (its echo came back): with front=tab,
 #                launch to the first key echoed in the restored terminal (startup-tti). Needs a build with the probe.
+#   record=1     with dmg=build (built --config bench): every measured launch records its windows from the first frame
+#                (`--record-launch`, DebugWindowRecord) and the summary heads each side with its medians as
+#                LR-PERCEIVED SIDE settled_match_ms=... shift_score=... tti_ms=... first_frame_is_final=... recorded=N/M
+#                (launch_shift.py: time to a frame that already looks done, CLS-style shift score, first input taken)
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
 #                LR-HOT-HOST and exit 5. preflight=0 skips it.
@@ -147,7 +151,7 @@ main() {
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_PURGE=0 LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_VIDEO=0 LR_LAYOUT=0 LR_TYPE=0
+  LR_PURGE=0 LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_VIDEO=0 LR_LAYOUT=0 LR_TYPE=0 LR_RECORD=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -186,11 +190,14 @@ main() {
       type=0|type=1) LR_TYPE="${arg#type=}" ;;
       other=*) other="${arg#other=}" ;;
       purge=0|purge=1) LR_PURGE="${arg#purge=}" ;;
+      record=0|record=1) LR_RECORD="${arg#record=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
   [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout= takes dmg=build (the sidebar edge needs a bench or debug build)" >&2; exit 2; }
+  [[ "$LR_RECORD" == 0 || "$dmg" == build ]] || { echo "record= takes dmg=build (--record-launch needs a bench or debug build)" >&2; exit 2; }
+  [[ "$LR_RECORD" == 1 && "$LR_LAYOUT" != movequit ]] && config=bench
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
   [[ "$LR_LAYOUT" == movequit ]] && config=debug
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
@@ -238,6 +245,7 @@ main() {
   cp scripts/measure/launch-ready-preflight.sh "$out/preflight.sh"
 
   cp scripts/measure/launch-ready-summary.py "$out/summary.py"
+  cp scripts/cmux-next/launch_shift.py "$out/launch_shift.py" # summary.py's PERCEIVED numbers (record=1)
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   cp scripts/measure/launch-ready-cef.py "$out/cef.py"
   cp scripts/measure/launch-ready-applog.py "$out/applog.py"
@@ -513,7 +521,7 @@ probe() {
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
     $(probe_mode "$label" "$side") $([[ "$LR_LAYOUT" != 0 ]] && echo layout) $([[ "$LR_LAYOUT" == movequit ]] && echo movequit) \
-    $([[ "$LR_TYPE" == 1 ]] && echo type) $([[ "${LR_GUEST:-0}" == 1 ]] && echo guest) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $([[ "$LR_TYPE" == 1 ]] && echo type) $([[ "${LR_RECORD:-0}" == 1 && "$label" == run* ]] && echo record) $([[ "${LR_GUEST:-0}" == 1 ]] && echo guest) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
