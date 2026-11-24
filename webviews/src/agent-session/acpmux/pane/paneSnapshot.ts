@@ -148,6 +148,7 @@ import {
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { newChatFolder } from "../startFolderModel";
@@ -220,6 +221,7 @@ export type PaneSnapshotArgs = {
   setPastWaitsForTrust: React.Dispatch<React.SetStateAction<boolean>>;
   setMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setLocalMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setAutoCloudStartKey: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCloudMachineID: React.Dispatch<React.SetStateAction<string | undefined>>;
   cloudMachineIDRef: React.RefObject<string | undefined>;
   setCloudRepositoryAvailable: React.Dispatch<React.SetStateAction<boolean>>;
@@ -372,9 +374,7 @@ export type PaneSnapshotArgs = {
   cancelRetry: React.RefObject<(() => void) | undefined>;
   setAcpmuxRestartOffered: React.Dispatch<React.SetStateAction<boolean>>;
   restartGate: AcpmuxRestartGate;
-  setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
-  setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setLinkDown: React.Dispatch<React.SetStateAction<boolean>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
@@ -409,6 +409,7 @@ export function paneSnapshotEffect({
   setMachineName,
   setLocalMachineName,
   setCloudMachineID,
+  setAutoCloudStartKey,
   cloudMachineIDRef,
   setCloudRepositoryAvailable,
   setCloudChatIdentity,
@@ -517,9 +518,7 @@ export function paneSnapshotEffect({
   cancelRetry,
   setAcpmuxRestartOffered,
   restartGate,
-  setWaitingSince,
-  setRestartUnavailable,
-  setRelinkingSince,
+  setLinkDown,
   setHostTroubleSince,
   setHostRestoring,
   runPendingAdoption,
@@ -935,8 +934,6 @@ export function paneSnapshotEffect({
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
       acpWire.lifecycle("handshake", { reconnect });
-      setWaitingSince(Date.now());
-      setRestartUnavailable(false);
       const answered = await callNative<{
         protocolVersion: number;
         transport?: string;
@@ -981,6 +978,7 @@ export function paneSnapshotEffect({
         pickCloud?: unknown;
         /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
         cloudStartHandoff?: unknown;
+        autoCloudStartKey?: string;
         model?: unknown;
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -1000,6 +998,7 @@ export function paneSnapshotEffect({
       }
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
+      if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
       setCloudTeamMachine(host.cloudTeamMachine === true);
       const turnRewind =
         Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
@@ -1261,10 +1260,9 @@ export function paneSnapshotEffect({
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
-          // Quiet while it comes back: one quiet "Reconnecting…" line (HostRecoveringLine) until
-          // the handshakes fail past the deadline, then the waiting line or the failure.
+          // A drop alone says nothing: its reconnect usually lands. Only a failed attempt marks
+          // the link down (`linkDown`, the quiet chip).
           failingSince = Date.now();
-          setRelinkingSince(failingSince);
           troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
           setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
@@ -1372,7 +1370,7 @@ export function paneSnapshotEffect({
       setHostError(undefined);
       setHostErrorShown(false);
       failingSince = undefined;
-      setRelinkingSince(undefined);
+      setLinkDown(false);
       setHostRestoring(undefined);
       setAcpmuxRestartOffered(false);
       catalogClientId.current += 1;
@@ -2880,7 +2878,11 @@ export function paneSnapshotEffect({
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
-        setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
+        const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
+        setHostRestoring(restoring);
+        // The transport's word that the link is down: any failed attempt but a planned restart's
+        // (an update's handoff, a start under way), which ends when the restarted daemon answers.
+        if (restoring || !hostPlannedRestart(error)) setLinkDown(true);
         failingSince ??= Date.now();
         troubleSince ??= failingSince;
         setHostTroubleSince(troubleSince);
@@ -2911,7 +2913,6 @@ export function paneSnapshotEffect({
       }
     } finally {
       connecting = false;
-      setWaitingSince(undefined);
       // The Retry this attempt ran for (`retryNow`) has its answer.
       setRetryQueued(false);
       if (retryPending) {

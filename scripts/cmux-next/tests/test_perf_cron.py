@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-power-user", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1212,6 +1212,30 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.linux_job_minutes("web-ui"), 40)
         self.assertEqual(cron.linux_job_minutes("web-ui-god"), 40)  # its paired rounds stop inside the suite's cap
 
+    def test_every_web_ui_bench_times_out_inside_its_part_run_cap(self):
+        # chat-100k-flat's suite timeout (1200 s) killed it in long_x20, and the grown run timed out at 1770 s against a
+        # 1800 s run cap: web-ui-flat stored no row after 2026-11-17. A suite timeout must leave the bench time to finish
+        # and sit under the part's run cap, so the suite (not the cap) records which bench ran long.
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts")).read()
+        timeouts = {m.group(1): int(m.group(2).replace("_", "")) for m in cron.re.finditer(
+            r'name: "([^"]+)",(?:(?!\bname: ).)*?timeoutMs: ([\d_]+)', suite, cron.re.S)}
+        self.assertEqual(timeouts["chat-100k-flat"], 2_400_000)
+        self.assertEqual(timeouts["chat-100k-flat-grown"], 3_000_000)
+        checked = 0
+        for part in cron.PARTS:
+            if part.get("where") != "linux" or not part["name"].startswith("web-ui"):
+                continue
+            for argv, _, _ in cron.linux_bench_runs("/r", part["name"]).values():
+                if "--only" not in argv:
+                    continue
+                for bench in argv[argv.index("--only") + 1].split(","):
+                    if bench in timeouts:
+                        checked += 1
+                        self.assertLess(timeouts[bench] / 1000, cron.linux_run_seconds(part["name"]), (part["name"], bench))
+        self.assertGreater(checked, 5)
+        self.assertEqual(cron.linux_job_minutes("web-ui-flat"), 55)
+        self.assertEqual(cron.linux_job_minutes("web-ui-flat-grown"), 65)
+
     def test_a_run_past_its_cap_is_killed_with_its_children(self):
         # subprocess.run's timeout killed only bash: its cargo went on building, and the suite's own cargo build then
         # waited on that build's lock.
@@ -1352,6 +1376,21 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(rows["webui.daemon_restart.god_home.chat_attach_ms"]["floor"], 40.0)
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
+
+    def test_every_linux_part_that_builds_rust_gets_the_pinned_toolchain(self):
+        # coord-sim's `build: exit 101` (run 45419179993): the linux job installed Rust only for diff-viewer, so every
+        # other part that runs cargo built with the runner's Cargo 1.75, which refuses edition 2024.
+        import re
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        wf = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        cond = re.search(r"- name: Install Rust\n\s+if: \$\{\{ (.+?) \}\}", wf)
+        self.assertTrue(cond)
+        self.assertEqual(cond.group(1), "!startsWith(needs.plan.outputs.linux_part, 'web-ui')")
+        for p in cron.PARTS:
+            if p.get("where") != "linux" or not p["name"].startswith("web-ui"):
+                continue
+            for argv, _cwd, _env in cron.linux_bench_runs(root, p["name"]).values():
+                self.assertNotIn("cargo", " ".join(argv), p["name"])
 
     def test_the_coord_sim_script_names_shape_files_that_exist(self):
         # cmux#47315 renamed shapes/default.json; the script kept the old path and every coord-sim part failed at gen
