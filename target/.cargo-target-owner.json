@@ -1,0 +1,16 @@
+{
+ "owners": [
+  {
+   "at": "2026-11-24T16:12:02Z",
+   "harness": "claude",
+   "host": "gcp-agent-lane-9",
+   "name": "remote-route-race",
+   "pid": 1885888,
+   "pr": null,
+   "proc_start": "27854235",
+   "session_id": "01a20ce0-a91a-77c0-a77c-0232bcdf4bca",
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--peer-cold-connect/cmux-tui"
+  }
+ ],
+ "schema": "cargo-target-owner/v1"
+}
