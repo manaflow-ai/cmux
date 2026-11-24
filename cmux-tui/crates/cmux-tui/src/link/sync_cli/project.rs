@@ -533,6 +533,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
+    let encoded_ms = elapsed_ms(started);
     // Bring Back's base, made here while the machine mounts the folder, unless one is kept.
     let kept_already = super::base::kept(&folder, &at);
     let (dialed, made) = std::thread::scope(|scope| {
@@ -553,10 +554,22 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     if let Err(error) = kept {
         eprintln!("cmux link project: no base for Bring Back: {error:#}");
     }
-    if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
-        data.insert("listed_ms".into(), json!(listed_ms));
-        data.insert("manifest_bytes".into(), json!(encoded.len()));
-        data.insert("ready_ms".into(), json!(elapsed_ms(started)));
+    let timing = ready_timing(
+        listed.manifest.len(),
+        listed_ms,
+        encoded_ms,
+        encoded.len(),
+        elapsed_ms(started),
+        answer.pointer("/data/mount_ms").and_then(Value::as_u64),
+    );
+    // The start's gate, split, in the server's log (`start` makes it `projections/<server>.log`): the
+    // start-chat answer does not reach `cloud start-chat --from-folder`'s caller, and the log does
+    // (cmuxterm-hq goals/cloud-no-network-wait.md, "Ceiling": is the O(files) cost the listing or the send).
+    eprintln!("cmux link project: ready {timing}");
+    if let (Some(data), Value::Object(timing)) =
+        (answer.get_mut("data").and_then(Value::as_object_mut), timing)
+    {
+        data.extend(timing);
     }
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
@@ -625,6 +638,27 @@ fn pair_of(name: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' })
         .collect();
     format!("listing.{clean}").chars().take(128).collect()
+}
+
+/// What the start waited for, by step: the listing, the manifest's encoding and the machine's
+/// answer (`ready_ms`, the whole gate), each from the server's start, and the machine's own
+/// decode and mount (`mount_ms`, its answer's); `ready_ms - encoded_ms - mount_ms` is the send.
+fn ready_timing(
+    entries: usize,
+    listed_ms: u64,
+    encoded_ms: u64,
+    manifest_bytes: usize,
+    ready_ms: u64,
+    mount_ms: Option<u64>,
+) -> Value {
+    json!({
+        "entries": entries,
+        "listed_ms": listed_ms,
+        "encoded_ms": encoded_ms,
+        "manifest_bytes": manifest_bytes,
+        "ready_ms": ready_ms,
+        "mount_ms": mount_ms,
+    })
 }
 
 fn elapsed_ms(since: Instant) -> u64 {
