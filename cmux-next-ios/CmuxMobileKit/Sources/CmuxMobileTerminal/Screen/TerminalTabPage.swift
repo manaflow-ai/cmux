@@ -176,10 +176,14 @@ public struct TerminalTabPage: View {
 public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
+    /// A picture of the tab from elsewhere (the Mac's thumbnail, kept across launches), drawn in place
+    /// of the labeled placeholder: a card never blanks while any picture of its tab is known.
+    let fallback: UIImage?
 
-    public init(model: TerminalModel, insets: EdgeInsets) {
+    public init(model: TerminalModel, insets: EdgeInsets, fallback: UIImage? = nil) {
         self.model = model
         self.insets = insets
+        self.fallback = fallback
     }
 
     public var body: some View {
@@ -228,6 +232,13 @@ public struct TerminalTabCard: View {
                         // A frame from an earlier launch stands in, dimmed like a page
                         // that is not live, until the Mac's screen arrives (T-TABS-01).
                         .opacity(content.isCurrent ? 1 : 0.55)
+                    }
+                case .placeholder where fallback != nil:
+                    if let fallback {
+                        Image(uiImage: fallback).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * fallback.size.height / max(1, fallback.size.width))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
