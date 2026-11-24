@@ -20,6 +20,10 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Browser Tabs Open on iPhone (on by default; Lawrence and Leo, 2026-11-24:
+        /// "default shouldnt even be browser streaming. just safari tabs"): a linked Mac's
+        /// browser tab loads in the phone's own web view; off, it mirrors the Mac's page.
+        public static let browserOpensOnPhone = "cmuxMobile.settings.browserOpensOnPhone"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
@@ -49,6 +53,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
+    public static let defaultBrowserOpensOnPhone = true
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
@@ -81,6 +86,14 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalChatToggle) == nil
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
+    }
+
+    /// Whether a linked Mac's browser tab the person never switched opens in this
+    /// iPhone's own web view (on by default) rather than mirroring the Mac's page.
+    public static func browserOpensOnPhone(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.browserOpensOnPhone) == nil
+            ? defaultBrowserOpensOnPhone : defaults.bool(forKey: Key.browserOpensOnPhone)
     }
 
     /// Typed characters show at once over a slow link, underlined until the

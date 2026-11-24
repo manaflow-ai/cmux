@@ -172,6 +172,9 @@ public final class SettingsStore {
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
+    /// Settings → Browser Tabs Open on iPhone (on by default). Read by the workspace tabs
+    /// (`CmuxMobilePreferences.browserOpensOnPhone`) through the same key.
+    public var browserOpensOnPhone: Bool { didSet { save(browserOpensOnPhone, "browserOpensOnPhone") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
@@ -230,6 +233,8 @@ public final class SettingsStore {
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
+        browserOpensOnPhone = defaults.object(forKey: "cmuxMobile.settings.browserOpensOnPhone") == nil
+            ? true : defaults.bool(forKey: "cmuxMobile.settings.browserOpensOnPhone")
         terminalFitToPhone = bool("terminalFitToPhone", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))

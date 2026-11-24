@@ -141,6 +141,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Compact workspace list", symbol: "rectangle.grid.1x2")
                     }
                     .accessibilityIdentifier("settings.compactWorkspaceList")
+                    // Safari tabs on the phone by default; Mirror from <Mac> streams the Mac's page.
+                    Toggle(isOn: $settings.browserOpensOnPhone) {
+                        SettingsLabel("Browser tabs open on iPhone", symbol: "safari")
+                    }
+                    .accessibilityIdentifier("settings.browserOpensOnPhone")
                     NavigationLink(value: SettingsRoute.longPressMenus) {
                         SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
                     }

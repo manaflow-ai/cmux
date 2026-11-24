@@ -1,13 +1,18 @@
 #if os(iOS)
 import CmuxMobileBrowserStream
+import CmuxMobileDesign
 import Foundation
 import Observation
 
 /// Browser tabs this iPhone shows in its own web view instead of mirroring the
-/// Mac's page ("Open on iPhone" in the tab's page menu). The choice is per tab and
-/// stays on this device (across workspace visits and launches) until the person
-/// picks "Mirror from <Mac>" or the tab closes. It is view state, like the last
-/// opened tab, not a setting: the Mac and its other viewers never see it.
+/// Mac's page. A linked tab opens here by default (Settings → Browser Tabs Open on
+/// iPhone; Lawrence and Leo, 2026-11-24: "default shouldnt even be browser
+/// streaming. just safari tabs"): the page loads on the phone, and a Mac
+/// `localhost:<port>` dev server comes through the link (`LocalhostForwarder`).
+/// "Mirror from <Mac>" in the tab's page menu streams the Mac's page instead, and
+/// "Open on iPhone" brings it back. The choice is per tab and stays on this device
+/// (across workspace visits and launches) until the tab closes. It is view state,
+/// like the last opened tab: the Mac and its other viewers never see it.
 @MainActor
 @Observable
 public final class NativeBrowserTabs {
@@ -26,6 +31,13 @@ public final class NativeBrowserTabs {
     /// The tabs shown on the phone: the one observed state (a page or toolbar
     /// re-renders when a tab flips; where the page is changes nothing they show).
     private var nativeKeys: Set<String>
+    /// Tabs the person sent to the mirror ("Mirror from <Mac>"): they stay mirrored
+    /// while other tabs open on the phone by default. Observed (the page flips).
+    private var mirroredKeys: Set<String>
+    /// Tabs that opened on the phone by default, while a view read them: kept out of
+    /// `nativeKeys` because a write to observed state during a view update re-runs it.
+    /// They are entries like any other (saved, and `nativeKeys` at the next launch).
+    @ObservationIgnored private var adoptedKeys: Set<String> = []
     @ObservationIgnored private var entries: [String: Entry]
     @ObservationIgnored private var models: [String: BrowserTabModel] = [:]
     /// The `localhost` ports each tab opened: they stay forwarded until the tab
@@ -33,6 +45,9 @@ public final class NativeBrowserTabs {
     @ObservationIgnored private var tabPorts: [String: Set<UInt16>] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     static let defaultsKey = "cmuxMobile.browser.nativeTabs"
+    static let mirroredDefaultsKey = "cmuxMobile.browser.mirroredTabs"
+    /// Whether a linked tab the person never switched opens on the phone (Settings, on by default).
+    @ObservationIgnored public var opensOnPhone: @MainActor () -> Bool
     /// Forwards a tab's `localhost:<port>` page to its Mac's loopback (nil: those
     /// pages stay on the Mac).
     @ObservationIgnored public var forwarder: LocalhostForwarder?
@@ -49,6 +64,28 @@ public final class NativeBrowserTabs {
             entries = [:]
         }
         nativeKeys = Set(entries.keys)
+        mirroredKeys = Set(defaults.stringArray(forKey: Self.mirroredDefaultsKey) ?? [])
+        opensOnPhone = { CmuxMobilePreferences.browserOpensOnPhone(defaults) }
+    }
+
+    /// Shown on the phone: opened there by the person, or by default.
+    private func shows(_ key: String) -> Bool {
+        nativeKeys.contains(key) || adoptedKeys.contains(key)
+    }
+
+    private var shownKeys: Set<String> { nativeKeys.union(adoptedKeys) }
+
+    /// Whether a linked tab the person never switched opens on the phone: the setting
+    /// is on and the phone can load its page (a Mac `localhost` page only when the
+    /// Mac forwards it; a `file:` page never).
+    func opensByDefault(tab: String, macID: String?, at url: URL?) -> Bool {
+        let key = Self.key(tab: tab, macID: macID)
+        guard !mirroredKeys.contains(key), opensOnPhone() else { return false }
+        switch PhoneReach(url) {
+        case .web, .privateNetwork: return true
+        case .macLoopback: return canForward(macID: macID)
+        case .macOnly: return false
+        }
     }
 
     static func key(tab: String, macID: String?) -> String {
@@ -80,7 +117,7 @@ public final class NativeBrowserTabs {
         // One port, one Mac: the port forwards to another Mac whose tab on this iPhone
         // still shows it (a tab that was refused the port never holds it).
         let owner = forwarder?.forwardsElsewhere(port, than: macID) == true
-        let shownThere = nativeKeys.contains { other in
+        let shownThere = shownKeys.contains { other in
             other != key && Self.macID(ofKey: other) != macID && models[other]?.problem == nil
                 && entries[other]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) == port
         }
@@ -98,7 +135,7 @@ public final class NativeBrowserTabs {
         do throws(LocalhostForwarder.Failure) {
             try await forwarder.forward(port: port, macID: Self.macID(ofKey: key))
             // The tab closed or mirrored while the port was starting: nothing keeps it.
-            guard nativeKeys.contains(key) else {
+            guard shows(key) else {
                 retainPorts()
                 return .forwarded
             }
@@ -114,19 +151,29 @@ public final class NativeBrowserTabs {
     /// Stops forwarding ports no tab on this iPhone shows any more.
     private func retainPorts() {
         guard let forwarder else { return }
-        tabPorts = tabPorts.filter { nativeKeys.contains($0.key) }
-        let shown = nativeKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) }
+        tabPorts = tabPorts.filter { shows($0.key) }
+        let shown = shownKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) }
         forwarder.retain(ports: Set(shown).union(tabPorts.values.joined()))
     }
 
     public func isNative(tab: String, macID: String?) -> Bool {
-        nativeKeys.contains(Self.key(tab: tab, macID: macID))
+        shows(Self.key(tab: tab, macID: macID))
     }
 
     /// The phone's page of a tab shown on this iPhone (nil: the tab is mirrored).
-    public func model(tab: String, macID: String?) -> BrowserTabModel? {
+    /// `linked` (the tab's Mac is linked; its page is at `url`): a tab the person never
+    /// switched opens here by default (`opensByDefault`).
+    public func model(tab: String, macID: String?, linked: Bool = false, at url: URL? = nil) -> BrowserTabModel? {
         let key = Self.key(tab: tab, macID: macID)
-        guard nativeKeys.contains(key) else { return nil }
+        if !shows(key) {
+            guard linked, opensByDefault(tab: tab, macID: macID, at: url) else { return nil }
+            // Read during a view update: no observed write (see `adoptedKeys`).
+            let start = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
+            entries[key] = Entry(url: start?.absoluteString)
+            adoptedKeys.insert(key)
+            save()
+            return models[key] ?? makeModel(key: key, url: start)
+        }
         if let model = models[key] { return model }
         // Shown on the phone before this launch: the page opens where it was.
         return makeModel(key: key, url: entries[key]?.url.flatMap(URL.init(string:)))
@@ -139,6 +186,8 @@ public final class NativeBrowserTabs {
         let start = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
         entries[key] = Entry(url: start?.absoluteString)
         nativeKeys.insert(key)
+        adoptedKeys.remove(key)
+        mirroredKeys.remove(key)
         save()
         if let model = models[key] {
             // Back on the phone after mirroring: the page follows the Mac, keeping
@@ -155,8 +204,14 @@ public final class NativeBrowserTabs {
     /// else nil (the Mac's page stays as it is).
     func close(tab: String, macID: String?) -> URL? {
         let key = Self.key(tab: tab, macID: macID)
-        guard let entry = entries.removeValue(forKey: key) else { return nil }
+        // Mirrored by choice: stays so while other tabs open on the phone by default.
+        mirroredKeys.insert(key)
+        guard let entry = entries.removeValue(forKey: key) else {
+            save()
+            return nil
+        }
         nativeKeys.remove(key)
+        adoptedKeys.remove(key)
         save()
         let model = models[key]
         // Read before pausing: stopping a load puts the web view back on the last page.
@@ -177,18 +232,21 @@ public final class NativeBrowserTabs {
     /// The tabs the Macs list now: pages of tabs closed elsewhere (on the Mac, by
     /// another viewer) go, with their web views.
     public func retain(tabs: Set<String>) {
-        for key in Array(nativeKeys) where !tabs.contains(Self.tab(ofKey: key)) { forget(key) }
+        for key in Array(shownKeys.union(mirroredKeys)) where !tabs.contains(Self.tab(ofKey: key)) { forget(key) }
     }
 
     /// A new workspace's placeholder tab became the Mac's real tab.
     public func rename(tab old: String, to new: String) {
         guard old != new else { return }
-        for key in Array(nativeKeys) where Self.tab(ofKey: key) == old {
+        for key in Array(shownKeys.union(mirroredKeys)) where Self.tab(ofKey: key) == old {
             let next = key.replacingOccurrences(of: old, with: new, options: [.anchored, .backwards])
+            if mirroredKeys.remove(key) != nil { mirroredKeys.insert(next) }
+            guard shows(key) else { continue }
             entries[next] = entries.removeValue(forKey: key)
             models[next] = models.removeValue(forKey: key)
             tabPorts[next] = tabPorts.removeValue(forKey: key)
             nativeKeys.remove(key)
+            adoptedKeys.remove(key)
             nativeKeys.insert(next)
             if let model = models[next] { observe(model, key: next) }
         }
@@ -198,7 +256,9 @@ public final class NativeBrowserTabs {
     private func forget(_ key: String) {
         models.removeValue(forKey: key)?.pause()
         nativeKeys.remove(key)
-        if entries.removeValue(forKey: key) != nil { save() }
+        adoptedKeys.remove(key)
+        let wasMirrored = mirroredKeys.remove(key) != nil
+        if entries.removeValue(forKey: key) != nil || wasMirrored { save() }
         retainPorts()
     }
 
@@ -248,6 +308,11 @@ public final class NativeBrowserTabs {
             defaults.removeObject(forKey: Self.defaultsKey)
         } else if let data = try? JSONEncoder().encode(entries) {
             defaults.set(data, forKey: Self.defaultsKey)
+        }
+        if mirroredKeys.isEmpty {
+            defaults.removeObject(forKey: Self.mirroredDefaultsKey)
+        } else {
+            defaults.set(mirroredKeys.sorted(), forKey: Self.mirroredDefaultsKey)
         }
     }
 }

@@ -495,7 +495,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         case .browser:
-            let model: (any BrowserTabState)? = native.model(tab: tab.id, macID: workspace.macID)
+            let model: (any BrowserTabState)? = phonePage(tab, macID: workspace.macID)
                 ?? streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
             // A new tab's about:blank is no address: the field reads "Search or enter website",
             // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
@@ -1042,11 +1042,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         streamed.model(tab: tab.id, url: tab.url, macID: listedWorkspace?.macID)
     }
 
-    /// The tab's page: this iPhone's own when the person opened it here, else
-    /// streamed from the Mac while linked, else a local web view.
+    /// The tab's page: this iPhone's own (by default while linked, or when the person
+    /// opened it here), else streamed from the Mac while linked, else a local web view.
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
         let macID = store.workspace(id: workspaceID)?.macID
-        if let model = native.model(tab: tab.id, macID: macID) { return model }
+        if let model = phonePage(tab, macID: macID) { return model }
         if let model = streamed.model(tab: tab.id, url: tab.url, macID: macID) {
             // The page's links that open a new tab or window open one beside it (the model
             // is kept across screens; the newest screen of its workspace answers).

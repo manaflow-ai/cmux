@@ -5,12 +5,20 @@ import CmuxMobileModel
 import CmuxTabsKit
 import Foundation
 
-/// Open on iPhone / Mirror from <Mac>: a linked browser tab shows the Mac's page
-/// (mirrored) or loads it in this iPhone's own web view (`NativeBrowserTabs`).
+/// Open on iPhone / Mirror from <Mac>: a linked browser tab loads its page in this
+/// iPhone's own web view (the default, `NativeBrowserTabs`) or shows the Mac's page
+/// (mirrored, real pixels from the Mac's browser).
 extension WorkspaceTabsSource {
-    /// The tab's page on this iPhone, when the person opened it here instead of the mirror.
+    /// The tab's page on this iPhone: by default while linked (Settings → Browser Tabs
+    /// Open on iPhone), or when the person picked Open on iPhone; nil when mirrored.
     func nativeBrowser(_ tab: WorkspaceTab) -> BrowserTabModel? {
-        native.model(tab: tab.id, macID: store.workspace(id: workspaceID)?.macID)
+        phonePage(tab, macID: store.workspace(id: workspaceID)?.macID)
+    }
+
+    /// The one read of a browser tab's phone page: a linked tab the person never
+    /// switched opens on the phone at the Mac's address (`NativeBrowserTabs.opensByDefault`).
+    func phonePage(_ tab: WorkspaceTab, macID: String?) -> BrowserTabModel? {
+        native.model(tab: tab.id, macID: macID, linked: tab.kind == .browser && streamed.isLive, at: tab.url)
     }
 
     /// The Mac's page of a mirrored tab (nil: not linked, or the tab is on the iPhone).
