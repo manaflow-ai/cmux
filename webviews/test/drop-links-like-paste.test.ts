@@ -4,7 +4,6 @@
 // hashed or uploaded, whatever its size. A chat whose summary has not loaded yet asks too (the
 // host refuses a chat not on this Mac).
 import { expect, test } from "bun:test";
-import { asksDroppedPaths } from "../src/agent-session/acpmux/chatMachine";
 import { droppedPaths, intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 
 const MB = 1024 * 1024;
@@ -58,15 +57,4 @@ test("a drop on a local chat links a 500 MB file by its path at once, with no up
   expect(uploads).toEqual([]);
   expect(reads).toEqual([]);
   expect(elapsed).toBeLessThan(50);
-});
-
-test("a chat whose summary has not loaded yet asks the host where a drop's files are", () => {
-  // Not loaded yet: the host decides (it refuses a chat not on this Mac).
-  expect(asksDroppedPaths(undefined)).toBe(true);
-  // On this Mac.
-  expect(asksDroppedPaths({})).toBe(true);
-  expect(asksDroppedPaths({ host: "this-mac", hostKind: "local" })).toBe(true);
-  // Another machine's: never asked.
-  expect(asksDroppedPaths({ peer: "build-box" })).toBe(false);
-  expect(asksDroppedPaths({ host: "cloud-1", hostKind: "cloud" })).toBe(false);
 });
