@@ -61,7 +61,9 @@ final class ShellModel {
     var workspacesPath: [Workspace] = [] {
         didSet {
             if let workspace = workspacesPath.last {
-                lastWorkspace.save(store.resolvedWorkspaceID(workspace.id))
+                let id = store.resolvedWorkspaceID(workspace.id)
+                lastWorkspace.save(id)
+                if lastWorkspaceID != id { lastWorkspaceID = id }
             }
             updateInteractiveOpen()
             updateShownMacs()
@@ -148,6 +150,8 @@ final class ShellModel {
     @ObservationIgnored let lastOpen: LastOpenMemory
     /// The workspace last visited, kept when the user backs out to the list.
     @ObservationIgnored let lastWorkspace: LastWorkspaceMemory
+    /// The same id, observed: the list's mark follows it the moment a visit saves it.
+    private(set) var lastWorkspaceID: String?
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.
@@ -172,6 +176,7 @@ final class ShellModel {
          lastOpen: LastOpenMemory = .standard, lastWorkspace: LastWorkspaceMemory = .standard) {
         self.lastOpen = lastOpen
         self.lastWorkspace = lastWorkspace
+        self.lastWorkspaceID = lastWorkspace.load()
         self.store = store
         self.auth = auth
         // New Message names this account and its team by the Cloud's own ids, derived from the project.
