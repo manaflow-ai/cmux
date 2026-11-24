@@ -275,6 +275,13 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
     with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None,
                                      ignore_cleanup_errors=True) as tools:
         env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        # The change's paths, one a line, for a step whose own router is finer than path globs (a web subarea):
+        # unset when the change is unknown, which a step reads as "everything changed".
+        env.pop("CI_PATHS_FILE", None)
+        if paths is not None:
+            listed = Path(tools) / "changed-paths.txt"
+            listed.write_text("".join(f"{p}\n" for p in paths), encoding="utf-8")
+            env["CI_PATHS_FILE"] = str(listed)
         ready = True
         if job in table.setup:
             setup = run_step(Step(name=f"setup ({job})", job=job, run=table.setup[job], timeout=SETUP_TIMEOUT,
