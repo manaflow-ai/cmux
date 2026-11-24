@@ -381,6 +381,19 @@ class ScanTests(RepoCase):
         self.assertEqual(sorted(privacy.changed_files(self.work, squashed, end)),
                          ["1/b.png", "2/c.gif", "2/d.mov", "2/readme.md"])
 
+    def test_a_backlog_is_read_in_batches_of_whole_commits(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        first = self.commit({"1/a.png": "a", "1/b.png": "b"})
+        second = self.commit({"2/c.png": "c", "2/d.png": "d"})
+        end = self.commit({"3/e.png": "e"})
+        self.assertEqual(privacy.batch_end(self.work, start, end, 5), end)
+        self.assertEqual(privacy.batch_end(self.work, start, end, 0), end)
+        self.assertEqual(privacy.batch_end(self.work, start, end, 4), second)
+        self.assertEqual(privacy.batch_end(self.work, start, end, 3), first)
+        # One commit over the limit is still read whole, so every run moves the marker.
+        self.assertEqual(privacy.batch_end(self.work, start, end, 1), first)
+        self.assertEqual(privacy.batch_end(self.work, second, end, 1), end)
+
     def test_text_files_are_read_without_ocr(self) -> None:
         start = self.commit({"README.md": "hi"})
         end = self.commit({"7/index.html": "<p>cmux@cmux3s-mac-mini %</p>"})
