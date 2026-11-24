@@ -100,7 +100,6 @@ final class ProfileBarView: NSView {
 
     // MARK: Geometry
 
-    private var slot: CGFloat { Metrics.roomDotSlot }
     /// The pointer is over the bar. Nothing changes for it alone: only the
     /// slot directly under the pointer shows a hover chip (Leo 2026-11-03).
     private(set) var isPointerInside = false
@@ -118,9 +117,13 @@ final class ProfileBarView: NSView {
     var strip: SpaceStrip {
         // A user-set pitch stays the same as the row fills and starts scrolling.
         let fixedSpacing = DesignSettings.shared.overrides[.spaceButtonSpacing] != nil
+        let leading = min(bounds.width, max(0, leadingInset ?? SidebarStyle.horizontalInset))
+        // Footer controls can leave less space than one full dot and the plus. Keep both reachable.
+        let available = bounds.width - leading
+        let slot = min(Metrics.roomDotSlot, model.profiles.isEmpty ? available : available / 2)
         return ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
                                      center: Double(centerX ?? bounds.width / 2),
-                                     minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
+                                     minLeading: Double(leading),
                                      slot: Double(slot), plus: Double(slot),
                                      fullMinimum: Double(fixedSpacing ? slot : slot * 0.75),
                                      compactMinimum: Double(fixedSpacing ? slot : Metrics.roomDotDiameter + Metrics.space1),

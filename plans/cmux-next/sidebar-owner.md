@@ -2517,7 +2517,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
   open the dot stays lit and the hover chrome stays revealed. A space no other window shows still switches in place.
   Settings > Sidebar > Space Button Spacing (`appearance.metrics.spaceButtonSpacing`) sets the distance
   between button centers in points, at either edge of the sidebar. An explicit spacing is kept on a
-  scrolling row. Unset, the density and available width choose the spacing.
+  scrolling row. If the footer has less room than an active button and the +, those targets share
+  the available width. Unset, the density and available width choose the spacing.
   Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
   `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
 - A dot drag keeps the marks: each moving dot's snapshot draws its ring or glyph too (`ProfileBarDotDragWindowMarkTests`).
