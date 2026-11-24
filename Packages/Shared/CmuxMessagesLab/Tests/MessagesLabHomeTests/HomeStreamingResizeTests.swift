@@ -142,7 +142,9 @@ import Testing
         Self.resize(rig, to: 1000) // remembers these rows, with no picture yet
         rig.frames.start()
         let picture = "file:///Users/me/.cmux/chiefs/agent_chief/3f2a.png"
-        rig.store.dispatch(try #require(rig.core.setAvatars([Self.chief.rawValue: .image(picture)])))
+        // `setAvatars` is mutating: call it first, then require its action (#require cannot call a mutating member).
+        let changed = rig.core.setAvatars([Self.chief.rawValue: .image(picture)])
+        rig.store.dispatch(try #require(changed))
         Self.resize(rig, to: 900)
         rig.frames.start()
         let avatars = rig.view.model.rows.compactMap { row -> SenderAvatar? in
