@@ -571,9 +571,14 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
     assert!(said.contains("another of your teams"), "{said}");
 
-    let plain_before = links.hub_plain_dials.load(Ordering::Relaxed);
+    // An acpmux dial asks for a kept circuit first (and goes plain only to a machine that keeps
+    // none or takes no acpmux streams): whichever it tried, the failed attempt counts.
+    let dials = || {
+        links.hub_plain_dials.load(Ordering::Relaxed) + links.hub_kept_dials.load(Ordering::Relaxed)
+    };
+    let dials_before = dials();
     assert!(dialer.dial(&unknown).await.is_err());
-    assert!(links.hub_plain_dials.load(Ordering::Relaxed) > plain_before);
+    assert!(dials() > dials_before);
 }
 
 /// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner
@@ -2335,9 +2340,9 @@ struct MoveRun {
 }
 
 async fn move_over_relay(precopy: bool) -> MoveRun {
-    use acpmux::mesh::{ControlHook as _, InMessage};
+    use acpmux::mesh::InMessage;
     use acpmux::mesh_http::MeshControlFrom;
-    use acpmux::server::mesh_relay::MeshControlHook;
+    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
     use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 
     let _ = HERMETIC;
@@ -2795,7 +2800,15 @@ async fn kept_fixture_with(
     b.set_cmux_tui_gate(gate.clone());
     let acpmux_b = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let acpmux_b_address = acpmux_b.local_addr().unwrap();
-    tokio::spawn(async move { while acpmux_b.accept().await.is_ok() {} });
+    // B's acpmux listener echoes, so a test can carry bytes over an acpmux link.
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = acpmux_b.accept().await {
+            tokio::spawn(async move {
+                let (mut read, mut write) = socket.into_split();
+                let _ = tokio::io::copy(&mut read, &mut write).await;
+            });
+        }
+    });
     let serving = b.serve(acpmux_b_address);
     let a = HubCarrier::new(
         Arc::new(FixedTickets {
@@ -2948,6 +2961,67 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
     assert_eq!(fixture.plain_dials(), 0);
     assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// One circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials) ride
+/// the kept circuit as streams beside the cmux-tui ones, and no plain circuit opens.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    let mut probe = within("the hub probe", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"link\n").await;
+    echo(&mut probe, b"probe\n").await;
+    let _tui = fixture.dial_to_banner().await;
+    assert_eq!(fixture.kept_circuits(), 1, "the links rode the one cheap circuit");
+    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside it");
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1);
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(3));
+}
+
+/// A new dialer and an old machine: B refuses acpmux streams `service.unknown` as a daemon from
+/// before them does, so A's acpmux dial goes plain (and keeps going plain without asking again),
+/// while its cmux-tui dials still ride the kept circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_acpmux_dial_to_an_old_machine_goes_plain() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    fixture.b.acpmux_streams(false);
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"old b\n").await;
+    assert_eq!(fixture.plain_dials(), 1);
+    let opens = fixture.kept_opens();
+    let mut again = within("a redial", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut again, b"again\n").await;
+    assert_eq!(fixture.plain_dials(), 2);
+    assert_eq!(fixture.kept_opens(), opens, "an old machine is not asked again");
+    let _tui = fixture.dial_to_banner().await;
+    assert_eq!(fixture.plain_dials(), 2, "cmux-tui still rides the kept circuit");
+}
+
+/// A new dialer and a machine that keeps no circuits at all: the acpmux dial goes plain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_acpmux_dial_to_a_machine_with_no_kept_circuits_goes_plain() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, false, true).await;
+    let plain = fixture.plain_dials();
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"no kept\n").await;
+    assert_eq!(fixture.plain_dials(), plain + 1);
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 0);
+}
+
+/// An old dialer and a new machine: A dials acpmux plain with no hello, as before acpmux
+/// streams, and B's listener still answers it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_old_dialer_still_reaches_a_new_machines_acpmux() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    fixture.a.acpmux_streams(false);
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"old a\n").await;
+    assert_eq!(fixture.plain_dials(), 1);
 }
 
 /// Twenty dials at once to a machine with no kept circuit open one circuit between them, not
