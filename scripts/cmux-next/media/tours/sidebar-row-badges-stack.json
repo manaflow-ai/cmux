@@ -19,6 +19,19 @@
       "optional": "debug.onboarding is DEBUG only"
     },
     {
+      "title": "Variant A: stacked line (state marks, whole above the next row) (set before the rows exist: the layout reads it when it is built)",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "sidebar.subagents.look",
+          "value": "stack"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    },
+    {
       "title": "Workspace 1",
       "rpc": {
         "method": "action.run",
@@ -90,19 +103,6 @@
           "action": "set",
           "key": "sidebar.subagents.fixture",
           "value": true
-        }
-      },
-      "wait": 2,
-      "shot": false
-    },
-    {
-      "title": "Variant A: stacked line (state marks, whole above the next row)",
-      "rpc": {
-        "method": "debug.tunables",
-        "params": {
-          "action": "set",
-          "key": "sidebar.subagents.look",
-          "value": "stack"
         }
       },
       "wait": 2,
