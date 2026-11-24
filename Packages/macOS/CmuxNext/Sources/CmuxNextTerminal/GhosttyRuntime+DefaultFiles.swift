@@ -14,9 +14,12 @@ extension GhosttyRuntime {
 
     static func loadDefaultFiles(into config: ghostty_config_t, importedLayer: URL = importedClassicConfig) {
         ghostty_config_load_default_files(config)
-        if FileManager.default.fileExists(atPath: importedLayer.path) {
-            ghostty_config_load_file(config, importedLayer.path)
-        }
+        // Ghostty resolves optional includes with the other config files. A fresh
+        // install has no imported layer. Keep the path on a single config line.
+        let path = importedLayer.path
+        guard path.rangeOfCharacter(from: .newlines) == nil else { return }
+        let include = "config-file = ?\(path)"
+        include.withCString { ghostty_config_load_string(config, $0, UInt(include.utf8.count), "cmux-next") }
     }
 
     static func defaultFilesFontSize(importedLayer: URL) -> Float? {
