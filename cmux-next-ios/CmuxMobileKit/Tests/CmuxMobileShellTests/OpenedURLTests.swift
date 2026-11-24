@@ -38,6 +38,14 @@ import Testing
         #expect(opened("https://cmux.com/terms-of-service") == nil)
     }
 
+    @Test func aMacScreenLinkOpensFromTheAppAndTheWeb() {
+        let device = "0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b"
+        let expected = OpenedURL.link(CmuxLink(.macScreen(.init(device: device, display: "2"))))
+        #expect(opened("cmux://mac-screen?device=\(device)&display=2") == expected)
+        #expect(webpage("https://cmux.com/deeplink/screen?device=\(device)&display=2") == expected)
+        #expect(webpage("https://www.cmux.com/deeplink/screen?device=\(device)&display=2") == expected)
+    }
+
     @Test func theMacsPairingCodeForThisPhoneOpensOnlyFromItsScheme() {
         let key = String(repeating: "A", count: 43)
         let code = "cmux-next://pair?mac=m1&team=t1&name=Mac&t=0123456789abcdef&k=\(key)&e=9999999999"

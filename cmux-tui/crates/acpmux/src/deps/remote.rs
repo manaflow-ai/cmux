@@ -130,6 +130,15 @@ pub struct Remote {
 impl Remote {
     /// The joined machine's hub and credential, or None when this machine is not joined.
     pub fn joined() -> Result<Option<Remote>> {
+        let Some((origin, credential)) = Remote::joined_bearer()? else {
+            return Ok(None);
+        };
+        Ok(Some(Remote::new(origin, credential)?))
+    }
+
+    /// The joined machine's hub origin and credential (`install_share.rs` calls
+    /// the same hub with it), or None when this machine is not joined.
+    pub fn joined_bearer() -> Result<Option<(String, String)>> {
         let Some(record) = crate::cli::cloud_join::machine_credential()? else {
             return Ok(None);
         };
@@ -137,7 +146,7 @@ impl Remote {
             return Ok(None);
         }
         let origin = crate::cli::cloud_join::hub_origin(&record.hub_origin)?;
-        Ok(Some(Remote::new(origin, record.credential)?))
+        Ok(Some((origin, record.credential)))
     }
 
     pub fn new(origin: String, bearer: String) -> Result<Remote> {

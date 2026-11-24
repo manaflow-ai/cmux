@@ -121,6 +121,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (
+            method::MUX_MACHINE_FILES_CALL,
+            Any(
+                json!({"machine": "nowhere", "action": "fs.read", "params": {"path": "/tmp/x"}}),
+                "the hub's book lists no signed-in machine of that name (unknown_machine)",
+            ),
+        ),
+        (
             method::MUX_KEYS_MINT,
             Any(
                 json!({"machine": "nowhere", "kind": "cloudflare-r2", "bucket": "bucket", "access": "ro"}),
