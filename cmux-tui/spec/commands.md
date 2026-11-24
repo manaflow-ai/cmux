@@ -6706,13 +6706,24 @@ Result: `object{}` or `object{refused:"unknown_run"}`.
 
 Returns the retained notification ledger (at most 256), newest first.
 
-Params: `limit` (usize, default 256).
+Params: `limit` (usize, default 256); `stats` (bool, default false).
 
 Result:
 
 ```text
-object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}]}
+object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}], agent_notice_stats?:object}
 ```
+
+With `stats: true` the reply also carries `agent_notice_stats`: how often agent
+notices (source `agent`) were read, and how fast, per kind (`finished`,
+`failed`, `needs_input`, `other`) and over `all`. Each kind has `posted`,
+`read_within_60s`, `read_within_10m`, `read_later`, `never_read` (unread
+10 min after its post), `unread_recent` (unread, younger than 10 min),
+`acted_rate` (read within 10 min over posted minus unread_recent; null when
+none) and `read_ms_p50`/`read_ms_p95` (null when none was read). A read is the
+first console ack or client read the store records. The window is the retained
+ledger (`window.since_ms`, the oldest agent notice in it), so a restart keeps
+the numbers and the cost stays constant.
 
 ### set-tab-pinned
 
