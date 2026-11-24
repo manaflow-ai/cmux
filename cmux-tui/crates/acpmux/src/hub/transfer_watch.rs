@@ -541,6 +541,10 @@ mod test_seam {
 }
 
 #[cfg(test)]
+#[path = "transfer_watch_tests.rs"]
+mod deleted_target_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{marker_is_uncommitted, takeover_allowed};
 
