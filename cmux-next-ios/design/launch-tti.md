@@ -42,3 +42,7 @@ Limits: the terminal is the mock session (no Mac, no network): the network half 
 first key is the link's, timed by `ConnectTimeline` (`timing launch ...` steps). A simulator
 reboot does not empty the host's file cache, so "cold" is a cold process and simulator, not a
 cold disk.
+
+### Shaped and loaded cold runs (`net=`, `duress=`)
+
+`cmux-next-ios-sim.sh test ui=SUITE net=lte|lossy-3|off duress=off|PRESET` runs a cold suite (`*ColdUITests`, or `LaunchColdLiveUITests`, 20 runs by default) once per link × load pair. `net=` with `duress=off` is a shaped, otherwise idle, `cmux-duress` replay (`idle,link=PROFILE`); with a preset, the preset's load is kept and its link replaced. Each run's logs go to `ui-cold/<load>+<net>-<test>-<run>`; `LAUNCHCOLDLIVE` rows are summarised p50/p90 per link, load and flow in SUMMARY.md. Limits, also printed there: the terminal flow is the mock session (no Mac, no network), and cold means a cold process and freshly booted simulator, not a cold disk.

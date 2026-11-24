@@ -156,7 +156,8 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         try await driver.settle()
         try await driver.advance(by: LinkController.presenceProbeTimeout + LinkController.probeGrace + .milliseconds(100),
                                  until: { dialer.dials == 2 })
-        try await eventually { dialer.dials == 2 }
+        // The count goes up before the dialer reads the controller on the main actor.
+        try await eventually { dialer.dials == 2 && dialer.sawAtRedial != nil }
         // The redial connects at once here, which then closes the kept link: what holds is that the
         // silent link is kept as the standby when the redial begins, not that it stays afterwards.
         #expect(dialer.sawAtRedial == true, "The silent link stays beside the redial")

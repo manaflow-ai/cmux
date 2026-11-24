@@ -12,7 +12,7 @@
 // Gallery files import types only (and pure data helpers), so a test can import every one of them
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
-import type { DiffCommentRecord } from "../comments/types";
+import type { DiffCommentRecord, DiffReviewTarget } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
@@ -47,8 +47,8 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  HubState,
   DoctorReport,
+  HubState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -347,6 +347,8 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** A review worktree's pull request (`comments.list`'s `review`): the section posts to it. */
+  commentsReview?: DiffReviewTarget;
   /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
    * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
   reviewBrief?: unknown;
@@ -414,6 +416,12 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The latest surge the list's last page reports (the surge card on Machines). */
+  surge?: import("../pages/cloud/ops").CloudSurge;
+  /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
+  paymentPastDue?: boolean | "fail";
+  /** The plan the account panel names (`cloud.plan.get` `plan_id`), when not the sample plan's. */
+  planId?: string;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };
