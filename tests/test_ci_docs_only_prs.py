@@ -55,7 +55,6 @@ ALLOWED: dict[str, str] = {
                                 "the workflow when the status is missing), about two minutes on Linux",
     "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
-    "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
     "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
