@@ -56,25 +56,21 @@ on:
         required: false
         default: ""
         type: string
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - scripts/cmux-next/cloud-composer-journey.py
-      - scripts/cmux-next/cloud-chat-matrix.py
-      - .github/workflows/cloud-composer-journey.yml
+  # No pull_request trigger: the run tests a published nightly, not the PR's code, and stays red until the
+  # product reds its cells record are fixed, so it would only gate a harness PR on them. The harness's own
+  # logic is covered by tests/test_cloud_composer_journey.py in tooling-tests.
 
 permissions:
   contents: read
 
 concurrency:
-  group: cloud-composer-journey-${{ github.event.pull_request.number || github.run_id }}
-  # A new push cancels the pull request's older run; the harness's SIGTERM path still deletes its machines.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cloud-composer-journey-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   resolve:
     # The nightly build and its source commit, from the live feed (no secret).
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch')
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
