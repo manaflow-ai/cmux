@@ -29,6 +29,17 @@ fn machine(name: &str) -> Daemon {
     Daemon::start_with(name, None, Some(config))
 }
 
+/// A machine whose killed-agent turn cannot start an automatic retry behind the notice test.
+fn machine_with_no_auto_resume(name: &str) -> Daemon {
+    let config = json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
+        "defaultHarness": "fake",
+        "webAskingModes": {"fake": ["normal"]},
+        "autoResumeDelaysMs": [],
+    });
+    Daemon::start_with(name, None, Some(config))
+}
+
 /// A chat started in a new agent tab of the daemon, with its folder trusted.
 fn chat(daemon: &Daemon) -> (u64, String) {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
@@ -106,6 +117,43 @@ impl Acpmux {
             "session/prompt",
             json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]}),
         )
+    }
+
+    /// Starts a turn that emits its own pid, then kills that stub before it can answer.
+    fn prompt_then_kill_agent(&mut self, session: &str) -> Value {
+        let id = self.next;
+        self.next += 1;
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "session/prompt",
+            "params": {"sessionId": session, "prompt": [{"type": "text", "text": "works-through-cancel"}]},
+        });
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+
+        let mut killed = false;
+        loop {
+            let mut line = String::new();
+            assert_ne!(
+                self.reader.read_line(&mut line).unwrap(),
+                0,
+                "acpmux closed the connection"
+            );
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if !killed
+                && let Some(title) = message.pointer("/params/update/title").and_then(Value::as_str)
+                && let Some(pid) = title.strip_prefix("step ").and_then(|step| {
+                    step.split_once(" pid ").and_then(|(_, pid)| pid.parse::<libc::pid_t>().ok())
+                })
+            {
+                assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0, "kill stub agent {pid}");
+                killed = true;
+            }
+            if message["id"] == id {
+                assert!(killed, "the working stub agent never exposed its pid: {message}");
+                return message;
+            }
+        }
     }
 }
 
@@ -350,6 +398,64 @@ fn a_chat_open_in_two_tabs_posts_one_notice_per_turn_and_per_wait() {
         json!({"sessionId": session, "permissionId": permission, "optionId": "no"}),
     );
     asking.join().unwrap();
+}
+
+/// A stub agent killed in the middle of a turn posts one error notice for a chat open in two
+/// tabs. Replaying the chat after a daemon restart keeps the same durable notification id.
+#[test]
+fn a_killed_agent_posts_one_notice_and_dedupes_after_daemon_restart() {
+    let daemon = machine_with_no_auto_resume("notice-killed");
+    let (surface, session) = chat(&daemon);
+    let other_surface = second_tab(&daemon, &session);
+    let (marker_surface, marker_session) = chat(&daemon);
+    let tabs = [surface, other_surface];
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    let mut marker = Acpmux::connect(&daemon, &marker_session);
+
+    let killed = acpmux.prompt_then_kill_agent(&session);
+    assert!(killed.get("error").is_some(), "the killed turn unexpectedly answered: {killed}");
+    let first = notice(&daemon, surface, |row| {
+        row["level"] == "error"
+            && (row["title"].as_str().is_some_and(|title| title.ends_with("failed"))
+                || row["title"].as_str().is_some_and(|title| title.ends_with("stopped responding")))
+    });
+    let first_id = first["id"].clone();
+    let target_errors = |daemon: &Daemon| -> Vec<Value> {
+        all_notices(daemon)
+            .into_iter()
+            .filter(|row| tabs.contains(&row["surface"].as_u64().unwrap_or_default()))
+            .filter(|row| row["source"] == "agent" && row["level"] == "error")
+            .collect()
+    };
+
+    // A later chat change drains the watch, so a second dead-agent notice cannot hide behind the
+    // first one before the count is checked.
+    marker.prompt(&marker_session, "marker before restart");
+    notice(&daemon, marker_surface, |row| {
+        row["body"].as_str().is_some_and(|body| body.contains("marker before restart"))
+    });
+    assert_eq!(
+        target_errors(&daemon).len(),
+        1,
+        "one dead-agent notice: {:?}",
+        target_errors(&daemon)
+    );
+
+    restart(&daemon);
+    marker.prompt(&marker_session, "marker after restart");
+    notice(&daemon, marker_surface, |row| {
+        row["body"].as_str().is_some_and(|body| body.contains("marker after restart"))
+    });
+    let after_restart = target_errors(&daemon);
+    assert_eq!(
+        after_restart.len(),
+        1,
+        "restart duplicated the dead-agent notice: {after_restart:?}"
+    );
+    assert_eq!(
+        after_restart[0]["id"], first_id,
+        "restart changed the dedupe id: {after_restart:?}"
+    );
 }
 
 /// `list-notifications` with `stats: true` says how often agent notices were read and how fast,
