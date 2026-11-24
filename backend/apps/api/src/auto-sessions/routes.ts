@@ -259,7 +259,9 @@ const machineSetting = async (request: Request, env: Env): Promise<Response> => 
   if (typeof b.machine !== "string" || !MACHINE.test(b.machine)) return invalid("machine: the Cloud machine id (letters, digits, _ -, at most 64)")
   if (!(await mayUseTeam(env, by.owner, b.team))) return fail(403, "auth.forbidden", "no access to this team's machines")
   const machine = { team: b.team, machine: b.machine }
-  await index.nameMachine(by.owner, machine)
+  const named = await index.nameMachine(by.owner, machine)
+  if (named === "not_own") return fail(403, "auth.forbidden", "the Auto machine must be one of your own Cloud machines in that team, not a classic one")
+  if (named === "unknown") return fail(503, "owner.unreachable", "cmux Cloud could not say whose machine that is; retry")
   return json(machine)
 }
 

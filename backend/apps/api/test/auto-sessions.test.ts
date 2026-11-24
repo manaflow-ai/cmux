@@ -97,7 +97,8 @@ describe("auto sessions: the lease", { timeout: 60_000 }, () => {
     await lapse(a.user, "idle")
     expect((await get(a.installToken, "idle")).body.session).toMatchObject({ holder: "parked", epoch: 2, state: "parked", blocked: null })
     await fireAlarm(indexStub(a.user))
-    expect([m.reads, m.starts, await starts(a.user)]).toEqual([0, [], []])
+    // The one read is the machine's owner checked as it was named.
+    expect([m.reads, m.starts, await starts(a.user)]).toEqual([1, [], []])
     // Nobody ran it since: the laptop that held it goes on at the new epoch.
     const back = await lease(a.installToken, "idle", LAPTOP, 1)
     expect(back.body).toMatchObject({ role: "holder", session: { holder: LAPTOP, epoch: 3, state: "local" } })
