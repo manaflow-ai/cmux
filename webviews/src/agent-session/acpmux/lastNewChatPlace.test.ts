@@ -76,3 +76,11 @@ test("a new page starts on the picked machine only while acpmux lists it connect
   expect(pickedStartMachine({ kind: "cloud" }, undefined, ["build-box"])).toBeUndefined();
   expect(pickedStartMachine({ kind: "local" }, undefined, ["build-box"])).toBeUndefined();
 });
+
+// Auto (autoWhereModel.ts) is kept as itself and names no run location: the daemon picks on Send.
+test("Auto is remembered as Auto and leaves the run location to the folder's default", () => {
+  const kept = store();
+  rememberNewChatPlace({ kind: "auto" }, kept);
+  expect(lastNewChatPlace(kept)).toEqual({ kind: "auto" });
+  expect(pickedRunLocation({ kind: "auto" })).toBeUndefined();
+});
