@@ -97,6 +97,14 @@ class RequiredGateLabelTest(unittest.TestCase):
         self.assertTrue(reporting, "no job reports a required check")
         self.assertLessEqual(reporting, set(GATE_JOBS))
 
+    def test_every_required_check_is_a_literal_job_name(self) -> None:
+        # A job skipped by its `if:` reads as success for a required check, but GitHub publishes a skipped
+        # job's `name:` unevaluated: an expression name posts its own `${{ ... }}` text and the required
+        # check never reports. From #51717 (11-23) every PR into main that changed no migration lacked
+        # `backend migrations applied` (cmux#52509 83599dd3: merge refused 6 times; #53218 merged by bypass).
+        literal = {job.get("name") for _, _, job in all_jobs() if "${{" not in str(job.get("name", ""))}
+        self.assertEqual(set(REQUIRED_CHECKS) - literal, set())
+
     def test_every_gate_job_leads_with_the_gate_label(self) -> None:
         for (name, job_id), check in sorted(GATE_JOBS.items()):
             if (name, job_id) in STAGED:
