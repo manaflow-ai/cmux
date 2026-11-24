@@ -1299,6 +1299,28 @@
   padding-inline-end: 4px;
 }
 
+/* An integrations hub approval (HubApprovalCard.tsx) is a request row (.feed-needs-row) with no
+   opener: it sizes as one, so the pinned section's frame (FeedNeedsYouSection.hubCardHeight, the
+   row height) matches it. What an answer did keeps to its own line, beside the row's text. */
+.feed-hub-row {
+  height: var(--feed-needs-row);
+}
+
+.feed-hub-row .feed-needs-opener:hover {
+  background: transparent;
+}
+
+.feed-hub-row .feed-closed {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.feed-hub-row[data-tone="done"] .feed-closed .feed-icon {
+  color: var(--ds-color-success);
+}
+
 .feed-needs .feed-card {
   border-bottom: 0;
   border-radius: var(--ds-radius-md);

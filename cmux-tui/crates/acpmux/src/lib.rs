@@ -26,6 +26,7 @@ pub mod agent;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
+pub mod agent_home;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -225,6 +226,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
+pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
@@ -262,6 +265,7 @@ pub mod race_records;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -303,6 +307,7 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
@@ -337,6 +342,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;
@@ -360,6 +366,7 @@ mod test_stack;
 pub mod test_support;
 pub(crate) mod time_breakdown;
 pub(crate) mod tool_env;
+pub mod tool_mentions;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
@@ -373,6 +380,7 @@ pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
+pub(crate) mod unread_records;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
