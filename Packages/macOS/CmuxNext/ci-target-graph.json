@@ -2258,6 +2258,7 @@
         "CmuxNextPalette",
         "CmuxNextResources",
         "CmuxNextSettings",
+        "CmuxNextSignposts",
         "CmuxNextWakeups"
       ],
       "packages": [

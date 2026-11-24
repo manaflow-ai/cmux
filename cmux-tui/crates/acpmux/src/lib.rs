@@ -99,6 +99,7 @@ pub mod desktop_link;
 pub mod directory_input;
 pub mod disk_usage;
 pub mod folder_instructions;
+pub mod fork_place;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -324,6 +325,7 @@ pub mod session_search;
 #[cfg(feature = "hub-carrier")]
 pub mod session_service;
 pub mod session_status;
+mod session_store;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
