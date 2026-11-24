@@ -118,7 +118,9 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let name = create_name(params);
     // A peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
     let peers = conn.origin != Origin::Peer;
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name }
+    // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
+    let redirect = crate::hub::admission_redirect::movable(params);
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name, redirect }
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
@@ -929,6 +931,93 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     Ok(())
 }
 
+/// `session/new` on the peer `peer_name` (`_meta.acpmux.peer`), for a caller's
+/// own `peer` and for a create admission placed there (`hub/admission_redirect.rs`).
+async fn new_on_peer(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    peer_name: &str,
+) -> Result<Value, RpcError> {
+    // A credential is for an agent on this machine only: never sent on to a peer.
+    if mux_meta(params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
+    {
+        return Err(RpcError::invalid_params(
+            "credentials start an agent on this machine only, never on a peer",
+        ));
+    }
+    let peer =
+        hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
+        return Err(super::trust_gate::peer_unsupported(&peer.name));
+    }
+    let mut p = params.clone();
+    super::peer_forward::strip_new_meta(&mut p);
+    // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
+    let answer = crate::hub::cmux_tools_answer::here_for(
+        crate::user_settings::text().as_deref(),
+        &p,
+    );
+    crate::hub::cmux_tools_answer::stamp(&mut p, answer);
+    super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+    // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
+    let unattended =
+        hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
+    // A full-access starter's chat runs in full access there too, and the person's
+    // own start at the person's start level (`hub/full_access_children.rs`).
+    let carried = hub
+        .forward_start_policy(person_start(conn, params), conn.caller(), &mut p)
+        .await;
+    crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, params));
+    // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
+    // for the person's own clients here only (`vm_boundary::owner`): a saved
+    // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
+    // (`hub/agent_vm.rs`).
+    if crate::hub::vm_boundary::owner(
+        conn.auth,
+        super::remote_guard::control_of(conn.origin, conn.auth, params),
+        params,
+    ) && (peer.vm_boundary()
+        || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
+    {
+        crate::hub::merge_mux_meta(
+            &mut p,
+            json!({crate::hub::vm_boundary::FIELD: true}),
+        );
+    }
+    if let Some((name, digest)) = &unattended {
+        hub.unattended_preset_holds(name, digest).await?;
+    }
+    // A peer that takes no full access from this machine still starts the person's
+    // own chat, asking, as before the start level was carried (`Carried::Person`).
+    let asking = (carried == crate::hub::full_access_children::Carried::Person)
+        .then(|| crate::hub::full_access_children::without_carried_policy(&p));
+    let mut result = match super::remote_guard::hint::new_on(&peer, params, p).await {
+        Err(e)
+            if asking.is_some()
+                && e.data
+                    .as_ref()
+                    .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
+        {
+            let asking = asking.unwrap_or_default();
+            super::remote_guard::hint::new_on(&peer, params, asking).await?
+        }
+        r => r?,
+    };
+    if let Some(approved) = &unattended {
+        let id = result.get("sessionId").and_then(Value::as_str);
+        hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
+    }
+    if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        view::subscribe_remote(hub, conn, id, None);
+        peer.mark_attached(id);
+    }
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("peer".into(), Value::String(peer.name.clone()));
+    }
+    Ok(result)
+}
+
 /// Whether a start on `conn` is the person's own here, which carries the person's start level to
 /// another machine (`hub/full_access_children.rs`): the unix socket or the app, by the proof
 /// the connection presented, and not held to the Web's rules (`remote_guard::control_of`).
@@ -1627,83 +1716,7 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
-                // A credential is for an agent on this machine only: never sent on to a peer.
-                if mux_meta(&params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
-                {
-                    return Err(RpcError::invalid_params(
-                        "credentials start an agent on this machine only, never on a peer",
-                    ));
-                }
-                let peer =
-                    hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
-                if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
-                    return Err(super::trust_gate::peer_unsupported(&peer.name));
-                }
-                let mut p = params.clone();
-                super::peer_forward::strip_new_meta(&mut p);
-                // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-                let answer = crate::hub::cmux_tools_answer::here_for(
-                    crate::user_settings::text().as_deref(),
-                    &p,
-                );
-                crate::hub::cmux_tools_answer::stamp(&mut p, answer);
-                super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
-                // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
-                let unattended =
-                    hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
-                // A full-access starter's chat runs in full access there too, and the person's
-                // own start at the person's start level (`hub/full_access_children.rs`).
-                let carried = hub
-                    .forward_start_policy(person_start(conn, &params), conn.caller(), &mut p)
-                    .await;
-                crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
-                // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
-                // for the person's own clients here only (`vm_boundary::owner`): a saved
-                // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
-                // (`hub/agent_vm.rs`).
-                if crate::hub::vm_boundary::owner(
-                    conn.auth,
-                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                    &params,
-                ) && (peer.vm_boundary()
-                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
-                {
-                    crate::hub::merge_mux_meta(
-                        &mut p,
-                        json!({crate::hub::vm_boundary::FIELD: true}),
-                    );
-                }
-                if let Some((name, digest)) = &unattended {
-                    hub.unattended_preset_holds(name, digest).await?;
-                }
-                // A peer that takes no full access from this machine still starts the person's
-                // own chat, asking, as before the start level was carried (`Carried::Person`).
-                let asking = (carried == crate::hub::full_access_children::Carried::Person)
-                    .then(|| crate::hub::full_access_children::without_carried_policy(&p));
-                let mut result = match super::remote_guard::hint::new_on(&peer, &params, p).await {
-                    Err(e)
-                        if asking.is_some()
-                            && e.data
-                                .as_ref()
-                                .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
-                    {
-                        let asking = asking.unwrap_or_default();
-                        super::remote_guard::hint::new_on(&peer, &params, asking).await?
-                    }
-                    r => r?,
-                };
-                if let Some(approved) = &unattended {
-                    let id = result.get("sessionId").and_then(Value::as_str);
-                    hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
-                }
-                if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                    view::subscribe_remote(hub, conn, id, None);
-                    peer.mark_attached(id);
-                }
-                if let Some(obj) = result.as_object_mut() {
-                    obj.insert("peer".into(), Value::String(peer.name.clone()));
-                }
-                return Ok(result);
+                return new_on_peer(hub, conn, &params, peer_name).await;
             }
             let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
@@ -1845,7 +1858,7 @@ async fn dispatch_request_with_identity(
             // never forks is not checked. Before the worktree, so a refusal makes none;
             // counted until the create ends.
             let who = who(conn);
-            let admitted = match &adopt {
+            let mut admitted = match &adopt {
                 Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
@@ -1858,6 +1871,38 @@ async fn dispatch_request_with_identity(
                     hub.fleet_hold_refuses_new(pick("name").as_deref(), person_asks(conn))
             {
                 return Err(refusal);
+            }
+            // No room here and a peer has some: it starts there (`hub/admission_redirect.rs`).
+            // A fixed id, an adopt or a successor is this daemon's own; a start that fails
+            // there starts here, warned (no start is dropped for a cap).
+            if let Some(placed) = admitted
+                .as_mut()
+                .filter(|_| fixed_id.is_none() && !adopting && succ.is_none())
+                .and_then(|a| a.placed.take())
+            {
+                use crate::hub::admission_redirect as redirect;
+                let p = redirect::forwarded(&params, &placed);
+                match Box::pin(new_on_peer(hub, conn, &p, &placed.host)).await {
+                    Ok(result) => {
+                        redirect::log("redirected", placed.reason, Some(&placed.host), None);
+                        return Ok(redirect::answer(result, &placed));
+                    }
+                    Err(e) => {
+                        let host = Some(placed.host.as_str());
+                        redirect::log("local_forward_failed", placed.reason, host, Some(&e.message));
+                        if let Some(a) = admitted.as_mut() {
+                            let failed = redirect::forward_failed(&placed, &e.message);
+                            let mut w = a.warning.take().unwrap_or_else(|| json!({}));
+                            let text = match w.get("warning").and_then(Value::as_str) {
+                                Some(cap) => format!("{cap} {failed}"),
+                                None => failed,
+                            };
+                            w.set("warning", json!(text));
+                            w.set("placeFailed", json!(placed.host));
+                            a.warning = Some(w);
+                        }
+                    }
+                }
             }
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
