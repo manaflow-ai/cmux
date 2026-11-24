@@ -168,7 +168,13 @@ test("recap-only wrap-ups after a question never unpin it", () => {
   // Two background turns each end on a recap with nothing to decide; settleNextSteps marks the older
   // recap superseded, which must not read as the question being taken over.
   const view = {
-    rows: [question, peer("m2", "Background task finished."), recap("r1", true), peer("m3", "Background task finished."), recap("r2")],
+    rows: [
+      question,
+      peer("m2", "Background task finished."),
+      recap("r1", true),
+      peer("m3", "Background task finished."),
+      recap("r2"),
+    ],
     nextSteps: [
       { at: 0, row: question },
       { at: 2, row: question },
