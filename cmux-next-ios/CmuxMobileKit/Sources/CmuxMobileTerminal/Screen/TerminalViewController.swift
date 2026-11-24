@@ -617,6 +617,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         thumb.safeAreaRegions = []
         thumb.view.backgroundColor = .clear
         thumb.view.isUserInteractionEnabled = false
+        // Decoration only, and it covers the whole page above the dock. Taps
+        // pass through it (no user interaction), but accessibility hit-testing
+        // ignores that flag: unhidden, this host answered the hit test over
+        // the key row and the composer, so VoiceOver and XCUITest's
+        // `isHittable` never reached the keys under it.
+        thumb.view.accessibilityElementsHidden = true
         thumb.view.translatesAutoresizingMaskIntoConstraints = false
         thumb.overrideUserInterfaceStyle = .dark
         addChild(thumb)
