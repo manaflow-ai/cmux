@@ -109,6 +109,138 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "排隊"}}
       }
     },
+    "settings.palette.moveToFront": {
+      "comment": "A Command Palette row of an order setting (the workspace row's second-line order): moves the named item to the front. %@ is the item's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ to Front"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@を先頭へ移動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل %@ إلى البداية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti %@ na početak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt %@ forrest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nach vorne verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover %@ al principio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placer %@ en premier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta %@ all’inizio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទី %@ ទៅខាងមុខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 맨 앞으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt %@ først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś %@ na początek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover %@ para o início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить %@ в начало"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้าย %@ ไปไว้หน้าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ öğesini başa taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити %@ на початок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển %@ lên đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将%@移到最前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將%@移到最前"
+          }
+        }
+      }
+    },
     "settings.sidebarSection.more": {
       "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
       "extractionState": "manual",
@@ -158000,6 +158132,534 @@
         }
       }
     },
+    "settings.agentPane.display.environmentCard": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environment Card"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقة البيئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica okruženja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljøkort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umgebungskarte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjeta de entorno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carte d’environnement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scheda ambiente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាតបរិស្ថាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "환경 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljøkort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta środowiska"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartão de ambiente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка окружения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ดสภาพแวดล้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ortam Kartı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка середовища"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ môi trường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "环境卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境卡片"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.environmentCard.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A card at the chat's top right with its changes, branch, commit and pull request."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقة أعلى يمين الدردشة تعرض تغييراتها وفرعها والإيداع وطلب السحب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica gore desno u razgovoru s njegovim izmjenama, granom, commitom i pull requestom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort øverst til højre i chatten med dens ændringer, gren, commit og pull request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Karte oben rechts im Chat mit seinen Änderungen, dem Branch, Commit und Pull Request."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una tarjeta arriba a la derecha del chat con sus cambios, rama, commit y pull request."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une carte en haut à droite de la discussion avec ses modifications, sa branche, le commit et la pull request."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una scheda in alto a destra nella chat con modifiche, branch, commit e pull request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの右上に、変更・ブランチ・コミット・プルリクエストを示すカードを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាតនៅខាងស្តាំខាងលើនៃការជជែក ដែលមានការផ្លាស់ប្តូរ មែក ការ commit និង pull request។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 오른쪽 위에 변경 사항, 브랜치, 커밋, 풀 리퀘스트를 보여 주는 카드입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort øverst til høyre i chatten med endringer, gren, commit og pull request."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta w prawym górnym rogu czatu z jego zmianami, gałęzią, commitem i pull requestem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um cartão no canto superior direito do chat com suas alterações, branch, commit e pull request."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка в правом верхнем углу чата с его изменениями, веткой, коммитом и пул-реквестом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ดที่มุมขวาบนของแชต แสดงการเปลี่ยนแปลง สาขา การคอมมิต และพูลรีเควสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin sağ üstünde değişiklikleri, dalı, commit ve pull request’i gösteren bir kart."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка у правому верхньому куті чату з його змінами, гілкою, комітом і пул-реквестом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một thẻ ở góc trên bên phải cuộc trò chuyện với các thay đổi, nhánh, commit và pull request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天右上角显示一张卡片，包含更改、分支、提交和拉取请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天右上角顯示一張卡片，包含變更、分支、提交和提取要求。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.changesPill": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes Pill"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة التغييرات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka izmjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ændringsmærke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Änderungs-Pille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Píldora de cambios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastille des modifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pillola delle modifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更ピル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកការផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "변경 사항 알약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringsmerke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pílula de alterações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка изменений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değişiklik Hapı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка змін"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更改胶囊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "變更膠囊"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.changesPill.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pill over the composer with how many files the chat changed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة فوق مربع الكتابة تعرض عدد الملفات التي غيّرتها الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka iznad polja za pisanje s brojem datoteka koje je razgovor izmijenio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et mærke over skrivefeltet med, hvor mange filer chatten har ændret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Pille über dem Eingabefeld mit der Zahl der Dateien, die der Chat geändert hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una píldora sobre el editor con cuántos archivos cambió el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une pastille au-dessus de la zone de saisie indiquant combien de fichiers la discussion a modifiés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pillola sopra il compositore con quanti file ha modificato la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力欄の上に、チャットが変更したファイル数を示すピルを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកនៅលើប្រអប់សរសេរ ដែលបង្ហាញចំនួនឯកសារដែលការជជែកបានផ្លាស់ប្តូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력창 위에 채팅이 변경한 파일 수를 보여 주는 알약입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et merke over skrivefeltet med hvor mange filer chatten har endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka nad polem wpisywania z liczbą plików zmienionych przez czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma pílula acima do editor com quantos arquivos o chat alterou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка над полем ввода с числом файлов, изменённых чатом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายเหนือช่องพิมพ์ แสดงจำนวนไฟล์ที่แชตเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazma alanının üstünde sohbetin kaç dosyayı değiştirdiğini gösteren bir hap."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка над полем введення з кількістю файлів, які змінив чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một nhãn phía trên ô soạn thảo cho biết cuộc trò chuyện đã thay đổi bao nhiêu tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在输入框上方显示一个胶囊，说明聊天更改了多少个文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在輸入框上方顯示一個膠囊，說明聊天變更了多少個檔案。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.pinnedPlan": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -244960,6 +245620,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.composerButtonsVisible": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always Show Composer Buttons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار أزرار مُنشئ الرسائل دائمًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Uvijek prikaži dugmad sastavljača poruka"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis altid skrivefeltsknapper"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Composer-Schaltflächen immer anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar siempre los botones del compositor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Toujours afficher les boutons du compositeur"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sempre i pulsanti del compositore"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンポーザーのボタンを常に表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងអ្នកសរសេរសារជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작성기 버튼 항상 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis alltid knapper i skrivefeltet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zawsze pokazuj przyciski kompozytora"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sempre mostrar os botões do compositor"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всегда показывать кнопки редактора"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มตัวเขียนข้อความเสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Oluşturucu düğmelerini her zaman göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Завжди показувати кнопки редактора"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Luôn hiển thị các nút trình soạn thảo"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "始终显示编辑器按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "永遠顯示編輯器按鈕"}}
+      }
+    },
+    "settings.experiments.composerButtonsVisible.help": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Send, attachment removal, and queued message actions visible in agent chats."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أبقِ الإرسال وإزالة المرفقات وإجراءات الرسائل في قائمة الانتظار ظاهرة في محادثات الوكلاء."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zadrži slanje, uklanjanje priloga i radnje za poruke u redu vidljivima u razgovorima s agentima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hold Send, fjernelse af vedhæftede filer og handlinger for køede beskeder synlige i agentchats."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Senden, das Entfernen von Anhängen und Aktionen für wartende Nachrichten in Agent-Chats sichtbar halten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantén visibles Enviar, quitar adjuntos y las acciones de mensajes en cola en los chats de agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gardez visibles l’envoi, la suppression des pièces jointes et les actions des messages en file dans les chats d’agents."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mantieni visibili l’invio, la rimozione degli allegati e le azioni dei messaggi in coda nelle chat degli agenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで、送信、添付ファイルの削除、キュー内メッセージの操作を常に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រក្សាការផ្ញើ ការលុបឯកសារភ្ជាប់ និងសកម្មភាពសារដែលនៅក្នុងជួររង់ចាំឱ្យមើលឃើញក្នុងការជជែកជាមួយភ្នាក់ងារ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅에서 보내기, 첨부 파일 제거 및 대기 중인 메시지 작업을 항상 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hold Send, fjerning av vedlegg og handlinger for meldinger i kø synlige i agentchatter."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zachowaj widoczność wysyłania, usuwania załączników i działań dotyczących wiadomości w kolejce na czatach agentów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mantenha visíveis o envio, a remoção de anexos e as ações de mensagens na fila nos chats de agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать отправку, удаление вложений и действия с сообщениями в очереди в чатах агентов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงการส่ง การลบไฟล์แนบ และการดำเนินการกับข้อความในคิวในแชตของเอเจนต์เสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde Gönder, ek kaldırma ve sıradaki mesaj işlemlerini görünür tut."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Залишайте видимими надсилання, видалення вкладень і дії з повідомленнями в черзі в чатах агентів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giữ hiển thị nút Gửi, xóa tệp đính kèm và thao tác với tin nhắn đang chờ trong các cuộc trò chuyện với tác nhân."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在代理聊天中始终显示发送、移除附件和队列消息操作。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在代理聊天中永遠顯示傳送、移除附件和佇列訊息操作。"}}
+      }
+    },
     "settings.experiments.hoverLook": {
       "comment": "Settings > Experiments: the Tooltip Refresh taste prototype row",
       "extractionState": "manual",
@@ -245012,6 +245726,114 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Chú giải công cụ và thẻ khi di chuột có kính rõ hơn, viền sắc hơn và bóng mềm hơn."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "工具提示和悬停卡片的玻璃更清晰，边缘更锐利，阴影更柔和。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
+      }
+    },
+    "settings.experiments.seeThroughDock": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through Dock"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط سفلي شفاف"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Providni dok"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gennemsigtig dok"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Durchsichtiges Dock"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dock transparent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dock trasparente"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "透けるドック"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដុកថ្លា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "투명한 도크"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gjennomsiktig dokk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przezroczysty dok"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прозрачная панель"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ด็อกแบบโปร่งใส"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Saydam bölme"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прозора панель"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh dock trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "透明停靠栏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "透明停靠列"}}
+      }
+    },
+    "settings.experiments.seeThroughDock.help": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The conversation stays visible behind the notices and the Needs your input row above the composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تبقى المحادثة مرئية خلف الإشعارات وصف «يحتاج إلى إدخالك» فوق مربع الكتابة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Razgovor ostaje vidljiv iza obavještenja i reda „Potreban je vaš unos“ iznad polja za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Samtalen forbliver synlig bag meddelelserne og rækken “Kræver dit input” over skrivefeltet."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Unterhaltung bleibt hinter den Hinweisen und der Zeile „Deine Eingabe ist nötig“ über dem Eingabefeld sichtbar."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La conversación sigue visible detrás de los avisos y de la fila «Necesita tu respuesta» sobre el editor."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La conversation reste visible derrière les avis et la ligne « Votre réponse est requise » au-dessus de la zone de saisie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La conversazione resta visibile dietro gli avvisi e la riga «Serve il tuo input» sopra il compositore."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄の上にある通知と「入力が必要です」の行の後ろでも会話が見えたままになります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការសន្ទនានៅតែមើលឃើញនៅពីក្រោយសេចក្តីជូនដំណឹង និងជួរ «ត្រូវការការបញ្ចូលរបស់អ្នក» ខាងលើប្រអប់សរសេរ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창 위의 알림과 “입력이 필요합니다” 행 뒤에서도 대화가 계속 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Samtalen forblir synlig bak varslene og raden «Trenger dine innspill» over skrivefeltet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Rozmowa pozostaje widoczna za powiadomieniami i wierszem „Potrzebna Twoja odpowiedź” nad polem pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A conversa continua visível atrás dos avisos e da linha “Precisa da sua resposta” acima do editor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Разговор остаётся виден за уведомлениями и строкой «Нужен ваш ответ» над полем ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "บทสนทนายังมองเห็นได้อยู่หลังการแจ้งเตือนและแถว “ต้องการข้อมูลจากคุณ” เหนือช่องเขียนข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Konuşma, yazma alanının üstündeki bildirimlerin ve “Girdiniz gerekiyor” satırının arkasında görünür kalır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Розмова залишається видимою за сповіщеннями та рядком «Потрібна ваша відповідь» над полем введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
+      }
+    },
+    "settings.experiments.attachmentTypeIcons": {
+      "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Attachment Type Icons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أيقونات نوع المرفق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ikone vrste priloga"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ikoner for vedhæftningstype"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Symbole für Anhangstyp"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Iconos de tipo de adjunto"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Icônes de type de pièce jointe"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Icone del tipo di allegato"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "添付ファイルの種類アイコン"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបតំណាងប្រភេទឯកសារភ្ជាប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "첨부 파일 유형 아이콘"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ikoner for vedleggstype"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ikony typu załącznika"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ícones de tipo de anexo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Значки типа вложения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไอคอนประเภทไฟล์แนบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ek türü simgeleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Значки типу вкладення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Biểu tượng loại tệp đính kèm"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件类型图标"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件類型圖示"}}
+      }
+    },
+    "settings.experiments.attachmentTypeIcons.help": {
+      "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أثناء تحميل مرفق، تعرض شريحته أيقونة ملف أو صورة بدلاً من علامة التحميل."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dok se prilog učitava, njegov čip prikazuje ikonu datoteke ili slike umjesto oznake učitavanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Mens en vedhæftning indlæses, viser dens chip et fil- eller billedikon i stedet for indlæsningsmærket."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Während ein Anhang lädt, zeigt sein Chip ein Datei- oder Bildsymbol statt der Ladeanzeige."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mientras se carga un adjunto, su chip muestra un icono de archivo o de imagen en lugar del indicador de carga."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pendant le chargement d'une pièce jointe, sa puce affiche une icône de fichier ou d'image au lieu de l'indicateur de chargement."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Durante il caricamento di un allegato, il suo chip mostra un'icona di file o di immagine al posto dell'indicatore di caricamento."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "添付ファイルの読み込み中、チップに読み込みマークの代わりにファイルまたは画像のアイコンを表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពេលឯកសារភ្ជាប់កំពុងផ្ទុក បន្ទះរបស់វាបង្ហាញរូបតំណាងឯកសារ ឬរូបភាព ជំនួសឱ្យសញ្ញាកំពុងផ្ទុក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "첨부 파일을 불러오는 동안 칩에 로딩 표시 대신 파일 또는 이미지 아이콘이 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Mens et vedlegg lastes inn, viser brikken et fil- eller bildeikon i stedet for lastemerket."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Podczas wczytywania załącznika jego kafelek pokazuje ikonę pliku lub obrazu zamiast wskaźnika wczytywania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Enquanto um anexo carrega, o chip mostra um ícone de arquivo ou de imagem em vez do indicador de carregamento."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Пока вложение загружается, на его плашке показан значок файла или изображения вместо индикатора загрузки."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ขณะที่ไฟล์แนบกำลังโหลด ชิปจะแสดงไอคอนไฟล์หรือรูปภาพแทนเครื่องหมายกำลังโหลด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ek yüklenirken, çipi yükleme işareti yerine bir dosya veya görsel simgesi gösterir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Поки вкладення завантажується, на його плашці показано значок файлу або зображення замість індикатора завантаження."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trong khi tệp đính kèm đang tải, chip của nó hiển thị biểu tượng tệp hoặc hình ảnh thay cho dấu đang tải."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件加载时，其标签显示文件或图片图标，而不是加载标记。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件載入時，其標籤顯示檔案或圖片圖示，而不是載入標記。"}}
       }
     },
     "settings.experiments.agentBadges": {
