@@ -83,6 +83,8 @@ pub(crate) mod pr;
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
+#[path = "acpmux_mcp_race.rs"]
+mod race;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -106,6 +108,7 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.extend(race::tools());
         list.push(send_status::tool());
         list.extend(machine::tools());
         for tool in list.iter_mut() {
@@ -466,6 +469,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
+        name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
         name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
@@ -633,8 +637,43 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
         (_, None) => daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await,
     };
     match reply {
-        Ok(v) => ok(crate::cli::session_inbox::describe(&v), v),
+        Ok(mut v) => {
+            // The text line is written from the whole answer, then the answer drops what it said.
+            let text = crate::cli::session_inbox::describe(&v);
+            trim_threads(&mut v);
+            ok(text, v)
+        }
         Err(e) => refusal(e),
+    }
+}
+
+/// What a thread listing says twice, dropped before the reader pays for it. The daemon's
+/// `_acpmux/inbox_threads` answers the chat pane too, and the pane reads the whole sender record
+/// (`laneNoticeBatches.ts`, `InboxNoticeCard.tsx`); an agent reading `inbox_read` has the sender's
+/// shown name in `from` already, replies by `threadId`, and the thread's own read carries each
+/// message's sender when it needs more. Measured over 38 real `inbox_read` answers in this host's
+/// transcripts: `key` repeats `threadId`, and `threads[].sender` is 13 fields of which most are
+/// null — together with this chat's own `sessionId` and the rows left at their default, an answer
+/// of 8,470 B becomes 6,344 B, a 25.1% cut (`scripts/measure/inbox-listing-bytes.py`).
+fn trim_threads(answer: &mut Value) {
+    let Some(o) = answer.as_object_mut() else { return };
+    // Not a listing: a thread's own messages keep every sender they name.
+    if !o.contains_key("threads") {
+        return;
+    }
+    o.remove("sessionId");
+    for row in o.get_mut("threads").and_then(Value::as_array_mut).into_iter().flatten() {
+        let Some(row) = row.as_object_mut() else { continue };
+        if row.get("key") == row.get("threadId") {
+            row.remove("key");
+        }
+        row.remove("sender");
+        // A flag that is off, a count that is none: absence says it, in no bytes.
+        row.retain(|k, v| match (k.as_str(), v) {
+            ("surgeHeld" | "needYou", v) => v.as_bool() != Some(false),
+            ("new" | "unread", v) => v.as_u64() != Some(0),
+            _ => true,
+        });
     }
 }
 

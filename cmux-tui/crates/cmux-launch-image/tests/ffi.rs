@@ -176,3 +176,28 @@ fn schedule_through_the_abi() {
         assert!(!cmux_launch_image_schedule_is_current(ptr::null(), 0));
     }
 }
+
+#[test]
+fn page_region_paints_only_a_current_image() {
+    let current = CmuxLaunchImagePageRegion {
+        has_image: true,
+        image_taken_ms: 5_000,
+        has_image_version: true,
+        image_version: 3,
+        page_version: 3,
+        has_page_changed: true,
+        page_changed_ms: 4_000,
+        composite_ms: 6_000,
+    };
+    // SAFETY: each pointer is null or a live region for the call.
+    unsafe {
+        assert_eq!(cmux_launch_image_page_region(&current), CMUX_LAUNCH_IMAGE_REGION_IMAGE);
+        let navigated = CmuxLaunchImagePageRegion { page_version: 4, ..current };
+        assert_eq!(cmux_launch_image_page_region(&navigated), 2);
+        let no_image = CmuxLaunchImagePageRegion { has_image: false, ..current };
+        assert_eq!(cmux_launch_image_page_region(&no_image), 1);
+        let unversioned = CmuxLaunchImagePageRegion { has_image_version: false, ..current };
+        assert_eq!(cmux_launch_image_page_region(&unversioned), 2);
+        assert_eq!(cmux_launch_image_page_region(ptr::null()), 1);
+    }
+}
