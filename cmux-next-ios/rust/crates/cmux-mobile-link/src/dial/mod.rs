@@ -146,6 +146,14 @@ pub struct DialOptions {
     /// carrying WireGuard (plain UDP, or TURN over UDP) is dropped both ways,
     /// so only TURN over TLS carries the tunnel.
     pub drop_wireguard_udp: bool,
+    /// Addresses the Mac answered from before, as the dial's caller kept them
+    /// (across app launches, say). With the ones this process saw in the same
+    /// Mac's last answer, the TURN allocation asks permission for them as
+    /// soon as it exists, ahead of the Mac's answer, so the Mac's first
+    /// datagram to this side's relayed address gets through instead of being
+    /// dropped (netlab: one round trip off a relayed first handshake, ~33 ms
+    /// p50). A stale address costs one unused permission.
+    pub peer_addr_hints: Vec<std::net::SocketAddr>,
     /// How TURN over TLS or TCP leaves this device: the system's proxy for
     /// the TURN server (PAC included), the OS trust store, and whether only a
     /// proxy may carry it (the debug "Proxy only" mode). [`crate::egress`].
@@ -289,6 +297,7 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             relay: None,
             force_relay: false,
+            peer_addr_hints: Vec::new(),
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
