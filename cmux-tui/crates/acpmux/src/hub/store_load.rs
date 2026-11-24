@@ -32,6 +32,10 @@ impl Hub {
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
         tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store loaded");
+        // Chats with no agent may leave memory (`evict.rs`): the reaper runs for them too.
+        if self.evicted.after().is_some() {
+            self.wake_idle_reaper();
+        }
         // Closed sessions' temporary folders, now and every hour (`closed_tmp.rs`).
         #[cfg(unix)]
         self.sweep_closed_tmps();
