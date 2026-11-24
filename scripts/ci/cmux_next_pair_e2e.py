@@ -1457,17 +1457,36 @@ def png_width(path):
 
 
 
-def phone_team_id(simctl, udid, bundle_id):
-    """The phone's team (cmuxMobile.lastTeamID, else the team of a cmuxMobile.live.mac.<team> key), from its
-    defaults once live data has run; "" when neither is there."""
-    r = subprocess.run(simctl + ["spawn", udid, "defaults", "read", bundle_id, "cmuxMobile.lastTeamID"],
-                       capture_output=True, text=True)
-    if r.returncode == 0 and r.stdout.strip():
-        return r.stdout.strip()
+def phone_defaults_text(simctl, udid, bundle_id):
+    """The phone app's defaults as text: `simctl spawn defaults read <bundle>`, plus the app's own
+    container plist (Library/Preferences/<bundle>.plist), which is where a sandboxed app writes."""
+    out = []
     r = subprocess.run(simctl + ["spawn", udid, "defaults", "read", bundle_id], capture_output=True, text=True)
+    out.append(r.stdout or "")
+    c = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"], capture_output=True, text=True)
+    plist = os.path.join((c.stdout or "").strip(), "Library", "Preferences", bundle_id + ".plist")
+    if c.returncode == 0 and os.path.exists(plist):
+        x = subprocess.run(["plutil", "-convert", "xml1", "-o", "-", plist], capture_output=True, text=True)
+        out.append(re.sub(r"<key>([^<]+)</key>\s*<string>([^<]*)</string>", r'"\1" = "\2";', x.stdout or ""))
+    return "\n".join(out)
+
+
+def phone_team_id(simctl, udid, bundle_id):
+    """The phone's team: cmuxMobile.lastTeamID, else the <team> of any per-team key
+    (cmuxMobile.live.mac.<team>, .workspaces.macFilter.<team>, .teamAppearance.<team>, ...), from the
+    defaults domain or the app's container plist; "" when none is there."""
+    text = phone_defaults_text(simctl, udid, bundle_id)
+    m = re.search(r'"?cmuxMobile\.lastTeamID"?\s*=\s*"?([^";\s]+)', text)
+    if m:
+        return m.group(1)
     m = re.search(r'"?cmuxMobile\.(?:live\.mac|workspaces\.macFilter|teamAppearance|workspaces\.recentDirectories)\.'
-                  r'([^"\s=]+)"?\s*=', r.stdout or "")
+                  r'([^"\s=.]+)"?\s*=', text)
     return m.group(1) if m else ""
+
+
+def phone_key_names(simctl, udid, bundle_id):
+    """The cmuxMobile.* key names the phone holds (names only, no values), for a run that finds no team."""
+    return sorted(set(re.findall(r'"?(cmuxMobile\.[A-Za-z.]+)', phone_defaults_text(simctl, udid, bundle_id))))[:40]
 
 
 def pair_by_tag_and_walk(app, exe, env, a, simctl, phone_env, phone_log, streams, status, host_card, card_phones, rpc,
@@ -1512,7 +1531,8 @@ def pair_by_tag_and_walk(app, exe, env, a, simctl, phone_env, phone_log, streams
         return app, False, False
     if not team_id:
         note("- offline walk: no team id in the phone's defaults (cmuxMobile.lastTeamID / cmuxMobile.live.mac.*): "
-             "it cannot scope the phone to the Mac")
+             f"it cannot scope the phone to the Mac; the phone's cmuxMobile keys: "
+             f"{phone_key_names(simctl, a.udid, a.bundle_id)}")
         return app, True, False
     app, ok = offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note,
                           None, mac_team=(mac_id, team_id))
