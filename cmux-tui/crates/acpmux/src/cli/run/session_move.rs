@@ -404,11 +404,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             "a move from a hub machine needs a named target or local and supports --after-turn, --interrupt and --timeout"
         );
     }
-    let have_source = holders.iter().any(Option::is_none);
-    if have_source && matches!(source, Source::Here) && names_here(&args.host, &here) {
+    let drive_here = holders.iter().any(Option::is_none);
+    if drive_here && matches!(source, Source::Here) && names_here(&args.host, &here) {
         bail!("the chats are on this machine already: name another machine");
     }
-    let hub_target = if have_source
+    let hub_target = if drive_here
         && matches!(source, Source::Here)
         && args.host != "auto"
         && peer_ssh(&peers, &args.host).is_none()
@@ -425,7 +425,7 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     } else {
         None
     };
-    let mut targets = if have_source && hub_target.is_none() {
+    let mut targets = if drive_here && hub_target.is_none() {
         let here_target = match &source {
             Source::Peer { .. } if names_here(&args.host, &here) => Some(Target {
                 name: here.clone(),
@@ -443,7 +443,7 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     };
     let mut outcomes = Vec::new();
     let mut rows = Vec::new();
-    let mut hub_errors = Vec::new();
+    let mut hub_outcomes = Vec::new();
     for (key, holder) in ids.iter().zip(holders) {
         let row = if let Some((holder, session)) = holder {
             hub::ask_holder(&local, &holder, &session, &args, &here).await
@@ -465,24 +465,22 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             outcomes.push(o);
             continue;
         };
-        if let Some(error) = &row.error {
-            hub_errors.push(format!("{key}: {error}"));
-        }
         if json_out {
-            rows.push(serde_json::to_value(row)?);
-        } else {
-            row.print();
+            rows.push(serde_json::to_value(&row)?);
         }
+        let outcome = row.into_outcome();
+        if !json_out {
+            print_outcome(&outcome, args.dry_run);
+        }
+        hub_outcomes.push(outcome);
     }
     if !args.dry_run {
         settle_arrivals(&src, &outcomes).await;
     }
-    let failed = outcomes.iter().filter(|o| o.error.is_some()).count() + hub_errors.len();
+    outcomes.extend(hub_outcomes);
     if json_out {
+        let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
         print_json(&json!({"moves": rows, "failed": failed}));
-    }
-    if !hub_errors.is_empty() {
-        bail!("{failed} of {} chats did not move: {}", ids.len(), hub_errors.join("; "));
     }
     match not_moved(&outcomes) {
         Some(e) => Err(e.into()),

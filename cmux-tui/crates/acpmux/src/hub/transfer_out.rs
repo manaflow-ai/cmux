@@ -508,6 +508,9 @@ impl Hub {
             );
             return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
         };
+        // The move fence is the freeze boundary. It is taken only after an optional
+        // `--after-turn` wait and before cancelling a running turn or exporting its bundle.
+        let freeze_started_at_ms = crate::store::now_ms();
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -590,14 +593,6 @@ impl Hub {
                 guard
             }
         };
-        // The client reports move timings against its own monotonic clock. This wall-clock
-        // marker lets it locate the source daemon's freeze boundary without counting an
-        // `--after-turn` wait as frozen time. The marker is only emitted after the turn lock is
-        // held and before the ownership export begins.
-        let freeze_started_at_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
-            .unwrap_or(0);
         // A turn recovered from an agent host runs before its task takes the lock (`hosts.rs`).
         if session.turn().is_some() {
             drop(guard);

@@ -29,7 +29,7 @@ use super::transfer_pull::{plain_daemon, pull_error};
 use super::*;
 
 /// How long the source waits for the target to stage a prefix.
-const STAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+pub(super) const STAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The file in a stage's folder naming the control its records were rewritten for.
 pub(super) const CONTROL_FILE: &str = "control";

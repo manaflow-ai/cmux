@@ -59,11 +59,11 @@ pub(super) struct Row {
     name: String,
     host: String,
     cwd: Option<String>,
-    pub(super) moved: bool,
+    moved: bool,
     dry_run: bool,
     via: String,
     there: Option<String>,
-    pub(super) error: Option<String>,
+    error: Option<String>,
     timings: Option<Value>,
 }
 
@@ -83,13 +83,15 @@ impl Row {
         }
     }
 
-    pub(super) fn print(&self) {
+    pub(super) fn into_outcome(self) -> Outcome {
         let mut outcome = Outcome::new(&self.session_id);
-        outcome.name.clone_from(&self.name);
-        outcome.host = Some(self.host.clone());
-        outcome.cwd.clone_from(&self.cwd);
-        outcome.error.clone_from(&self.error);
-        print_outcome(&outcome, self.dry_run);
+        outcome.name = self.name;
+        outcome.host = Some(self.host);
+        outcome.cwd = self.cwd;
+        outcome.moved = self.moved;
+        outcome.there = self.there;
+        outcome.error = self.error;
+        outcome
     }
 }
 
@@ -116,21 +118,20 @@ pub(super) async fn one(
 
 pub(crate) async fn move_out(
     hub: &std::sync::Arc<crate::hub::Hub>,
-    session_id: &str,
-    to: &str,
-    after_turn: bool,
-    interrupt: bool,
-    timeout_secs: u64,
+    request: crate::mesh_control::MoveOutParams,
 ) -> Result<Value> {
+    // Resolve on the holder before the CLI sees the key. A remote name must not expand
+    // against the daemon process's current-session environment or select a mirrored chat.
+    let session = hub.resolve(&request.session_id)?;
     let src = Client::in_process(hub.clone()).await?;
     let home = dirs::home_dir().context("this machine has no home folder")?;
     let args = MoveArgs {
         sessions: vec![],
-        host: to.to_owned(),
+        host: request.to,
         all_idle: false,
-        interrupt,
-        after_turn,
-        turn_timeout: std::time::Duration::from_secs(timeout_secs),
+        interrupt: request.interrupt,
+        after_turn: request.after_turn,
+        turn_timeout: std::time::Duration::from_secs(request.timeout_secs),
         leave_dirty: false,
         carry_changes: false,
         cwd: None,
@@ -139,8 +140,8 @@ pub(crate) async fn move_out(
         from: None,
         from_snapshot: false,
     };
-    let machine = resolve(&src, to).await?;
-    Ok(serde_json::to_value(one(&src, session_id, &args, &home, &machine).await)?)
+    let machine = resolve(&src, &args.host).await?;
+    Ok(serde_json::to_value(one(&src, &session.id, &args, &home, &machine).await)?)
 }
 
 pub(super) async fn ask_holder(
@@ -274,9 +275,7 @@ async fn steps(
     )
     .await?;
     let commit_ms = elapsed_ms(timing.started);
-    timing.commit_ms = commit_ms;
-    timing.freeze_ms = commit_ms.saturating_sub(timing.begin_ms);
-    o.timings = Some(timing.value());
+    o.timings = Some(timing.value(commit_ms));
     o.moved = true;
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
@@ -300,29 +299,20 @@ fn elapsed_ms(start: std::time::Instant) -> u64 {
     start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }
 
-fn unix_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
-        .unwrap_or(0)
-}
-
 struct Timing {
     started: std::time::Instant,
     begin_ms: u64,
     answer_ms: u64,
-    commit_ms: u64,
-    freeze_ms: u64,
     target: Value,
 }
 
 impl Timing {
-    fn value(&self) -> Value {
+    fn value(&self, commit_ms: u64) -> Value {
         let mut value = json!({
             "beginMs": self.begin_ms,
             "answerMs": self.answer_ms,
-            "commitMs": self.commit_ms,
-            "freezeMs": self.freeze_ms,
+            "commitMs": commit_ms,
+            "freezeMs": commit_ms.saturating_sub(self.begin_ms),
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
             for key in ["dialMs", "pagesMs", "finishMs"] {
@@ -364,7 +354,7 @@ impl Moving<'_> {
         let Moving { src, id, args, home, home_text, cwd } = *self;
         let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
         let started = std::time::Instant::now();
-        let started_at = unix_ms();
+        let started_at = crate::store::now_ms();
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
@@ -427,19 +417,12 @@ impl Moving<'_> {
                     .get("freezeStartedAtMs")
                     .and_then(Value::as_u64)
                     .map(|at| at.saturating_sub(started_at))
-                    .unwrap_or(answer_ms);
-                Ok((
-                    sent,
-                    answer,
-                    Timing {
-                        started,
-                        begin_ms,
-                        answer_ms,
-                        commit_ms: answer_ms,
-                        freeze_ms: answer_ms.saturating_sub(begin_ms),
-                        target: target_timings,
-                    },
-                ))
+                    .map(|at| at.min(answer_ms))
+                    // Older daemons do not expose the fence marker. The move request's
+                    // beginning is the only honest lower bound in that case. Do not report the
+                    // target answer as the freeze boundary.
+                    .unwrap_or(0);
+                Ok((sent, answer, Timing { started, begin_ms, answer_ms, target: target_timings }))
             }
             Err(e) => {
                 let data =

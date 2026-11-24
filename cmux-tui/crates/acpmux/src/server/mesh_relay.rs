@@ -777,25 +777,15 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         });
     }
     if op == crate::mesh_relay_config::MOVE_OUT_OP {
-        let params = body.get("params").filter(|value| value.is_object()).unwrap_or(&body);
-        let Some(session_id) = params.get("sessionId").and_then(Value::as_str) else {
-            return Some(Ack::refused("move_out control body has no sessionId"));
+        let mut args = match crate::mesh_control::MoveOutParams::parse(body, "version") {
+            Ok(args) => args,
+            Err(why) => return Some(Ack::refused(why)),
         };
-        let Some(to) = params.get("to").and_then(Value::as_str) else {
-            return Some(Ack::refused("move_out control body has no target"));
-        };
-        let after_turn = params.get("afterTurn").and_then(Value::as_bool).unwrap_or(false);
-        let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
-        let timeout_secs = params.get("timeoutSecs").and_then(Value::as_u64).unwrap_or(600);
-        let result = crate::cli::run::session_move::move_out(
-            hub,
-            session_id,
-            to,
-            after_turn,
-            interrupt,
-            timeout_secs,
-        )
-        .await;
+        // Only the hub's authenticated sender stamp identifies the requesting machine.
+        if args.to.eq_ignore_ascii_case("local") {
+            args.to = message.from.daemon_id.clone()?;
+        }
+        let result = crate::cli::run::session_move::move_out(hub, args).await;
         return Some(match result {
             Ok(result) => Ack::answered(&message.message_id, result.to_string()),
             Err(error) => Ack::refused(format!("{error:#}")),

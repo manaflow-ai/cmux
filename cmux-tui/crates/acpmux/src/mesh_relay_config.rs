@@ -150,6 +150,8 @@ mod tests {
         assert!(entry.allows(&own, Some("person"), MOVE_OUT_OP));
         assert!(!entry.allows(&own, Some("other"), MOVE_OUT_OP));
         assert!(!entry.allows(&sender(None, Some("daemon")), Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&sender(Some("person"), None), Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&own, None, MOVE_OUT_OP));
     }
 
     #[test]
@@ -163,6 +165,8 @@ mod tests {
         assert!(!by_daemon.allows(&from, Some("person"), MOVE_OUT_OP));
         let default = MeshControlFrom::same_user();
         assert!(!default.allows(&from, Some("person"), MOVE_OUT_OP));
+        let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
+        assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
     }
 }
 
