@@ -154,6 +154,10 @@ const variants: Record<string, { note: string; props: Props }> = {
     note: "Experiment arm door: a faint resting dot on this Mac whose card holds the Session list only.",
     props: { items: [], facts, arm: "door", initial: "pinned" },
   },
+  "facts-strip": {
+    note: "Experiment arm strip: one low-contrast line in the free middle (machine, folder, branch, context, turn) and the live counters; the cut-off path at narrow widths is why it is not the pick.",
+    props: { items: [], connectedTo: MACHINE, facts, arm: "strip" },
+  },
 };
 
 export default componentEntry<Props>({

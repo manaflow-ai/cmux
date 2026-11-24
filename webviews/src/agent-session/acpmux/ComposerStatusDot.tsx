@@ -50,7 +50,7 @@ import "./composerStatusDot.css";
 /// A focus move inside the footer never scrolls the pane.
 const QUIET: FocusOptions = { preventScroll: true };
 
-export type FactsArm = "off" | "pulse" | "door";
+export type FactsArm = "off" | "pulse" | "door" | "strip";
 
 /// The gallery's alternates (not shipped): a count of items on the dot, or a warning glyph.
 export type DotLook = "dot" | "count" | "glyph";
@@ -143,6 +143,8 @@ const COUNTERS = [
   { kind: "subagents", icon: "agent.bot", words: "composerStatus.subagentsCount" },
   { kind: "queued", icon: "view.list", words: "composerStatus.queuedCount" },
 ] as const satisfies readonly { kind: FooterFact["kind"]; icon: string; words: StringKey }[];
+
+const STRIP_KINDS = ["machine", "folder", "branch", "context", "turn"] as const;
 
 /// An item's words, or undefined for a key this build does not know (never the raw key).
 export function itemWords(item: StatusItem, t: Translate, lang: string): string | undefined {
@@ -310,7 +312,7 @@ export function ComposerStatusDot({
   const visible = dedupe(shown(all, clock));
   const worst = worstLevel(visible);
   const factsOn = arm !== "off" && facts.length > 0;
-  const counters = arm === "pulse" ? facts : [];
+  const counters = arm === "pulse" || arm === "strip" ? facts : [];
   const shows = worst !== undefined || connectedTo !== undefined || factsOn;
   const tone = worst ?? (connectedTo !== undefined ? "connected" : "resting");
   const first = visible[0];
@@ -394,6 +396,16 @@ export function ComposerStatusDot({
   };
   const press = (event: { detail: number }) => driver.dispatch(event.detail === 0 ? "keyActivate" : "clickDot");
 
+  // The strip arm: the static facts as one quiet line in the row's free middle.
+  const stripText =
+    arm === "strip"
+      ? STRIP_KINDS.flatMap((kind) => {
+          const fact = facts.find((each) => each.kind === kind);
+          const value = fact ? factValue(fact, turn ? now : clock, lang) : undefined;
+          return value ? [value.text] : [];
+        }).join(" · ")
+      : "";
+
   const live = COUNTERS.map((counter) => {
     const fact = counters.find((each) => each.kind === counter.kind && each.live && (each.count ?? 0) > 0);
     return { ...counter, count: fact?.count ?? 0, on: fact !== undefined };
@@ -432,7 +444,7 @@ export function ComposerStatusDot({
         ) : null}
         {look === "glyph" && worst === "problem" ? <Icon name="status.warning" size={12} /> : null}
       </button>
-      {arm === "pulse"
+      {arm === "pulse" || arm === "strip"
         ? live.map((counter) => (
             <button
               key={counter.kind}
@@ -448,6 +460,7 @@ export function ComposerStatusDot({
             </button>
           ))
         : null}
+      {arm === "strip" && stripText ? <span className="acpmux-composer-status-strip">{stripText}</span> : null}
       <span className="ui-sr-only" aria-live="polite">
         {announce ?? ""}
       </span>

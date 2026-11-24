@@ -188,3 +188,16 @@
     transition: none;
   }
 }
+/* The strip arm: the static facts as one quiet line in the row's free middle (not a control). */
+.acpmux-composer-foot.acpmux-composer-foot .acpmux-composer-status > .acpmux-composer-status-strip {
+  order: -1;
+  flex: 1 1 0;
+  min-width: 0;
+  margin-inline: 4px auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--agent-font-small, 11px);
+  opacity: 0.7;
+}

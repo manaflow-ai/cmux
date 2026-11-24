@@ -24,6 +24,11 @@ export const composerFooterFacts = defineExperiment({
       label: "Door",
       description: "The card's Session list only, behind a faint dot that is always there.",
     },
+    strip: {
+      label: "Strip",
+      description:
+        "A quiet line in the footer's free middle: machine, folder, branch, context, turn time; counters as in pulse.",
+    },
   },
   defaultArm: "off",
 });
