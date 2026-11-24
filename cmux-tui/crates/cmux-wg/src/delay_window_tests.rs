@@ -1,9 +1,9 @@
 use super::*;
 
-const SEGMENT: u32 = 1200;
-
 /// A bulk sender held to a [`DelayWindow`] into one FIFO bottleneck of
-/// `rate` bytes a second and `base` round trip, with an ACK per segment.
+/// `rate` bytes a second and `base` round trip, with an ACK per segment,
+/// paced as the pacer paces bulk (twice the window a smoothed round trip,
+/// unpaced before the first sample).
 /// Returns the window and, over the last half of `run`, the bytes acked a
 /// second and the largest queueing delay a segment met.
 fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) {
@@ -16,9 +16,13 @@ fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) 
     let mut acks: VecDeque<(Instant, u32)> = VecDeque::new();
     let half = start + run / 2;
     let (mut acked_after_half, mut worst_queue) = (0u64, Duration::ZERO);
+    let (mut srtt, mut next_send): (Option<Duration>, Instant) = (None, start);
+    let mut departed: VecDeque<(u32, Instant)> = VecDeque::new();
     while now < start + run {
-        // Send what the window allows.
-        while snd_max.wrapping_sub(snd_una) + SEGMENT <= delay.window.max(SEGMENT) {
+        // Send what the window and the pacing allow.
+        while next_send <= now
+            && snd_max.wrapping_sub(snd_una) + SEGMENT <= delay.window.max(SEGMENT)
+        {
             let begin = link_free.max(now);
             let queued = begin - now;
             if now >= half {
@@ -27,10 +31,25 @@ fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) 
             link_free = begin + Duration::from_secs_f64(f64::from(SEGMENT) / rate);
             snd_max = snd_max.wrapping_add(SEGMENT);
             delay.departed(snd_max, snd_max.wrapping_sub(snd_una), now);
+            departed.push_back((snd_max, now));
             acks.push_back((link_free + base, snd_max));
+            if let Some(srtt) = srtt {
+                let pace = 2.0 * f64::from(delay.window) / srtt.as_secs_f64();
+                next_send = now + Duration::from_secs_f64(f64::from(SEGMENT) / pace);
+            }
         }
-        let Some((at, ack)) = acks.pop_front() else { break };
+        // The next event: an ACK, or the pacer's next send.
+        let Some(&(at, ack)) = acks.front() else { break };
+        if next_send > now && next_send < at {
+            now = next_send;
+            continue;
+        }
+        acks.pop_front();
         now = at;
+        if let Some((_, sent)) = departed.pop_front() {
+            let sample = now - sent;
+            srtt = Some(srtt.map_or(sample, |srtt| (srtt * 7 + sample) / 8));
+        }
         if now >= half {
             acked_after_half += u64::from(ack.wrapping_sub(snd_una));
         }
@@ -67,7 +86,9 @@ fn a_slow_long_path_keeps_a_short_queue() {
     let rate = 1e6 / 8.0;
     let (_, goodput, worst) = bottleneck(rate, Duration::from_millis(600), Duration::from_secs(30));
     assert!(goodput > 0.9 * rate, "goodput {goodput:.0} of {rate:.0} B/s");
-    assert!(worst <= TARGET * 4, "queue reached {worst:?}");
+    // A segment alone takes 9.6 ms here: the target is two of them.
+    let segment = Duration::from_secs_f64(f64::from(SEGMENT) / rate);
+    assert!(worst <= segment * 3, "queue reached {worst:?}");
 }
 
 #[test]
@@ -123,4 +144,47 @@ fn sequence_numbers_wrap() {
     );
     assert!(delay.departures.is_empty());
     assert_eq!(delay.base(), Some(Duration::from_millis(70)));
+}
+
+/// An IPv4 TCP segment from port `from` to port `to` (checksums left zero:
+/// the pacer does not read them).
+fn tcp(from: u16, to: u16, seq: u32, ack: Option<u32>, payload: usize) -> Vec<u8> {
+    let total = u16::try_from(40 + payload).unwrap();
+    let mut packet = vec![0x45, 0, 0, 0, 0, 0, 0, 0, 64, 6, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2];
+    packet[2..4].copy_from_slice(&total.to_be_bytes());
+    if from > to {
+        packet[12..20].rotate_left(4);
+    }
+    packet.extend(from.to_be_bytes());
+    packet.extend(to.to_be_bytes());
+    packet.extend(seq.to_be_bytes());
+    packet.extend(ack.unwrap_or(0).to_be_bytes());
+    packet.extend([0x50, if ack.is_some() { 0x10 } else { 0 }, 0xFF, 0xFF, 0, 0, 0, 0]);
+    packet.resize(40 + payload, 0);
+    packet
+}
+
+#[test]
+fn a_resend_leaves_ahead_of_the_fresh_data_the_window_holds() {
+    if !enabled() {
+        return;
+    }
+    let now = Instant::now();
+    let mut pacer = crate::pacing::Pacer::default();
+    let (local, remote) = (1000, 2000);
+    for index in 0..48 {
+        pacer.push(tcp(local, remote, index * SEGMENT, Some(1), SEGMENT as usize), now);
+    }
+    // The handshake's ACK: none of the data acknowledged yet.
+    pacer.received(&tcp(remote, local, 1, Some(0), 0), now);
+    let mut sent = 0;
+    while let Ok(Some(_)) = pacer.pop(now) {
+        sent += 1;
+    }
+    assert_eq!(sent * SEGMENT, INITIAL_WINDOW, "the window holds the rest");
+    assert!(matches!(pacer.pop(now), Ok(None)), "held for an ACK, not a time");
+    // No ACK comes; TCP sends the first segment again.
+    pacer.push(tcp(local, remote, 0, Some(1), SEGMENT as usize), now);
+    let resent = pacer.pop(now).ok().flatten().expect("the resend leaves");
+    assert_eq!(crate::pacing::segment(&resent).map(|segment| segment.seq), Some(0));
 }

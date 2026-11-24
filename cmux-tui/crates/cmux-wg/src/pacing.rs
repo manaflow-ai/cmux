@@ -503,8 +503,8 @@ impl Pacer {
             // order): the delay window may hold that data until an ACK this
             // segment is what brings.
             if let Some(max) = connection.snd_max
-                && let Some(at) = connection.queue.iter().position(|queued| {
-                    self::segment(queued).is_some_and(|queued| {
+                && let Some(at) = connection.queue.iter().position(|waiting| {
+                    self::segment(waiting).is_some_and(|queued| {
                         queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
                     })
                 })
