@@ -808,6 +808,14 @@ pub enum Command {
         #[arg(long)]
         refresh: bool,
     },
+    /// A Cloud machine: make the reserved folder of its first home chat and warm an agent in it
+    /// (`hub/pool/reserved.rs`). The Cloud app runs it right after keying a spare machine.
+    #[command(name = "warm-home", hide = true)]
+    WarmHome {
+        /// Answer once the agent is ready, not when it starts.
+        #[arg(long)]
+        wait: bool,
+    },
     #[command(hide = true)]
     Info {
         session: String,
@@ -841,6 +849,7 @@ pub enum Command {
         held: bool,
         fleet: bool,
         allow: Vec<String>,
+        set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
     },
@@ -1349,18 +1358,24 @@ pub enum SessionCmd {
     /// Hold a session: it takes no turn until the person asks for it. Every other agent's
     /// message, tool notice or background task's end waits in its inbox; its idle agent is
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
-    /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
+    /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them.
+    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
+    /// `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
         /// Hold this machine's whole fleet of sessions.
         #[arg(long)]
         fleet: bool,
-        /// With `--fleet`: names that keep running, comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
+        /// With `--fleet`: names added to the allowlist (it keeps the ones already there),
+        /// comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
         #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
+        /// With `--fleet`: replace the whole allowlist with these names (then `--allow` adds to
+        /// it); `--set-allow ''` empties it.
+        #[arg(long, value_delimiter = ',', num_args = 0..=1)]
+        set_allow: Option<Vec<String>>,
         /// With `--fleet`: why, shown in each refusal.
         #[arg(long)]
         reason: Option<String>,
@@ -1938,14 +1953,23 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, reason, status } => {
-                Command::SessionHold { session, held: true, fleet, allow, reason, status }
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+                Command::SessionHold {
+                    session,
+                    held: true,
+                    fleet,
+                    allow,
+                    set_allow,
+                    reason,
+                    status,
+                }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
                 fleet,
                 allow: Vec::new(),
+                set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
             },
