@@ -96,6 +96,11 @@ fn cache_path() -> PathBuf {
     crate::config::home().join(CACHE_FILE)
 }
 
+/// The kept relay listing's path under the acpmux home (`send_relay::listed_row` reads it too).
+pub(crate) fn cache_file() -> PathBuf {
+    cache_path()
+}
+
 /// Whether the relay's rows in a listing were read now, come from the cache, or are missing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteState {
@@ -319,7 +324,7 @@ impl FarRead {
     }
 }
 
-fn missed_mark_live(cache: &Path, now: u64) -> bool {
+pub(crate) fn missed_mark_live(cache: &Path, now: u64) -> bool {
     std::fs::read_to_string(cache.with_file_name(MISSED_MARK))
         .ok()
         .and_then(|t| t.trim().parse::<u64>().ok())
