@@ -54,6 +54,13 @@ after 2 idle minutes; bg_output reads it later.";
 /// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
 const PARALLEL_STEER: &str = "Run the reads and searches you already know you need as one batch \
 of independent tool calls, and keep working while a bg_start task runs.";
+/// How every chat learns its own name and address, so it introduces itself and is reached by one
+/// name rather than by an ad-hoc label: what other agents saw it as was nowhere in its prompt
+/// (Leo, 2026-11-21: "you dont have a proper name for yourself/metadata labelling yourself to
+/// communicate with"). Fixed text, so the prompt every chat shares stays cached.
+const IDENTITY_STEER: &str = "Your own name, machine and the host/name address other agents \
+(Claude or Codex) send to: info with name \"@\". acpmux labels every message you send with that \
+name, so never sign one by hand.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
@@ -176,7 +183,7 @@ fn base_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "The session's name, id, or host/name."},
+                    "name": {"type": "string", "description": "The session's name, id, or host/name; \"@\" for this chat."},
                     "count": {"type": "integer", "minimum": 1, "maximum": MAX_LAST, "description": "How many replies (default 1)."}
                 },
                 "required": ["name"]
@@ -184,10 +191,10 @@ fn base_tools() -> Value {
         },
         {
             "name": "info",
-            "description": "One session's state: whether a turn runs, what is queued, pending permissions, its folder and agent.",
+            "description": "One session's state: how other agents reach it (name, handle, machine, the host/name address to send to, link), whether a turn runs, what is queued, pending permissions, its folder and agent. Name \"@\" for your own.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
+                "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name; \"@\" for this chat."}},
                 "required": ["name"]
             }
         },
@@ -291,6 +298,9 @@ fn instructions(tools: &Value) -> Option<String> {
     }
     if crate::mcp_hint::names(tools).any(|n| n == "watch_add") {
         parts.push(watch::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == "info") {
+        parts.push(IDENTITY_STEER);
     }
     (!parts.is_empty()).then(|| parts.join(" "))
 }
@@ -420,10 +430,79 @@ fn served_with(
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
                 }
+                let params = own_named(params, &session);
                 call_as(&daemon, &params, sub.as_ref()).await
             }
         },
     )
+}
+
+/// The names that mean this chat in `info` and `last`, as `@` and `current` do on the CLI
+/// (`cli::orchestrate::expand_session_key`). The CLI reads its own `ACPMUX_SESSION_ID`; this
+/// server serves many chats in one process (`tools_mcp.rs`) and knows each call's chat instead,
+/// so `info @` once answered "no current session" to the very agent asking who it is.
+const SELF_NAMES: [&str; 4] = ["@", "current", "me", "self"];
+
+/// `params` with an `info` or `last` call's `name` of [`SELF_NAMES`] (or none) swapped for
+/// `session`, the chat that calls.
+fn own_named(mut params: Value, session: &str) -> Value {
+    let tool = params["name"].as_str().unwrap_or_default();
+    if session.is_empty() || !matches!(tool, "info" | "last") {
+        return params;
+    }
+    let Some(args) = params.get_mut("arguments").and_then(Value::as_object_mut) else {
+        return params;
+    };
+    let named = args.get("name").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    if named.is_empty() || SELF_NAMES.contains(&named) {
+        args.insert("name".to_owned(), json!(session));
+    }
+    params
+}
+
+/// How other agents (Claude or Codex, here or on a peer) reach session `id`: its name, handle,
+/// machine, the `host/name` address the send tool and `cmux agent send` take, and its link.
+/// None when the daemon cannot resolve it (`_acpmux/resolve`).
+async fn reach(daemon: &Arc<Client>, id: &str) -> Option<Value> {
+    let reply = daemon
+        .request(method::MUX_RESOLVE, json!({"query": id, "sessionId": id, "exactSessionId": true}))
+        .await
+        .ok()?;
+    let s = reply["matches"].as_array()?.first()?;
+    let name = s["name"].as_str().filter(|n| !n.is_empty())?;
+    let host = s["host"].as_str().filter(|h| !h.is_empty());
+    let address = host.map_or_else(|| name.to_owned(), |h| format!("{h}/{name}"));
+    Some(json!({
+        "name": name,
+        "handle": s["handle"],
+        "host": host,
+        "harness": s["harness"],
+        "address": address,
+        "link": s["link"],
+    }))
+}
+
+/// [`reach`] as the line `info` opens with.
+fn reach_text(reach: &Value) -> String {
+    let field = |k: &str| reach[k].as_str().unwrap_or_default();
+    let handle = match field("handle") {
+        "" => String::new(),
+        h => format!(" (handle {h})"),
+    };
+    let host = match field("host") {
+        "" => String::new(),
+        h => format!(" on {h}"),
+    };
+    let address = field("address");
+    let mut line = format!(
+        "{}{handle}{host}. Other agents reach it with the send tool (to: \"{address}\") or \
+         `cmux agent send {address}`.",
+        field("name")
+    );
+    if !field("link").is_empty() {
+        line.push_str(&format!(" Link: {}", field("link")));
+    }
+    line
 }
 
 async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
@@ -496,7 +575,16 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
                 Err(e) => return refusal(e),
             };
             match daemon.request(method::MUX_INFO, json!({"sessionId": id})).await {
-                Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
+                Ok(mut r) => {
+                    let mut text = serde_json::to_string_pretty(&r).unwrap_or_default();
+                    if let Some(reach) = reach(daemon, &id).await {
+                        text = format!("{}\n\n{text}", reach_text(&reach));
+                        if r.is_object() {
+                            r["reach"] = reach;
+                        }
+                    }
+                    ok(text, r)
+                }
                 Err(e) => refusal(e),
             }
         }

@@ -990,6 +990,16 @@ async fn ls_last_and_info_read_the_sessions() {
     assert!(text(&r).lines().any(|l| l.starts_with("lane-b  [")), "{r}");
     let r = call(&client, &tool("info", json!({"name": "lane-b"}))).await;
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    // `info` opens with how other agents reach the session: its name and the address to send to.
+    let reach = &r["structuredContent"]["reach"];
+    assert_eq!(reach["name"], "lane-b", "{r}");
+    assert!(reach["address"].as_str().is_some_and(|a| a.ends_with("lane-b")), "{r}");
+    assert!(text(&r).starts_with("lane-b"), "{r}");
+    assert!(text(&r).contains("Other agents reach it with the send tool"), "{r}");
+    // `@` names the calling chat: this server knows the chat of each call, not an env var.
+    let mine = own_named(tool("info", json!({"name": "@"})), &lane);
+    let r = call(&client, &mine).await;
+    assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
     // `search` reads the named session, or this server's own chat when none is named.
     let r = search_tool(&client, "", &json!({"query": "HELLO echo", "name": "lane-b"})).await;
     assert_eq!(r["isError"], false, "{r}");
@@ -1438,4 +1448,31 @@ fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
     let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
     assert!(rest.clone().count() > 5);
     assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
+}
+
+/// `@`, `current`, `me`, `self` or no name mean the calling chat in `info` and `last`; any other
+/// name, any other tool, or a server with no chat is left as it was.
+#[test]
+fn own_names_mean_the_calling_chat() {
+    for named in ["@", "current", "me", "self", " @ ", ""] {
+        let p = own_named(tool("info", json!({"name": named})), "s1");
+        assert_eq!(p["arguments"]["name"], "s1", "{named:?}");
+    }
+    let p = own_named(tool("last", json!({})), "s1");
+    assert_eq!(p["arguments"]["name"], "s1");
+    let p = own_named(tool("info", json!({"name": "lane-b"})), "s1");
+    assert_eq!(p["arguments"]["name"], "lane-b");
+    let p = own_named(tool("send", json!({"to": "@"})), "s1");
+    assert_eq!(p["arguments"], json!({"to": "@"}));
+    let p = own_named(tool("info", json!({"name": "@"})), "");
+    assert_eq!(p["arguments"]["name"], "@");
+}
+
+/// Every chat with `info` is told how to read its own name and address, in fixed text.
+#[test]
+fn the_instructions_say_how_to_read_your_own_name() {
+    let all = instructions(&tools()).unwrap();
+    assert!(all.contains("info with name \"@\""), "{all}");
+    let only_send = allowed(tools(), Some("acpmux_send"));
+    assert!(instructions(&only_send).is_none_or(|t| !t.contains("info with name")));
 }
