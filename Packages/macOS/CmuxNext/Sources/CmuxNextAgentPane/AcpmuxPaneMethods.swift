@@ -267,7 +267,8 @@ nonisolated enum AcpmuxPaneMethods {
         // Auto (plans/cmux-next/auto-mode/DESIGN.md; direct.ts setAutoSession, autoLeftover): the chat
         // menu's Auto and Keep in Cloud, and Show, Apply or Discard of the changes this Mac made after
         // the chat moved to the Cloud. Only the chat in scope, and only on a gesture (``gestureRules``).
-        "_acpmux/auto_session/set", "_acpmux/auto_session/leftover",
+        // Transcript reads the Cloud's events of the chat while the Cloud runs it: read only, no gesture.
+        "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
     ]
 
     /// Notifications (no `id`).
@@ -374,7 +375,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
         "_acpmux/cold_archive", "_acpmux/prompt_coach",
-        "_acpmux/auto_session/set", "_acpmux/auto_session/leftover",
+        "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
         "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     ]
 

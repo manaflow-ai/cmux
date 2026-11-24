@@ -18,6 +18,7 @@
 //! - [`away`]: the person's Auto chats this laptop does not have, which it stands by for.
 //! - [`chats`]: what the loop keeps of each chat, and the chat's record and row kept in step.
 //! - [`clock`]: the wall clock, injected.
+//! - [`projection`]: the Cloud's events of a chat held elsewhere, read only, for the pane.
 //!
 //! Order within a chat. A stop, a continue and a kill of the process tree run before the next
 //! effect. The leftover patch, an import, the inbox and the assignment's ack run one at a time
@@ -30,6 +31,7 @@ mod chats;
 pub mod clock;
 mod effects;
 mod inbox;
+pub(crate) mod projection;
 mod register;
 mod run;
 mod settle;
@@ -131,10 +133,17 @@ where
     C: AutoCloud + 'static,
 {
     let (commands, inbox) = mpsc::unbounded_channel();
-    let handle = HolderHandle { me: me.clone(), commands: commands.clone() };
+    let projections = Arc::new(projection::Projections::default());
+    let handle = HolderHandle {
+        me: me.clone(),
+        commands: commands.clone(),
+        projections: projections.clone(),
+        clock: options.clock.clone(),
+    };
     // The first loop of a daemon is the one its Auto methods reach.
     let _ = hub.auto_holder.set(handle.clone());
-    let state = run::Loop::new(hub.clone(), cloud, me, importer, options, commands);
+    let mut state = run::Loop::new(hub.clone(), cloud, me, importer, options, commands);
+    state.projections = projections;
     // It ends with the hub's own tasks.
     drop(hub.scope.spawn_until_cancelled("auto-session holder", state.run(inbox)));
     handle
@@ -156,6 +165,12 @@ impl HolderHandle {
     /// each assignment it reads; a repeat of one the loop already took changes nothing).
     pub fn assigned(&self, assignment: &Assignment) {
         self.tell(Command::Assigned(Box::new(assignment.clone())));
+    }
+
+    /// The Cloud's events of chat `id` after seq `after`, while another holder runs it
+    /// (`projection.rs`). None: the chat is held here, and its own log is its transcript.
+    pub(crate) fn transcript(&self, session_id: &str, after: u64) -> Option<Value> {
+        self.projections.reply(session_id, after, self.clock.now_ms())
     }
 
     /// The system woke from sleep: every Auto chat stops and asks the store before it goes on.
