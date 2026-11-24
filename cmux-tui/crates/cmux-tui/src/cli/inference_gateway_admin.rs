@@ -188,7 +188,9 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
         Ok(api) => api,
         Err(e) => return (error_json("cli.invalid_args", &e), 2),
     };
-    let http = match reqwest::Client::builder()
+    // A named API (--api or CMUX_CLOUD_API_URL) or the app's sign-in's: the person's backend.
+    cmux_egress::allow_named(&api);
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway_admin")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))

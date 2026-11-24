@@ -623,7 +623,10 @@ impl Supervisor {
             Ok(space) => space,
             Err(error) => return HubEnd::Final(TunnelStatus::Failed(error.to_string())),
         };
-        let client = match reqwest::Client::builder()
+        // The plan's VM API is --vm-api's or the platform's; `vm_api_origin` (the server's) is
+        // never named here, so the gate checks it against the doc's hosts.
+        cmux_egress::allow_named(&self.plan.vm_api);
+        let client = match cmux_egress::client_builder("cmux_tui::carrier::tunnel")
             .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))

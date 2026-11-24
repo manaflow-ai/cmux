@@ -224,7 +224,9 @@ pub(super) fn run(
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    // The API origin is the person's: --cloud-api or CMUX_CLOUD_API_URL.
+    cmux_egress::allow_named(api);
+    let client = cmux_egress::client_builder("cmux_tui::cli::cloud_client_session")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
