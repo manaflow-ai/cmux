@@ -19,6 +19,7 @@
     "sites/google-calendar.js",
     "sites/google-search.js",
     "sites/youtube.js",
+    "sites/meet.js",
     "sites/slack.js",
     "sites/notion.js",
     "sites/linkedin.js",

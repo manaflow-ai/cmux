@@ -9,6 +9,12 @@ import Testing
 /// process-wide, so a test running beside it reads its `setupComplete=NO`
 /// over its own suite's stored value (flaked on cmux#51591, run 45367758224).
 @Suite(.serialized) struct DeveloperOptionsTests {
+    #if canImport(Darwin)
+    static let appleUserDefaults = true
+    #else
+    static let appleUserDefaults = false
+    #endif
+
     @Test func productionSanitizationRemovesEveryDeveloperKey() throws {
         let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -31,7 +37,9 @@ import Testing
     /// A launch argument starts setup and setup can still finish it: before
     /// seeding, the argument domain hides the app's own write (the App Review
     /// gate's onboarding walk stayed on "Choose a space").
-    @Test func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
+    /// Apple's argument domain only: swift-corelibs-foundation (the Linux run) keeps a replaced volatile
+    /// argument domain's old values, so this runs on the iOS simulator (cmux-next-ios-kit.yml).
+    @Test(.enabled(if: Self.appleUserDefaults)) func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
         let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let key = "cmuxMobile.setupComplete"
