@@ -8,10 +8,28 @@ const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
 /// `turn_retrying`): the cause in plain words, the retry's count, and the harness's error when it
 /// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
 /// no clock, since nothing works on the reply while it waits.
-export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
+export function retryParts(
+  t: Translate,
+  retry: AcpmuxTurnRetry,
+  now?: number,
+): { label: string; count: string; error?: string; countdown?: string } {
   const words = retry.error?.replaceAll("_", " ");
   const busy = retryBusy(retry);
-  const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+  // A connection failure acpmux classified (hub/outage.rs) says what is wrong and where; the words
+  // of a busy or unreachable model stay for the rest. Rust decides, this only words it.
+  const label = retry.cause
+    ? t(retry.cause === "dns" ? "turn.live.retry.outage.dns" : "turn.live.retry.outage.host", {
+        host: retry.host ?? t("turn.live.retry.outage.theApi"),
+      })
+    : t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+  // Seconds until the deadline acpmux computed; none once it passed or when none was announced.
+  const left = retry.retryAt !== undefined && now !== undefined ? Math.ceil((retry.retryAt - now) / 1000) : undefined;
+  const countdown =
+    left !== undefined && left > 0
+      ? t("turn.live.retry.countdown", { time: formatCountdown(left) })
+      : left !== undefined
+        ? t("turn.live.retry.retryingNow")
+        : undefined;
   const count =
     retry.attempt === undefined
       ? t("turn.live.retry.retrying")
@@ -19,7 +37,14 @@ export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: strin
         ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
         : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
   const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
-  return { label, count, ...(error && { error }) };
+  return { label, count, ...(error && { error }), ...(countdown && { countdown }) };
+}
+
+/// "45s", "1m 15s": the wait to the next try.
+export function formatCountdown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
 /// Whether the harness retries because the model is busy (a rate limit, an overload), not out of reach.
