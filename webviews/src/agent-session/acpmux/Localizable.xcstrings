@@ -20,6 +20,7 @@
     "composer.joinFailSignedOut": {"comment":"Agent pane: one line when a machine cannot be added because the person is not signed in to cmux: {host} its name. Button: Sign In","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجّل الدخول إلى cmux لإضافة {host}."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijavite se u cmux da dodate {host}."}},"da":{"stringUnit":{"state":"needs_review","value":"Log ind på cmux for at tilføje {host}."}},"de":{"stringUnit":{"state":"needs_review","value":"Melde dich bei cmux an, um {host} hinzuzufügen."}},"en":{"stringUnit":{"state":"translated","value":"Sign in to cmux to add {host}."}},"es":{"stringUnit":{"state":"needs_review","value":"Inicia sesión en cmux para añadir {host}."}},"fr":{"stringUnit":{"state":"needs_review","value":"Connectez-vous à cmux pour ajouter {host}."}},"it":{"stringUnit":{"state":"needs_review","value":"Accedi a cmux per aggiungere {host}."}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} を追加するには cmux にサインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលគណនី cmux ដើម្បីបន្ថែម {host}។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}을(를) 추가하려면 cmux에 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Logg på cmux for å legge til {host}."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaloguj się do cmux, aby dodać {host}."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entre no cmux para adicionar {host}."}},"ru":{"stringUnit":{"state":"needs_review","value":"Войдите в cmux, чтобы добавить {host}."}},"th":{"stringUnit":{"state":"needs_review","value":"ลงชื่อเข้า cmux เพื่อเพิ่ม {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{host} eklemek için cmux'ta oturum açın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійдіть у cmux, щоб додати {host}."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập cmux để thêm {host}."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"登录 cmux 以添加 {host}。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"登入 cmux 以加入 {host}。"}}}},
     "composer.joinFailNoPeer": {"comment":"Agent pane: one line when a machine joined but this Mac does not list it in time to start the chat there: {host} its name. Button: Try Again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انضم {host}، لكن هذا الـ Mac لا يستطيع الوصول إليه بعد."}},"bs":{"stringUnit":{"state":"needs_review","value":"{host} se pridružio, ali ovaj Mac još ne može doći do njega."}},"da":{"stringUnit":{"state":"needs_review","value":"{host} er tilsluttet, men denne Mac kan ikke nå den endnu."}},"de":{"stringUnit":{"state":"needs_review","value":"{host} ist beigetreten, aber dieser Mac erreicht es noch nicht."}},"en":{"stringUnit":{"state":"translated","value":"{host} joined, but this Mac can't reach it yet."}},"es":{"stringUnit":{"state":"needs_review","value":"{host} se unió, pero este Mac aún no puede acceder a ella."}},"fr":{"stringUnit":{"state":"needs_review","value":"{host} a rejoint, mais ce Mac ne peut pas encore la joindre."}},"it":{"stringUnit":{"state":"needs_review","value":"{host} si è unita, ma questo Mac non riesce ancora a raggiungerla."}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} は参加しましたが、この Mac からはまだ接続できません。"}},"km":{"stringUnit":{"state":"needs_review","value":"{host} បានចូលរួម ប៉ុន្តែ Mac នេះមិនទាន់អាចទៅដល់វាបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}이(가) 참여했지만 이 Mac에서 아직 연결할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"{host} ble med, men denne Mac-en når den ikke ennå."}},"pl":{"stringUnit":{"state":"needs_review","value":"{host} dołączył, ale ten Mac jeszcze nie może się z nim połączyć."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{host} entrou, mas este Mac ainda não consegue acessá-la."}},"ru":{"stringUnit":{"state":"needs_review","value":"{host} подключилась, но этот Mac пока не может до неё достучаться."}},"th":{"stringUnit":{"state":"needs_review","value":"{host} เข้าร่วมแล้ว แต่ Mac เครื่องนี้ยังเข้าถึงไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"{host} katıldı ama bu Mac henüz ona ulaşamıyor."}},"uk":{"stringUnit":{"state":"needs_review","value":"{host} приєдналася, але цей Mac поки не може до неї дістатися."}},"vi":{"stringUnit":{"state":"needs_review","value":"{host} đã tham gia nhưng máy Mac này chưa kết nối được."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{host} 已加入，但这台 Mac 暂时还无法连接它。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{host} 已加入，但這台 Mac 暫時還無法連線到它。"}}}},
     "composer.joinFailOther": {"comment":"Agent pane: one line when a machine could not be set up for another reason (its detail is the line's tooltip): {host} its name. Button: Try Again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر إعداد {host}."}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije moguće postaviti {host}."}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke konfigurere {host}."}},"de":{"stringUnit":{"state":"needs_review","value":"{host} konnte nicht eingerichtet werden."}},"en":{"stringUnit":{"state":"translated","value":"Couldn't set up {host}."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo configurar {host}."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de configurer {host}."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile configurare {host}."}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} をセットアップできませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចរៀបចំ {host} បានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}을(를) 설정하지 못했습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke konfigurere {host}."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się skonfigurować {host}."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível configurar {host}."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось настроить {host}."}},"th":{"stringUnit":{"state":"needs_review","value":"ตั้งค่า {host} ไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"{host} kurulamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося налаштувати {host}."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể thiết lập {host}."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法设置 {host}。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法設定 {host}。"}}}},
+    "prCard.review": {"comment":"Agent pane: a GitHub pull request link's hover card, the button that opens a side chat where the agent reviews the pull request and leaves draft comments in the diff viewer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"مراجعة"}},"bs":{"stringUnit":{"state":"translated","value":"Pregledaj"}},"da":{"stringUnit":{"state":"translated","value":"Gennemgå"}},"de":{"stringUnit":{"state":"translated","value":"Prüfen"}},"en":{"stringUnit":{"state":"translated","value":"Review"}},"es":{"stringUnit":{"state":"translated","value":"Revisar"}},"fr":{"stringUnit":{"state":"translated","value":"Relire"}},"it":{"stringUnit":{"state":"translated","value":"Revisiona"}},"ja":{"stringUnit":{"state":"translated","value":"レビュー"}},"km":{"stringUnit":{"state":"translated","value":"ពិនិត្យ"}},"ko":{"stringUnit":{"state":"translated","value":"리뷰"}},"nb":{"stringUnit":{"state":"translated","value":"Gjennomgå"}},"pl":{"stringUnit":{"state":"translated","value":"Przejrzyj"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Revisar"}},"ru":{"stringUnit":{"state":"translated","value":"Проверить"}},"th":{"stringUnit":{"state":"translated","value":"รีวิว"}},"tr":{"stringUnit":{"state":"translated","value":"İncele"}},"uk":{"stringUnit":{"state":"translated","value":"Переглянути"}},"vi":{"stringUnit":{"state":"translated","value":"Xem xét"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"审查"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"審查"}}}},
     "cloudStart.stage.machine": {"comment":"Agent pane: the quiet line under the person's message while a new chat's Cloud machine starts","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting your Cloud machine"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ تشغيل جهاز Cloud الخاص بك"}},"bs":{"stringUnit":{"state":"translated","value":"Pokretanje vaše Cloud mašine"}},"da":{"stringUnit":{"state":"translated","value":"Starter din Cloud-maskine"}},"de":{"stringUnit":{"state":"translated","value":"Deine Cloud-Maschine wird gestartet"}},"es":{"stringUnit":{"state":"translated","value":"Iniciando tu máquina de Cloud"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrage de votre machine Cloud"}},"it":{"stringUnit":{"state":"translated","value":"Avvio della tua macchina Cloud"}},"ja":{"stringUnit":{"state":"translated","value":"Cloud マシンを起動しています"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងចាប់ផ្ដើមម៉ាស៊ីន Cloud របស់អ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud 머신을 시작하는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Starter Cloud-maskinen din"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchamianie Twojej maszyny Cloud"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Iniciando sua máquina na Cloud"}},"ru":{"stringUnit":{"state":"translated","value":"Запуск вашей машины Cloud"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเริ่มเครื่อง Cloud ของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Cloud makineniz başlatılıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Запуск вашої машини Cloud"}},"vi":{"stringUnit":{"state":"translated","value":"Đang khởi động máy Cloud của bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在启动你的 Cloud 机器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在啟動你的 Cloud 機器"}}}},
     "cloudStart.stage.clone": {"comment":"Agent pane: the quiet line under the person's message while a new Cloud chat copies or clones the project onto its machine","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copying your project"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ نسخ مشروعك"}},"bs":{"stringUnit":{"state":"translated","value":"Kopiranje vašeg projekta"}},"da":{"stringUnit":{"state":"translated","value":"Kopierer dit projekt"}},"de":{"stringUnit":{"state":"translated","value":"Dein Projekt wird kopiert"}},"es":{"stringUnit":{"state":"translated","value":"Copiando tu proyecto"}},"fr":{"stringUnit":{"state":"translated","value":"Copie de votre projet"}},"it":{"stringUnit":{"state":"translated","value":"Copia del tuo progetto"}},"ja":{"stringUnit":{"state":"translated","value":"プロジェクトをコピーしています"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងចម្លងគម្រោងរបស់អ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"프로젝트를 복사하는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Kopierer prosjektet ditt"}},"pl":{"stringUnit":{"state":"translated","value":"Kopiowanie Twojego projektu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Copiando seu projeto"}},"ru":{"stringUnit":{"state":"translated","value":"Копирование вашего проекта"}},"th":{"stringUnit":{"state":"translated","value":"กำลังคัดลอกโปรเจกต์ของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Projeniz kopyalanıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Копіювання вашого проєкту"}},"vi":{"stringUnit":{"state":"translated","value":"Đang sao chép dự án của bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在复制你的项目"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在複製你的專案"}}}},
     "cloudStart.stage.setup": {"comment":"Agent pane: the quiet line under the person's message while a new Cloud chat runs the environment's setup script","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Running your setup script"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ تشغيل نص الإعداد"}},"bs":{"stringUnit":{"state":"translated","value":"Pokretanje vaše skripte za postavljanje"}},"da":{"stringUnit":{"state":"translated","value":"Kører dit opsætningsscript"}},"de":{"stringUnit":{"state":"translated","value":"Dein Setup-Skript läuft"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutando tu script de configuración"}},"fr":{"stringUnit":{"state":"translated","value":"Exécution de votre script de configuration"}},"it":{"stringUnit":{"state":"translated","value":"Esecuzione dello script di configurazione"}},"ja":{"stringUnit":{"state":"translated","value":"セットアップスクリプトを実行しています"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងដំណើរការស្គ្រីបរៀបចំរបស់អ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"설정 스크립트를 실행하는 중"}},"nb":{"stringUnit":{"state":"translated","value":"Kjører oppsettskriptet ditt"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchamianie Twojego skryptu konfiguracji"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Executando seu script de configuração"}},"ru":{"stringUnit":{"state":"translated","value":"Выполнение вашего скрипта настройки"}},"th":{"stringUnit":{"state":"translated","value":"กำลังเรียกใช้สคริปต์ตั้งค่าของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Kurulum betiğiniz çalıştırılıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Виконання вашого скрипту налаштування"}},"vi":{"stringUnit":{"state":"translated","value":"Đang chạy tập lệnh thiết lập của bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在运行你的设置脚本"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在執行你的設定指令碼"}}}},
@@ -241005,6 +241006,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "{harness} 已限流或容量不足。請稍後重試，或切換模型。"
+          }
+        }
+      }
+    },
+    "turn.failure.usageLimitResets": {
+      "comment": "Agent pane: a failed turn's note when the agent used up a usage limit whose reset time the refusal names; {harness} is the agent's name, {time} the local date and time (with time zone) it resets.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وصل {harness} إلى حد استخدام يُعاد تعيينه {time}. بدّل النموذج للمتابعة الآن، أو تابع بعد إعادة التعيين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} je dostigao ograničenje korištenja koje se resetuje {time}. Promijeni model da nastaviš odmah ili nastavi nakon resetovanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nået en forbrugsgrænse, der nulstilles {time}. Skift model for at fortsætte nu, eller fortsæt, når den er nulstillet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} hat ein Nutzungslimit erreicht, das am {time} zurückgesetzt wird. Wechsle das Modell, um jetzt weiterzumachen, oder mach nach dem Zurücksetzen weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} reached a usage limit that resets {time}. Switch model to keep going now, or continue once it resets."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} alcanzó un límite de uso que se restablece el {time}. Cambia de modelo para seguir ahora o continúa cuando se restablezca."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} a atteint une limite d’utilisation réinitialisée le {time}. Change de modèle pour continuer maintenant, ou continue après la réinitialisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ha raggiunto un limite di utilizzo che si azzera il {time}. Cambia modello per continuare ora, oppure continua dopo l’azzeramento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} は使用上限に達しました。{time} にリセットされます。今すぐ続けるにはモデルを切り替えるか、リセット後に続行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} បានដល់កម្រិតប្រើប្រាស់ ដែលកំណត់ឡើងវិញ {time}។ ប្ដូរម៉ូដែល ដើម្បីបន្តឥឡូវ ឬបន្តបន្ទាប់ពីកំណត់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}이(가) 사용 한도에 도달했습니다. {time}에 초기화됩니다. 지금 계속하려면 모델을 바꾸거나, 초기화된 후 계속하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} har nådd en bruksgrense som nullstilles {time}. Bytt modell for å fortsette nå, eller fortsett når den er nullstilt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} osiągnął limit użycia, który resetuje się {time}. Zmień model, aby kontynuować teraz, albo kontynuuj po resecie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} atingiu um limite de uso que redefine em {time}. Troque de modelo para continuar agora ou continue depois que ele redefinir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} достиг лимита использования, сброс {time}. Смените модель, чтобы продолжить сейчас, или продолжите после сброса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ใช้งานถึงขีดจำกัดแล้ว จะรีเซ็ต {time} เปลี่ยนโมเดลเพื่อทำต่อตอนนี้ หรือทำต่อหลังรีเซ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} {time} sıfırlanan bir kullanım sınırına ulaştı. Şimdi devam etmek için modeli değiştir ya da sıfırlandıktan sonra devam et."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} досяг ліміту використання, скидання {time}. Змініть модель, щоб продовжити зараз, або продовжте після скидання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} đã chạm giới hạn sử dụng, đặt lại lúc {time}. Đổi mô hình để tiếp tục ngay, hoặc tiếp tục sau khi đặt lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已达到使用上限，将于 {time} 重置。切换模型可立即继续，或在重置后继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 已達到使用上限，將於 {time} 重設。切換模型可立即繼續，或在重設後繼續。"
           }
         }
       }
