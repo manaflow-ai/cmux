@@ -189,7 +189,9 @@ fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
     .map(|pattern| regex::Regex::new(pattern).expect("pattern"));
     let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
     let mut files = vec![src.join("client.rs"), src.join("peer.rs"), src.join("prompt_class.rs")];
-    let mut dirs = vec![src.join("cli"), src.join("hand"), src.join("tui")];
+    // The TUI is its own crate now (acpmux-tui), still one of acpmux's own clients.
+    let tui = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../acpmux-tui/src");
+    let mut dirs = vec![src.join("cli"), src.join("hand"), tui];
     while let Some(dir) = dirs.pop() {
         for entry in std::fs::read_dir(&dir).expect("source dir").flatten() {
             let path = entry.path();
