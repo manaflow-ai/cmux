@@ -13,15 +13,20 @@ public nonisolated struct ComputerUsePermissions: Sendable, Equatable {
     /// Computer Use is off, so no helper runs and the grants are unknown;
     /// Allow turns it on first.
     public var isOff: Bool
-    /// The helper did not answer within the setup read budget.
+    /// The helper did not start or stopped answering: no Allow can help until it runs again.
     public var helperFailed: Bool
+    /// The helper is starting and its grants are being read: they show as missing until it answers,
+    /// and nothing is started on them (an entry's Allow waits for the answer).
+    public var isReading: Bool
 
-    public init(accessibility: Bool, screenRecording: Bool, helperVersionMismatch: Bool = false, isOff: Bool = false, helperFailed: Bool = false) {
+    public init(accessibility: Bool, screenRecording: Bool, helperVersionMismatch: Bool = false, isOff: Bool = false, helperFailed: Bool = false,
+                isReading: Bool = false) {
         self.accessibility = accessibility
         self.screenRecording = screenRecording
         self.helperVersionMismatch = helperVersionMismatch
         self.isOff = isOff
         self.helperFailed = helperFailed
+        self.isReading = isReading
     }
 
     public static let none = ComputerUsePermissions(accessibility: false, screenRecording: false)
@@ -29,6 +34,7 @@ public nonisolated struct ComputerUsePermissions: Sendable, Equatable {
                                                                      helperVersionMismatch: true)
     public static let helperFailed = ComputerUsePermissions(accessibility: false, screenRecording: false, helperFailed: true)
     public static let off = ComputerUsePermissions(accessibility: false, screenRecording: false, isOff: true)
+    public static let reading = ComputerUsePermissions(accessibility: false, screenRecording: false, isReading: true)
 
     public func granted(_ pane: ComputerUsePermissionPane) -> Bool {
         switch pane {

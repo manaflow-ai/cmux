@@ -247,6 +247,11 @@ impl Brain {
             }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
+            // Nor a task that later runs as the Chief's own note: an ask
+            // turn may only list the automations.
+            "mcp__optchat__automation" => {
+                return field("action").is_none_or(|a| a == "list");
+            }
             // Nor read or write a note about the owner: another person's
             // turn keeps loops only.
             "mcp__optchat__memory_read"

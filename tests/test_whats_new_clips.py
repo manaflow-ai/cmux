@@ -581,6 +581,15 @@ class NightlyTourTests(unittest.TestCase):
         argv = loaded["harness_fixture"]["harnesses"]["fake"]["argv"]
         self.assertEqual(argv, ["/usr/bin/python3", str(SCRIPT.parents[3] / "agent.py")])
 
+    def test_a_menu_clip_records_the_apps_menus(self):
+        # customizations-menu: the native menu is its own window, so its clip asks tour.py for the app's menus.
+        self.assertEqual(clips.spec_problems({**SPEC, "menus": True}), [])
+        self.assertTrue(clips.spec_problems({**SPEC, "menus": "yes"}))
+        self.assertTrue(clips.spec_problems({**IPHONE_SPEC, "menus": True}))
+        self.assertIs(clips.tour_from_spec({**SPEC, "menus": True}, "T")["menus"], True)
+        self.assertNotIn("menus", clips.tour_from_spec(SPEC, "T"))
+        self.assertIs(clips.load_spec("customizations-menu").get("menus"), True)
+
     def test_write_tours_makes_the_route_jobs_plan_into_tours_and_drops_a_row_with_no_spec(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1042,3 +1051,38 @@ class WorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublishedProbeTests(unittest.TestCase):
+    """A failed HEAD probe never ends the plan (nightly plan 45160205493 died on one)."""
+
+    def probe(self, *outcomes):
+        import urllib.error
+        calls = []
+
+        def urlopen(request, timeout):
+            calls.append(request.full_url)
+            outcome = outcomes[min(len(calls), len(outcomes)) - 1]
+            if isinstance(outcome, BaseException):
+                raise outcome
+            response = mock.MagicMock()
+            response.__enter__.return_value.status = outcome
+            return response
+        with mock.patch("urllib.request.urlopen", urlopen), mock.patch("time.sleep"), \
+                mock.patch("sys.stderr", io.StringIO()):
+            return clips.published("https://x/clip.webp"), len(calls)
+
+    def test_200_and_404(self):
+        import urllib.error
+        self.assertEqual(self.probe(200), (True, 1))
+        self.assertEqual(self.probe(urllib.error.HTTPError("u", 404, "nf", {}, None)), (False, 1))
+
+    def test_transient_error_is_retried(self):
+        import urllib.error
+        self.assertEqual(self.probe(urllib.error.HTTPError("u", 503, "x", {}, None), 200), (True, 2))
+        self.assertEqual(self.probe(TimeoutError("timed out"), 200), (True, 2))
+
+    def test_persistent_error_is_unpublished_not_a_crash(self):
+        import urllib.error
+        self.assertEqual(self.probe(urllib.error.URLError("reset")), (False, 3))
+        self.assertEqual(self.probe(urllib.error.HTTPError("u", 500, "x", {}, None)), (False, 3))
