@@ -237,6 +237,14 @@ fn newest_runs_orders_by_job_id_then_start_time_then_place() {
     let by_place = json!([run_check("COMPLETED", "CANCELLED"), run_check("COMPLETED", "SUCCESS")]);
     let rollup = by_place.as_array().unwrap();
     assert_eq!(pr::newest_runs(rollup), vec![&rollup[1]]);
+    // A cancel replaced by a newer same-named run of another workflow (a shared concurrency
+    // group, manaflow-ai/cmux#50693) is that run's.
+    let twin = json!([
+        {"__typename": "CheckRun", "name": "comment", "workflowName": "CI", "status": "COMPLETED", "conclusion": "CANCELLED", "databaseId": 5},
+        {"__typename": "CheckRun", "name": "comment", "workflowName": "pr-red-checks", "status": "COMPLETED", "conclusion": "SUCCESS", "databaseId": 9},
+    ]);
+    let rollup = twin.as_array().unwrap();
+    assert_eq!(pr::newest_runs(rollup), vec![&rollup[1]]);
     // Same job name in two workflows: two checks, both judged.
     let two = json!([
         {"__typename": "CheckRun", "name": "build", "workflowName": "a", "status": "COMPLETED", "conclusion": "FAILURE"},

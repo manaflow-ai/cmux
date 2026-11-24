@@ -444,7 +444,13 @@ async fn an_attach_to_an_unknown_session_is_refused_not_relayed_as_text() {
     let (to, text) = ("elsewhere".to_owned(), "the broken card".to_owned());
     let target =
         send::Target { index: 0, to: to.clone(), key: to, tag: None, text, file: None, item };
-    let row = send::relay(&target, &anyhow::anyhow!("no session named elsewhere"), None).await;
+    let row = send::relay(
+        &target,
+        &anyhow::anyhow!("no session named elsewhere"),
+        None,
+        tokio::time::Instant::now() + std::time::Duration::from_secs(25),
+    )
+    .await;
     let row = row.expect("a refusal row, not the relay skipped or taken");
     assert_eq!(row["ok"], false, "{row}");
     assert!(row["error"].as_str().unwrap_or_default().contains("attachments"), "{row}");

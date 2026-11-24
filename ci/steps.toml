@@ -212,9 +212,11 @@ about = "cache restore receipts classify a restore, and their test is determinis
 inputs = [
   ".github/actions/cache-restore/action.yml",
   ".github/actions/cache-save/action.yml",
-  ".github/workflows/ci.yml",
-  ".github/workflows/ci-macos.yml",
-  ".github/workflows/nightly.yml",
+  # The read-only guard reads every workflow (who holds the R2 cache-writer credentials), so a PR to any
+  # one runs it: platform-billing-test-secrets.yml (#53839) and cmux-tui-artifacts.yml (#54343) broke
+  # base on 2026-11-24 because only these three named files reached it.
+  ".github/workflows/**",
+  "tests/workflow_jobs.py",
   "scripts/ci/cache_restore_receipt.py",
   "scripts/check-test-determinism.py",
   "tests/test_ci_cache_restore_receipt.py",

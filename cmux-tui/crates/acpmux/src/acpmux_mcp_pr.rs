@@ -454,6 +454,38 @@ pub(crate) fn newest_runs(rollup: &[Value]) -> Vec<&Value> {
             }
         }
     }
+    // A concurrency group shared across workflows cancels one workflow's job for another's
+    // (manaflow-ai/cmux#50693): a cancel is also replaced by a newer same-named run of another
+    // workflow that passed or is still running. A newer red replaces nothing here: it is its
+    // own check's verdict.
+    let cancelled = |c: &Value| {
+        text_or_empty(c, "status").eq_ignore_ascii_case("completed")
+            && text_or_empty(c, "conclusion").eq_ignore_ascii_case("cancelled")
+    };
+    let failed = |c: &Value| {
+        text_or_empty(c, "status").eq_ignore_ascii_case("completed")
+            && matches!(
+                text_or_empty(c, "conclusion").to_ascii_uppercase().as_str(),
+                "FAILURE" | "TIMED_OUT" | "CANCELLED" | "STARTUP_FAILURE" | "ACTION_REQUIRED"
+            )
+    };
+    let survivors: Vec<usize> = newest.values().copied().collect();
+    for &i in &survivors {
+        let c = &rollup[i];
+        if !cancelled(c) {
+            continue;
+        }
+        let name = text_or_empty(c, "name");
+        if survivors.iter().any(|&j| {
+            let t = &rollup[j];
+            j != i
+                && text_or_empty(t, "name") == name
+                && !failed(t)
+                && run_order(t, j) > run_order(c, i)
+        }) {
+            keep[i] = false;
+        }
+    }
     rollup.iter().zip(keep).filter_map(|(c, k)| k.then_some(c)).collect()
 }
 
