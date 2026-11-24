@@ -1112,6 +1112,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/controls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true
@@ -1119,6 +1125,12 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard",
       "params": true,
       "result": true
     },
@@ -2475,6 +2487,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/place_chat",
       "params": true,
       "result": true
@@ -2788,6 +2812,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/control",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harness_inventory",
       "params": true
     },
@@ -2894,6 +2923,7 @@
         "cliHost": true,
         "compression": true,
         "context": true,
+        "createKey": true,
         "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
@@ -2931,6 +2961,7 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "personVerified": true,
         "placeRedirect": true,
         "policy": true,
         "pr": true,
@@ -2941,6 +2972,7 @@
         "provenance": true,
         "reportTo": true,
         "requestId": true,
+        "requireAsking": true,
         "requireFullAccess": true,
         "resend": true,
         "restricted": true,
@@ -5805,6 +5837,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"
