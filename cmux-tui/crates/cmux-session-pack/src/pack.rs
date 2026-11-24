@@ -1,8 +1,8 @@
 //! Packing a log into a store, from scratch or from where the last pack sealed.
 
 use crate::Result;
-use crate::codec::{BlobIndex, encode_segment};
-use crate::manifest::{Manifest, Params, SCHEMA, Segment, check_name};
+use crate::codec::{BlobIndex, Events, encode_segment};
+use crate::manifest::{Manifest, Params, SCHEMA, Segment, TURN_RULE, check_name};
 use crate::read::par_map;
 use crate::store::{
     KIND_BLOBS, KIND_EVENTS, KIND_TABLE, Store, chunk_id, encode_chunk, hex, unhex,
@@ -81,6 +81,7 @@ pub fn pack(
         // segments in place), so every kept segment is checked against the log, not just the
         // last. Hashing one is about 4 ms and encoding one about a second; the checks run on
         // every core, so a gigabyte's worth is checked in the time of a few.
+        let old_rule = old.turn_rule;
         let mut spans = Vec::new();
         let mut offset = 0u64;
         for s in old.segments.into_iter().take_while(|s| s.sealed) {
@@ -96,7 +97,18 @@ pub fn pack(
                 == s.raw_hash)
         })?;
         let n = same.iter().take_while(|ok| **ok).count();
-        kept.extend(spans.into_iter().take(n).map(|(_, _, s)| s));
+        spans.truncate(n);
+        if old_rule < TURN_RULE {
+            // Its marks were found by an older rule, which knew only acpmux's records: a
+            // segment holding any other line (a Claude Code transcript's) is encoded again to
+            // find its turns. Encoding is deterministic, so that writes the same chunks.
+            let plain = par_map(&spans, |(_, _, s)| {
+                let events = store.get(&unhex(&s.events)?).and_then(Events::decode);
+                Ok(s.seq.is_some() && events.is_ok_and(|e| e.seqs.iter().all(Option::is_some)))
+            })?;
+            spans.truncate(plain.iter().take_while(|ok| **ok).count());
+        }
+        kept.extend(spans.into_iter().map(|(_, _, s)| s));
     }
     let offset: u64 = kept.iter().map(|s| s.raw).sum();
     let mut index = BlobIndex::default();
@@ -227,6 +239,7 @@ pub fn pack(
         raw_bytes: total,
         final_newline: data.last().is_none_or(|b| *b == b'\n'),
         params: params.clone(),
+        turn_rule: TURN_RULE,
         segments,
     };
     manifest.save(store)?;

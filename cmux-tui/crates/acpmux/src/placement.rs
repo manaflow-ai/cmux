@@ -43,7 +43,26 @@
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
 
+pub(crate) mod command_sampler;
+pub(crate) mod command_shadow;
 pub(crate) mod move_targets;
+pub mod sub_fork;
+
+/// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
+pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
+
+/// Whether the AutoCloud key is on in the settings file now, read straight from the file each
+/// call. A missing or unreadable file, or anything but a literal `true`, is off. Every RFD 0144
+/// placer (the command placer's shadow, sub-agent forks) reads the key through this one helper.
+pub fn auto_cloud_on() -> bool {
+    use crate::user_settings::{self, Settings};
+    matches!(user_settings::read(), Settings::Parsed(doc) if auto_cloud_in(&doc))
+}
+
+/// Whether a parsed settings document turns AutoCloud on (`true` only, never a truthy string).
+pub fn auto_cloud_in(doc: &Value) -> bool {
+    crate::user_settings::value(doc, AUTO_CLOUD_KEY) == Some(Value::Bool(true))
+}
 
 use serde_json::{Value, json};
 use std::path::PathBuf;

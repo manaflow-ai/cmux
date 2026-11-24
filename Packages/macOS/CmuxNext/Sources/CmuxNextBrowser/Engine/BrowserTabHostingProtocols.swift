@@ -105,13 +105,23 @@ public extension BrowserFreezing {
     @MainActor var freezeDropsExtensionEvents: Bool { false }
 }
 
-/// A freezing engine that also says whether its page is frozen now, and when a frozen page was lost
+/// A freezing engine that also says whether its page is frozen now, and what became of a frozen page
 /// (WebKit: `WebKitTab+Freeze`). A WebKit page suspended when its web process ends stays suspended for good
 /// and raises on every later call, so the host replaces it (`BrowserHibernation` discards it into a
 /// hibernated placeholder, restored in a new page when shown).
 public protocol BrowserFreezeReporting: BrowserFreezing {
-    /// Frozen now. A command that had to run (a load, a stop, a zoom) thaws the page outside the host.
+    /// Frozen now. A command that had to run (a load, a stop, a zoom, a media command) thaws the page outside the host.
     var isFrozen: Bool { get }
-    /// Called once the frozen page's process ended.
-    var onFrozenPageLost: (@MainActor () -> Void)? { get set }
+    /// Called when the frozen page woke or was lost (``BrowserFrozenPageChange``).
+    var onFrozenPageChange: (@MainActor (BrowserFrozenPageChange) -> Void)? { get set }
+}
+
+/// What became of a frozen page (``BrowserFreezeReporting/onFrozenPageChange``).
+public enum BrowserFrozenPageChange: Sendable {
+    /// It runs again: a command woke it (Play from Now Playing, a load, a zoom), or the host thawed it. A host
+    /// that still counts it frozen may freeze it again later: nothing else tells it the page woke
+    /// (https://github.com/manaflow-ai/cmux/issues/51079).
+    case woke
+    /// Its process ended while it was frozen: it can never run again.
+    case lost
 }
