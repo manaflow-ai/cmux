@@ -507,7 +507,9 @@ async fn a_manifest_past_one_hub_message_is_pulled_and_the_chat_lands_whole() {
     let ran_there = texts(&mut dst, &id, "user_message").await;
     assert_eq!(ran_there[..2], ["hi", "until-cancel"], "history: {ran_there:?}");
     let expected: Vec<&String> = queued.iter().map(|(_, t)| t).collect();
-    assert_eq!(ran_there[2..].iter().collect::<Vec<_>>(), expected, "the queue, once, in order");
+    // The cut turn's resume notice runs first (`until-cancel` was running): then the queue.
+    let ran_queue: Vec<&String> = ran_there.iter().filter(|t| t.starts_with("queued ")).collect();
+    assert_eq!(ran_queue, expected, "the queue, once, in order");
     assert_eq!(records(&mut dst, &id, "transferred_in").await.len(), 1);
     let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(left["status"], "closed", "{left}");
