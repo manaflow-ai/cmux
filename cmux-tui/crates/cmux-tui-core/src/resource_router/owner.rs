@@ -166,6 +166,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::DiffCommentsSave
         | ResourceOperation::DiffCommentsDelete
         | ResourceOperation::DiffCommentsSend
+        | ResourceOperation::DiffCommentsThread
         | ResourceOperation::GitReviewStart
         | ResourceOperation::GitReviewComment
         | ResourceOperation::GitReviewPost => OperationOwner::Git,
