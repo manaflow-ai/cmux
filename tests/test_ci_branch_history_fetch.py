@@ -17,6 +17,9 @@ JOBS = {
     "cmux-browser-host-release.yml": ["version"],
     "cloudflare-relay.yml": ["plan", "deploy-staging", "deploy-production"],
     "cmux-next-web-bundle-publish.yml": ["build"],
+    # The same failure in the backend deploy on 2026-11-23 and 24: deploy-staging (jobs 138123838319, 138095039278)
+    # and deploy-dashboard-staging (137939866003), so a merged console fix did not reach staging.
+    "backend.yml": ["deploy-staging", "deploy-dashboard-staging", "deploy-development"],
 }
 
 
