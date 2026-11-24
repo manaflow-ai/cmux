@@ -31,7 +31,9 @@ export interface ListboxProps<T> {
   getKey(item: T): string;
   /** The text typeahead matches. */
   textValue(item: T): string;
-  renderItem(item: T, index: number): ReactNode;
+  /** A row's content; `selected` is that row's own highlight, so a renderer that reads it, not the
+   *  list's active index, stays the same function as the highlight moves and no other row draws again. */
+  renderItem(item: T, index: number, selected: boolean): ReactNode;
   itemAttributes?(item: T, index: number): Record<string, string | undefined>;
   getItemId?(item: T, index: number): string;
   label: string;
@@ -289,7 +291,7 @@ interface ListboxRowProps<T> {
   selected: boolean;
   /** Set when the list is windowed: the full length, for aria-setsize and aria-posinset. */
   setSize?: number;
-  renderItem(item: T, index: number): ReactNode;
+  renderItem(item: T, index: number, selected: boolean): ReactNode;
   itemAttributes?(item: T, index: number): Record<string, string | undefined>;
   onHover(index: number): void;
   onOpen(index: number): void;
@@ -326,7 +328,7 @@ const ListboxRow = memo(function ListboxRow<T>({
         onOpen(index);
       }}
     >
-      {renderItem(item, index)}
+      {renderItem(item, index, selected)}
     </div>
   );
 }) as <T>(props: ListboxRowProps<T> & { key?: string }) => ReactNode;

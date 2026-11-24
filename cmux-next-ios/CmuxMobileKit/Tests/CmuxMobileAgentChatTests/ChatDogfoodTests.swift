@@ -91,6 +91,8 @@ extension ReplyInsteadTests {
         #expect(ComposerMention(text: "mail me@host") == nil)
         #expect(ComposerMention(text: "@done and more") == nil)
         #expect(ComposerMention(text: "code `x @y") == nil)
+        // Only the last word is read: a long draft before it changes nothing.
+        #expect(ComposerMention(text: String(repeating: "word `x` ", count: 4_000) + "@dia")?.query == "dia")
     }
 
     @Test func insertsThePathLikeTheMacComposer() throws {
