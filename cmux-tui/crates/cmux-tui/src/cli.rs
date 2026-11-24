@@ -58,6 +58,7 @@ mod billing;
 mod caller_browser;
 mod caller_scope;
 mod capability_cache;
+mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
 mod change_background;
@@ -97,6 +98,8 @@ mod cloud_machine_io;
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_pause_all;
+#[cfg(unix)]
+mod cloud_preflight;
 #[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
@@ -929,6 +932,23 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `apps install-link URL`: cmux.com's "Open in cmux" link (`cmux://apps/install?repo=…&commit=…`),
+    // which the Mac app hands here, is `apps install REF`: a theme or snippet through the community
+    // install, an extension through the App Store's consent card.
+    #[cfg(unix)]
+    let link_args;
+    #[cfg(unix)]
+    let args = match community::install_link(args) {
+        Some(Ok(rewritten)) => {
+            link_args = rewritten;
+            link_args.as_slice()
+        }
+        Some(Err(why)) => {
+            let output = parse_globals(args).map(|(global, _)| global.output).unwrap_or_default();
+            return app::failure("community.link", &format!("cmux: {why}"), output, 2);
+        }
+        None => args,
+    };
     // `vm add|revoke|rotate|doctor` is `machine …` (`vm` was `machine`'s old name).
     #[cfg(unix)]
     let alias_args;
@@ -1035,6 +1055,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
+        .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
@@ -1051,6 +1072,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| chat_start::hybrid_start::run_if_requested(args))
         .or_else(|| cloud_agent::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
@@ -1086,6 +1108,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| computer_use::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
+        .or_else(|| share_requests::run_if_requested(args))
         .or_else(|| tmux_attach::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))

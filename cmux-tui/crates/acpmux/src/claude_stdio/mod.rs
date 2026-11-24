@@ -346,6 +346,9 @@ mod result_images_tests;
 // A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
 #[cfg(test)]
 mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
