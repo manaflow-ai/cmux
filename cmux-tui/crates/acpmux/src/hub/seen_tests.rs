@@ -237,7 +237,7 @@ async fn coming_back_from_idle_mid_turn_counts_what_the_running_turn_wrote() {
     hub.attach_count(&s, 1, true);
     let last_input = s.seq.load(Ordering::SeqCst);
     hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input));
-    hub.set_status(&s, SessionStatus::Running);
+    hub.set_status(&s, NotWaiting::Running);
     hub.append(&s, "mux", "note", json!({"seen": false}));
     let back = hub.look_changed(&s, Look::Idle, Look::Attending, None);
     assert_eq!(back.map(|b| b.since), Some(last_input), "the output written while away is new");
