@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Which tab a sign-in's end closes (Cancel, finished or expired; `LinkOpener.openSignInPage`), so the
 /// provider's page it opened does not stay behind. Leo 2026-11-23: "WE ABSOLUELY MUST ERR ON THE SIDE
