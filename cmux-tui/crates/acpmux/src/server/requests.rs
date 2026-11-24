@@ -2688,18 +2688,16 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
-            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
+            // (`hub/usage_view.rs` `read_usage_for_list`); else rows carry the last pass's.
             if params.get("usage") == Some(&Value::Bool(true)) {
-                let read = hub.refresh_usage_stats();
-                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+                hub.read_usage_for_list().await;
             }
             super::list_reply::sessions(hub, conn, &params).await
         }
         method::MUX_USAGE => {
-            // The same usage read `_acpmux/sessions {usage: true}` waits for, then only the stats
-            // (`hub/usage_answer.rs`).
-            let read = hub.refresh_usage_stats();
-            let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+            // The same usage read `_acpmux/sessions {usage: true}` makes (the cached stats at once,
+            // a pass behind them), then only the stats (`hub/usage_answer.rs`).
+            hub.read_usage_for_list().await;
             let known = match params.get("known") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(known)) => Some(known.as_str()),
@@ -3882,6 +3880,22 @@ async fn dispatch_request_with_identity(
             // Who answered, when a person other than the owner did (`author.rs`): a label only.
             let author = crate::author::author(&params)?;
             answerer.author = author.as_ref();
+            // A notification's one-tap choice (`hub/ask_choices.rs`): the option and answers it
+            // stands for, then the same answer and checks.
+            // One that is not a string is refused, never read as no choice (a cancel).
+            if let Some(choice) = params.get("choiceId").filter(|v| !v.is_null()) {
+                let choice = choice
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("choiceId must be a string"))?;
+                let answered = answers.as_ref().is_some_and(|a| !a.is_null());
+                if option.is_some() || answered || annotations.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "choiceId goes alone: no optionId, answers or annotations beside it",
+                    ));
+                }
+                hub.respond_choice(&s, pid, choice, answered_by, answerer, control).await?;
+                return Ok(json!({}));
+            }
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
