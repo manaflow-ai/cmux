@@ -17,7 +17,11 @@
 //!   [`SPARSE`]: it is rarely prompted soon, so [`SHORT`];
 //! - else its prompts come close together: it stays up [`LONG`], and its next prompt finds the
 //!   harness up (a wake costs 409 ms p50 on lane-8 and 2 s of CPU);
-//! - with no gap seen yet (a new chat, a daemon restart), the static period.
+//! - with no gap seen yet (a new chat), the static period. A chat's gaps are kept in its meta, so
+//!   a daemon restart keeps its rhythm;
+//! - a filler chat (tag `filler=true`, [`is_filler`]) gets [`SHORT`]: it goes first.
+//!
+//! A rate-limit hold is weighed against the same period (`rate_hold.rs` `sleeps_through_hold`).
 //!
 //! Replayed offline over 408 chats' turns on 7 lane hosts (`scripts/measure/idle-replay.py`), it
 //! saves 253 GB-hours more than the best static period (3 min) when a wake a person waits on
@@ -68,17 +72,35 @@ impl IdlePolicyKind {
 }
 
 /// A chat's recent gaps between one turn's end and the next one's start, on the hub clock.
+/// Its gaps are kept in the chat's meta (`idle_gaps_ms`) at each turn's end, so a daemon restart
+/// keeps them ([`Rhythm::restored`]).
 #[derive(Debug, Default)]
 pub(super) struct Rhythm {
     /// When its last turn ended (hub clock ns), 0 while one runs or before the first.
     ended_at: u64,
+    /// Time of the gap under way that passed before `ended_at` (ms): a restored chat's, from its
+    /// last turn's end (unix time) to the restart.
+    carried_ms: u64,
     /// Its last gaps, in ms, oldest first.
     gaps: VecDeque<u64>,
 }
 
 impl Rhythm {
+    /// A chat's rhythm after a daemon restart at hub clock `now`: its saved gaps (the last
+    /// [`RHYTHM_GAPS`]), and, when its last turn ended `ended_ago_ms` before the restart, the gap
+    /// under way, so its next turn's start adds the whole gap.
+    pub(super) fn restored(gaps: &[u64], ended_ago_ms: Option<u64>, now: u64) -> Self {
+        let keep = gaps.len().saturating_sub(RHYTHM_GAPS);
+        Self {
+            ended_at: if ended_ago_ms.is_some() { now.max(1) } else { 0 },
+            carried_ms: ended_ago_ms.unwrap_or(0),
+            gaps: gaps.iter().skip(keep).copied().collect(),
+        }
+    }
+
     pub(super) fn ended(&mut self, now: u64) {
         self.ended_at = now.max(1);
+        self.carried_ms = 0;
     }
 
     pub(super) fn began(&mut self, now: u64) {
@@ -86,9 +108,15 @@ impl Rhythm {
             if self.gaps.len() == RHYTHM_GAPS {
                 self.gaps.pop_front();
             }
-            self.gaps.push_back((now - self.ended_at) / 1_000_000);
+            self.gaps.push_back((now - self.ended_at) / 1_000_000 + self.carried_ms);
         }
         self.ended_at = 0;
+        self.carried_ms = 0;
+    }
+
+    /// Its gaps, oldest first, as the chat's meta keeps them.
+    pub(super) fn gaps(&self) -> Vec<u64> {
+        self.gaps.iter().copied().collect()
     }
 
     /// The median of its gaps (the lower middle one of an even count), None before any.
@@ -115,10 +143,26 @@ pub(super) fn adaptive_period(
     }
 }
 
-/// A filler chat (started on idle capacity, leo-workspace `tools/idle_feeder.py`): evictable, so
-/// no cap counts it. False until its start carries the marker (lane/idle-feeder-sources).
-pub(super) fn is_filler(_session: &Session) -> bool {
-    false
+/// The orchestrator tag that marks a filler chat: `filler=true` (leo-workspace
+/// `tools/idle_feeder.py`, leo-workspace#10037).
+pub(super) const FILLER_TAG: &str = "filler";
+
+/// Whether tags mark a filler chat at unix ms `now`: its [`FILLER_TAG`] is `true` and has not
+/// expired.
+pub(super) fn tags_say_filler(
+    tags: &std::collections::BTreeMap<String, crate::store::Tag>,
+    now: u64,
+) -> bool {
+    tags.get(FILLER_TAG).is_some_and(|t| {
+        t.value.trim().eq_ignore_ascii_case("true") && t.expires_at.is_none_or(|at| at > now)
+    })
+}
+
+/// A filler chat (started on idle capacity, leo-workspace `tools/idle_feeder.py`, tagged
+/// `filler=true`): evictable, so no cap counts it, and `adaptive-v1` hibernates it after [`SHORT`].
+pub(super) fn is_filler(session: &Session) -> bool {
+    let now = crate::store::now_ms();
+    session.read_meta(|m| tags_say_filler(&m.tags, now))
 }
 
 /// A harness runs for the chat: its status says one is up, it holds one, or its agent host runs.
@@ -154,6 +198,9 @@ impl Hub {
         if self.idle_policy() == IdlePolicyKind::Static || self.host_moves(session) {
             return self.idle_period(session, idle);
         }
+        if is_filler(session) {
+            return SHORT;
+        }
         let median = session.idle_rhythm.lock().unwrap_or_else(|e| e.into_inner()).median();
         adaptive_period(median, self.bg_notifying_count(session) > 0, idle)
     }
@@ -164,10 +211,29 @@ impl Hub {
         session.idle_rhythm.lock().unwrap_or_else(|e| e.into_inner()).began(now);
     }
 
-    /// A turn of `session` ended: its next gap starts.
+    /// A turn of `session` ended: its next gap starts, and its gaps go to its meta, saved with
+    /// the turn's end (`record_last_turn`), so a restart keeps them.
     pub(super) fn rhythm_turn_ended(&self, session: &Session) {
         let now = self.clock_now();
-        session.idle_rhythm.lock().unwrap_or_else(|e| e.into_inner()).ended(now);
+        let gaps = {
+            let mut rhythm = session.idle_rhythm.lock().unwrap_or_else(|e| e.into_inner());
+            rhythm.ended(now);
+            rhythm.gaps()
+        };
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).idle_gaps_ms = gaps;
+    }
+
+    /// The rhythm `make_session` gives a chat loaded from `meta`: its saved gaps, and the gap
+    /// since its last turn's end (`lastTurn.endedAt`).
+    pub(super) fn restored_rhythm(&self, meta: &crate::store::SessionMeta) -> Rhythm {
+        let ended = meta
+            .last_turn
+            .as_ref()
+            .and_then(|t| t.get("endedAt"))
+            .and_then(Value::as_u64)
+            .filter(|ms| *ms != 0);
+        let ago = ended.map(|ms| crate::store::now_ms().saturating_sub(ms));
+        Rhythm::restored(&meta.idle_gaps_ms, ago, self.clock_now())
     }
 
     /// `session`'s `residency` record (module docs).

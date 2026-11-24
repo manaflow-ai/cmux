@@ -2240,6 +2240,8 @@ impl Hub {
         // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
         // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
+        // Its gaps between turns, kept across the restart (`residency.rs` `Rhythm`).
+        let idle_rhythm = self.restored_rhythm(&meta);
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
@@ -2424,7 +2426,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
-            idle_rhythm: StdMutex::new(Default::default()),
+            idle_rhythm: StdMutex::new(idle_rhythm),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),

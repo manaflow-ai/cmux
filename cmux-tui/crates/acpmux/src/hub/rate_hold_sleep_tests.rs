@@ -71,6 +71,35 @@ async fn a_chat_whose_hold_is_due_within_its_idle_period_stays_awake() {
     hub.shutdown_all().await;
 }
 
+/// Under `adaptive-v1` the hold is weighed against the chat's own period (`residency.rs`): a chat
+/// rarely prompted soon (15 s) sleeps through a 30 s hold, one prompted every minute (30 min)
+/// stays up through a 10 minute one.
+#[tokio::test]
+async fn under_adaptive_a_hold_is_weighed_against_the_chats_own_period() {
+    const MIN: u64 = 60 * 1_000_000_000;
+    let (hub, session) = chat().await;
+    hub.set_idle_policy(IdlePolicyKind::AdaptiveV1);
+    let rhythm = |gap: u64| {
+        let mut r = session.idle_rhythm.lock().unwrap();
+        *r = Default::default();
+        for i in 0..5 {
+            r.ended(i * 100 * MIN + 1);
+            r.began(i * 100 * MIN + gap * MIN);
+        }
+    };
+    rhythm(30);
+    hub.hold_for_rate_limit(&session, "t-cut", now_ms() + 30_000, true);
+    hub.set_waiting_for_test(&session, "t-cut", RetryReason::RateLimit);
+    assert!(hub.idle_eligible(&session), "sparse chat, held 30 s: past its 15 s period");
+    rhythm(1);
+    assert!(!hub.idle_eligible(&session), "close prompts, held 30 s: within its 30 min period");
+    hub.hold_for_rate_limit(&session, "t-cut", now_ms() + 600_000, true);
+    assert!(!hub.idle_eligible(&session), "close prompts, held 10 min: within its 30 min period");
+    hub.set_idle_policy(IdlePolicyKind::Static);
+    assert!(hub.idle_eligible(&session), "static: 10 min is past the 2 min period");
+    hub.shutdown_all().await;
+}
+
 /// No hold: a pending continuation, or a queued prompt, keeps the chat awake as before. A held
 /// chat whose continuation waits for anything but the hold does too.
 #[tokio::test]

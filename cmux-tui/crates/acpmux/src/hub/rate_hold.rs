@@ -350,7 +350,10 @@ impl Hub {
                 (None, None) => return false,
             }
         };
-        let idle = u64::try_from(self.idle_period(session, idle).as_millis()).unwrap_or(u64::MAX);
+        // The chat's period under the daemon's idle policy (`residency.rs`): under `adaptive-v1` a
+        // hold longer than its period hibernates it, as its idle timer does.
+        let idle =
+            u64::try_from(self.idle_period_for(session, idle).as_millis()).unwrap_or(u64::MAX);
         until > now_ms().saturating_add(idle) && self.continuation_waits_on_hold(session)
     }
 
