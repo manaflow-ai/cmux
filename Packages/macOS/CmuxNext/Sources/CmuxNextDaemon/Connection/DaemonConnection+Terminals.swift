@@ -14,6 +14,15 @@ extension DaemonConnection {
         return try await request(SetTerminalKeepRequest(target, keep: keep))
     }
 
+    /// Shows (or stops showing) a terminal's last output line under its workspace in the sidebar.
+    @discardableResult
+    public func setTerminalTailPin(_ target: SetTerminalTailPinRequest.Target, pinned: Bool) async throws -> SetTerminalTailPinRequest.Response {
+        guard identity?.supports(DaemonCapability.terminalTailPin.rawValue) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapability.terminalTailPin.rawValue])
+        }
+        return try await request(SetTerminalTailPinRequest(target, pinned: pinned))
+    }
+
     /// Adds a tab showing the live terminal `terminal` (`term_…`) at `index`
     /// in the pane at `path` (`terminal.project`, resource API v2). Works on
     /// a terminal with no tab while it is still alive; fails with the

@@ -185,6 +185,15 @@ jobs:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base).
           fetch-depth: 2
+          # zizmor and gitleaks read commits through git (git show, git log -p), and the runner-size tests read
+          # .github/, tests/ and scripts/ci/: no other blob is needed. The full tree took 67 s median of this job's
+          # ~100 s (11 PR runs, 2026-11-23, rc-33c75618); the trees-only router checkout above takes about 4 s.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /tests/
+            /.github/
 
       - name: Fail on a workflow security hole this change adds (zizmor)
         if: ${{ !cancelled() }}
@@ -1066,16 +1075,44 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
+  # Leo, 2026-11-23: "we're drowning in our own workflow". While tooling-tests is red on feat-cmux-next, a pull
+  # request's run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
+  # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
+  # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off).
+  tooling-tests-base-red:
+    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 6
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      base_red: ${{ steps.decide.outputs.base_red }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
+          # 45305463226), and sparse settings in the workspace's own .git would leak into the next job on a reused
+          # pool VM; the next job's checkout removes this folder as untracked.
+          path: .base-red-src
+          sparse-checkout: scripts/ci
+      - name: Red on the base right now?
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
+
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER; others take the persistent cmux-linux pool.
-    needs: coalesce
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    needs: [coalesce, tooling-tests-base-red]
+    # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
+    # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
@@ -1358,7 +1395,7 @@ jobs:
 
       - name: Fast gates run side by side; only the two bun gates share a lane (cmux_next_fast_gates.py)
         id: tt-fast-gates-lanes
-        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-fast-gates-lanes ')) }}
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-fast-gates-lanes ')) }}
         run: python3 -I tests/test_fast_gates_lanes.py
 
       - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
@@ -1465,12 +1502,12 @@ jobs:
       # settings owner's answers right, and never call an unreadable answer clean.
       - name: session-timing checkup reads acpmux history as the Timing tab does
         id: tt-checkup-session-timing
-        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-checkup-session-timing ')) }}
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-checkup-session-timing ')) }}
         run: python3 -I scripts/checkup/tests/session-timing.test.py
 
       - name: configuration checkup sorts settings validate into clean, problems and unreadable
         id: tt-checkup-configuration
-        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-checkup-configuration ')) }}
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-checkup-configuration ')) }}
         run: python3 -I scripts/checkup/tests/configuration.test.py
 
 
@@ -1486,10 +1523,17 @@ jobs:
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-media-build-app-local-tui ')) }}
         run: bash scripts/ci/tests/media-build-app-local-tui.test.sh
 
+      # The installation's API rate limit failed a nightly tour at its merge base, before any build.
+      - name: media_merge_base.sh falls back to git past the shallow boundary
+        id: tt-media-merge-base
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-media-merge-base ')) }}
+        run: bash scripts/ci/tests/media-merge-base.test.sh
+
       # launch-ready.sh judges each restore case against its expectation (the launch reopens exactly where the person
       # was, Home included) and flags an A/B whose arms first showed different surfaces as not like for like.
       - name: launch-ready judges each restore case and flags a surface diff
-        if: ${{ !cancelled() }}
+        id: tt-launch-ready-cases
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-launch-ready-cases ')) }}
         run: |
           python3 scripts/measure/tests/launch-ready-summary.test.py
           bash scripts/measure/tests/launch-ready-cases.test.sh
