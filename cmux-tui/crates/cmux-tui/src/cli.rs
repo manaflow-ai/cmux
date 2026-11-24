@@ -58,6 +58,7 @@ mod billing;
 mod caller_browser;
 mod caller_scope;
 mod capability_cache;
+mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
 mod change_background;
@@ -164,6 +165,8 @@ mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+#[cfg(unix)]
+mod ps_gc;
 #[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
@@ -1066,6 +1069,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
+        .or_else(|| ps_gc::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
@@ -1083,6 +1087,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| computer_use::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
+        .or_else(|| share_requests::run_if_requested(args))
         .or_else(|| tmux_attach::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))
