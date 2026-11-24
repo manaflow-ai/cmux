@@ -71,7 +71,7 @@ pub(super) fn fix(
     {
         let known = verbs_of(&scope);
         if !known.is_empty() {
-            let under = [scope.clone()];
+            let under = [scope];
             let fixed = cmux_intent::word_to(verb, &known, "cmux", false, &under, tbl, err);
             if let Some(slot) = out.get_mut(at.saturating_add(1)) {
                 *slot = fixed;

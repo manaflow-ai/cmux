@@ -88,7 +88,7 @@ impl Table {
     /// Whether the subcommand path `path` of `prog` (or a prefix of it) is listed under the CLI's `exact`.
     pub fn exact_path(&self, prog: &str, path: &[String]) -> bool {
         let Some(entry) = self.cli_entry(prog) else { return false };
-        (1..=path.len()).any(|n| entry.exact.contains(&path[..n].join(" ")))
+        (1..=path.len()).any(|n| path.get(..n).is_some_and(|p| entry.exact.contains(&p.join(" "))))
     }
 
     /// Whether `tok` (a subcommand or flag) is a destructive or outward word: any of its `-`/`_`

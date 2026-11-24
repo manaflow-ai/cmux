@@ -93,12 +93,11 @@ pub fn word_to(
         || (!flags && tbl.exact_path(prog, &[under, std::slice::from_ref(&first)].concat()))
     {
         result.outcome = Kind::Exact;
-        result.word = Some(first.clone());
+        result.word = Some(first);
         let _ = writeln!(
             err,
-            "{prog}: `{tok}` is not a form of {prog}, and `{}` is destructive or outward, so nothing ran: \
-             the exact form is needed. Did you mean `{}`?",
-            first_shown, first_shown
+            "{prog}: `{tok}` is not a form of {prog}, and `{first_shown}` is destructive or outward, so nothing ran: \
+             the exact form is needed. Did you mean `{first_shown}`?"
         );
     } else {
         let _ = writeln!(err, "{prog}: ran `{first_shown}` for `{tok}`");

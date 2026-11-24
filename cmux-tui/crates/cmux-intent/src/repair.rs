@@ -485,7 +485,8 @@ fn unsafe_in(root: &Command, argv: &[String], tbl: &Table, prog: &str) -> Option
     let exact = entry.map(|e| e.exact.as_slice()).unwrap_or_default();
     for path in [&typed, &canon] {
         for n in (1..=path.len()).rev() {
-            let head = path[..n].join(" ");
+            let Some(prefix) = path.get(..n) else { continue };
+            let head = prefix.join(" ");
             if exact.contains(&head) {
                 return Some(head);
             }
@@ -601,7 +602,8 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
             word: None,
         };
     }
-    if parsed.iter().all(|p| read_only(&built, &p.argv, tbl, prog))
+    if let Some(first_parsed) = parsed.first().cloned()
+        && parsed.iter().all(|p| read_only(&built, &p.argv, tbl, prog))
         && !argv.iter().take_while(|a| *a != "--").any(|w| w.starts_with('-') && tbl.unsafe_word(w))
     {
         let also = parsed
@@ -619,7 +621,7 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let mut best = parsed[0].clone();
+        let mut best = first_parsed;
         best.notes.push(format!("the best of {} read-only forms; also {also}", parsed.len()));
         return Repair {
             outcome: Kind::Ran,
@@ -659,13 +661,11 @@ fn supplied_write(
     }
     let w = walk::walk(root, new);
     let subs: Vec<usize> = w.levels.iter().filter_map(|l| l.sub).collect();
-    let reads_at = subs.iter().copied().find(|&i| reading(&new[i], prog, tbl));
-    let leaf_reads = subs.last().is_some_and(|&i| reading(&new[i], prog, tbl));
-    let ok = |i: usize| {
-        reading(&new[i], prog, tbl)
-            || leaf_reads
-            || reads_at.is_some_and(|r| !subs.contains(&i) || i > r)
-    };
+    let reads = |i: usize| new.get(i).is_some_and(|w| reading(w, prog, tbl));
+    let reads_at = subs.iter().copied().find(|&i| reads(i));
+    let leaf_reads = subs.last().is_some_and(|&i| reads(i));
+    let ok =
+        |i: usize| reads(i) || leaf_reads || reads_at.is_some_and(|r| !subs.contains(&i) || i > r);
     for (i, word) in new.iter().enumerate() {
         if word.starts_with('-') {
             continue;
