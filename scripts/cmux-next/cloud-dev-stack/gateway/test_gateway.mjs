@@ -163,3 +163,11 @@ test("a flood of tokens under unknown keys fetches the key sets at most once a m
   const good = await sign(stack, teamClaims({ exp: NOW / 1000 + 600 }), "stack-1")
   assert.equal((await handle(new Request("https://api.s7.wdev.cmux.dev/v1/me", { headers: { authorization: `Bearer ${good}` } }), env, at(NOW + 61_000))).status, 200)
 })
+
+test("an open path asking to upgrade needs a credential like any other request", async () => {
+  const { seen, call } = await setup()
+  const r = await call("https://api.s7.wdev.cmux.dev/v1/health", { headers: { upgrade: "websocket", connection: "Upgrade" } })
+  assert.equal(r.status, 401)
+  assert.equal((await call("https://api.s7.wdev.cmux.dev/v1/health")).status, 200, "a plain open path still passes")
+  assert.equal(seen.length, 1)
+})
