@@ -8,9 +8,10 @@ fn results(hub: &Arc<Hub>, id: &str) -> Vec<Value> {
     find(&hub.events(id, 0, 10_000).unwrap(), "turn_result").iter().map(|e| e.msg.clone()).collect()
 }
 
-/// Waits (test polling, real time) until `id`'s log has `n` turn results.
+/// Waits (test polling, real time) until `id`'s log has `n` turn results: past Stop's escalation
+/// (15 s) for an agent deaf to the cancel.
 async fn until_results(hub: &Arc<Hub>, id: &str, n: usize) -> Vec<Value> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
     loop {
         let got = results(hub, id);
         if got.len() >= n {
@@ -23,7 +24,7 @@ async fn until_results(hub: &Arc<Hub>, id: &str, n: usize) -> Vec<Value> {
 
 /// Waits (test polling, real time) until `id`'s log has a record `pred` accepts.
 async fn until_event(hub: &Arc<Hub>, id: &str, pred: impl Fn(&acpmux::store::EventRecord) -> bool) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
     while !hub.events(id, 0, 10_000).unwrap().iter().any(&pred) {
         assert!(std::time::Instant::now() < deadline, "no such record in {id}");
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -68,7 +69,8 @@ async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it()
     assert_eq!(ended[0]["errorSource"], "acpmux", "{ended:?}");
     assert!(ended[0]["stalledMs"].as_u64().unwrap() >= 60_000, "{ended:?}");
     let summary = hub.session_summary(&hub.resolve("stall-free").unwrap());
-    assert_eq!(summary["status"], "ready", "{summary}");
+    // Ready, or idle: an agent deaf to the cancel is ended by Stop's escalation (`cancel.rs`).
+    assert!(matches!(summary["status"].as_str(), Some("ready" | "idle")), "{summary}");
     assert_eq!(summary["lastTurn"]["detail"], "stalled", "{summary}");
     assert!(summary["turn"].is_null(), "{summary}");
     // The client that shows the other chat holds its turn.
@@ -212,7 +214,8 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
     // It ended on the fallback's live agent: the chat is ready, so its idle agent can exit.
     let summary = hub.session_summary(&hub.resolve("stall-failover").unwrap());
-    assert_eq!(summary["status"], "ready", "{summary}");
+    // Ready, or idle: an agent deaf to the cancel is ended by Stop's escalation (`cancel.rs`).
+    assert!(matches!(summary["status"].as_str(), Some("ready" | "idle")), "{summary}");
 }
 
 /// The last open tool call ending brings the turn's deadline back to one period after it: the

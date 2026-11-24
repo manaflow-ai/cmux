@@ -87,11 +87,65 @@ pub(super) fn forced_answer(restarted: bool) -> Value {
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
 }
 
-/// Whether a Stop is ending turn `turn_id` (it reads `stopping`, or acpmux ended it already):
-/// another agent's message does not go into it (`steer_end.rs` `steer_turn`, `inbox.rs`).
+/// Whether a Stop is ending turn `turn_id` (it reads `stopping`, or acpmux ended it already), or
+/// acpmux is ending it for a cause of its own ([`Hub::end_turn_forced`]): another agent's message
+/// does not go into it (`steer_end.rs` `steer_turn`, `inbox.rs`), and no second forced end starts.
 pub(super) fn is_stopping(session: &Session, turn_id: &str) -> bool {
     session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(turn_id)
         || forced_turn(session, turn_id)
+        || forced_ending(session, turn_id)
+}
+
+/// A turn end acpmux decided for a cause of its own ([`Hub::end_turn_forced`]): the typed answer
+/// the turn ends with once it ends, and the Stop count when it was decided.
+#[derive(Debug, Clone)]
+pub(super) struct ForcedEnd {
+    pub(super) turn_id: String,
+    pub(super) answer: Value,
+    cancels: u64,
+}
+
+/// Whether acpmux is ending turn `turn_id` for a cause of its own and the turn has not ended yet.
+pub(super) fn forced_ending(session: &Session, turn_id: &str) -> bool {
+    session
+        .forced_end
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|f| f.turn_id == turn_id)
+}
+
+/// The answer turn `turn_id` ends with when acpmux ended it for a cause of its own
+/// ([`Hub::end_turn_forced`]), taken by its end (`turns.rs` `finish_turn`). However its harness
+/// answered (`cancelled`, `end_turn`, or an error as its process ended), the turn ends with the
+/// cause's typed answer, keeping what the forced end added (`cancelForced`, `restarted`). A person's
+/// Stop since the cause was decided wins: the turn ends as that Stop's, and nothing continues it.
+pub(super) fn settle_forced_end(
+    session: &Session,
+    turn_id: &str,
+    result: Result<Value, RpcError>,
+) -> Result<Value, RpcError> {
+    let forced = {
+        let mut slot = session.forced_end.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.take_if(|f| f.turn_id == turn_id) {
+            Some(forced) => forced,
+            None => return result,
+        }
+    };
+    if session.cancels.load(Ordering::SeqCst) != forced.cancels {
+        return result;
+    }
+    let mut answer = forced.answer;
+    if let Ok(v) = &result
+        && let Some(mux) = v.pointer("/_meta/acpmux").and_then(Value::as_object)
+    {
+        for key in ["cancelForced", "restarted"] {
+            if let Some(flag) = mux.get(key) {
+                answer.set_path(&["_meta", "acpmux", key], flag.clone());
+            }
+        }
+    }
+    Ok(answer)
 }
 
 /// Whether acpmux ended turn `turn_id` itself, its agent never answering the Stop.
@@ -123,6 +177,94 @@ impl Hub {
         }
         tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent did not answer the cancel: ending its turn");
         session.steer_end.send_replace(Some((turn.turn_id.clone(), forced_answer(false))));
+    }
+
+    /// Ends turn `turn_id` for a cause acpmux decided itself: a harness looping on a model at
+    /// capacity (`capacity_retry.rs`), a refused sign-in (`turn_retry.rs`), a stall
+    /// (`stalled_turn.rs`). `answer` is the turn's typed end (`finish_turn` reads its cause).
+    ///
+    /// The turn ends when its harness says it ended, as a Stop's does, never before: `session/cancel`
+    /// names the session, not the turn, and a prompt sent while the harness still runs the old turn
+    /// joins it and is answered cancelled (codex-acp; cmux#47879: a capacity end published the turn's
+    /// end first, so a queued prompt, or an automatic retry 50 ms later, went into the old turn). So
+    /// this sends the cancel in order behind any write in flight (`input_handoff`) and lets Stop's
+    /// escalation (`escalate_stop`, its timings) end a harness that does not answer: a second cancel
+    /// after [`CANCEL_GRACE`], then after [`INTERRUPT_GRACE`] its process, unless it runs background
+    /// work or holds unread steering messages, when only the turn ends. Whichever way it ends, the
+    /// turn ends with `answer` ([`settle_forced_end`]), unless a person's Stop came since.
+    ///
+    /// Decided and recorded now, so what the harness says next already finds the turn ending
+    /// ([`is_stopping`]); `None` when the turn is not running or already ends. The cancel goes out
+    /// from a task, which carries the end out only while `ours` still holds when it runs (no new
+    /// agent took the turn, the model did not speak): its handle says whether it did.
+    pub(super) fn end_turn_forced(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn_id: &str,
+        answer: Value,
+        ours: impl Fn(&Session) -> bool + Send + 'static,
+    ) -> Option<tokio::task::JoinHandle<bool>> {
+        let turn = session.turn().filter(|t| t.turn_id == turn_id)?;
+        if is_stopping(session, turn_id) {
+            return None;
+        }
+        // Keyed by the turn: should the turn end meanwhile, no other turn reads it.
+        *session.forced_end.lock().unwrap_or_else(|e| e.into_inner()) = Some(ForcedEnd {
+            turn_id: turn_id.to_owned(),
+            answer,
+            cancels: session.cancels.load(Ordering::SeqCst),
+        });
+        let (hub, session) = (self.clone(), session.clone());
+        Some(self.scope.spawn_named("forced-turn-end", async move {
+            if !ours(&session) {
+                let mut forced = session.forced_end.lock().unwrap_or_else(|e| e.into_inner());
+                if forced.as_ref().is_some_and(|f| f.turn_id == turn.turn_id) {
+                    *forced = None;
+                }
+                return false;
+            }
+            hub.send_forced_cancel(&session, turn).await;
+            true
+        }))
+    }
+
+    /// The cancel of a forced end (`end_turn_forced`), behind any write in flight, and Stop's
+    /// escalation for an agent that does not let go of the turn.
+    async fn send_forced_cancel(self: &Arc<Self>, session: &Arc<Session>, turn: TurnInfo) {
+        // Before any writer wait: a full pipe must not keep the escalation from running.
+        self.scope.spawn_named(
+            "forced-end-escalation",
+            self.clone().escalate_stop(session.clone(), turn.clone()),
+        );
+        let deadline = tokio::time::Instant::now() + CANCEL_GRACE;
+        let Ok(input) =
+            tokio::time::timeout_at(deadline, session.input_handoff.clone().lock_owned()).await
+        else {
+            // Not written: the escalation ends the turn.
+            tracing::debug!(session = %session.id, turn_id = %turn.turn_id, "forced end: input busy");
+            return;
+        };
+        // A turn whose own prompt is not written yet is fenced instead: its writer never sends it,
+        // and a kept cancel would end the next turn (as `cancel_matching`).
+        {
+            let mut unwritten = session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((id, fenced)) = unwritten.as_mut()
+                && *id == turn.turn_id
+            {
+                *fenced = true;
+                return;
+            }
+        }
+        let child = session.child.lock().await.clone();
+        if session.turn().is_some_and(|t| t.turn_id == turn.turn_id)
+            && let (Some(child), Some(sid)) = (child, session.meta().agent_session_id)
+        {
+            let cancel = child.notify(method::SESSION_CANCEL, json!({"sessionId": sid}));
+            if tokio::time::timeout_at(deadline, cancel).await.is_err() {
+                tracing::debug!(session = %session.id, turn_id = %turn.turn_id, "forced end: cancel not written");
+            }
+        }
+        drop(input);
     }
 
     /// The person's Stop (`session/cancel` from the person's connection): the running turn's
@@ -497,7 +639,8 @@ impl Hub {
         // Show Stop and start recovery before any writer wait. A full pipe or a
         // stalled handoff must not prevent the cancellation deadline from running.
         let write_deadline = if !compacting && let Some(turn) = turn.as_ref() {
-            if self.mark_stopping(session, turn) {
+            // A forced end's escalation already runs for this turn (`end_turn_forced`).
+            if self.mark_stopping(session, turn) && !forced_ending(session, &turn.turn_id) {
                 tokio::spawn(self.clone().escalate_stop(session.clone(), turn.clone()));
             }
             Some(tokio::time::Instant::now() + CANCEL_GRACE)
@@ -612,3 +755,7 @@ impl Hub {
         sent
     }
 }
+
+#[cfg(test)]
+#[path = "forced_end_tests.rs"]
+mod forced_end_tests;

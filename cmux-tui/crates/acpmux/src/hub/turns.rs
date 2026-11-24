@@ -1822,6 +1822,9 @@ impl Hub {
         if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
             result = Ok(super::cancel::forced_answer(true));
         }
+        // acpmux ended this turn for a cause of its own (a capacity loop, a refused sign-in, a
+        // stall) and its harness has now let go of it: it ends with that cause (`cancel.rs`).
+        result = super::cancel::settle_forced_end(session, turn_id, result);
         let carries_on = carried_next.is_some();
         let carried_to = || {
             carried_next.map(|n| {

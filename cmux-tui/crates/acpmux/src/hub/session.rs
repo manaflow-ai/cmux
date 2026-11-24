@@ -524,6 +524,9 @@ pub struct Session {
     /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
     /// schedule no second end.
     pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
+    /// The turn acpmux is ending for a cause of its own and the typed answer it ends with
+    /// (`cancel.rs` `end_turn_forced`), until that turn ends (`finish_turn`).
+    pub(super) forced_end: StdMutex<Option<super::cancel::ForcedEnd>>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,

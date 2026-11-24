@@ -1786,6 +1786,8 @@ mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 
+#[path = "hub_integration/forced_end_ack.rs"]
+mod forced_end_ack;
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]

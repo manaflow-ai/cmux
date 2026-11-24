@@ -15,8 +15,9 @@
 //! `detail` `stalled`, unless someone holds it: a client that shows the chat, a permission or
 //! secret waiting for the person, or its recorded owner (a sub-session's parent, the session a
 //! `spawnedBy` tag names) running or waiting on this daemon. The agent gets the cancel, and the
-//! turn ends right after through the forced end Stop uses (`cancel.rs`), so an agent that never
-//! answers still lets go of it. The session is then ready, its queue held as after any failed
+//! turn ends once the agent lets go of it, or through Stop's escalation when it does not
+//! (`cancel.rs` `end_turn_forced`), never before: a next prompt must not go into the old turn
+//! (cmux#47879). The session is then ready, its queue held as after any failed
 //! turn, and the idle harness exit (`idle.rs`) stops the agent after `idle_child` like any
 //! unused one; the next prompt resumes the chat. Nothing is closed and nothing is decided by
 //! name.
@@ -35,9 +36,6 @@ const RECHECK: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 /// How many periods a turn quiet inside a tool call that has not ended gets: a long command
 /// that prints nothing is work, but a tool that never ends does not hold the turn for good.
 const OPEN_TOOL_PERIODS: u64 = 4;
-
-/// How long the stalled end waits for the agent to take the cancel before ending the turn anyway.
-pub(super) const CANCEL_SEND: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Notes in `open` what one `session/update` says of the turn's tool calls: one starts, or ends
 /// (`completed`, `failed`).
@@ -211,7 +209,7 @@ impl Hub {
     }
 
     /// Ends every turn whose model has said nothing for `stalled` and that nobody holds.
-    pub(super) fn settle_stalled_turns(&self, stalled: std::time::Duration) {
+    pub(super) fn settle_stalled_turns(self: &Arc<Self>, stalled: std::time::Duration) {
         if self.stopping.load(Ordering::SeqCst) {
             return;
         }
@@ -239,32 +237,17 @@ impl Hub {
             session.stalled_recheck.store(now.saturating_add(period), Ordering::Relaxed);
             let answer =
                 json!({"stopReason": "cancelled", "_meta": {"acpmux": {"stalledMs": silent_ms}}});
-            // Off this pass, so a wedged host never holds the reaper: the agent of this very
-            // turn gets the cancel (bounded), then the turn ends whether it answered or not.
-            // Both only while nothing moved its count since (`stalled_gen`): no sign of its
-            // model, no new agent (a failover keeps the turn id but starts the count again), no
-            // other turn.
-            let session = session.clone();
-            let turn_id = turn.turn_id;
-            tokio::spawn(async move {
-                let ours = |s: &Session| {
-                    s.stalled_gen.load(Ordering::SeqCst) == generation
-                        && Self::counted_turn(s).is_some_and(|t| t.turn_id == turn_id)
-                };
-                let _ = tokio::time::timeout(CANCEL_SEND, async {
-                    let child = session.child.lock().await.clone();
-                    if ours(&session)
-                        && let (Some(child), Some(sid)) = (child, session.meta().agent_session_id)
-                    {
-                        let _ =
-                            child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
-                    }
-                })
-                .await;
-                if ours(&session) {
-                    session.steer_end.send_replace(Some((turn_id, answer)));
-                }
-            });
+            // The cancel goes out off this pass, so a wedged host never holds the reaper; the turn
+            // ends once its agent lets go of it, or through Stop's escalation when it does not
+            // (`cancel.rs` `end_turn_forced`). Carried out only while nothing moved its count since
+            // (`stalled_gen`): no sign of its model, no new agent (a failover keeps the turn id
+            // but starts the count again), no other turn.
+            let ended = turn.turn_id.clone();
+            let ours = move |s: &Session| {
+                s.stalled_gen.load(Ordering::SeqCst) == generation
+                    && Self::counted_turn(s).is_some_and(|t| t.turn_id == ended)
+            };
+            self.end_turn_forced(&session, &turn.turn_id, answer, ours);
         }
     }
 

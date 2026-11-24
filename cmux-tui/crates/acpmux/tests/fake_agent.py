@@ -338,6 +338,8 @@ def update(sid, upd):
 
 # FAKE_CODEX_STEER: the running turn's prompt ids per session.
 codex_turns = {}
+# FAKE_CODEX_STEER: sessions whose "slow-ack:" turn ran (later ones are ordinary turns).
+slow_acked = set()
 
 
 def codex_prompt(rid, params):
@@ -352,6 +354,35 @@ def codex_prompt(rid, params):
             return
         codex_turns[sid] = [rid]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "turn: " + text}})
+    # "slow-ack:capacity" / "slow-ack:stall" (each session's first only): a turn that fails in
+    # place until session/cancel (bounded), "capacity" with three capacity notices, "stall" quiet;
+    # it takes the cancel, then FAKE_ACK_MS (default 300) to answer. A prompt in that time joins
+    # the old turn, as codex-acp folds it (cmux#47879); each is logged to FAKE_PREMATURE_LOG.
+    if text.startswith("slow-ack:") and sid not in slow_acked:
+        slow_acked.add(sid)
+        if text == "slow-ack:capacity":
+            # The model request goes out first (a test queues a prompt meanwhile).
+            time.sleep(0.3)
+            for attempt in range(1, 4):
+                update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                    "message": f"Reconnecting... {attempt}", "willRetry": True,
+                    "additionalDetails": "Selected model is at capacity.",
+                    "codexErrorInfo": {"serverOverloaded": {}}}}}})
+        for _ in range(600):
+            if sid in cancelled:
+                break
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        time.sleep(int(os.environ.get("FAKE_ACK_MS") or "300") / 1000)
+        with lock:
+            ids = codex_turns.pop(sid)
+        log = os.environ.get("FAKE_PREMATURE_LOG")
+        if log and len(ids) > 1:
+            with open(log, "a") as f:
+                for joined in ids[1:]:
+                    f.write(json.dumps({"sessionId": sid, "id": joined}) + "\n")
+        send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "cancelled"}})
+        return
     # "slow-stop": the turn runs until session/cancel (bounded), then takes 5 s
     # to stop; a prompt in that time joins it and is answered for it.
     if text == "slow-stop":

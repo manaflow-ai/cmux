@@ -333,6 +333,29 @@ def _read_stdin():
 threading.Thread(target=_read_stdin, daemon=True).start()
 
 
+def note_premature():
+    """FAKE_PREMATURE_LOG=<path>: each prompt that came while the turn ending now still ran is
+    appended there, one JSON line each (cmux#47879: a prompt sent before the harness let go of the
+    old turn goes into it). Lines read meanwhile wait in AGAIN and run next."""
+    while True:
+        try:
+            got = LINES.get_nowait()
+        except queue.Empty:
+            break
+        AGAIN.append(got)
+    path = os.environ.get("FAKE_PREMATURE_LOG")
+    if not path:
+        return
+    for got in AGAIN:
+        try:
+            msg = json.loads(got)
+        except ValueError:
+            continue
+        if msg.get("type") == "user":
+            with open(path, "a") as f:
+                f.write(got.strip() + "\n")
+
+
 def slow_stop():
     """The "slow-stop" turn: one Claude Code is slow to stop. It runs until the
     interrupt, acks it, then waits (up to 12 s) for the next prompt line. That
@@ -1452,14 +1475,39 @@ while True:
         # "auth-retry-probe": the model API refuses the sign-in (401). Claude Code retries it on
         # its own backoff (0.5 s doubling to 32 s, 10 retries), then fails the turn with the 401.
         # FAKE_CLAUDE_RETRY_SCALE scales the waits (default 0.01: the whole backoff in 1.6 s).
+        # An interrupt during the backoff ends the turn, as Claude Code's does; FAKE_CLAUDE_ACK_MS
+        # delays that end (a harness slow to let go of the turn, cmux#47879).
         if said.strip() == "auth-retry-probe":
             import time
             scale = float(os.environ.get("FAKE_CLAUDE_RETRY_SCALE") or "0.01")
+            interrupted = False
             for attempt in range(1, 11):
                 delay = min(500 * 2 ** (attempt - 1), 32000)
                 send({"type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
                       "retry_delay_ms": delay, "error_status": 401, "error": "authentication_failed"})
-                time.sleep(delay * scale / 1000)
+                until = time.monotonic() + delay * scale / 1000
+                while not interrupted:
+                    try:
+                        got = LINES.get(timeout=max(0.0, until - time.monotonic()))
+                    except queue.Empty:
+                        break
+                    if got is None:
+                        sys.exit(0)
+                    msg = json.loads(got) if got.strip().startswith("{") else {}
+                    if msg.get("type") == "control_request":
+                        send({"type": "control_response", "response": {"subtype": "success",
+                              "request_id": msg.get("request_id"), "response": {}}})
+                        interrupted = (msg.get("request") or {}).get("subtype") == "interrupt"
+                    else:
+                        AGAIN.append(got)
+                if interrupted:
+                    break
+            if interrupted:
+                time.sleep(int(os.environ.get("FAKE_CLAUDE_ACK_MS") or "0") / 1000)
+                note_premature()
+                send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+                      "num_turns": 1, "duration_api_ms": 5})
+                continue
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1, "duration_api_ms": 5,
                   "result": 'Failed to authenticate. API Error: 401 {"type":"error","error":'
                             '{"type":"authentication_error","message":"invalid x-api-key"}}'})

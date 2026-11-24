@@ -117,7 +117,7 @@ fn sign_in_refused(retry: &Value) -> bool {
 impl Hub {
     /// Claude Code retries a model request the API refused for its sign-in (module docs): at the
     /// [`SIGN_IN_REFUSED_END_ATTEMPT`]th retry, `session`'s turn ends failed with that refusal.
-    pub(super) fn end_sign_in_refused(&self, session: &Arc<Session>, retry: &Value) {
+    pub(super) fn end_sign_in_refused(self: &Arc<Self>, session: &Arc<Session>, retry: &Value) {
         let attempt = retry["attempt"].as_u64().unwrap_or(0);
         if !sign_in_refused(retry) || attempt < SIGN_IN_REFUSED_END_ATTEMPT {
             return;
@@ -144,26 +144,19 @@ impl Hub {
         tracing::warn!(session = %session.id, turn = %turn.turn_id, attempt, "the model API refused the agent's sign-in: ending its turn");
         let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused": {
             "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error")}}}});
-        let session = session.clone();
+        // As the stalled end: the agent of this very turn gets the cancel, and the turn ends once
+        // it lets go of it, or through Stop's escalation (`cancel.rs` `end_turn_forced`). Its
+        // retries from now on find the turn ending.
         let turn_id = turn.turn_id;
-        // Off the tap, as the stalled end: the agent of this very turn gets the cancel (bounded),
-        // then the turn ends whether it answered or not.
+        let ended = turn_id.clone();
+        let ours = move |s: &Session| {
+            s.stalled_gen.load(Ordering::SeqCst) == generation
+                && s.turn().is_some_and(|t| t.turn_id == ended)
+        };
+        let Some(end) = self.end_turn_forced(session, &turn_id, answer, ours) else { return };
+        let session = session.clone();
         tokio::spawn(async move {
-            let ours = |s: &Session| {
-                s.stalled_gen.load(Ordering::SeqCst) == generation
-                    && s.turn().is_some_and(|t| t.turn_id == turn_id)
-            };
-            let _ = tokio::time::timeout(super::stalled_turn::CANCEL_SEND, async {
-                let child = session.child.lock().await.clone();
-                if ours(&session)
-                    && let (Some(child), Some(sid)) = (child, session.meta().agent_session_id)
-                {
-                    let _ = child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
-                }
-            })
-            .await;
-            if ours(&session) {
-                session.steer_end.send_replace(Some((turn_id, answer)));
+            if end.await.unwrap_or(false) {
                 return;
             }
             // Not carried out (a failover keeps the turn's id): the turn's next agent gets its own
@@ -197,6 +190,11 @@ impl Hub {
     /// and marks the turn silent, so its model's next sign logs `turn_heard`.
     pub(super) fn turn_retrying(&self, session: &Session, mut retry: Value) {
         let Some(turn) = session.turn() else { return };
+        // A turn acpmux is ending for a cause of its own: its harness's retries until it lets go of
+        // the turn are not the person's news (`cancel.rs` `end_turn_forced`).
+        if super::cancel::forced_ending(session, &turn.turn_id) {
+            return;
+        }
         // Held while it logs, as `watch_silent_turn` does, so a sign the tap counts meanwhile
         // finds the retry to end.
         let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());
@@ -247,19 +245,27 @@ mod tests {
             "error": "authentication_failed"}))
     }
 
+    /// The forced end decided for `session`'s turn: its turn and typed answer (`cancel.rs`).
+    fn forced(session: &Session) -> Option<(String, Value)> {
+        session.forced_end.lock().unwrap().as_ref().map(|f| (f.turn_id.clone(), f.answer.clone()))
+    }
+
     /// The first refused retry may be a sign-in being refreshed: it ends nothing. The second
-    /// ends the turn.
+    /// ends the turn, once its harness lets go of it: nothing ends it before (cmux#47879).
     #[tokio::test]
     async fn a_refused_sign_in_ends_its_turn_at_the_second_retry() {
         let (hub, session) = running_turn().await;
         hub.end_sign_in_refused(&session, &refused(1));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(session.steer_end.borrow().is_none(), "the first refused retry ends nothing");
+        assert!(forced(&session).is_none(), "the first refused retry ends nothing");
         hub.end_sign_in_refused(&session, &refused(2));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let ended = session.steer_end.borrow().clone();
-        let (_, answer) = ended.expect("the second refused retry ends the turn");
+        let (_, answer) = forced(&session).expect("the second refused retry ends the turn");
         assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(2)));
+        assert!(
+            session.steer_end.borrow().is_none(),
+            "the turn ended before its harness let go of it"
+        );
     }
 
     /// The end at the third retry, then the fourth: one end, the third's (review F2).
@@ -269,8 +275,7 @@ mod tests {
         hub.end_sign_in_refused(&session, &refused(3));
         hub.end_sign_in_refused(&session, &refused(4));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let ended = session.steer_end.borrow().clone();
-        let (turn, answer) = ended.expect("the turn ends");
+        let (turn, answer) = forced(&session).expect("the turn ends");
         assert_eq!(turn, "turn-1");
         assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(3)));
     }
@@ -283,13 +288,12 @@ mod tests {
         hub.end_sign_in_refused(&session, &refused(3));
         hub.hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
+        assert!(forced(&session).is_none(), "the next agent's turn is not ended");
         // That agent's own refused retries still end the turn.
         hub.end_sign_in_refused(&session, &refused(3));
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let end = session.steer_end.borrow().clone();
         assert_eq!(
-            end.map(|(turn, _)| turn).as_deref(),
+            forced(&session).map(|(turn, _)| turn).as_deref(),
             Some("turn-1"),
             "the next agent's refusal ends it"
         );
