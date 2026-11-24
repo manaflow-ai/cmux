@@ -219,7 +219,6 @@ private final class Child: Sendable {
             if state.killed { return false }
             state.process.terminationHandler = { exited($0.terminationStatus) }
             do {
-                OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
                 try state.process.run()
             } catch {
                 state.process.terminationHandler = nil

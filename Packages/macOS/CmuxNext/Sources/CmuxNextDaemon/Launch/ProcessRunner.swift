@@ -189,7 +189,6 @@ final class ProcessBox: @unchecked Sendable {
     func launch() throws -> Bool {
         try cancelled.withLock { cancelled in
             if cancelled { return false }
-            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
             return true
         }
