@@ -96,7 +96,7 @@ fn retain_forgets_ended_terminals() {
     let mut watch = DemandWatch::default();
     let start = Instant::now();
     assert!(!watch.check(100, start, true, |_| Some(200)));
-    watch.retain(&std::collections::HashSet::new());
+    watch.retain(&HashSet::new());
     assert_eq!(watch.next_due(), None);
 }
 

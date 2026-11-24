@@ -186,7 +186,7 @@ fn an_on_demand_plugin_starts_only_when_demanded() {
         on_demand: true,
     }));
     runtime.start_with_generation_seed(dir.join("cmux.sock"), "main".into(), 1);
-    std::thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(500));
     assert!(runtime.held());
     assert!(!marker.exists(), "a held plugin must not run");
     assert_eq!(runtime.process_group(), None);
@@ -197,7 +197,7 @@ fn an_on_demand_plugin_starts_only_when_demanded() {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !marker.exists() {
         assert!(Instant::now() < deadline, "the demanded plugin never ran");
-        std::thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(20));
     }
     runtime.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
@@ -207,7 +207,7 @@ fn an_on_demand_plugin_starts_only_when_demanded() {
 fn the_hold_waiter_returns_once_an_on_demand_plugin_is_configured() {
     let runtime = JournalPluginRuntime::default();
     let waiter = runtime.hold_waiter();
-    let waiting = std::thread::spawn(move || waiter.wait_until_held());
+    let waiting = thread::spawn(move || waiter.wait_until_held());
     runtime.configure(Some(JournalPluginOptions {
         id: "screen_detector".into(),
         command: vec!["/tmp/screen-detector".into()],

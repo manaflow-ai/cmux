@@ -250,7 +250,7 @@ impl DemandWatch {
     }
 
     /// Forget terminals no longer live.
-    pub(crate) fn retain(&mut self, live: &std::collections::HashSet<u32>) {
+    pub(crate) fn retain(&mut self, live: &HashSet<u32>) {
         self.seen.retain(|pid, _| live.contains(pid));
     }
 }
