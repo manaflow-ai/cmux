@@ -7,7 +7,7 @@
 //! of all stages any and all levels of technical sophistication and teams and organizations of any
 //! size and demand to move to autocloud"
 
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -317,19 +317,26 @@ pub(super) fn read_source(source: &str) -> Result<Plan, String> {
     if !root.is_dir() {
         return Err(format!("{source}: not a folder or a known source (see cmux migrate --help)"));
     }
-    if !devcontainer::find(&root).is_empty() {
-        return Ok(devcontainer::plan(&root));
-    }
-    if compose::find(&root).is_some() {
-        return Ok(compose::plan(&root));
-    }
-    if nix::project(&root).is_some() {
-        return Ok(nix::plan(&root));
+    // A checkout's CI config and secret references join whichever project the reader below makes.
+    let routed = if !devcontainer::find(&root).is_empty() {
+        Some(devcontainer::plan(&root))
+    } else if compose::find(&root).is_some() {
+        Some(compose::plan(&root))
+    } else if nix::project(&root).is_some() {
+        Some(nix::plan(&root))
+    } else {
+        None
+    };
+    if let Some(mut plan) = routed {
+        cmux_migrate::sources::merge_ci_and_secrets(&root, &mut plan);
+        return Ok(plan);
     }
     let root = root.canonicalize().map_err(|e| format!("{source}: {e}"))?;
     let mut options = laptop::Options::new(laptop::host_name());
-    options.roots = Some(vec![root]);
-    Ok(laptop::plan(&home, &options, &laptop::GitCli::default()))
+    options.roots = Some(vec![root.clone()]);
+    let mut plan = laptop::plan(&home, &options, &laptop::GitCli::default());
+    cmux_migrate::sources::merge_ci_and_secrets(&root, &mut plan);
+    Ok(plan)
 }
 
 fn product_named(word: &str) -> Option<Product> {
@@ -445,7 +452,10 @@ fn load_ledger() -> Result<Ledger, String> {
     match Ledger::load(&path) {
         Load::None => Ok(Ledger::new()),
         Load::Ledger(ledger) => Ok(ledger),
-        Load::Newer => Err(format!("{} was written by a newer cmux: update cmux", path.display())),
+        Load::Newer(version) => Err(format!(
+            "{} was written by a newer cmux migrate (ledger version {version}); run `cmux migrate status` from that cmux, or move the file aside to start a new ledger",
+            path.display()
+        )),
         Load::Unreadable(why) => Err(format!("{}: {why}", path.display())),
     }
 }
@@ -471,38 +481,42 @@ fn bounded(program: &str, args: &[&str], stdin: Option<&str>) -> Result<String, 
     if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
         let _ = pipe.write_all(text.as_bytes());
     }
-    let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_string(&mut text);
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    // Scoped readers: both are joined before this returns, so neither outlives the call.
+    let (status, out, err) = std::thread::scope(|scope| {
+        let out = scope.spawn(move || read_all(stdout));
+        let err = scope.spawn(move || read_all(stderr));
+        let deadline = Instant::now() + READER_BOUND;
+        let status = loop {
+            if child.exited_within(Duration::from_millis(200)).unwrap_or(true) {
+                break child.wait().map_err(|e| format!("{program}: {e}"));
             }
-            text
-        })
-    };
-    let out = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let err = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let deadline = Instant::now() + READER_BOUND;
-    loop {
-        if child.exited_within(Duration::from_millis(200)).unwrap_or(true) {
-            break;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "{program} took over {} s and was stopped",
-                READER_BOUND.as_secs()
-            ));
-        }
-    }
-    let status = child.wait().map_err(|e| format!("{program}: {e}"))?;
-    let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(format!(
+                    "{program} took over {} s and was stopped",
+                    READER_BOUND.as_secs()
+                ));
+            }
+        };
+        (status, out.join().unwrap_or_default(), err.join().unwrap_or_default())
+    });
+    let status = status?;
     if status.success() {
         Ok(out)
     } else {
         Err(format!("{program} {}: {}", args.first().unwrap_or(&""), tail(&err, 400)))
     }
+}
+
+fn read_all(pipe: Option<impl std::io::Read>) -> String {
+    let mut text = String::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_string(&mut text);
+    }
+    text
 }
 
 /// The signed-in app's Cloud verbs, each as this binary with `--json`.
