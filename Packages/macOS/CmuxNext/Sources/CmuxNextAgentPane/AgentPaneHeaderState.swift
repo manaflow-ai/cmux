@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// What the chat header shows from the chat's tab, read with `pane.tabState` and pushed as the
 /// `headerState` event when it changes (the page's header/headerState.ts): the pin the "..." menu's
