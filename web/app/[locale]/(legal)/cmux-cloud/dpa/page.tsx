@@ -13,7 +13,7 @@ export default function CmuxCloudDpaPage() {
   return (
     <>
       <h1>cmux Cloud Data Processing Addendum</h1>
-      <p>Last updated: November 17, 2026.</p>
+      <p>Last updated: November 24, 2026.</p>
       <p>
         This Data Processing Addendum (&ldquo;DPA&rdquo;) is part of the{" "}
         <a href="https://cmux.com/terms-of-service#cmux-cloud">Terms of Service</a>{" "}
@@ -248,7 +248,9 @@ export default function CmuxCloudDpaPage() {
           audio, receiving, reading, keeping for the time of the meeting, and
           deleting live transcript lines, meeting chat messages, and participant
           records; answering questions and passing on requests that participants
-          type to the notetaker; transcription, writing notes, AI model processing, running
+          type to the notetaker; transcription, writing notes, AI model processing,
+          deciding from Slack messages in conversations where the cmux app is
+          a member whether cmux should answer, running
           agents and cloud machines, delivering results, and keeping or deleting
           archive copies, as Customer and its users ask.
         </li>

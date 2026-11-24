@@ -25,7 +25,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "Cloud hosting and storage",
     name: "Cloudflare, Inc.",
-    purpose: "Runs the cmux.cloud service, stores files and conversation archives, stores mirrors of the git repositories that your team connects and the commits that agents make (source code and commit metadata, Cloudflare Artifacts, stored and processed only in the United States), serves the web app, and runs open AI models (Workers AI).",
+    purpose: "Runs the cmux.cloud service, stores files and conversation archives, stores mirrors of the git repositories that your team connects and the commits that agents make (source code and commit metadata, Cloudflare Artifacts, stored and processed only in the United States), serves the web app, runs open AI models (Workers AI), and passes the requests of the Slack decision step to TypeSafe AI, Inc. (Workers AI).",
     location: "United States and global edge network",
   },
   {
@@ -82,6 +82,13 @@ const subprocessors: readonly Subprocessor[] = [
     category: "AI model providers",
     name: "OpenAI, L.L.C.",
     purpose: "AI models, and speech-to-text for audio and video files.",
+    location: "United States",
+  },
+  {
+    group: "content",
+    category: "AI model providers",
+    name: "TypeSafe AI, Inc.",
+    purpose: "Runs the decision model of the Slack decision step: decides from each Slack message that cmux can see whether cmux should answer. Receives the message text and its context through Cloudflare Workers AI, with zero data retention. Starts on December 24, 2026.",
     location: "United States",
   },
   {
@@ -207,7 +214,7 @@ export default function CmuxCloudSubprocessorsPage() {
         that provider is your provider, not ours.
       </p>
 
-      <p>Last updated: November 17, 2026.</p>
+      <p>Last updated: November 24, 2026.</p>
 
       <h2>Subprocessors</h2>
       <p>They process the content that we process for teams, under the Data Processing Addendum.</p>
@@ -273,6 +280,15 @@ export default function CmuxCloudSubprocessorsPage() {
         Addendum get notice as that addendum describes. For questions, contact{" "}
         <a href="mailto:founders@cmux.com">founders@cmux.com</a>.
       </p>
+
+      <h2>Recent changes</h2>
+      <ul>
+        <li>
+          November 24, 2026: added TypeSafe AI, Inc. (AI model provider) for
+          the Slack decision step. It starts to process personal data for cmux
+          Cloud on December 24, 2026.
+        </li>
+      </ul>
     </>
   );
 }
