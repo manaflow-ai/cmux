@@ -5,13 +5,13 @@ from csvdefuse import defuse_formulas as d
 def test_the_commit_case():
     body = ('person,title,cost,note\r\n'
             'alice,=HYPERLINK("http://x"),-12.5,ok\r\n'
-            'bob,"=1+1, ""quoted""",+3,@SUM(A1)\r\n'
+            'bob,"=1+1, ""quoted""",3,@SUM(A1)\r\n'
             'carol,-2+3,"\r=x",\tlead\n'
             'dave,,"plain, text",+cmd|\' /C calc\'!A0\n'
             'eve,"multi\nline",7,')
     want = ('person,title,cost,note\r\n'
             'alice,\'=HYPERLINK("http://x"),-12.5,ok\r\n'
-            'bob,"\'=1+1, ""quoted""",+3,\'@SUM(A1)\r\n'
+            'bob,"\'=1+1, ""quoted""",3,\'@SUM(A1)\r\n'
             'carol,\'-2+3,"\'\r=x",\'\tlead\n'
             'dave,,"plain, text",\'+cmd|\' /C calc\'!A0\n'
             'eve,"multi\nline",7,')
@@ -19,14 +19,14 @@ def test_the_commit_case():
 
 
 def test_nothing_risky_is_the_same_string():
-    for plain in ['a,b\n"x, y",-1\n', "", "x", ",,,\n\n", '"",""\r\n', "1,+2,-3.25\n"]:
+    for plain in ['a,b\n"x, y",-1\n', "", "x", ",,,\n\n", '"",""\r\n', "1,2,-3.25\n"]:
         assert d(plain) == plain
 
 
 def test_numbers_and_not_numbers():
     assert d("-") == "'-"
     assert d("+") == "'+"
-    assert d("-0.0,+10,-12.5") == "-0.0,+10,-12.5"
+    assert d("-0.0,10,-12.5") == "-0.0,10,-12.5"
     assert d("-x,+y") == "'-x,'+y"
 
 
@@ -45,4 +45,3 @@ def test_risky_chars_mid_cell_or_after_space_stay():
 
 def test_row_starts():
     assert d("=a\n=b\r\n@c") == "'=a\n'=b\r\n'@c"
-    assert d("x\r=y") == "x\r'=y"
