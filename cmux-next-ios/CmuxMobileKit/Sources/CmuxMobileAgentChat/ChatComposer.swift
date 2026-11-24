@@ -637,10 +637,11 @@ struct ChatComposer: View {
                     }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
-                ForEach(0..<preparingVideos, id: \.self) { _ in
+                if preparingVideos > 0 {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
-                        Text("Preparing video…").font(.footnote).foregroundStyle(.secondary)
+                        Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12)
                     .frame(height: 56)
