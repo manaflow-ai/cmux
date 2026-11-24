@@ -8,7 +8,9 @@
 #   scripts/measure/transport-pair-matrix.sh [pairs=ios-mac,ios-linux,mac-mac,mac-linux] [paths=direct,relay]
 #     [conditions=loss,latency,handoff,sleep,failover,long] [loads=idle,duress] [n=5] [seed=0] [long_minutes=60]
 #     [out=PATH.md]
-#   cmux-ci test -- bash scripts/measure/transport-pair-matrix.sh n=5   # on a CI runner at a PR head
+#   cmux-ci test --timeout 3000 -- bash scripts/measure/transport-pair-matrix.sh pairs=ios-mac n=5   # one CI runner per pair
+# All four pairs plus the round-trip bench in one job take more than 55 minutes at n=3 (run 45400745409); submit one
+# pair per job and merge their lines.txt with the report script.
 #
 # The benches (each prints PAIRCELL lines; the spec is in transport-pair-matrix-report.py's header):
 #   ios-mac:   cmux-next-ios/rust/crates/cmux-mobile-host/tests/pair_matrix_ios_mac.rs
@@ -57,9 +59,9 @@ echo "PAIRMATRIX-MACHINE host=$(hostname) os=$(uname -sr) host_os=$host_os cores
 export PAIRMATRIX_N="$n" PAIRMATRIX_SEED_BASE="$seed" PAIRMATRIX_CONDITIONS="$conditions" PAIRMATRIX_LOADS="$loads" \
   PAIRMATRIX_PATHS="$paths" PAIRMATRIX_LONG_MINUTES="$long_minutes" PAIRMATRIX_HOST_OS="$host_os"
 
-# bench PAIR WORKSPACE CRATE TEST: one pair's bench; its PAIRCELL lines into lines.txt.
+# bench PAIR WORKSPACE CRATE TEST [FEATURES]: one pair's bench; its PAIRCELL lines into lines.txt.
 bench() {
-  local pair="$1" workspace="$2" crate="$3" test="$4" log="$work/$1.log" code=0
+  local pair="$1" workspace="$2" crate="$3" test="$4" features="${5:-}" log="$work/$1.log" code=0
   local file="$workspace/crates/$crate/tests/$test.rs"
   if [[ ! -f "$file" ]]; then
     echo "PAIRCELL-NA {\"pair\":\"$pair\",\"path\":\"*\",\"condition\":\"*\",\"load\":\"*\",\"metric\":\"*\",\"reason\":\"no bench at this ref ($file)\"}" | tee -a "$work/lines.txt"
@@ -67,7 +69,7 @@ bench() {
   fi
   [[ "$workspace" == cmux-tui ]] && git submodule update --init --depth 1 ghostty-next >/dev/null
   (cd "$workspace" && CARGO_TARGET_DIR="$work/target-${workspace//\//-}" PAIRMATRIX_PAIR="$pair" \
-    cargo test --release --locked -p "$crate" --test "$test" -- --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
+    cargo test --release --locked -p "$crate" ${features:+--features "$features"} --test "$test" -- --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     { sed -un -e "s/^PAIRCELL/PAIRMATRIX-LIVE PAIRCELL/p" || true; }) || code=$?
   grep -E '^PAIRCELL(-NA)? ' "$log" >>"$work/lines.txt" || true
   echo "PAIRMATRIX-STATUS $pair exit=$code log=$log"
@@ -84,8 +86,8 @@ for pair in "${pair_list[@]}"; do
   case "$pair" in
     ios-mac) bench ios-mac cmux-next-ios/rust cmux-mobile-host pair_matrix_ios_mac || status=1 ;;
     ios-linux) bench ios-linux cmux-next-ios/rust cmux-mobile-host pair_matrix_ios_linux || status=1 ;;
-    mac-mac) bench mac-mac cmux-tui acpmux pair_matrix_desktop || status=1 ;;
-    mac-linux) bench mac-linux cmux-tui acpmux pair_matrix_desktop || status=1 ;;
+    mac-mac) bench mac-mac cmux-tui acpmux pair_matrix_desktop hub-carrier || status=1 ;;
+    mac-linux) bench mac-linux cmux-tui acpmux pair_matrix_desktop hub-carrier || status=1 ;;
   esac
 done
 
