@@ -1142,6 +1142,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
 
+      # A same-repository macOS job offers an owned Mac before Blacksmith ("job pinned to a paid queue").
+      - name: Validate that no same-repository macOS job is pinned to a paid queue
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_paid_queue_pin.py
+
+      # A same-repository Linux job starts on the persistent pool (cmux-linux), not a Blacksmith size. No
+      # workflow ran this from #49215 until 2026-11-24, and in that time five jobs went back to RUNNER_POOLS reads.
+      - name: Validate that same-repository Linux jobs start on the persistent pool
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_same_repo_linux_owned_first.py
+
       - name: Validate the backend migrations plan
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_backend_migrations_plan.py

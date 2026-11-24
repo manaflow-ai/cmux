@@ -131,5 +131,10 @@ declare global {
     cmuxAcpmuxComputerUseState?: (value: unknown) => void;
   }
 }
-// On globalThis, which is the page's window in WebKit and stands in for it in a test (no window there).
-(globalThis as Window & typeof globalThis).cmuxAcpmuxComputerUseState = setComputerUseState;
+/// Installs the old host's hook on `target` (the page's window).
+export function installComputerUseStateHook(target: Pick<Window, "cmuxAcpmuxComputerUseState">) {
+  target.cmuxAcpmuxComputerUseState = setComputerUseState;
+}
+// On the page's window only, as diffColors.ts and the other host hooks: a test with no window gets no
+// global it would leave behind for the next test file (test/support/leakDetector.ts).
+if (typeof window !== "undefined") installComputerUseStateHook(window);
