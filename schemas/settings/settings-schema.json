@@ -73293,7 +73293,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "folder",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
