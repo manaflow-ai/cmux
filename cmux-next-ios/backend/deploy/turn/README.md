@@ -15,3 +15,13 @@ Deploy (one box per region, two to start; the client already tries every URL it 
    Cloudflare. Unset both to go back.
 4. Check: `/v1/ice` lists the URLs, and a dial from a UDP-blocked network reports path `turn-tls`
    (`review.sh --require-turn`, cmux#52947).
+
+## One-script deploy and the UDP-blocked proof
+
+- `install.sh` (root, any systemd Linux box): downloads eturnal, renders `eturnal.yml` from `ETURNAL_SECRET`,
+  the box's public IPv4 and the TLS certificate, and starts the `eturnal` systemd unit.
+  `ETURNAL_SECRET=... RELAY_DOMAIN=relay.cmux.dev ./install.sh`. `cloud-init.yaml` is the same as user-data.
+  Buying the host, the DNS name and the certificate is Leo's list (RFD 0088 "What to buy").
+- `test-udp-blocked.sh` (any Linux, no root): starts a real eturnal with only a TLS listener and runs the
+  client with UDP blocked; it fails unless both sides report path `turn-tls`.
+  `cmux-ci test -- cmux-next-ios/backend/deploy/turn/test-udp-blocked.sh`.
