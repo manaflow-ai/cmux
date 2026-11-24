@@ -453,6 +453,47 @@ test("AutoCloud: Machine… opens the person's other devices in place", async ()
   expect(optionRows().map(rowLabel)).toContain("studio");
 });
 
+// Leo, 2026-11-24: "i cant click back". Every list opened in place heads with a row back to the list
+// it opened from; ← with no search typed does the same.
+test("AutoCloud: the Auto list's heading goes back to the main list, and Machine…'s back to Auto", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="machine"]');
+  expect(document.querySelector(".acpmux-env-devices")).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
+  expect(optionRows().map(rowLabel)[1]).toBe(translate("composer.autoCloudOnly"));
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="back"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+});
+
+test("← in a list opened in place goes back to the one it opened from", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  const field = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-location-search")!;
+  await act(async () =>
+    field.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
+    ),
+  );
+  await settle();
+  expect(document.querySelector(".acpmux-env-auto-places")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+});
+
+test("Other devices heads with a way back to the main list", async () => {
+  const { container } = await renderDevices(DEVICES);
+  await open(container);
+  await choose('[data-action="otherDevices"]');
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-devices")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')).not.toBeNull();
+});
+
 test("AutoCloud gated off: Auto stays the one plain row, with no chevron", async () => {
   const { container } = await renderDevices(DEVICES, autoChat(false, []));
   await open(container);
