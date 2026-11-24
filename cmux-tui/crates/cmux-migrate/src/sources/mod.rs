@@ -8,3 +8,8 @@ pub mod laptop;
 pub mod competitors;
 pub mod detect;
 pub mod ssh_host;
+
+pub mod compose;
+pub mod devcontainer;
+pub mod nix;
+pub mod project_files;
