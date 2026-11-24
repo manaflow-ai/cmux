@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The published benchmarks (RFD 0167 row 18): resume, move, fork, build and the long session under
 # load, on a fleet Linux host. cmuxterm-hq docs/benchmarks/README.md publishes what this prints.
-#   cmux-ci test --setup rust -- 'scripts/measure/published-benches-linux.sh [parts=resume,fork,move,build,soak] [samples=20] [soak_secs=120] [soak_ticked=1] [moves=5]'
+#   cmux-ci test --setup rust -- scripts/measure/published-benches-linux.sh [parts=resume,fork,move,build,soak] [samples=20] [soak_secs=120] [soak_ticked=1] [moves=5]
 # soak_secs=28800 is the 8 h session. It is ticked, not soaked: its turns run back to back at the paced session's
 # turn counts (tests/published_bench.rs), so it takes minutes; soak_ticked=0 is the old wall-time run. Fleet only.
 # Prints PUBLISHED-BENCH <json> lines (schema cmux.published-bench.v1), one per part, then all of them
