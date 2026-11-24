@@ -149,7 +149,7 @@ public final class CmuxMobileHaptics: Sendable {
     public init() {}
 
     public var isEnabled: Bool {
-        if ProcessInfo.processInfo.isLowPowerModeEnabled { return false }
+        if CmuxMobileLowPowerMode.isOn { return false }
         return UserDefaults.standard.object(forKey: settingKey) as? Bool ?? true
     }
 
