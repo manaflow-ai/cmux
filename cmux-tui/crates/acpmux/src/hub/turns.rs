@@ -485,12 +485,15 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // Serialize each prompt's setup through queue admission. In particular, resolving an
         // uploaded block can block in a worker, and a later prompt must not claim the chat while
-        // the earlier one is still on its way to the queue. The guard is dropped immediately
-        // after `queue_slot`, before the admitted prompt reads its uploads for dispatch.
-        let _prompt_admission = match opts.prompt_admission.take() {
+        // the earlier one is still on its way to the queue. The guard is let go when the prompt
+        // is accepted (a queued one is accepted inside `queue_slot` and then waits there for the
+        // whole turn ahead of it: held that long, the next prompt would never queue), and at
+        // the latest right after `queue_slot`, before the admitted prompt reads its uploads.
+        let prompt_admission = std::sync::Mutex::new(Some(match opts.prompt_admission.take() {
             Some(guard) => guard,
             None => session.prompt_admission.clone().lock_owned().await,
-        };
+        }));
+        let admitted = || drop(prompt_admission.lock().unwrap_or_else(|e| e.into_inner()).take());
         #[cfg(test)]
         {
             let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -569,6 +572,7 @@ impl Hub {
         let given =
             session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
+            admitted();
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
@@ -800,12 +804,24 @@ impl Hub {
             after_turn: after_turn.is_some(),
             steer_on_start,
         };
+        // A prompt the queue already holds (restored after a restart or a move, `queue.rs`
+        // `start_restored`) has its place and is not accepted again: it lets the order go
+        // before it waits for its turn.
+        if session
+            .restored
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|(id, _)| *id == prompt_id)
+        {
+            admitted();
+        }
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
-        drop(_prompt_admission);
+        admitted();
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
