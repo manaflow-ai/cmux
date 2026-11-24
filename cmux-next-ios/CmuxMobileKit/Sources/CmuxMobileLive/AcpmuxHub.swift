@@ -614,6 +614,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var attaching = false
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
+    /// An attach for this chat went out behind `initialize` (`AcpmuxHub+EarlyAttach.swift`): its
+    /// stream starts at the Mac before ``linkUp()``, so records are held from then, as during
+    /// an attach. Dropping them lost every record between the early page and the link's ready.
+    private var earlyHolding = false
     private var questions: [String: AgentQuestion] = [:]
     /// The raw records applied to this chat, newest 500 (the Event Inspector).
     let journal = AgentEventJournal()
@@ -1628,6 +1632,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         failures = 0
         attached = false
         attaching = false
+        earlyHolding = false
         refillPending = false
         held = []
         // A gap still filling stays open: the next attach that catches up reads on from
@@ -1682,6 +1687,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         gapTask?.cancel()
         gapTask = nil
         attaching = true
+        earlyHolding = false
         generation += 1
         let generation = generation
         // The task holds the source only between its requests, never across one: a chat
@@ -1782,6 +1788,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     func earlyRead() -> CatchUpRead? {
         guard !attaching, !restoring else { return nil }
         return comingRead
+    }
+
+    /// Its early attach was written: hold records from now until ``linkUp()`` reads the page.
+    func holdForEarlyAttach() {
+        guard !attaching, !attached else { return }
+        earlyHolding = true
     }
 
     /// The `beforeSeq` of a tail-first reattach: past any seq, so the page is the newest
@@ -2456,7 +2468,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard attached else {
             // Only while an attach runs: its pages may end before them. With no attach
             // running, the next one reads from `lastSeq` to the log's end, these included.
-            if attaching { held.append(record) }
+            if attaching || earlyHolding { held.append(record) }
             return
         }
         apply(record: record)
