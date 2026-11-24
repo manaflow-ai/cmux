@@ -2205,6 +2205,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-migrate"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
