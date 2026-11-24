@@ -297,11 +297,17 @@ pub struct LinkHandle {
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
+    /// The device's held TURN allocation while this link is up (`HeldTurn`):
+    /// released when the link is closed or dropped.
+    held_turn: Option<HoldLease>,
 }
 
 impl Drop for LinkHandle {
     fn drop(&mut self) {
         self.link.close("handle dropped");
+        if let Some(lease) = &self.held_turn {
+            lease.release();
+        }
         if let Some(task) = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take() {
             task.abort();
         }
@@ -569,6 +575,9 @@ impl LinkHandle {
     /// for the next dial (`reset_warm_state` closes it).
     pub fn close(&self) {
         self.link.close("closed by the app");
+        if let Some(lease) = &self.held_turn {
+            lease.release();
+        }
     }
 
     /// The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
@@ -794,6 +803,7 @@ pub fn cmux_mobile_version() -> String {
 }
 
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct ConnectRequest {
     pub base_url: String,
     pub token: String,
@@ -837,7 +847,7 @@ async fn connect_on(
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
     let result = dial(pool, &request, &timeline).await;
-    let (connected, signaling) = match result {
+    let (connected, signaling, held_turn) = match result {
         Ok(ok) => ok,
         Err(error) => {
             emit(&observer, LinkEvent::Disconnected { reason: error.to_string() });
@@ -849,6 +859,7 @@ async fn connect_on(
     let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
+    let closed_hold = held_turn.clone();
     let watcher = tokio::spawn(async move {
         let mut rtt = link.rtt();
         let mut closed = link.closed_state();
@@ -892,12 +903,18 @@ async fn connect_on(
                 reason = closed.wait_for(Option::is_some) => {
                     let reason = reason.map(|r| r.clone().unwrap_or_default()).unwrap_or_default();
                     emit(&observer, LinkEvent::Disconnected { reason });
+                    if let Some(lease) = closed_hold {
+                        lease.release_after(HOLD_GRACE);
+                    }
                     return;
                 }
             }
         }
         let reason = link.closed().await;
         emit(&observer, LinkEvent::Disconnected { reason });
+        if let Some(lease) = closed_hold {
+            lease.release_after(HOLD_GRACE);
+        }
     });
     // Measure once right away so the app shows an RTT immediately.
     let first_ping = connected.link.clone();
@@ -926,6 +943,7 @@ async fn connect_on(
         timeline,
         session_id: connected.session_id,
         media,
+        held_turn,
     }))
 }
 
@@ -1030,10 +1048,69 @@ struct Warm {
     /// opening one waits for it instead of opening a second (the service
     /// keeps one socket per device and would close the first).
     opening: tokio::sync::Mutex<()>,
+    /// One held TURN allocation per device with a WireGuard link up
+    /// (`HeldTurn`), newest last.
+    held_turns: Mutex<Vec<HeldTurn>>,
+    /// `HeldTurn`'s re-make interval (tests shorten it).
+    hold_max_age: Duration,
+    /// The last link to arm a hold (`HeldTurn::owner`).
+    hold_owners: std::sync::atomic::AtomicU64,
 }
 
 /// How many warm sockets are kept (the oldest goes first).
 const MAX_WARM_SOCKETS: usize = 8;
+
+/// While a WireGuard link to a Mac is up, the pool holds one spare TURN
+/// allocation for that Mac (`cmux_mobile_link::dial::TurnHold`), so the
+/// next dial or redial to it takes that allocation instead of allocating on
+/// its path. A dial takes it whole; the link it brings up arms the hold
+/// again (a new spare). The hold goes when its link is closed or dropped,
+/// `HOLD_GRACE` after its link closes by itself (a redial that comes in
+/// time still takes it), at `reset_warm_state`, and when more than
+/// `MAX_WARM_SOCKETS` devices hold one (the oldest). `network_changed`
+/// re-makes it on the new network: an allocation is bound to the network it
+/// was made on, and one whose route changed is never handed out.
+struct HeldTurn {
+    key: SocketKey,
+    mac_device_id: String,
+    hold: Arc<cmux_mobile_link::dial::TurnHold>,
+    /// The link it is held for: only that link's close lets it go (a
+    /// standby link closed after its replacement came up does not).
+    owner: u64,
+}
+
+/// How long a link that closed by itself keeps its device's held allocation
+/// for the redial that follows.
+const HOLD_GRACE: Duration = Duration::from_secs(10);
+
+/// A link's claim on its device's held allocation (`HeldTurn`).
+#[derive(Clone)]
+struct HoldLease {
+    pool: std::sync::Weak<Warm>,
+    key: SocketKey,
+    mac_device_id: String,
+    owner: u64,
+}
+
+impl HoldLease {
+    /// Release the hold if this link still owns it. It may run off any
+    /// runtime (a handle dropped on a Swift thread): the deallocation is
+    /// sent on the library's.
+    fn release(&self) {
+        let Some(pool) = self.pool.upgrade() else { return };
+        let _entered = tokio::runtime::Handle::try_current().is_err().then(|| runtime().enter());
+        pool.release_hold(|held| {
+            held.key == self.key && held.mac_device_id == self.mac_device_id && held.owner == self.owner
+        });
+    }
+
+    fn release_after(self, grace: Duration) {
+        tokio::spawn(async move {
+            tokio::time::sleep(grace).await;
+            self.release();
+        });
+    }
+}
 
 /// A warm pool. The exported functions (`connect`, `prewarm`,
 /// `network_changed`, `reset_warm_state`) all use the process's shared one;
@@ -1057,7 +1134,26 @@ impl WarmPool {
             ice: Mutex::new(Vec::new()),
             sockets: tokio::sync::Mutex::new(Vec::new()),
             opening: tokio::sync::Mutex::new(()),
+            held_turns: Mutex::new(Vec::new()),
+            hold_max_age: cmux_mobile_link::dial::HOLD_MAX_AGE,
+            hold_owners: std::sync::atomic::AtomicU64::new(0),
         }))
+    }
+
+    /// An empty pool whose held TURN allocations are re-made every
+    /// `max_age` (tests).
+    #[doc(hidden)]
+    pub fn with_hold_max_age(max_age: Duration) -> Self {
+        let pool = Self::new();
+        let mut warm = Arc::into_inner(pool.0).expect("a new pool is unshared");
+        warm.hold_max_age = max_age;
+        Self(Arc::new(warm))
+    }
+
+    /// How many devices have a held TURN allocation armed (tests).
+    #[doc(hidden)]
+    pub fn held_turns(&self) -> usize {
+        self.0.held_turns.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
 
     /// The process's pool, the one the exported functions use.
@@ -1111,6 +1207,7 @@ impl WarmPool {
     pub async fn reset(&self) {
         let pool = Arc::clone(&self.0);
         on_runtime(async move {
+            pool.release_hold(|_| true);
             pool.sockets.lock().await.clear();
             for (_, cache) in pool.ice.lock().unwrap_or_else(PoisonError::into_inner).iter() {
                 cache.clear();
@@ -1154,6 +1251,10 @@ async fn network_changed_on(
     device_id: String,
 ) -> Vec<TimingMark> {
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
+    // A held allocation is bound to the old network: make it again on the new one.
+    for held in pool.held_turns.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+        held.hold.renew();
+    }
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
     // A changed path is proof that the old socket's is gone (its TCP connection is bound to the
@@ -1229,6 +1330,76 @@ const ICE_BUDGET: Duration = Duration::from_secs(8);
 const STALE_PROBE: Duration = Duration::from_millis(2500);
 
 impl Warm {
+    /// `request`'s device's held TURN allocation, when one is armed.
+    fn held_turn(
+        &self,
+        key: &SocketKey,
+        request: &ConnectRequest,
+    ) -> Option<Arc<cmux_mobile_link::dial::TurnHold>> {
+        if request.transport != Transport::WireGuard {
+            return None;
+        }
+        let holds = self.held_turns.lock().unwrap_or_else(PoisonError::into_inner);
+        holds
+            .iter()
+            .find(|held| held.key == *key && held.mac_device_id == request.mac_device_id)
+            .map(|held| Arc::clone(&held.hold))
+    }
+
+    /// A WireGuard link to `request`'s Mac came up, dialed with `options`:
+    /// arm the device's hold for it (one spare allocation, made now unless
+    /// one is in hand), owned by this link.
+    fn arm_held_turn(
+        self: &Arc<Self>,
+        key: &SocketKey,
+        request: &ConnectRequest,
+        options: &DialOptions,
+    ) -> Option<HoldLease> {
+        let offers_turn = options.ice_servers.iter().any(|server| {
+            server.urls.iter().any(|url| url.starts_with("turn:") || url.starts_with("turns:"))
+        });
+        if request.transport != Transport::WireGuard || !offers_turn {
+            return None;
+        }
+        let owner = self.hold_owners.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        let mut holds = self.held_turns.lock().unwrap_or_else(PoisonError::into_inner);
+        let found =
+            holds.iter().position(|held| held.key == *key && held.mac_device_id == request.mac_device_id);
+        let mut held = match found {
+            Some(index) => holds.remove(index),
+            None => HeldTurn {
+                key: key.clone(),
+                mac_device_id: request.mac_device_id.clone(),
+                hold: Arc::new(cmux_mobile_link::dial::TurnHold::new(self.hold_max_age)),
+                owner,
+            },
+        };
+        held.owner = owner;
+        held.hold.arm(options);
+        holds.push(held);
+        while holds.len() > MAX_WARM_SOCKETS {
+            holds.remove(0).hold.release();
+        }
+        Some(HoldLease {
+            pool: Arc::downgrade(self),
+            key: key.clone(),
+            mac_device_id: request.mac_device_id.clone(),
+            owner,
+        })
+    }
+
+    /// Release (and forget) every held allocation `which` picks.
+    fn release_hold(&self, which: impl Fn(&HeldTurn) -> bool) {
+        let mut holds = self.held_turns.lock().unwrap_or_else(PoisonError::into_inner);
+        holds.retain(|held| {
+            let release = which(held);
+            if release {
+                held.hold.release();
+            }
+            !release
+        });
+    }
+
     fn ice_cache(&self, base_url: &str) -> Arc<IceCache> {
         let mut caches = self.ice.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((_, cache)) = caches.iter().find(|(url, _)| url == base_url) {
@@ -1566,6 +1737,21 @@ mod redial_tests {
         true
     }
 
+    /// Every allocation released, after a redial. A closed link's allocation
+    /// goes with the link's last task, which after a rehome sometimes sits
+    /// out a 10 s link timer (3 of 22 runs: the hold empty, no Allocate
+    /// since), past `held`'s 5 s.
+    async fn released(turn: &TestTurn) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        while turn.allocations() != 0 {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        true
+    }
+
     async fn holding_mac(server: &FakeSignaling, mac_device_id: &str) -> SignalingClient {
         let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", mac_device_id)
             .await
@@ -1739,6 +1925,328 @@ mod redial_tests {
         assert!(result.is_err());
         assert!(held(&turn, 0).await, "{} TURN allocations held after signaling failure", turn.allocations());
     }
+
+    /// A Mac that answers every session while `answering` is set, relay only
+    /// on its own TURN server (so `phone_turn` counts the phone's allocations
+    /// alone). It keeps the links it answered until the test ends.
+    struct AnsweringMac {
+        _client: SignalingClient,
+        answering: Arc<std::sync::atomic::AtomicBool>,
+        _links: Arc<Mutex<Vec<cmux_mobile_link::Connected>>>,
+        _turn: TestTurn,
+    }
+
+    async fn answering_mac(server: &FakeSignaling, mac_device_id: &str) -> AnsweringMac {
+        let turn = TestTurn::start().await;
+        let client = SignalingClient::connect(&server.base_url, "user:alice", "team", mac_device_id)
+            .await
+            .expect("Mac signaling");
+        let answering = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let links = Arc::new(Mutex::new(Vec::new()));
+        let (serving, turn_ice) = (client.clone(), turn.udp_only());
+        let (answers, kept) = (Arc::clone(&answering), Arc::clone(&links));
+        tokio::spawn(async move {
+            while let Some(session) = serving.next_session().await {
+                if !answers.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
+                let events = cmux_mobile_link::dial::SessionEvents {
+                    backend: serving.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let options = DialOptions {
+                    ice_servers: vec![turn_ice.clone()],
+                    include_loopback: true,
+                    relay_only: true,
+                    ..DialOptions::default()
+                };
+                let (mac, kept) = (serving.clone(), Arc::clone(&kept));
+                tokio::spawn(async move {
+                    if let Ok(connected) = cmux_mobile_link::dial::answer(
+                        &mac,
+                        session.first,
+                        events,
+                        &options,
+                        LinkConfig::default(),
+                    )
+                    .await
+                    {
+                        kept.lock().unwrap_or_else(PoisonError::into_inner).push(connected);
+                    }
+                });
+            }
+        });
+        AnsweringMac { _client: client, answering, _links: links, _turn: turn }
+    }
+
+    struct Rig {
+        turn: TestTurn,
+        server: FakeSignaling,
+        mac: AnsweringMac,
+        request: ConnectRequest,
+    }
+
+    async fn rig() -> Rig {
+        let turn = TestTurn::start().await;
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            ..FakeOptions::default()
+        })
+        .await;
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = answering_mac(&server, &mac_id).await;
+        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
+        Rig { turn, server, mac, request }
+    }
+
+    fn marked(marks: &[TimingMark], name: &str) -> bool {
+        marks.iter().any(|mark| mark.name == name)
+    }
+
+    fn timeline_marked(timeline: &Timeline, name: &str) -> bool {
+        timeline.marks().iter().any(|(mark, _)| mark == name)
+    }
+
+    async fn count_settles(turn: &TestTurn, want: usize) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while turn.allocation_count() != want {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        true
+    }
+
+    /// A link up holds one spare allocation for its Mac beside its own, and a
+    /// second dial to that Mac (the app's standby redial) takes the spare:
+    /// no Allocate on its path, and still one spare after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_holds_one_turn_allocation_per_device_and_a_dial_takes_it() {
+        let rig = rig().await;
+        let pool = WarmPool::new();
+        let first = pool.connect(rig.request.clone(), None).await.expect("first link");
+        assert!(held(&rig.turn, 2).await, "{} held: want the link's and one spare", rig.turn.allocations());
+        assert!(count_settles(&rig.turn, 2).await);
+        assert_eq!(pool.held_turns(), 1);
+        let second = pool.connect(rig.request.clone(), None).await.expect("second link");
+        assert!(marked(&second.timings(), "turn_held"), "the dial did not take the held allocation");
+        // The only Allocate after the first link's two is the new spare.
+        assert!(held(&rig.turn, 3).await, "{} held: want two links and one spare", rig.turn.allocations());
+        assert!(
+            count_settles(&rig.turn, 3).await,
+            "{} Allocates: the dial allocated",
+            rig.turn.allocation_count()
+        );
+        assert_eq!(pool.held_turns(), 1, "more than one hold for one device");
+        // The standby link closing does not take the hold from its replacement.
+        first.close();
+        drop(first);
+        assert!(held(&rig.turn, 2).await, "{} held after the standby closed", rig.turn.allocations());
+        assert_eq!(pool.held_turns(), 1);
+        // The owning link's close releases the spare with the link.
+        second.close();
+        assert!(held(&rig.turn, 0).await, "{} held after the link closed", rig.turn.allocations());
+        assert_eq!(pool.held_turns(), 0);
+        drop(rig.server);
+        pool.reset().await;
+    }
+
+    /// A pool redial (the stale-socket path, `connect_after`) takes the held
+    /// allocation instead of allocating beside the reconnect.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_redial_uses_the_held_allocation() {
+        let rig = rig().await;
+        let pool = WarmPool::new();
+        let link = pool.connect(rig.request.clone(), None).await.expect("link");
+        assert!(held(&rig.turn, 2).await);
+        assert!(count_settles(&rig.turn, 2).await);
+        let options = options(&rig.turn);
+        let (again, _socket) =
+            redial(pool.clone(), rig.request.clone(), options.clone()).await.expect("the redial");
+        assert!(
+            timeline_marked(&options.timeline, "turn_held"),
+            "the redial did not take the held allocation"
+        );
+        assert!(
+            !timeline_marked(&options.timeline, "turn_early_allocated"),
+            "the redial allocated beside the reconnect"
+        );
+        assert_eq!(rig.turn.allocation_count(), 2, "Allocates on the redial path");
+        assert_eq!(rig.turn.allocations(), 2, "want the two links' allocations and nothing else");
+        again.link.close("done");
+        drop(again);
+        link.close();
+        assert!(released(&rig.turn).await, "{} held after both links closed", rig.turn.allocations());
+        pool.reset().await;
+    }
+
+    /// Dropping the link (Swift lets go of the handle) releases the spare;
+    /// so does a pool teardown while the link is up.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_held_allocation_released_on_drop_and_teardown() {
+        let rig = rig().await;
+        let pool = WarmPool::new();
+        let link = pool.connect(rig.request.clone(), None).await.expect("link");
+        assert!(held(&rig.turn, 2).await);
+        drop(link);
+        assert!(held(&rig.turn, 0).await, "{} held after the handle dropped", rig.turn.allocations());
+        assert_eq!(pool.held_turns(), 0);
+        let link = pool.connect(rig.request.clone(), None).await.expect("link again");
+        assert!(held(&rig.turn, 2).await);
+        pool.reset().await;
+        assert!(
+            held(&rig.turn, 1).await,
+            "{} held after teardown: want the live link's only",
+            rig.turn.allocations()
+        );
+        assert_eq!(pool.held_turns(), 0);
+        link.close();
+        assert!(held(&rig.turn, 0).await);
+    }
+
+    /// A redial that takes the held allocation and then fails (the Mac does
+    /// not answer) releases it, and allocates nothing more.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_failed_redial_releases_the_held_allocation() {
+        let rig = rig().await;
+        let pool = WarmPool::new();
+        let link = pool.connect(rig.request.clone(), None).await.expect("link");
+        assert!(held(&rig.turn, 2).await);
+        assert!(count_settles(&rig.turn, 2).await);
+        rig.mac.answering.store(false, std::sync::atomic::Ordering::Relaxed);
+        let mut options = options(&rig.turn);
+        options.timeout = Duration::from_secs(2);
+        let result = redial(pool.clone(), rig.request.clone(), options.clone()).await;
+        assert!(result.is_err(), "the redial connected to a Mac that does not answer");
+        assert!(timeline_marked(&options.timeline, "turn_held"));
+        assert!(
+            held(&rig.turn, 1).await,
+            "{} held after the failed redial: want the link's only",
+            rig.turn.allocations()
+        );
+        assert_eq!(rig.turn.allocation_count(), 2, "the failed redial allocated");
+        link.close();
+        assert!(held(&rig.turn, 0).await);
+        pool.reset().await;
+    }
+
+    /// A link that closes by itself keeps the spare for `HOLD_GRACE` (for the
+    /// redial that follows), then lets it go.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_link_closed_by_itself_releases_the_hold_after_grace() {
+        let rig = rig().await;
+        let pool = WarmPool::new();
+        let link = pool.connect(rig.request.clone(), None).await.expect("link");
+        assert!(held(&rig.turn, 2).await);
+        // The link dies under the handle (its transport went away).
+        link.link.close("transport gone");
+        assert!(held(&rig.turn, 1).await, "{} held: want the spare kept", rig.turn.allocations());
+        assert_eq!(pool.held_turns(), 1);
+        tokio::time::sleep(HOLD_GRACE + Duration::from_millis(200)).await;
+        assert!(held(&rig.turn, 0).await, "{} held after the grace", rig.turn.allocations());
+        assert_eq!(pool.held_turns(), 0);
+        drop(link);
+        pool.reset().await;
+    }
+
+    /// A redial storm (each attempt cancelling the one before) on a device
+    /// with a held allocation: at most one allocation beside the live
+    /// link's at any time, and none left after.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_redial_storm_with_a_hold_holds_at_most_one() {
+        let rig = rig().await;
+        let turn = Arc::new(rig.turn);
+        let pool = WarmPool::new();
+        let link = pool.connect(rig.request.clone(), None).await.expect("link");
+        assert!(held(&turn, 2).await);
+        rig.mac.answering.store(false, std::sync::atomic::Ordering::Relaxed);
+        let maximum = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sampling = {
+            let (turn, maximum) = (Arc::clone(&turn), Arc::clone(&maximum));
+            tokio::spawn(async move {
+                loop {
+                    maximum.fetch_max(turn.allocations(), std::sync::atomic::Ordering::Relaxed);
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+        };
+        let mut previous: Option<tokio::task::JoinHandle<_>> = None;
+        for _ in 0..10 {
+            if let Some(attempt) = previous.take() {
+                attempt.abort();
+                let _ = attempt.await;
+                assert!(held(&turn, 1).await, "a cancelled redial kept its TURN allocation");
+            }
+            let options = options(&turn);
+            let timeline = options.timeline.clone();
+            previous = Some(tokio::spawn(redial(pool.clone(), rig.request.clone(), options)));
+            // The redial has its allocation: the held one (the first) or its own.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while !timeline_marked(&timeline, "turn_held")
+                && !timeline_marked(&timeline, "turn_early_allocated")
+            {
+                assert!(tokio::time::Instant::now() < deadline, "a redial in the storm got no allocation");
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            assert_eq!(turn.allocations(), 2, "want the link's and the redial's");
+        }
+        if let Some(attempt) = previous.take() {
+            attempt.abort();
+            let _ = attempt.await;
+        }
+        assert!(held(&turn, 1).await, "{} held after the storm: want the link's only", turn.allocations());
+        sampling.abort();
+        let maximum = maximum.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(maximum <= 2, "the storm held {maximum} allocations: the link's and more than one");
+        link.close();
+        assert!(held(&turn, 0).await);
+        pool.reset().await;
+    }
+
+    /// The held allocation is re-made at its max age: one spare throughout,
+    /// and a redial after the re-make takes the new one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ffi_pool_held_allocation_is_remade_at_expiry() {
+        let rig = rig().await;
+        let pool = WarmPool::with_hold_max_age(Duration::from_millis(400));
+        let link = pool.connect(rig.request.clone(), None).await.expect("link");
+        assert!(held(&rig.turn, 2).await);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while rig.turn.allocation_count() < 4 {
+            assert!(tokio::time::Instant::now() < deadline, "the spare was not re-made at its max age");
+            assert!(rig.turn.allocations() <= 3, "{} held across a re-make", rig.turn.allocations());
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            held(&rig.turn, 2).await,
+            "{} held after re-makes: want the link's and one spare",
+            rig.turn.allocations()
+        );
+        let options = options(&rig.turn);
+        let (again, _socket) =
+            redial(pool.clone(), rig.request.clone(), options.clone()).await.expect("the redial");
+        assert!(
+            timeline_marked(&options.timeline, "turn_held")
+                || timeline_marked(&options.timeline, "turn_hold_waited"),
+            "the redial after a re-make did not take the hold"
+        );
+        assert!(
+            !timeline_marked(&options.timeline, "turn_early_allocated"),
+            "the redial allocated beside the reconnect"
+        );
+        again.link.close("done");
+        drop(again);
+        link.close();
+        assert!(
+            released(&rig.turn).await,
+            "{} held after both links closed (holds {})",
+            rig.turn.allocations(),
+            pool.held_turns()
+        );
+        pool.reset().await;
+    }
 }
 
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
@@ -1766,7 +2274,7 @@ async fn dial(
     pool: &Arc<Warm>,
     request: &ConnectRequest,
     timeline: &Timeline,
-) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>, Option<HoldLease>), CmuxMobileError> {
     for (name, value) in [
         ("base_url", &request.base_url),
         ("team_id", &request.team_id),
@@ -1812,8 +2320,9 @@ async fn dial(
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
-    let attempt = dial_on(&socket, request, &options, reused).await;
-    match attempt {
+    let held = pool.held_turn(&key, request);
+    let attempt = dial_on(&socket, request, &options, reused, held.as_deref()).await;
+    let dialed = match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
             // The reused socket stopped answering (a phone that slept, a NAT
@@ -1823,7 +2332,10 @@ async fn dial(
             redial_after(pool, &key, request, &options, timeline).await
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
-    }
+    };
+    let (connected, socket) = dialed?;
+    let lease = pool.arm_held_turn(&key, request, &options);
+    Ok((connected, socket, lease))
 }
 
 /// Measurement support (simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_TURN=1): no
@@ -1884,12 +2396,14 @@ async fn redial_after(
         drop(opening);
         Ok::<_, cmux_mobile_link::signaling::SignalingError>(client)
     };
-    let result = cmux_mobile_link::dial::connect_after(
+    let held = pool.held_turn(key, request);
+    let result = cmux_mobile_link::dial::connect_after_held(
         signaling,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+        held.as_deref(),
     )
     .await;
     let socket = opened.lock().await.take();
@@ -1918,13 +2432,15 @@ async fn dial_on(
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
+    held: Option<&cmux_mobile_link::dial::TurnHold>,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect(
+    let dial = cmux_mobile_link::dial::connect_held(
         &socket.client,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+        held,
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);

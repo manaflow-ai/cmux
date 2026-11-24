@@ -15,8 +15,10 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub(crate) mod turn;
+pub mod turn_hold;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub use turn_hold::{HOLD_MAX_AGE, TurnHold};
 pub mod webrtc;
 pub mod wireguard;
 
@@ -561,6 +563,25 @@ pub async fn connect(
     connect_on(signaling, mac, kind, options, link_config, None).await
 }
 
+/// [`connect`], a WireGuard dial taking `held`'s allocation when it has a
+/// good one ([`TurnHold`]): no Allocate on the dial's path. Without one the
+/// dial is [`connect`]'s.
+pub async fn connect_held(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    held: Option<&TurnHold>,
+) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    let early = match (kind, held) {
+        (TransportKind::WireGuard, Some(held)) => held.take(options),
+        _ => None,
+    };
+    connect_on(signaling, mac, kind, options, link_config, early).await
+}
+
 /// Phone side, a redial: `signaling` is the signaling reconnect, and the
 /// dial ([`connect`]) follows it on the client it gives. A WireGuard dial's
 /// TURN allocation starts now, beside the reconnect, instead of after it:
@@ -577,8 +598,25 @@ pub async fn connect_after<E: std::fmt::Display>(
     options: &DialOptions,
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
+    connect_after_held(signaling, mac, kind, options, link_config, None).await
+}
+
+/// [`connect_after`], a WireGuard redial taking `held`'s allocation when it
+/// has a good one ([`TurnHold`]) instead of starting one beside the
+/// reconnect: no Allocate on the redial's path. Without one it is
+/// [`connect_after`]'s.
+pub async fn connect_after_held<E: std::fmt::Display>(
+    signaling: impl Future<Output = Result<SignalingClient, E>>,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    held: Option<&TurnHold>,
+) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let early = (kind == TransportKind::WireGuard).then(|| {
+        held.and_then(|held| held.take(options)).unwrap_or_else(|| wireguard::EarlyTurn::start(options))
+    });
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
     let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
