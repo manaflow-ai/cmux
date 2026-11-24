@@ -927,25 +927,32 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
+                tokio::pin!(sleep);
                 // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
                 // opens: the outbox drains as soon as the hub is back, not on each send's own
                 // schedule. Its key makes the post again the same message.
                 let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
-                match (delivery.projection_only(), wake_on_ready, by_hub) {
-                    (true, _, _) | (false, false, false) => sleep.await,
-                    (false, true, false) => tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
-                    },
-                    (false, false, true) => tokio::select! {
-                        () = sleep => {}
-                        () = opened => {}
-                    },
-                    (false, true, true) => tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
-                        () = opened => {}
-                    },
+                if delivery.projection_only() || (!wake_on_ready && !by_hub) {
+                    sleep.await;
+                } else {
+                    loop {
+                        tokio::select! {
+                            () = &mut sleep => break,
+                            () = &mut opened, if by_hub => break,
+                            () = &mut ready, if wake_on_ready => {
+                                // `peer_ready` is one signal for every peer. Another peer's link
+                                // coming back leaves this one's still down: waking for it retried
+                                // (and ssh-carried, and journaled) every queued delivery at once
+                                // on each link flap anywhere. Re-armed before the look, so a ready
+                                // in between is not missed.
+                                ready.set(hub.outbox.peer_ready.notified());
+                                ready.as_mut().enable();
+                                if hub.peer_down_for(&delivery.target).is_none() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
