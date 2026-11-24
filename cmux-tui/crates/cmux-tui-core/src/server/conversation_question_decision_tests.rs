@@ -155,8 +155,8 @@ fn request_digest_matches_the_golden_fixture_and_acpmux() {
 }
 
 /// A deadline with a whole budget left.
-fn soon() -> std::time::Instant {
-    std::time::Instant::now() + std::time::Duration::from_secs(60)
+fn soon() -> Instant {
+    Instant::now() + Duration::from_secs(60)
 }
 
 /// `_acpmux/info` of a Chief owner subagent `raw` of home `1234abcd`, holding one prompt.
@@ -173,8 +173,14 @@ fn a_non_owner_socket_is_skipped_and_the_owner_socket_decides() {
     let q = question(Some("perm_1"));
     let sockets = [PathBuf::from("/other"), PathBuf::from("/owner")];
     let mut asked = Vec::new();
-    let decided =
-        decide_over(&q, &answer(), "sess_mux", &sockets, Some("1234abcd"), |socket, session| {
+    let decided = decide_over(
+        &q,
+        &answer(),
+        "sess_mux",
+        &sockets,
+        Some("1234abcd"),
+        soon(),
+        |socket, session, _| {
             asked.push((socket.to_owned(), session.to_owned()));
             if socket == Path::new("/other") {
                 let mut info = owned_info("sess_mux", "perm_1");
@@ -182,8 +188,9 @@ fn a_non_owner_socket_is_skipped_and_the_owner_socket_decides() {
                 return Ok(info);
             }
             Ok(owned_info("sess_mux", "perm_1"))
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     assert_eq!(decided["permission"], "perm_1");
     assert_eq!(asked.len(), 2);
     assert!(asked.iter().all(|(_, session)| session == "sess_mux"));
@@ -219,8 +226,9 @@ fn a_socket_must_hold_the_exact_local_session() {
         Ok(json!({"sessionId": "sess_mux", "pending": [entry("perm_1")]}))
     });
     assert_eq!(unrouted.unwrap()["permission"], "perm_1");
-    let gone =
-        decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| Err("question.agent_gone"));
+    let gone = decide_over(&q, &answer(), "sess_mux", &sockets, None, soon(), |_, _, _| {
+        Err("question.agent_gone")
+    });
     assert_eq!(code(gone), "question.agent_gone");
 }
 
@@ -311,7 +319,7 @@ fn the_displayed_question_must_be_the_stored_one() {
     let mut other_option = shown.clone();
     other_option["items"][0]["options"][0]["label"] = json!("Yep");
     assert_eq!(stale(Some(&other_option), true), "question.stale");
-    let mut closed = shown.clone();
+    let mut closed = shown;
     closed["state"] = json!({"kind": "cancelled"});
     assert_eq!(stale(Some(&closed), true), "question.stale");
     assert_eq!(stale(Some(&json!("not a question")), true), "question.stale");
