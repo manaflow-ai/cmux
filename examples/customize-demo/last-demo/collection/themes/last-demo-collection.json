@@ -1,0 +1,57 @@
+// Neon arcade: the collection's look, redone. Van Gogh's Starry Night under violet glass, a hot
+// magenta accent with cyan and lime tones, card sections, and blocky but not boxy corners.
+// Edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Neon Arcade",
+  "description": "Starry Night under violet glass; hot magenta, cyan and lime.",
+
+  "appearance.theme": "Synthwave",
+  "colors": {
+    "background": "#150f24",
+    "foreground": "#f4ecff",
+    "cursor": "#ff5fd2",
+    "selection": "#7e6ba4",
+    "accent": "#ff5fd2",
+    "1": "#ff5c7a",
+    "2": "#8cff9e",
+    "3": "#ffd166",
+    "4": "#5ce1ff",
+    "5": "#ff5fd2",
+    "6": "#5ce1ff"
+  },
+  "appearance.accent": "theme",
+
+  "appearance.background": "van-gogh-starry-night",
+  "appearance.backgroundOpacity": 0.74,
+  "appearance.backgroundBlur": "glass",
+  "appearance.glassTransparency": 0.4,
+
+  "appearance.chromeStyle": "floating",
+  "appearance.borders": "none",
+  "appearance.titleAreaTone": "subtleTone",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0f0a1b",
+  "appearance.surfaces.sidebar.opacity": 0.72,
+  "sidebar.sectionLook": "card",
+
+  "appearance.surfaces.terminal.color": "#150f24",
+  "appearance.surfaces.terminal.opacity": 0.86,
+  "appearance.surfaces.agentPane.color": "#150f24",
+  "appearance.surfaces.agentPane.opacity": 0.88,
+  "appearance.surfaces.newTabPage.color": "#150f24",
+  "appearance.surfaces.newTabPage.opacity": 0.45,
+
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.color": "#ff5fd2",
+
+  // Arcade blocks, softened: small radii everywhere, a tight strip, a narrower sidebar.
+  "appearance.density": "compact",
+
+  "ui.animationSpeed": "fast",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): arcade blocks: square 2 pt tabs and rows, a tight strip, a narrower 260 pt sidebar.
+  "density": { "basedOn": "compact", "tokens": {"tabCornerRadius": 2, "tabCloseCornerRadius": 2, "verticalTabCornerRadius": 2, "sidebarCornerRadius": 2, "itemCornerRadius": 2, "tabGap": 3, "sidebarRowGap": 2, "sidebarWidth": 260 } },
+  "window.titlebarButtons": "always",
+  "agentPane.display.sessionInfo.placement": "overlay"
+}

@@ -26,6 +26,12 @@ fn healthy() -> Facts {
         binary: Binary::Ok("/home/u/.local/bin/acpmux".into()),
         service: Service::Active { linger: Some(true) },
         daemon_running: true,
+        daemon_binary: DaemonBinary {
+            path: Some("/home/u/.local/bin/acpmux".into()),
+            build: Some("9d9419a91".into()),
+            version: Some("1.0.0".into()),
+        },
+        path_binary: None,
         capabilities: Some(vec!["machine.join.stdin.v1".into(), CONSENT_GATE.into()]),
         status: Status::Json(status(json!({}))),
     }
@@ -45,7 +51,17 @@ fn a_healthy_join_is_all_ok_in_order() {
     let names: Vec<&str> = checked.iter().map(|s| s.step).collect();
     assert_eq!(
         names,
-        ["binary", "service", "daemon", "credential", "revoked", "hub", "heartbeat", "consent"]
+        [
+            "binary",
+            "service",
+            "daemon",
+            "credential",
+            "team",
+            "revoked",
+            "hub",
+            "heartbeat",
+            "consent"
+        ]
     );
     assert!(checked.iter().all(|s| s.state == StepState::Ok), "{checked:?}");
     assert_eq!(step(&checked, "credential").detail, "joined as m_1");
@@ -53,6 +69,77 @@ fn a_healthy_join_is_all_ok_in_order() {
     assert!(
         step(&checked, "consent").detail.starts_with("screen sharing off, control off; to allow")
     );
+}
+
+const APP: &str = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+const ON_PATH: &str = "/Users/x/.local/bin/acpmux";
+
+#[test]
+fn app_daemon_and_stale_path_copy_have_distinct_steps() {
+    let daemon = DaemonBinary::from_status(
+        &json!({"exe": APP, "pid": 41, "build": "9d9419a91", "version": "1.0.0"}),
+        |_| panic!("the daemon reported its executable"),
+    );
+    for stale in ["a1143d5cc", "75d22c950"] {
+        let facts = Facts {
+            linux: false,
+            daemon_binary: daemon.clone(),
+            path_binary: Some((ON_PATH.into(), stale.into())),
+            service: Service::AppManaged,
+            ..healthy()
+        };
+        let checked = steps(&facts, NOW);
+        assert_eq!(step(&checked, "binary").detail, format!("running daemon at {APP} (9d9419a91)"));
+        let warnings: Vec<_> = checked.iter().filter(|s| s.state == StepState::Warn).collect();
+        assert_eq!(warnings.len(), 1);
+        let warn = warnings[0];
+        for expected in [APP, ON_PATH, "9d9419a91", stale] {
+            assert!(warn.detail.contains(expected), "{}", warn.detail);
+        }
+        assert_eq!(warn.fix, Some(format!("Remove or update the stale acpmux at {ON_PATH}")));
+        let service = step(&checked, "service");
+        assert_eq!(service.state, StepState::Ok);
+        assert_eq!(service.detail, "the cmux app runs the daemon");
+        assert!(service.fix.is_none());
+    }
+}
+
+#[test]
+fn only_a_different_path_with_a_known_different_build_warns() {
+    let daemon = healthy().daemon_binary;
+    let same_path = daemon.path.clone().unwrap();
+    assert!(path_warning(&daemon, None).is_none());
+    assert!(path_warning(&daemon, Some(&(same_path, "older".into()))).is_none());
+    let copy = (PathBuf::from(ON_PATH), "9d9419a91".to_owned());
+    assert!(path_warning(&daemon, Some(&copy)).is_none());
+    let unknown = DaemonBinary { build: None, ..daemon };
+    assert!(path_warning(&unknown, Some(&copy)).is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_replaced_running_executable_is_still_the_same_install_path() {
+    let daemon = DaemonBinary::from_status(
+        &json!({"exe": "/bin/acpmux (deleted)", "build": "before-update"}),
+        |_| unreachable!(),
+    );
+    assert_eq!(daemon.path.as_deref(), Some(Path::new("/bin/acpmux")));
+    let installed = (PathBuf::from("/bin/acpmux"), "after-update".to_owned());
+    assert!(path_warning(&daemon, Some(&installed)).is_none());
+}
+
+#[test]
+fn older_daemon_uses_its_pid_and_keeps_its_own_version() {
+    let daemon =
+        DaemonBinary::from_status(&json!({"exe": null, "pid": 41, "version": "0.9.0"}), |pid| {
+            assert_eq!(pid, 41);
+            Some(APP.into())
+        });
+    let facts = Facts { daemon_binary: daemon, ..healthy() };
+    assert_eq!(binary_step(&facts).detail, format!("running daemon at {APP} (0.9.0)"));
+    let unknown = Facts { daemon_binary: DaemonBinary::default(), ..facts };
+    assert_eq!(binary_step(&unknown).state, StepState::Warn);
+    assert!(!binary_step(&unknown).detail.contains(".local/bin"));
 }
 
 #[test]
@@ -64,9 +151,55 @@ fn a_fresh_home_with_no_credential_fails_credential_with_the_machine_add_fix() {
         credential.fix.as_deref(),
         Some("Make a new line on your Mac: cmux machine add, and paste it here")
     );
-    for later in ["revoked", "hub", "heartbeat"] {
+    for later in ["team", "revoked", "hub", "heartbeat"] {
         assert_eq!(step(&checked, later).state, StepState::Skip, "{later}");
     }
+}
+
+/// The user of the live report (cmux16, 2026-11-22): its personal team, as the hub derives it.
+const USER: &str = "user_5921af13aa39138f191d";
+const PERSONAL: &str = "team_760c83ddd31c6360c927";
+
+#[test]
+fn the_personal_team_id_is_the_hubs() {
+    assert_eq!(personal_team_of(USER), PERSONAL);
+}
+
+#[test]
+fn a_join_in_the_personal_team_says_so() {
+    let checked = with_status(json!({"teamId": PERSONAL, "userId": USER}));
+    let team = step(&checked, "team");
+    assert_eq!(team.state, StepState::Ok);
+    assert_eq!(team.detail, format!("joined in your personal team {PERSONAL} as {USER}"));
+    assert_eq!(team.data.as_ref().unwrap()["personalTeam"], PERSONAL);
+}
+
+/// A join in a shared team heartbeats and reads healthy everywhere else, yet the person's
+/// personal-team machines get `machine.not_found` for a ticket to it and its vault pull is
+/// `vault.forbidden`: the step warns with both codes and how to move it.
+#[test]
+fn a_join_outside_the_personal_team_warns_with_the_codes_and_the_move() {
+    let shared = "team_a104498f37e7f4a3327d";
+    let checked = with_status(json!({"teamId": shared, "userId": USER}));
+    let team = step(&checked, "team");
+    assert_eq!(team.state, StepState::Warn);
+    assert!(team.detail.contains(shared) && team.detail.contains(PERSONAL), "{}", team.detail);
+    assert!(team.detail.contains("machine.not_found"), "{}", team.detail);
+    assert!(team.detail.contains("vault.forbidden"), "{}", team.detail);
+    let fix = team.fix.as_deref().unwrap();
+    assert!(fix.contains("acpmux machine leave") && fix.contains("personal team"), "{fix}");
+    assert_eq!(team.data.as_ref().unwrap()["teamId"], shared);
+    // A warning, never a failed join: a shared team may be the one meant.
+    assert!(team.healthy());
+}
+
+#[test]
+fn a_join_that_names_no_account_reports_its_team_only() {
+    let team = step(&with_status(json!({"teamId": "team_1", "userId": null})), "team").clone();
+    assert_eq!(team.state, StepState::Ok);
+    assert!(team.detail.starts_with("joined in team team_1;"), "{}", team.detail);
+    let team = step(&with_status(json!({"teamId": null})), "team").clone();
+    assert_eq!(team.state, StepState::Skip);
 }
 
 #[test]
@@ -118,6 +251,7 @@ fn missing_optional_status_fields_skip_instead_of_failing() {
     // No hub origin: the fixes name the development platform.
     let checked = steps(
         &Facts {
+            daemon_running: false,
             binary: Binary::Missing("/h/.local/bin/acpmux".into()),
             status: Status::NotRun,
             ..healthy()
@@ -219,7 +353,9 @@ fn the_output_parses_as_host_step_lines_then_a_report() {
     let lines: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), checked.len() + 1);
     for line in &lines[..checked.len()] {
-        let mut keys: Vec<&str> = line.as_object().unwrap().keys().map(String::as_str).collect();
+        // `data` is optional structured readiness data (the agents and team steps).
+        let mut keys: Vec<&str> =
+            line.as_object().unwrap().keys().map(String::as_str).filter(|k| *k != "data").collect();
         keys.sort_unstable();
         assert_eq!(keys, ["detail", "fix", "state", "step"]);
         assert!(matches!(line["state"].as_str(), Some("ok" | "fixed" | "fail" | "warn" | "skip")));

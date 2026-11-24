@@ -1,4 +1,5 @@
 import AppKit
+public import Foundation
 public import CmuxNextDesign
 
 /// Restart to Update (cx-ncc.45 S1): what the old windows do when Sparkle
@@ -38,9 +39,29 @@ public final class UpdateWindowHandoff {
 
     private var hidden: [Hidden] = []
     private let unsaved: QuitUnsavedRegistry
+    /// The windows' pictures, when they stay on screen across the relaunch: the windows leave only once the
+    /// pictures are up over them, so no frame shows neither.
+    private let afterimage: RelaunchAfterimage?
 
-    public init(unsaved: QuitUnsavedRegistry) {
+    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil) {
         self.unsaved = unsaved
+        afterimage = stateDirectory.map { RelaunchAfterimage(stateDirectory: $0) }
+    }
+
+    /// Installs the updater's hooks: the windows leave as Sparkle commits to the relaunch, not at the click; a failed
+    /// install brings them back. The quit waits for the pictures (``UpdaterService/afterimage``).
+    public func attach(to updater: UpdaterService) {
+        // The updater keeps this handoff (it holds nothing of the updater's).
+        updater.hidesForRelaunch = { _ = self.hide() }
+        updater.installAbandoned = { self.restore() }
+        updater.afterimage = afterimage
+    }
+
+    /// A relaunch is decided (every path: ``UpdaterService/willRelaunch``): the windows are pictured for the afterimage,
+    /// unless the quit will ask about unsaved documents (that sheet stays in view).
+    public func relaunchDecided() {
+        guard unsaved.unsaved().isEmpty else { return }
+        afterimage?.begin(activates: NSApp.isActive)
     }
 
     /// Hides every visible window; false when it did not (unsaved documents).
@@ -48,9 +69,10 @@ public final class UpdateWindowHandoff {
     public func hide() -> Bool {
         guard hidden.isEmpty, unsaved.unsaved().isEmpty else { return false }
         hidden = NSApp.windows.filter(\.isVisible).map { Hidden(window: $0, alpha: $0.alphaValue, ignoresMouse: $0.ignoresMouseEvents) }
-        for entry in hidden {
-            if Self.mode == .hide { entry.window?.alphaValue = 0 }
-            entry.window?.ignoresMouseEvents = true
+        for entry in hidden { entry.window?.ignoresMouseEvents = true }
+        if Self.mode == .hide {
+            // With pictures coming, the windows wait for them (about 100 to 250 ms, the quit's saves run meanwhile).
+            if let afterimage, afterimage.isActive { afterimage.whenShown { [weak self] in self?.leaveScreen() } } else { leaveScreen() }
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("windows_\(Self.mode == .hide ? "hidden" : "frozen").\(hidden.count)")
@@ -58,8 +80,13 @@ public final class UpdateWindowHandoff {
         return true
     }
 
+    private func leaveScreen() {
+        for entry in hidden { entry.window?.alphaValue = 0 }
+    }
+
     /// Brings the hidden windows back as they were.
     public func restore() {
+        afterimage?.cancel()
         for entry in hidden {
             entry.window?.alphaValue = entry.alpha
             entry.window?.ignoresMouseEvents = entry.ignoresMouse

@@ -132,6 +132,78 @@ import Testing
         #expect(overlay.diagnostics.map(\.path) == ["sidebar.showChats"])
     }
 
+    /// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
+    /// session info and the top right buttons as well". A theme sets the toolbar's buttons, Session Info, the
+    /// sidebar's buttons and pane corners, not only colors.
+    @Test func aThemeFileSetsTheTopRightButtonsSessionInfoAndSidebarButtons() {
+        let overlay = Self.overlay(#"""
+        { "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false,
+          "agentPane.display.sessionInfo.placement": "overlay", "agentPane.display.font.size": 12, "layout.paneCornerRadius": 2 }
+        """#)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.values.map { $0.path.joined(separator: ".") } == [
+            "agentPane.display.font.size", "agentPane.display.sessionInfo.placement", "layout.paneCornerRadius",
+            "sidebar.showSearchButton", "tabs.toolbarButtons", "window.titlebarButtons",
+        ])
+    }
+
+    /// A theme's own density shapes its tabs (the blockiness of horizontal and sidebar tabs) and sizes the
+    /// sidebar: a built-in with the playground's tokens over it, clamped, with unknown tokens refused.
+    @Test func aThemeFileCarriesItsOwnDensity() throws {
+        let overlay = Self.overlay(#"""
+        { "name": "Arcade", "appearance.density": "compact",
+          "density": { "tokens": { "tabCornerRadius": 2, "sidebarCornerRadius": 99, "sidebarWidth": 250, "nope": 1 }, "spacing": 0.9 } }
+        """#)
+        let density = try #require(overlay.density)
+        #expect(density.id == "theme-arcade")
+        #expect(density.name == "Arcade")
+        #expect(density.basedOn == "compact")
+        #expect(density.tokens["tabCornerRadius"] == 2)
+        #expect(density.tokens["sidebarCornerRadius"] == 20)
+        #expect(density.tokens["sidebarWidth"] == 250)
+        #expect(density.tokens["nope"] == nil)
+        #expect(abs(density.spacing - 0.9) < 0.0001)
+        #expect(overlay.diagnostics.map(\.path) == ["density.tokens.nope"])
+        // The rest of compact's tokens stay: only what the file names changes.
+        #expect(density.tokens["sidebarRowHeight"] == DensityPreset.compact.tokens.tokens["sidebarRowHeight"])
+        #expect(Self.overlay(#"{ "density": { "basedOn": "huge" } }"#).density == nil)
+        #expect(Self.overlay(#"{ "density": { "basedOn": "huge" } }"#).diagnostics.map(\.path) == ["density.basedOn"])
+        // A managed density keeps the theme's from applying.
+        #expect(overlay.density(under: ["appearance.density"]) == nil)
+        #expect(overlay.density(under: ["appearance.accent"]) == density)
+    }
+
+    /// The loaded file's density is the one in use, over cmux-next.json's; its row says the theme file sets it.
+    @Test func theActiveFilesDensityIsTheOneInUse() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "name": "Blocky", "density": { "basedOn": "cozy", "tokens": { "tabCornerRadius": 0 } } }"#, theme: "blocky")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "density": "spacious", "themeFile": "blocky" } }"#)
+        await settings.reload()
+        #expect(settings.snapshot.selectedDensity.id == "theme-blocky")
+        #expect(settings.snapshot.selectedDensity.tokens["tabCornerRadius"] == 0)
+        let note = try #require(settings.diagnostics.first { $0.path == "appearance.density" })
+        #expect(note.kind == .setByThemeFile)
+        // Previewing a density row shows that density over the file's.
+        let row = try #require(SettingsSchema.descriptor(for: DensitySetting.configPath))
+        #expect(settings.preview(row, "compact"))
+        #expect(settings.applied.selectedDensity.id == "compact")
+        settings.endPreview()
+        #expect(settings.applied.selectedDensity.id == "theme-blocky")
+    }
+
+    /// A density the person chose over the file (an exception, #44894) applies instead of the file's own.
+    @Test func thePersonsOwnDensityOverTheFileWins() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "density": { "tokens": { "tabCornerRadius": 0 } } }"#, theme: "blocky")
+        let settings = try Self.controller(home, config: #"""
+        { "appearance": { "density": "spacious", "themeFile": "blocky", "themeFileExceptions": ["appearance.density"] } }
+        """#)
+        await settings.reload()
+        #expect(settings.snapshot.selectedDensity.id == "spacious")
+    }
+
     /// A picture beside the theme file travels with it: a relative path resolves against the themes
     /// folder, `~` against home, and an absolute one is kept.
     @Test func aRelativePictureResolvesAgainstTheThemesFolder() {
@@ -156,7 +228,7 @@ import Testing
         let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
         let home = try Home()
         let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
-        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] { #expect(names.contains(look), "\(look)") }
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond"] { #expect(names.contains(look), "\(look)") }
         for name in names {
             let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
             let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)

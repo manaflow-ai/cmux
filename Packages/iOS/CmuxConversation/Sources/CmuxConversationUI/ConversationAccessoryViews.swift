@@ -131,14 +131,6 @@ enum TapbackGlyph {
         }
     }
 
-    nonisolated private static let chatKit: Bundle? = {
-        var path = "/System/Library/PrivateFrameworks/ChatKit.framework"
-        #if targetEnvironment(simulator)
-        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { path = root + path }
-        #endif
-        return Bundle(path: path)
-    }()
-
     /// ChatKit's HA HA comes per script; Japanese gets its own, others English.
     nonisolated private static var hahaVariant: String {
         let language = Locale.preferredLanguages.first.map { Locale(identifier: $0).language.languageCode?.identifier ?? "" } ?? ""
@@ -170,7 +162,7 @@ enum TapbackGlyph {
     }
 
     nonisolated static func chatKitImage(for reaction: ConversationReaction) -> UIImage? {
-        guard let chatKit, let name = chatKitImageName(for: reaction) else { return nil }
+        guard let chatKit = ConversationSystemArt.bundle, let name = chatKitImageName(for: reaction) else { return nil }
         return UIImage(named: name, in: chatKit, compatibleWith: nil)
     }
 
