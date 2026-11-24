@@ -58,6 +58,12 @@ const PING_EVERY: Duration = Duration::from_secs(20);
 const SILENT_FOR: Duration = Duration::from_secs(70);
 /// Calls this gateway takes at once (equal to the API's cap per team); one more is answered busy.
 const MAX_CALLS: usize = 256;
+/// Of [`MAX_CALLS`], the calls only an interactive one may take (`x-subrouter-priority: interactive`:
+/// the person's chats and coordinators, acpmux `subrouter_priority.rs`): background calls (lanes,
+/// helpers, subagents) reach the limit first, so Leo can still talk to his chats under load.
+const INTERACTIVE_RESERVE: usize = MAX_CALLS / 4;
+/// The request header naming a call's priority; sent upstream too, so the subrouter reserves the same.
+const PRIORITY_HEADER: &str = "x-subrouter-priority";
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
 // timeout: a WebSocket upgrade that never completes fails the connect.
@@ -95,6 +101,7 @@ const PASS_HEADERS: &[&str] = &[
     "user-agent",
     "anthropic-version",
     "anthropic-beta",
+    PRIORITY_HEADER,
 ];
 /// Answer headers sent back; the backend keeps an allowlist of its own.
 const ANSWER_HEADERS: &[&str] = &[
@@ -412,7 +419,9 @@ fn run(options: Options) -> i32 {
         // main.rs's handler takes SIGTERM, SIGINT and SIGHUP for the whole process, so the gateway must look for
         // them itself; one that did not waited out systemd's 90 s stop timeout and lost its calls to the SIGKILL.
         let (asked, stop) = watch::channel(false);
-        tokio::spawn(async move {
+        // The watcher's owner: closed once the gateway's code is known, so the watcher ends with the gateway.
+        let signals = cmux_scope::Scope::new("inference gateway");
+        signals.spawn_until_cancelled("inference gateway stop signal", async move {
             // An error is a process with no handler to hear one (a test): nothing can ask it to stop.
             if crate::wait_for_shutdown_signal_async().await.is_ok() {
                 let _ = asked.send(true);
@@ -433,14 +442,18 @@ fn run(options: Options) -> i32 {
                 }
             }
         };
-        if !supervised {
-            return serving.await;
-        }
-        // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
-        tokio::select! {
-            code = serving => code,
-            () = super::inference_gateway_mac::stdin_closed() => 0,
-        }
+        let code = if supervised {
+            // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
+            tokio::select! {
+                code = serving => code,
+                () = super::inference_gateway_mac::stdin_closed() => 0,
+            }
+        } else {
+            serving.await
+        };
+        // The watcher only waits for a signal, so its cancellation ends it at once.
+        let _ = signals.close(Duration::from_secs(1)).await;
+        code
     });
     // A stdin read still blocked (the gateway ended first) must not hold the exit: the app restarts it.
     runtime.shutdown_background();
@@ -586,7 +599,7 @@ async fn stopping(stop: &mut watch::Receiver<bool>) {
 }
 
 async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("cmux-inference-gateway/", env!("CARGO_PKG_VERSION")))
@@ -725,7 +738,12 @@ async fn session(
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::inference_gateway",
+    );
     let connect = tokio::select! {
         connect = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect) => connect,
         () = stopping(&mut stop) => return Ended::Shutdown,
@@ -849,16 +867,7 @@ async fn session(
                     send(&tx, &restarting(&id)).await;
                     continue;
                 }
-                if pending.len() + running.len() >= MAX_CALLS {
-                    let busy = error_frame(
-                        &id,
-                        "inference.gateway_busy",
-                        "the gateway is at its call limit; retry",
-                    );
-                    send(&tx, &busy).await;
-                    continue;
-                }
-                let headers = frame
+                let headers: Vec<(String, String)> = frame
                     .get("headers")
                     .and_then(Value::as_object)
                     .map(|h| {
@@ -869,6 +878,15 @@ async fn session(
                             .collect()
                     })
                     .unwrap_or_default();
+                if !admits(pending.len() + running.len(), &headers) {
+                    let busy = error_frame(
+                        &id,
+                        "inference.gateway_busy",
+                        "the gateway is at its call limit; retry",
+                    );
+                    send(&tx, &busy).await;
+                    continue;
+                }
                 pending.insert(
                     id,
                     Pending {
@@ -949,6 +967,15 @@ async fn session(
 }
 
 /// Queues a frame for the socket, waiting while the queue is full; a closed socket drops it.
+/// Whether a call with `headers` (lowercase names) is taken while `in_flight` calls run: an interactive
+/// one up to [`MAX_CALLS`], any other up to [`MAX_CALLS`] less [`INTERACTIVE_RESERVE`].
+fn admits(in_flight: usize, headers: &[(String, String)]) -> bool {
+    let interactive = headers
+        .iter()
+        .any(|(k, v)| k == PRIORITY_HEADER && v.trim().eq_ignore_ascii_case("interactive"));
+    in_flight < if interactive { MAX_CALLS } else { MAX_CALLS - INTERACTIVE_RESERVE }
+}
+
 async fn send(tx: &mpsc::Sender<String>, frame: &Value) {
     let _ = tx.send(frame.to_string()).await;
 }

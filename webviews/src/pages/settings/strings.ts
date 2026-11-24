@@ -71,8 +71,15 @@ export function locale(): string {
 /** A page string by key; `%@` placeholders take `args` in order. */
 export function t(key: string, ...args: Array<string | number>): string {
   let text = current[key] ?? catalogNow().en?.[key] ?? key;
+  // Positional `%1$@` first (a translation may reorder them), then plain `%@` in order.
+  text = text.replace(/%(\d+)\$@/g, (whole, n) => (Number(n) <= args.length ? String(args[Number(n) - 1]) : whole));
   for (const arg of args) text = text.replace("%@", String(arg));
   return text;
+}
+
+/** A page string by key in English, whatever the page's language (search matches both). */
+export function english(key: string): string {
+  return catalogNow().en?.[key] ?? key;
 }
 
 /** A schema string: its catalog key when it has one, else the English text (proper names). */

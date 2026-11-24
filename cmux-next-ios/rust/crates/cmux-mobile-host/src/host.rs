@@ -90,6 +90,27 @@ impl IceOrigin {
 }
 
 impl IceSource {
+    /// cmux's WebSocket relay for an answer of `device_id` (PROTOCOL.md
+    /// "WebSocket relay"): on the backend this source asks for ICE servers,
+    /// with a current access token at each join. `None` for fixed servers
+    /// (tests, tools) and when `CMUX_MOBILE_RELAY=0` turns it off.
+    pub fn relay(&self, device_id: &str) -> Option<cmux_mobile_link::dial::relay::RelayEndpoint> {
+        let Self::Api { base_url, build_space, tokens, .. } = self else { return None };
+        if std::env::var("CMUX_MOBILE_RELAY").is_ok_and(|value| value == "0") {
+            return None;
+        }
+        let tokens = Arc::clone(tokens);
+        Some(cmux_mobile_link::dial::relay::RelayEndpoint::new(
+            base_url.clone(),
+            build_space.clone(),
+            device_id,
+            move || {
+                let tokens = Arc::clone(&tokens);
+                Box::pin(async move { tokens.access_token().await.ok() })
+            },
+        ))
+    }
+
     pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
         Self::Api {
             base_url,
@@ -257,6 +278,9 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         None
     };
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // Phones beside this Mac link through its local hub with no Worker and
+    // no internet (local_link.rs); it outlives every Worker reconnect.
+    let _local_link = crate::local_link::start(&config, &services, &mailbox).await;
     // This Mac reaching the person's other machines through the same warm
     // socket (`link_socket.rs`); only with the app, which holds the identity key.
     let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
@@ -272,6 +296,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             identity: pairing.identity.clone(),
             activity: Arc::clone(&pairing.activity),
             links: Default::default(),
+            pairing: Some(pairing.clone()),
         });
         let path = crate::link_socket::socket_path(&services.daemon_socket());
         AbortTask(tokio::spawn(async move {
@@ -643,6 +668,8 @@ async fn answer_session(
         session_id: first.session_id.clone(),
         video: None,
         session_exposure: context.session_exposure.clone(),
+        route: None,
+        path: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
@@ -653,6 +680,7 @@ async fn answer_session(
     timeline.mark(origin.mark());
     let options = DialOptions {
         ice_servers,
+        relay: context.ice.relay(signaling.device_id()),
         include_loopback: context.include_loopback,
         exclude_cgnat: context.exclude_cgnat,
         timeline: timeline.clone(),
@@ -678,6 +706,9 @@ async fn answer_session(
         }
     };
     let path = *connected.path.borrow();
+    peer.route =
+        Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
+    peer.path = Some(connected.path.clone());
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
@@ -702,7 +733,25 @@ async fn answer_session(
             });
         }
     });
-    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    // Path and srtt on every path change and every 10 s (path_report.rs): a
+    // relay link, its resets and its round trip, readable from this log.
+    let report_session = session_id.clone();
+    let path_report = tokio::spawn(cmux_mobile_link::path_report::run(
+        connected.path.clone(),
+        connected.link.rtt(),
+        move |line| {
+            tracing::info!(
+                session_id = report_session,
+                path = ?line.path,
+                srtt_ms = ?line.srtt_ms(),
+                rtt_ms = ?line.rtt_ms(),
+                changes = line.changes,
+                reason = ?line.reason,
+                "link path rtt"
+            );
+        },
+    ));
+    let auth = Arc::new(crate::pairing::LinkAuth::with_tunnel_keys(connected.tunnel_keys.clone()));
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
         (Some(video), true) => Some(crate::media_session::register(
@@ -756,6 +805,7 @@ async fn answer_session(
     }
     let reason = connected.link.closed().await;
     path_watch.abort();
+    path_report.abort();
     drop_watch.abort();
     tracing::info!(session_id, reason, "link down");
     control::emit(&Event::PhoneDown { session_id, reason });

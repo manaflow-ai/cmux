@@ -9,10 +9,13 @@ import { systemPrompt } from "../chief-brain/prompts.ts"
 import { isClaude, OPUS } from "../model-gateway/routes.ts"
 import { netScript, patchNet, readNet } from "./net.ts"
 import { legacyOf, sandboxesOf } from "./sandbox.ts"
+import { ownerComputerEntitled } from "./sandbox-plan.ts"
+import { PRICING_URL } from "../plan-checkout.ts"
 import { CHIEF_VM_MJS } from "./chief-vm-source.ts"
 import { stageAttachments } from "./attachments.ts"
 import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { githubLine, githubOf } from "./github.ts"
+import { withTurnChecks } from "./turn-checks.ts"
 import { wakeCall } from "./wake.ts"
 import { autoCall } from "./jobs.ts"
 import { memoryCall } from "./memory-tools.ts"
@@ -50,7 +53,30 @@ const POLL_MS = 15_000
 const START_RETRY_MS = [2_000, 8_000]
 
 /** The route's part of the system prompt, with the turn's time. */
-export const ccAddendum = (minutes: number): string => `## This route
+/** The Computer part of the route's addendum for an owner whose plan gives a Chief's own computer (sandbox-plan.ts COMPUTER_PLANS). */
+export const COMPUTER_ON = `Computer: when the person asks you to turn on or use your computer, or a task needs a screen (a site to use like a person, a GUI app, a page to check by eye), work on your
+own computer: \`chief-vm computer setup ID\` gives one of your sandboxes a desktop (once, a few minutes) and makes it
+your computer, which the person watches live in your profile as your Computer. Then \`chief-vm computer open ID URL\`,
+\`click ID X Y [--double|--right]\`, \`type ID TEXT\`, \`key ID ctrl+l Return\`, \`scroll ID X Y down 5\`, \`drag ...\`,
+\`screenshot ID\`, \`windows ID\`: each action prints the path of the screen after it (1280x800, pixels from the top left);
+Read it before the next step, and act on what it shows. Keep one computer; it pauses when idle like any sandbox. The
+person can take it over; then your actions on it, screenshot and windows too (and exec, fs writes, stop, pause, delete,
+fork of it) are refused until they hand it back or stay idle 10 min (look again first). The check is when an action starts: one already running
+may finish after they take over. When a step needs them (a sign-in, a payment, a CAPTCHA), \`chief-vm computer
+request-human ID "what to do"\` and tell them in chat; \`chief-vm computer hand-back ID\` ends that request early.`
+
+/**
+ * The Computer part for any other owner: the computer is off and Chief does not bring it up; only a task that cannot be done
+ * without a screen gets one line with the pricing page, so the upsell is never intrusive. Everything else works as usual:
+ * a Chief's turns need no plan.
+ */
+export const COMPUTER_OFF = `Computer: you have no computer of your own: it needs cmux NEXT Plus, Pro or Max, and the person's plan
+has none. Do not offer it, mention it or suggest upgrading. Do every task you can without a screen (exec, fetch, an API,
+a sandbox). Only when the person asks for something that truly cannot be done without a screen (a site to use like a
+person, a GUI app), say in one short line that this needs a Chief computer, part of cmux NEXT Plus, Pro or Max, with the
+link ${PRICING_URL}, once in this conversation; then do the part you can.`
+
+export const ccAddendum = (minutes: number, computer = true): string => `## This route
 You have ${minutes} minutes for this turn; then the machine stops and what you wrote so far is posted. For longer
 work, start it elsewhere (\`chief-agents spawn\`, or a sandbox with \`chief-vm\`) and answer with what you started
 and how to follow it; check on it in a later turn.
@@ -82,6 +108,7 @@ many you may keep). New ones are Ubuntu 24.04 on a 16 GB disk with 4 vCPU / 8 Gi
 machine image with its tools, 32 GB); \`chief-vm resize ID --cpu 8 --memory-gb 16 --disk-gb 64\` grows one (grow
 only, the filesystem too) and \`create\` takes the same flags; list, get, create and resize show the size and cost
 per hour. \`exec ID [--user root|chief] [--env K=V] [--stdin FILE] -- COMMAND\`.
+${computer ? COMPUTER_ON : COMPUTER_OFF}
 Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, and the tailnet; private
 addresses and other local ports are closed. \`chief-net show\`, \`chief-net set internet=on|off dns=on|off
 tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`
@@ -264,7 +291,7 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
       // files are asked for while the machine is made (each was a serial round trip on the first-token path). A failure surfaces where the
       // value is used; the catch only keeps a rejection that lands before then from being unhandled.
       const keyP = mintTailnetKey(env)
-      const prepP = Promise.all([notesToken(env, agent, conversation, id), githubOf(env, agent).ccGithubTurn(agent), toolsOf(env, agent).ccToolFiles()])
+      const prepP = Promise.all([notesToken(env, agent, conversation, id), githubOf(env, agent).ccGithubTurn(agent), toolsOf(env, agent).ccToolFiles(), ownerComputerEntitled(b, cfg.owner ?? null)])
       keyP.catch(() => undefined)
       prepP.catch(() => undefined)
       vm = await createVm(env, name, { agent, owner: cfg.owner, conversation, run: id })
@@ -286,14 +313,14 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
       mark("vm_ready")
       if (staged.written > 0) mark("attachments")
       const missingNote = staged.missing.length > 0 ? `\n\n[attachment files not available in this turn: ${staged.missing.map((m) => `${m.path} (${m.why})`).join("; ")}]` : ""
-      const [token, github, toolFiles] = await prepP
+      const [token, github, toolFiles, computer] = await prepP
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
       const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/+$/, "")
       const input = {
         notes_url: `${origin}/v1/chief-cc/${agent}/${conversation}/notes`,
         token,
         model: isClaude(model) ? model : OPUS,
-        system: clipBytes(`${systemPrompt(cfg)}\n\n${ccAddendum(RUN_MS / 60_000)}\n${githubLine(github.status)}`, SYSTEM_BYTES),
+        system: clipBytes(`${systemPrompt(cfg)}\n\n${ccAddendum(RUN_MS / 60_000, computer)}\n${githubLine(github.status)}`, SYSTEM_BYTES),
         prompt: "",
         max_ms: RUN_MS,
         net,
@@ -303,7 +330,8 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
         files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), toolFiles),
         github_token: github.token ?? env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
-      input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
+      // The turn checks end the prompt (turn-checks.ts): `tail` keeps the end, so a clipped input still carries them.
+      input.prompt = tail(withTurnChecks(blocks.join("\n\n") + missingNote), STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
       const begun = await execRoot(env, vm, `/opt/chief-cc/start.sh ${id}`, enc.encode(JSON.stringify(input)), 30_000)
       if (begun.exit !== 0) throw new CcError(`the turn did not start (exit ${begun.exit})`)
       b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)

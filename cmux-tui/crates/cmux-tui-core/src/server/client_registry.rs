@@ -368,6 +368,8 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    /// Agent tickets and the agent share's auto-off (remote_host/agent_share.rs).
+    pub(crate) remote_agents: Arc<crate::remote_host::agent_share::AgentShare>,
     /// The Linux and Windows Computer Use worker (computer_use_host.rs).
     pub(crate) computer_use: crate::computer_use_host::ComputerUseHost,
     pub(super) app_trust: app_trust::AppTrust,
@@ -449,6 +451,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             remote_host: Default::default(),
+            remote_agents: Default::default(),
             computer_use: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
@@ -762,12 +765,14 @@ impl ClientRegistry {
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == super::TERMINAL_RESUME_CAPABILITY
+                    || capability == super::TERMINAL_RESUME_BOUNDED_CAPABILITY
                     // `output` at most once per frame (server/attach_output_coalesce.rs).
                     || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
                     // Agent CLI terminals as cell deltas (server/agent_cli_hybrid.rs).
                     || capability == super::AGENT_CLI_HYBRID_CAPABILITY
                     || capability == super::AGENT_CLI_HYBRID_LEAN_CAPABILITY
                     || capability == super::TERMINAL_SHELL_LINES_CAPABILITY
+                    || capability == super::TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY
                     || capability == super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == super::TERMINAL_PUBLIC_IDS_CAPABILITY

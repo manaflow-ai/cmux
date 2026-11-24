@@ -175,7 +175,6 @@ class FocusedTestMap(unittest.TestCase):
 
     def test_cmux_next_follows_the_committed_target_graph(self):
         """The car guards and the PR's swift test tier select the same CmuxNext targets."""
-        sys.path.insert(0, str(ROOT / "scripts/ci"))
         import cmux_next_route
         import focused_tests
 
@@ -410,7 +409,6 @@ class Deferred(unittest.TestCase):
             got = plan(root, "Packages/macOS/App/Package.swift")
             self.assertEqual(got["swift"], [])
             self.assertIn("every test target", got["swift_deferred"])
-        sys.path.insert(0, str(ROOT / "scripts/ci"))
         import focused_tests
         got = focused_tests.plan(ROOT, ["Packages/macOS/CmuxNext/Package.swift"])
         self.assertEqual([s for s in got["swift"] if s["package"] == "Packages/macOS/CmuxNext"], [])
@@ -655,9 +653,45 @@ class EntryTimeouts(unittest.TestCase):
             os.kill(pid, 9)  # the sleeper this test started
         self.assertFalse(alive, "the timed-out guard's child is still running")
 
+    def test_a_test_slow_at_the_base_gets_the_same_retry_there(self):
+        """Run 45372757083: a test red at both ends timed out at the base, where the head's had its alone retry, and
+        read as the car's. The base run gets the same retry."""
+        failing = "import sys\nsys.exit(1)\n"
+        verdict = self.judge({"tests/test_slow.py": self.slow_once() + failing},
+                             {"tests/test_slow.py": "# the car's edit\n" + failing}, {"python"},
+                             python=["tests/test_slow.py"])
+        self.assertTrue(self.marker.exists(), "the base's first run timed out")
+        self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("pass", "base-red"))
+
+    def test_a_test_that_only_times_out_at_the_base_is_still_the_cars(self):
+        verdict = self.judge({"tests/test_slow.py": self.SLOW},
+                             {"tests/test_slow.py": "import sys\nsys.exit(1)\n"}, {"python"},
+                             python=["tests/test_slow.py"])
+        self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "fail"))
+
     def test_a_real_failure_of_an_untouched_guard_still_fails(self):
         verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})
         self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("fail", "fail"))
+
+class Tails(unittest.TestCase):
+    """A red entry's log names every failure its summary counts (run 45372757083: 6 of 27 `FAIL:` lines survived the
+    4000-character tail, and base_red_excuse.py refused the job as naming fewer failures than it reported)."""
+
+    def test_every_cut_failure_line_is_kept_once_with_the_tail(self):
+        names = [f"FAIL: test_{n} (__main__.T.test_{n})" for n in range(30)]
+        output = "".join(f"{name}\n{'x' * 400}\n" for name in names) + "FAILED (failures=30)\n"
+        tail = car_guards.tail_of(output)
+        self.assertTrue(tail.endswith(output[-car_guards.TAIL_CHARS:]))
+        for name in names:
+            self.assertEqual(tail.count(name + "\n"), 1, name)
+        import test_reds
+        self.assertEqual(test_reds.runner_unnamed(tail.splitlines()), [])
+
+    def test_a_short_output_and_one_naming_nothing_are_unchanged(self):
+        self.assertEqual(car_guards.tail_of("FAIL: a (b.c)\nok\n"), "FAIL: a (b.c)\nok\n")
+        output = "y" * 9000
+        self.assertEqual(car_guards.tail_of(output), output[-car_guards.TAIL_CHARS:])
+
 
 if __name__ == "__main__":
     unittest.main()

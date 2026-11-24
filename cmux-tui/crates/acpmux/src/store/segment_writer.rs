@@ -11,6 +11,12 @@
 //! A holder of the writers' lock that reads or replaces a chat's files closes its writer first
 //! ([`LocalStore::close_writer_locked`]): no line lands meanwhile. Lock order: writers, then a
 //! segment; a write never takes the writers' lock while it holds its segment's.
+//!
+//! A segment that fills is closed for good, and its kind copy (`store/kind_index.rs`) is made
+//! then, once, after the write and outside both locks, while its bytes are still in the page
+//! cache. Without it a chat that was written but never scanned (a new or seeded chat, one moved
+//! in or written before copies existed) had no copy of any segment, so its first log load read
+//! the whole history raw: a seeded 1 GB chat read 1.18 GB in 3.7 s at its first start.
 
 use super::{LocalStore, Writers, cut_back, log_sync, open_private_append};
 use crate::no_panic::LockExt;
@@ -19,6 +25,12 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// How many bytes of a chat's log [`super::Store::on_log_grown`]'s hook is called after: each time a
+/// segment's length passes a multiple of it. The session pack's segment (`cmux_session_pack::Params`'s
+/// 4 MiB), so a pack's open segment never holds much more than one: a log segment is 8 MiB, a
+/// multiple of it.
+pub const GROWN_EVERY: u64 = 4 << 20;
 
 /// A chat's open segment in the writers' map.
 pub(super) struct SegmentWriter {
@@ -90,8 +102,35 @@ impl LocalStore {
     /// (`store/journal_store.rs`). Refused once the store is sealed.
     pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
         let _open = self.writable()?;
+        let (mut filled, mut grown) = (None, false);
+        let wrote = self.append_to_open(id, line, &mut filled, &mut grown);
+        if let Some(index) = filled {
+            self.copy_filled_segment(id, index);
+            // Segment `index` is sealed: a worker may move it cold (`store/cold_segments.rs`).
+            self.note_sealed(id);
+        }
+        // The log passed another `GROWN_EVERY` bytes: a worker seals its pack segment
+        // (`hub/pack_as_it_grows.rs`). Two divisions here, and a hook call once per 4 MiB.
+        if grown && let Some(hook) = self.grow_hook.get() {
+            hook(id);
+        }
+        wrote
+    }
+
+    /// [`Self::append_line`]'s write. `filled` names the segment a rotation closed on the way;
+    /// `grown` is set when the write took the segment past a multiple of [`GROWN_EVERY`].
+    fn append_to_open(
+        &self,
+        id: &str,
+        line: &[u8],
+        filled: &mut Option<u32>,
+        grown: &mut bool,
+    ) -> Result<()> {
         loop {
-            let seg = self.segment_for(id)?;
+            let (seg, rotated) = self.segment_for(id)?;
+            if rotated.is_some() {
+                *filled = rotated;
+            }
             let mut closed = seg.closed.lock_or_recover();
             if *closed {
                 // Closed after the map gave it out: the map names the next one now (or will
@@ -121,7 +160,8 @@ impl LocalStore {
                 }
                 return Err(e);
             }
-            seg.written.fetch_add(line.len() as u64, Ordering::AcqRel);
+            let before = seg.written.fetch_add(line.len() as u64, Ordering::AcqRel);
+            *grown = before / GROWN_EVERY != (before + line.len() as u64) / GROWN_EVERY;
             return Ok(());
         }
     }
@@ -130,7 +170,8 @@ impl LocalStore {
     /// open: the least recently written log is closed before this one opens, so no more than
     /// `open_logs` are ever open. Its sync runs under the lock, once per eviction: only while
     /// more than `open_logs` sessions are written.
-    fn segment_for(&self, id: &str) -> Result<Arc<OpenSegment>> {
+    /// Also the index of the full segment a rotation closed, if one did.
+    fn segment_for(&self, id: &str) -> Result<(Arc<OpenSegment>, Option<u32>)> {
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
             && writers.open.len() >= self.open_logs
@@ -151,8 +192,10 @@ impl LocalStore {
             .open
             .get(id)
             .is_some_and(|w| w.seg.written.load(Ordering::Acquire) >= self.segment_bytes);
+        let mut rotated = None;
         if full && let Some(old) = writers.open.remove(id) {
             // The full segment closes before the next one opens (rare: once per segment).
+            rotated = Some(old.seg.index);
             let index = old.seg.index + 1;
             old.close(id, &self.sync_failed);
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
@@ -163,7 +206,21 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
-        Ok(Arc::clone(&w.seg))
+        Ok((Arc::clone(&w.seg), rotated))
+    }
+
+    /// Makes the kind copy of segment `index`, which filled and closed and is never appended to
+    /// again, so a first log load reads its copy, not the segment. Each line is parsed, so the
+    /// copy says whether all of them read and a strict scan (the transfer authority's) takes it.
+    /// One read of each [`LocalStore::segment_bytes`] of log, from the page cache. A failure only
+    /// leaves the copy to the first scan, as before.
+    fn copy_filled_segment(&self, id: &str, index: u32) {
+        let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
+        let scan =
+            super::kind_index::Scan { kinds: &[], copied: true, strict: false, heads: false };
+        if let Err(e) = self.scan_segment(id, index, &path, &scan, &mut |_| true) {
+            tracing::debug!(session = %id, segment = index, "copying a filled segment failed: {e}");
+        }
     }
 }
 

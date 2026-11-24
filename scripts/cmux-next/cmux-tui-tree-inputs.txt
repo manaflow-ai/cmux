@@ -77,6 +77,8 @@ blob plans/cmux-next/daemon-capabilities.json
 # CLI (`cmux theme`) link it. cmux-motion's build.rs also reads design-tokens.json.
 blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
 blob schemas/theme/theme-ink-vectors.json
+# cmux-theme-pack embeds the slot definitions (load.rs).
+blob schemas/theme/slots.json
 # cmux-config embeds the shipped theme files (theme_file::shipped): the daemon
 # and the cmux CLI read them.
 blob Resources/theme-files/charcoal.json
@@ -85,6 +87,7 @@ blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/lily-pond.json
 blob Resources/theme-files/meadow.json
+blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/moss.json
 blob Resources/theme-files/phosphor.json
 blob Resources/theme-files/teal.json
@@ -117,6 +120,7 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/updates.json
 blob schemas/settings/source/agent-cache.json
 blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/mcp-servers.json
@@ -124,8 +128,8 @@ blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
 blob schemas/transcript-look/transcript-look.json
-# cmux-action-catalog's customize_elements test embeds the shipped settings defaults.
-blob schemas/defaults/cmux-next.json
+# cmux-action-catalog's customize_elements test embeds the settings export's keys.
+blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
 # `cmux server install` over ssh sends the installer cmux.com serves (cmux-tui's cli/server_remote.rs embeds it).

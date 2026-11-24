@@ -75,6 +75,7 @@ import {
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -98,6 +99,7 @@ import {
   DEV_TREE_SCRIPT,
   FIRST_BUILD,
 } from "./dev-tree";
+import { gitDefaultsCommand } from "./git-defaults";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import {
   AGENT_TOOLS_BAKED_ROLES,
@@ -114,6 +116,7 @@ import {
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
 import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
@@ -731,13 +734,29 @@ export const APT_FETCH_ATTEMPTS = 3;
  * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
  */
 export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the .debs it verified");
+}
+
+/**
+ * Runs of one store program's install before the bake fails. GitHub release downloads into the bake machine ran at
+ * about 100 KB/s a connection on 2026-11-23 (image rolls 45109809346 and 45113664312: store-codex, 109 MB, status
+ * 124 at 300 s twice), so codex needs about four 5-minute runs; programInstallCommand resumes the download.
+ */
+export const STORE_FETCH_ATTEMPTS = 6;
+
+/** One store program's install, run again when it fails, continuing its partial download (programInstallCommand). */
+export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = STORE_FETCH_ATTEMPTS): Promise<void> {
+  await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
+}
+
+async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
       return;
     } catch (error) {
       if (attempt >= attempts) throw error;
-      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping the .debs it verified`);
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping ${kept}`);
     }
   }
 }
@@ -789,7 +808,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p))));
+  await parallelSteps(bakedPrograms(lock).map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, programInstallCommand(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
@@ -798,6 +817,8 @@ async function installStore(ctx: Ctx): Promise<void> {
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
   for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
+  // Parallel checkout, untracked cache, index v4 for every machine (RFD 0065 piece 3; git-defaults.ts).
+  await L.step(vm, "git-defaults", gitDefaultsCommand());
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */
@@ -988,6 +1009,16 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
 }
 
+/**
+ * The names many people added on their own machines (graduate.ts), installed in the agents layer so one shared
+ * copy replaces the many personal ones. Both bakes run it before the finalize records the image's packages.
+ */
+async function installGraduated(ctx: Ctx): Promise<void> {
+  const g = readGraduated();
+  if (g.apt.length + g.npm.length === 0) return;
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
+}
+
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
   await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
@@ -1103,6 +1134,21 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
   ].join(" && ");
 }
 
+/**
+ * The fresh image's df, inodes and depth-2 du (disk-record.ts), after clean and before the snapshot: in the image
+ * record as `disk` and alone as disk-<name>.json. Information only: a failure is recorded, never fails the bake.
+ */
+async function recordDisk(ctx: Ctx): Promise<void> {
+  const { vm, L, options, result, name } = ctx;
+  try {
+    const disk = parseDiskOutput(await L.step(vm, "disk-record", DISK_RECORD_COMMAND), { image: name, measured_at: new Date().toISOString(), source: "bake" });
+    result.disk = disk;
+    writeFileSync(path.join(options.outDir, `disk-${name}.json`), `${JSON.stringify(disk, null, 2)}\n`);
+  } catch (error) {
+    result.diskError = error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   const { vm, L, options, result, name, lock } = ctx;
   await L.step(vm, "identity-final", devboxIdentityCheckCommand());
@@ -1119,6 +1165,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
   await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-out-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
+  await recordDisk(ctx);
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
   await L.step(vm, "tmp-no-writer", tmpWritersCommand());
@@ -1138,6 +1185,22 @@ export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unk
   return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
 }
 
+/**
+ * Fetch and unpack syft into `dir`, resuming a download a capped run left there: a whole file is kept, a partial one
+ * continues (`curl -C -`), a whole file with the wrong sha256 is removed so the next run starts over.
+ */
+export function syftFetchCommand(syft: { url: string; sha256: string; size: number }, dir: string): string {
+  const tgz = `${dir}/syft.tgz`;
+  return [
+    `mkdir -p ${dir}`,
+    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
+    `test "$(stat -c %s ${tgz})" = ${syft.size}`,
+    `tar -xzf ${tgz} -C ${dir} syft`,
+    `test -x ${dir}/syft`,
+  ].join(" && ");
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1147,16 +1210,19 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // Both read the final tree and write only under /tmp (which both exclude), so they run at once. A retry (inventory.ts)
   // passes its own OUT, so a cut-off try still running on the guest never shares its files.
   // allSettled: neither step is left running here when this throws.
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), L.step(vm, "sbom", [
-    `mkdir -p ${out}-syft && curl -fsSL --retry 3 -o ${out}-syft/syft.tgz ${sq(syft.url)}`,
-    `printf '%s  %s\\n' ${syft.sha256} ${out}-syft/syft.tgz | sha256sum -c --quiet -`,
-    `test "$(stat -c %s ${out}-syft/syft.tgz)" = ${syft.size}`,
-    `tar -xzf ${out}-syft/syft.tgz -C ${out}-syft syft`,
+  // syft comes from GitHub releases, which ran at about 100 KB/s into the builder on 2026-11-23: its 29 MB took about
+  // 230 s of the sbom step's 285 s in roll 45119294989 and pushed it past the guest's 5-minute exec cap in roll
+  // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
+  const scanSbom = async (): Promise<string> => {
+    await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
+    return L.step(vm, "sbom", [
     "t=$(date +%s)",
     `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "))]);
+  ].join(" && "));
+  };
+  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
@@ -1191,6 +1257,7 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
   // A layered bake fills it in the agents layer (overlaySteps), not twice.
+  if (!options.layered) await installGraduated(ctx);
   if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
@@ -1211,12 +1278,13 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   const { vm, L, lock } = ctx;
   const programs = bakedPrograms(lock).filter((p) => isAppProgram(p.name) === (layer === "app"));
   await L.step(vm, `${layer}-prepare`, overlayPrepareCommand(programs.flatMap((p) => Object.keys(p.bin))));
-  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
+  await parallelSteps(programs.map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await L.step(vm, `${layer}-prune`, overlayPruneCommand());
   if (layer === "agents") {
     await configureRoles(ctx);
     if (ctx.options.agentTools) await installAgentTools(ctx);
+    await installGraduated(ctx);
     await prefillDepCaches(ctx);
     await L.step(vm, "agents-done", "rm -rf /tmp/cmux-dl && echo agents-layer-ok");
     return;

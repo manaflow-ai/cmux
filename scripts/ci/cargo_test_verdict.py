@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A pull request's red `cargo test` run, judged per test: a flake, the base's red, or the change's own.
 
-cmux-tui-spec.yml's `acpmux tests` job runs acpmux's lib tests and hub_integration on every pull request that
-touches acpmux. Before it, those suites ran only in Fast checks and the fleet, so #27921 and #27868 landed red tests
+cmux-tui-spec.yml's `acpmux tests` job runs acpmux's lib tests and hub_integration in the post-merge batch, and on a
+pull request that touches acpmux when it carries full-ci or the repository variable ACPMUX_TESTS_ON_PULL_REQUESTS is
+on (affected-jobs.json pull_request_skip, 2026-11-23). Before it, those suites ran only in Fast checks and the fleet, so #27921 and #27868 landed red tests
 and base stayed red for hours (2026-10-30). When the head's run is red, the job runs each failing test again alone
 on the head (the retry) and on the merge parent (the base), then asks this script:
 
@@ -55,9 +56,14 @@ ALWAYS = (
     "tests/test_cargo_test_verdict.py",
 )
 # Files a crate's tests read at test time, not with include_str! (a path ending in / is a
-# directory): acpmux's v2 gate registry tests read the nightly's gate script and its lines.
+# directory): acpmux's v2 gate registry tests read the nightly's gate script and its lines,
+# and its v2 home test runs the script through its stand-in test.
 READ_AT_TEST_TIME = {
-    "cmux-tui/crates/acpmux": ("scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/"),
+    "cmux-tui/crates/acpmux": (
+        "scripts/cmux-next/run-v2-gates.sh",
+        "scripts/cmux-next/tests/run-v2-gates.test.sh",
+        "scripts/cmux-next/v2-gates.d/",
+    ),
 }
 # include!/include_str!/include_bytes! of a literal path, from the source's directory.
 INCLUDE = re.compile(r'\binclude(?:_str|_bytes)?!\(\s*"([^"]+)"')
@@ -436,10 +442,15 @@ def without_failures(log: str, names: set[str]) -> str:
     texts = test_reds.log_lines(log)  # one per raw line
     skip = test_reds.echoed(texts)
     kept, taken = [], 0
+    parents: list[int] = []
     for n, (line, text) in enumerate(zip(raw, texts)):
         if n in skip:
             kept.append(line)
             continue
+        # Keep removed flakes in their own binary, including a child run printed in captured stdout.
+        if test_reds.CARGO_RUNNING.match(text):
+            parents.append(taken)
+            taken = 0
         if (match := FAILED_LINE.match(text)) and match.group(1) in names:
             taken += 1
             continue
@@ -448,7 +459,7 @@ def without_failures(log: str, names: set[str]) -> str:
                 passed, failed = int(counts.group(1)) + taken, max(int(counts.group(2)) - taken, 0)
                 state = "FAILED" if failed else "ok"
                 line = RESULT_COUNTS.sub(f"test result: {state}. {passed} passed; {failed} failed;", text, count=1)
-            taken = 0
+            taken = parents.pop() if parents else 0
         kept.append(line)
     return "\n".join(kept)
 

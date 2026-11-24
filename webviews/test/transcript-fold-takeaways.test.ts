@@ -147,7 +147,7 @@ test("a substantive answer with a table stays visible before a tool and its shor
   // while the tool is still running, then the completed projection above must preserve it on reload.
   expect(drawn(rows.slice(0, -1), new Set(), true)).toEqual([
     "user:u",
-    "working:working-u",
+    "worked:worked-u",
     "assistant:answer-before-tool",
     "activity:ask-lane",
     "assistant:receipt",
@@ -155,7 +155,7 @@ test("a substantive answer with a table stays visible before a tool and its shor
   ]);
 });
 
-test("completed compactions fold, while subagent lifecycle lines and refusals stay available", () => {
+test("completed compactions and a subagent's end fold, while refusals stay available", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -171,19 +171,13 @@ test("completed compactions fold, while subagent lifecycle lines and refusals st
     answer("final"),
     summary(),
   ];
-  expect(drawn(rows)).toEqual([
-    "user:u",
-    "worked:worked-u",
-    "subagentDone:cef-done",
-    "notice:refused",
-    "assistant:final",
-    "turnSummary:end",
-  ]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "notice:refused", "assistant:final", "turnSummary:end"]);
 });
 
 test("a running turn draws as before: nothing folds", () => {
   const shaped = drawn(leosTurn().slice(0, -1), new Set(), true);
-  expect(shaped.filter((entry) => entry.startsWith("worked:"))).toEqual([]);
+  // Its one line is the turn's header in its running phase, the row its end draws Worked for in.
+  expect(shaped.filter((entry) => entry.startsWith("worked:"))).toEqual(["worked:worked-u"]);
   expect(shaped).toContain("assistant:first");
 });
 

@@ -726,6 +726,12 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
+      // RAWDIR=dir keeps each burst's raw profile, to read past the summary's top functions.
+      if (profiled && process.env.RAWDIR)
+        fs.writeFileSync(
+          `${process.env.RAWDIR}/${burst.kind}-${Date.now()}.cpuprofile`,
+          JSON.stringify({ records, profile: profiled }),
+        );
       const allocated =
         PROFILE && ALLOC
           ? ((await cdp.send("HeapProfiler.stopSampling")) as { profile: HeapProfile }).profile
@@ -1098,7 +1104,7 @@ if (import.meta.main) {
       browser,
       daemons,
       url: (log, daemon) =>
-        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${encodeURIComponent(log.sessionId)}`,
+        `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${encodeURIComponent(log.sessionId)}`,
     };
     if (PAIRED) {
       const small = logs.find((log) => log.name === "long");
@@ -1192,6 +1198,10 @@ if (import.meta.main) {
             for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
               console.log(`    ${ms.toFixed(3)}  ${fn}`);
           }
+          // A cost that does not grow still counts against the frame: which callers hold it at the largest checkpoint.
+          console.log(`  ${kind}: most total ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.totalMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
           console.log(`  ${kind}: total ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.totalMs!, last.totalMs!, 25))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);

@@ -53,6 +53,11 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(len(urls), 3)
         self.assertIn("pr=12", urls[0])
 
+    def test_each_hold_stays_under_the_gateway_limit(self):
+        _, _, urls, _ = run([(404, None), (200, rec("running")), (200, rec("pass"))], wait=1500)
+        holds = [int(u.rsplit("wait=", 1)[1]) for u in urls]
+        self.assertTrue(holds and max(holds) <= 90, holds)
+
     def test_no_record_hands_back_to_the_compile(self):
         word, why, _, t = run([(404, None)], no_record=600)
         self.assertEqual(word, "none")
@@ -84,6 +89,31 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(word, "superseded")
         self.assertIn("b" * 40, why)
         self.assertEqual(len(urls), 1)
+
+    def test_the_app_debug_phase_reads_only_the_debug_record(self):
+        def phase_run(body):
+            clock, urls = Clock(), []
+
+            def fetch(url, timeout):
+                urls.append(url)
+                clock.t += 5
+                return 200, body
+
+            word, _ = f.read(SHA, REPO, "12", 600, 300, fetch=fetch, now=clock.now, sleep=clock.sleep,
+                             phase="app-debug")
+            return word, urls
+
+        word, urls = phase_run(rec("pass", configuration="debug"))
+        self.assertEqual(word, "pass")
+        self.assertIn("phase=app-debug", urls[0])
+        self.assertIn("pr=12", urls[0])
+        self.assertEqual(phase_run(rec("fail", configuration="debug"))[0], "fail")
+        # The land Release's record never answers the Debug phase, nor the other way round.
+        self.assertEqual(phase_run(rec("pass"))[0], "none")
+        self.assertNotIn("phase=", run([(200, rec("pass"))])[2][0])
+        self.assertEqual(f.main(["--sha", SHA, "--repo", REPO, "--phase", "app-debug", "--wait", "0"]), 0)
+        with self.assertRaises(SystemExit):
+            f.main(["--sha", SHA, "--repo", REPO, "--phase", "release"])
 
     def test_the_workflow_skips_only_a_push_whose_head_moved(self):
         w = (Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml").read_text()
