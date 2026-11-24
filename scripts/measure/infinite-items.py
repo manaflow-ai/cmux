@@ -772,6 +772,36 @@ def settle(args, top):
         time.sleep(0.25)  # the poll interval of the process trees
 
 
+def dump_smaps(run, count, day):
+    """INFINITE_SMAPS_DIR set: both daemons' whole /proc/PID/smaps at this sample, for a per-mapping split
+    (which mapping grew between day 0 and the last day)."""
+    out = os.environ.get("INFINITE_SMAPS_DIR")
+    if not out or not IS_LINUX:
+        return
+    os.makedirs(out, exist_ok=True)
+    for role, pid in run.top.items():
+        try:
+            with open(f"/proc/{pid}/smaps") as src, open(os.path.join(out, f"n{count}-day{day}-{role}.smaps"), "w") as dst:
+                dst.write(src.read())
+        except OSError as exc:
+            log(f"smaps {role}: {exc}")
+    trim = os.environ.get("INF_TRIM_FILE")
+    if trim:
+        pid = run.top["tui"]
+        before = smaps_kinds(pid)
+        open(f"{trim}.{pid}", "w").close()
+        deadline = time.monotonic() + 30
+        while not os.path.exists(f"{trim}.{pid}.done") and time.monotonic() < deadline:
+            time.sleep(0.1)  # sleep-ok: experiment, the preloaded trim thread's poll
+        try:
+            os.unlink(f"{trim}.{pid}.done")
+        except OSError:
+            pass
+        after = smaps_kinds(pid)
+        print(f"INFINITE-TRIM {count} day={day} before_mb={sum(before.values()) / 1024:.1f} "
+              f"after_mb={sum(after.values()) / 1024:.1f} before={json.dumps(before)} after={json.dumps(after)}", flush=True)
+
+
 def run_count(args, count):
     run = Run(args, count)
     result = {"count": count, "samples": []}
@@ -792,6 +822,7 @@ def run_count(args, count):
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
         result["samples"].append(day0)
+        dump_smaps(run, count, 0)
         log(f"N={count} opened in {result['open_seconds']} s {json.dumps(result['mix'])}: {json.dumps(day0['total'])}")
         for number in range(1, args.days + 1):
             t0 = time.monotonic()
@@ -801,6 +832,7 @@ def run_count(args, count):
             s = idle_window(run.top, args.window, run.disks)
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
+            dump_smaps(run, count, number)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
     finally:
         result["errors"] = run.errors
