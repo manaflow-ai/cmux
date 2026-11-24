@@ -155,8 +155,8 @@ public final class TerminalProjectingSession: TerminalSession {
     // cant you simply scroll through the depiction that was already given?")
 
     /// Rust decides: within the rows the app scrolled off, the phone paints
-    /// them (nothing is sent); past them, for an app that asked for the
-    /// mouse, or with nothing held, the wheel goes to the Mac as before.
+    /// them (nothing is sent), also for an app that asked for the mouse;
+    /// past them, or with nothing held, the wheel goes to the Mac as before.
     public func panHeldRows(_ rows: Double) -> Double {
         #if DEBUG
         guard holdsRows else { return rows }

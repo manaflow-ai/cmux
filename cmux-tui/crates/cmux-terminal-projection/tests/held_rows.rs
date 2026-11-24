@@ -1,6 +1,6 @@
 //! Held rows on the alternate screen: a pan within what the app already
-//! drew is painted by the phone (nothing sent); past it, or for an app that
-//! asked for the mouse, it goes to the Mac as before.
+//! drew is painted by the phone (nothing sent), also for an app that asked
+//! for the mouse; past it, it goes to the Mac as before.
 
 use cmux_terminal_projection::held::HELD_ROW_CAP;
 use cmux_terminal_projection::{DEFAULT_HISTORY_LIMIT, Projection, Segment};
@@ -104,14 +104,18 @@ fn a_key_or_tap_returns_to_the_live_screen() {
 }
 
 #[test]
-fn an_app_that_asked_for_the_mouse_gets_the_wheel_as_before() {
+fn an_app_that_asked_for_the_mouse_pans_held_rows_locally_and_gets_the_wheel_past_them() {
     let mut p = alt_app();
-    lines(&mut p, 0, 60);
     let _ = p.feed(b"\x1b[?1000h\x1b[?1006h", true);
+    lines(&mut p, 0, 60);
+    let held = p.held().0;
     let step = p.alt_pan(5.0);
-    assert!(step.paint.is_empty());
-    assert_eq!(step.forward_rows, 5.0);
-    assert_eq!(p.alt_rows_back(), 0);
+    assert!(!step.paint.is_empty());
+    assert_eq!(step.forward_rows, 0.0);
+    assert_eq!(p.alt_rows_back(), 5);
+    let past = p.alt_pan((held + 3) as f64);
+    assert!(past.forward_rows > 0.0);
+    assert_eq!(p.alt_rows_back(), held);
 }
 
 #[test]
@@ -225,4 +229,79 @@ fn a_pan_step_paints_in_well_under_a_frame() {
     let p95 = times[times.len() * 95 / 100];
     eprintln!("pan step (decision + paint bytes): p50 {p50:?} p95 {p95:?}");
     assert!(p95 < std::time::Duration::from_millis(8), "{p95:?}");
+}
+
+/// Draws a screen the way a full-screen app that never scrolls does: a
+/// header on row 1, transcript lines `from..` in rows 2..=21, an input box
+/// and a status line on rows 23 and 24, each row by a cursor move.
+fn repaint(p: &mut Projection, from: usize) {
+    let mut bytes = b"\x1b[1;1H header\x1b[K".to_vec();
+    for row in 0..20 {
+        bytes
+            .extend_from_slice(format!("\x1b[{};1Hentry {}\x1b[K", row + 2, from + row).as_bytes());
+    }
+    bytes.extend_from_slice(b"\x1b[23;1H> input\x1b[K\x1b[24;1Hstatus\x1b[K");
+    let _ = p.feed(&bytes, true);
+}
+
+#[test]
+fn a_repaint_split_across_two_batches_holds_the_rows_that_left_once() {
+    let mut p = alt_app();
+    repaint(&mut p, 0);
+    // The first batch draws the header and the top half 5 rows higher.
+    let mut first = b"\x1b[1;1H header\x1b[K".to_vec();
+    for row in 0..10 {
+        first.extend_from_slice(format!("\x1b[{};1Hentry {}\x1b[K", row + 2, 5 + row).as_bytes());
+    }
+    let _ = p.feed(&first, true);
+    assert_eq!(p.held().0, 5);
+    repaint(&mut p, 5);
+    assert_eq!(p.held().0, 5);
+}
+
+#[test]
+fn an_app_that_repaints_its_transcript_higher_holds_the_rows_that_left() {
+    let mut p = alt_app();
+    repaint(&mut p, 0);
+    assert_eq!(p.held().0, 0);
+    repaint(&mut p, 3);
+    assert_eq!(p.held().0, 3);
+    repaint(&mut p, 4);
+    assert_eq!(p.held().0, 4);
+    // The same screen again (a spinner tick elsewhere) holds nothing new.
+    repaint(&mut p, 4);
+    assert_eq!(p.held().0, 4);
+    let step = p.alt_pan(2.0);
+    assert_eq!(step.forward_rows, 0.0);
+    let shown = text(&step.paint);
+    assert!(shown.contains("entry 2") && shown.contains("entry 3"));
+    assert!(!shown.contains("entry 22"));
+}
+
+/// Claude Code 2.1.330's full-screen mode, as recorded (120x40): it never
+/// scrolls, it repaints its transcript higher. Fed in batches, the rows that
+/// left its transcript are held.
+#[test]
+fn claude_code_full_screen_repaints_are_held() {
+    let bytes = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/parity/real/claude_code_session.vt"
+    ))
+    .expect("fixture");
+    let mut p = Projection::new(120, 40, DEFAULT_HISTORY_LIMIT);
+    let _ = p.set_viewport(54, 38);
+    let mut per_batch = Vec::new();
+    for size in [256usize, 1024, 4096] {
+        let mut q = Projection::new(120, 40, DEFAULT_HISTORY_LIMIT);
+        let _ = q.set_viewport(54, 38);
+        for chunk in bytes.chunks(size) {
+            let _ = q.feed(chunk, true);
+        }
+        per_batch.push((size, q.held().0, q.held().1));
+    }
+    for chunk in bytes.chunks(1024) {
+        let _ = p.feed(chunk, true);
+    }
+    eprintln!("claude_code_session.vt held (batch bytes, rows, bytes): {per_batch:?}");
+    assert!(p.held().0 > 0, "held {per_batch:?}");
 }

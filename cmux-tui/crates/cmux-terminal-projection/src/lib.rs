@@ -273,6 +273,9 @@ impl Projection {
         } else if paint && let Some(paint) = self.paint() {
             segments.push(paint);
         }
+        if self.term.is_alternate() {
+            self.term.observe_held();
+        }
         segments
     }
 
@@ -281,17 +284,15 @@ impl Projection {
     /// held rows the phone paints them itself and nothing goes to the Mac.
     /// Past the oldest held row, the rest goes to the app as wheel rows (and
     /// the rows already back, so the app scrolls to where the reader is);
-    /// past the live screen, likewise. Everything goes to the app, as before
-    /// held rows, on the primary screen, for an app that asked for mouse
-    /// reports (a wheel is its own), and while nothing is held.
+    /// past the live screen, likewise. An app that asked for mouse reports
+    /// pans its held rows on the phone too, and gets the wheel past them.
+    /// Everything goes to the app, as before held rows, on the primary
+    /// screen and while nothing is held.
     pub fn alt_pan(&mut self, rows: f64) -> AltPan {
         if !rows.is_finite() || rows == 0.0 {
             return AltPan::default();
         }
-        if !self.term.is_alternate()
-            || self.term.mouse_reporting()
-            || (self.alt_back == 0 && self.term.held.is_empty())
-        {
+        if !self.term.is_alternate() || (self.alt_back == 0 && self.term.held.is_empty()) {
             let paint = self.alt_return_live();
             self.alt_fraction = 0.0;
             return AltPan { paint, forward_rows: rows };

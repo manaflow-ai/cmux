@@ -244,6 +244,14 @@ impl Terminal {
         if self.alt_active { &self.alt } else { &self.primary }
     }
 
+    /// The end of a batch of bytes on the alternate screen: the held rows
+    /// infer what a repaint moved ([`HeldRows::observe`]).
+    pub fn observe_held(&mut self) {
+        if self.alt_active {
+            self.held.observe(&self.alt);
+        }
+    }
+
     /// The scroll region's first and last rows (0-based, inclusive).
     pub fn scroll_region(&self) -> (usize, usize) {
         (self.scroll_top, self.scroll_bottom.min(self.rows - 1))
