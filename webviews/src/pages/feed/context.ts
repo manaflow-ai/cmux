@@ -56,3 +56,26 @@ export function answerState(snap: FeedSnapshot, item: ViewItem): AnswerState {
     reply: snap.drafts.replies[item.id],
   };
 }
+
+/** The store's row handlers, one set per store: a row or card gets the same functions on every
+ * render (rows are memo), and calls them with its own id. */
+export interface RowActions {
+  select(id: string): void;
+  open(id: string): void;
+  selectReport(id: string): void;
+}
+
+const rowActionsByStore = new WeakMap<FeedStore, RowActions>();
+
+export function rowActions(store: FeedStore): RowActions {
+  let actions = rowActionsByStore.get(store);
+  if (!actions) {
+    actions = {
+      select: (id) => store.select(id),
+      open: (id) => store.open(id),
+      selectReport: (id) => store.selectReport(id),
+    };
+    rowActionsByStore.set(store, actions);
+  }
+  return actions;
+}
