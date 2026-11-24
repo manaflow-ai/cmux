@@ -313,6 +313,9 @@ public final class AgentChatStore {
         if let cache = mentionCache, cache.key == key || now - cache.at < Self.mentionRefresh {
             return (cache.generation, cache.artifacts)
         }
+        #if DEBUG && os(iOS)
+        InputLatencyTrace.shared?.note("mention_scan")
+        #endif
         let artifacts = SessionArtifacts.collect(turns: _turns, subagents: _subagents, cwd: _summary.cwd).artifacts
         let generation = (mentionCache?.generation ?? 0) &+ 1
         mentionCache = (key, now, generation, artifacts)
@@ -492,13 +495,6 @@ public final class AgentChatStore {
 
     private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
         if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
-    }
-
-    /// The session's status, written only when it changes: every reader of `summary`
-    /// (the composer's placeholder and harness name among them) re-renders on a write,
-    /// and the daemon re-sends the same status with each turn event (ask-4a87599079).
-    private func setStatus(_ status: AgentSessionSummary.Status) {
-        if summary.status != status { summary.status = status }
     }
 
     nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
@@ -1077,7 +1073,7 @@ public final class AgentChatStore {
                 $0.startedAt = at
                 $0.status = .running
             }
-            setStatus(.running)
+            summary.status = .running
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
@@ -1129,7 +1125,7 @@ public final class AgentChatStore {
                 }
             }
             currentMessageID = nil
-            setStatus(.idle)
+            summary.status = .idle
         case .update(let update):
             // The model answered: the retry is over.
             switch update {
@@ -1142,11 +1138,11 @@ public final class AgentChatStore {
         case .permissionRequest(let request):
             guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
-            setStatus(.waiting)
+            summary.status = .waiting
         case .question(let question):
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
-            setStatus(.waiting)
+            summary.status = .waiting
         case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
@@ -1175,16 +1171,16 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            setStatus(turns.last?.status == .running ? .running : .idle)
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .elevationRequest(let ask):
             pendingElevation = ask
             sendingElevation = false
-            setStatus(.waiting)
+            summary.status = .waiting
         case .elevationDecision(let id):
             guard pendingElevation?.id == id else { break }
             pendingElevation = nil
             sendingElevation = false
-            setStatus(turns.last?.status == .running ? .running : .idle)
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -1192,16 +1188,14 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            setStatus(turns.last?.status == .running ? .running : .idle)
-        // The daemon re-sends these with every attach and turn; a write of the same value
-        // still re-renders every reader (the composer's model and mode menus).
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .modelsAvailable(let models, let current):
-            assign(\.models, models)
-            assign(\.currentModelID, current)
+            self.models = models
+            currentModelID = current
         case .modesAvailable(let modes, let current):
-            assign(\.offeredModes, modes)
-            assign(\.modes, ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess))
-            assign(\.currentModeID, current)
+            offeredModes = modes
+            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
+            currentModeID = current
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
@@ -1219,12 +1213,12 @@ public final class AgentChatStore {
         case .gapPage(let events, let done):
             fillGap(events, done: done)
         case .fullAccess(let on):
-            assign(\.fullAccess, on)
+            fullAccess = on
             // The refusal said Full access was off; a connection that says it is on ends it.
             if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
-            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on))
+            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
-            setStatus(status)
+            summary.status = status
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
@@ -1847,14 +1841,14 @@ public final class AgentChatStore {
             }
             turns[turns.count - 1] = turn
         case .availableCommands(let commands):
-            assign(\.availableCommands, commands)
+            availableCommands = commands
         case .currentMode(let mode):
-            assign(\.currentModeID, mode)
-            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess))
+            currentModeID = mode
+            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
         case .configOptions(let options):
-            assign(\.configOptions, options)
+            configOptions = options
         case .usage(let used, let size):
-            if usage?.used != used || usage?.size != size { usage = (used, size) }
+            usage = (used, size)
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }

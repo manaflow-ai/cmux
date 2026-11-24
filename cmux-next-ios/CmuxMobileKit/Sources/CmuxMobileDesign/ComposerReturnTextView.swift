@@ -370,6 +370,7 @@ open class ComposerReturnTextView: UITextView {
     private func tracedInsert(_ text: String, trace: InputLatencyTrace) {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
+        trace.typed()
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls

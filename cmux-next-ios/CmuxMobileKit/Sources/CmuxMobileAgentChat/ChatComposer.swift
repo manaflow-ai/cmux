@@ -77,6 +77,7 @@ struct ChatComposer: View {
     var body: some View {
         #if DEBUG
         let _ = InputLatencyTrace.shared?.count("composer_body")
+        let _ = InputLatencyTrace.shared?.note("chat_composer_body")
         #endif
         VStack(spacing: Self.suggestionsGap) {
             if !slashMatches.isEmpty {

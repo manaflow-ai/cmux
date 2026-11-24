@@ -111,7 +111,7 @@ public final class ComposerDraftStore {
 
     #if DEBUG
     /// DEBUG: told of each draft file written on the main thread
-    /// (`ComposerDraftStoreTests`).
+    /// (`InputLatencyTrace.note`, `ComposerLinkUITests`).
     public static var mainThreadWrite: (@MainActor () -> Void)?
     #endif
 

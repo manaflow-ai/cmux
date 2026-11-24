@@ -26,7 +26,7 @@ import Testing
     }
 
     /// Typing never writes the file on the main thread: the encode and the write go to the
-    /// store's writer queue.
+    /// store's writer queue (`ComposerLinkUITests` counts it in the app).
     @Test func typingWritesTheFileOffTheMainThread() async throws {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
