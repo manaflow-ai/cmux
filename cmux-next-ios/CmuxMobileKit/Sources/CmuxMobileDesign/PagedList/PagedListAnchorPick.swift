@@ -37,7 +37,21 @@ enum PagedListAnchorPick {
             inPlace.insert(order[a])
             a = before[a]
         }
-        return rows.indices.first { inPlace.contains($0) }
+        // Of the rows in place, the one that moved least on screen in the update: under mid-list
+        // inserts a row the load moved can stay in order with the others (the run is one or two rows
+        // long during a fling), but it travelled; the row that stayed is the one the reader sees still.
+        // Anchor order breaks ties (the row being read first).
+        return rows.indices.filter { inPlace.contains($0) }.min { a, b in
+            let ma = abs(rows[a].moved), mb = abs(rows[b].moved)
+            return ma != mb ? ma < mb : a < b
+        }
+    }
+
+    /// The guard on the pick: a correction larger than what the update itself moved (UIKit's own
+    /// offset move inside the apply) plus how much the anchored rows changed height can only mean the
+    /// picked row left its place; then the row being read is kept instead.
+    static func rejects(correction: CGFloat, updateMove: CGFloat, heightChange: CGFloat) -> Bool {
+        abs(correction) > abs(updateMove) + abs(heightChange) + 0.5
     }
 }
 #endif

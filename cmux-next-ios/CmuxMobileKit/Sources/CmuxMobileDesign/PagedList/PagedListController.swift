@@ -540,6 +540,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard abs(delta) > 0.25 else { return }
         let above = attributes.frame.minY < readerTop - 0.5
         ledger.sized(item: attributes.indexPath.item, by: delta, aboveReader: above)
+        if updating { lastUpdateSized += abs(delta) }
         note(above ? "m" : "m_", delta)
     }
 
@@ -639,6 +640,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         stillQuerying = false
         querying -= 1
         updating = true
+        lastUpdateMove = 0
+        lastUpdateSized = 0
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -777,9 +780,22 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
         let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
-        guard let pick = PagedListAnchorPick.pick(survivors.map { PagedListAnchorPick.Row(oldIndex: $0.0.index, newIndex: $0.1) }).map({ survivors[$0].0 }),
-              let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
-        let delta = now - (pick.windowY + shift)
+        let moves = survivors.map { survivor in windowY(of: survivor.0.id, bottom: anchor.fromBottom).map { $0 - survivor.0.windowY } ?? 0 }
+        guard let at = PagedListAnchorPick.pick(zip(survivors, moves).map { PagedListAnchorPick.Row(oldIndex: $0.0.0.index, newIndex: $0.0.1, moved: $0.1) }) else { return nil }
+        var pick = survivors[at].0
+        guard var now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
+        var delta = now - (pick.windowY + shift)
+        // The guard (inside an update, where its own offset move is known): a correction larger than
+        // that move plus the rows' height changes means the pick left its place; keep the row being
+        // read instead, and note it ("g", the rejected correction).
+        if updating, pick.id != anchor.rows.first?.id, let reader = anchor.rows.first, dataSource.indexPath(for: reader.id) != nil,
+           let readerNow = windowY(of: reader.id, bottom: anchor.fromBottom),
+           PagedListAnchorPick.rejects(correction: delta, updateMove: lastUpdateMove, heightChange: lastUpdateSized) {
+            note("g", delta)
+            pick = reader
+            now = readerNow
+            delta = now - (pick.windowY + shift)
+        }
         note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
@@ -856,6 +872,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     /// A move that cancels a shift (putting the reader back): not explained, so a correction that
     /// misses shows up in the measure.
+    /// UIKit's own offset move inside the current update's apply (the `U` the trail notes), for the
+    /// anchor guard.
+    private var lastUpdateMove: CGFloat = 0
+
+    /// How much rows changed height in the current update (the sum of the sizes rowSized saw while
+    /// updating, each counted by its size): a bound on how far an anchored row can honestly move.
+    private var lastUpdateSized: CGFloat = 0
+
     private func correctOffset(by delta: CGFloat) {
         corrections += 1
         collectionView.contentOffset.y += delta
@@ -1362,6 +1386,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             // Inside an update or a layout pass: the layout's or UIKit's own move (a row above
             // that sized itself, a batch update), never the finger or a fling, which move the
             // offset between passes.
+            if updating { lastUpdateMove += delta }
             note(updating ? "U" : collectionView.laying > 0 ? "L" : "S", delta)
         } else if ledger.pays(delta) {
             // The layout's own correction for a row above that changed height (UIKit may apply
