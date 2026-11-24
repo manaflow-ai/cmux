@@ -53,11 +53,7 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
           };
         });
         expect(initial.overflow).toBeGreaterThan(24);
-        // Typing may light no row (New Tab's Return sends the prompt): the first key lights the first.
-        const lit = await page.evaluate(() =>
-          [...document.querySelectorAll(".nt-rows > .nt-row")].indexOf(document.querySelector(".nt-row.is-selected")!),
-        );
-        for (let index = lit + 1; index < ordinary; index++) {
+        for (let index = 1; index < ordinary; index++) {
           await page.keyboard.press(key);
           await page.waitForFunction(
             (selectedIndex) =>
