@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -66,7 +67,7 @@ final class BrowserDownloadHistory {
         let storage = storage, logger = logger
         let data = try? JSONEncoder().encode(Document(downloads: rows))
         let previous = lastWrite
-        lastWrite = Task.detached(priority: .utility) {
+        lastWrite = Task.detached(priority: Interactivity.priority(.sync).taskPriority) {
             await previous?.value
             do {
                 if let data, !rows.isEmpty {
