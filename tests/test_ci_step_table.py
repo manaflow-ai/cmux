@@ -535,8 +535,11 @@ class PipelineTest(unittest.TestCase):
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
-                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
-                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                path = ROOT / ".github/workflows" / name
+                # ci-artifact-transport.yml ran only on pushes to main, so feat-cmux-next has no copy.
+                if path.exists():
+                    wf = yaml.safe_load(path.read_text())
+                    self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
         # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
