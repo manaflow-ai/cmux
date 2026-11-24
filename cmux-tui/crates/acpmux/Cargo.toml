@@ -3,18 +3,25 @@ name = "acpmux"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "tmux for ACP agents: a headless session multiplexer daemon and CLI (its TUI: feature `tui`)"
+description = "tmux for ACP agents: a headless session multiplexer daemon and CLI (its TUI: the acpmux-tui crate)"
 license.workspace = true
 publish.workspace = true
 readme = "README.md"
 repository = "https://github.com/manaflow-ai/cmux"
 homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/crates/acpmux"
-keywords = ["acp", "agents", "multiplexer", "tmux", "tui"]
+keywords = ["acp", "agents", "multiplexer", "tmux", "headless"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "acpmux"
 path = "src/main.rs"
+
+# Dev only: the pause-policy replay (src/bin/pause_replay.rs) scores Cloud agent VM pause
+# policies over recorded session timelines. Never in a shipped build.
+[[bin]]
+name = "pause-replay"
+path = "src/bin/pause_replay.rs"
+required-features = ["pause-replay"]
 
 [[bench]]
 name = "v2"
@@ -36,6 +43,8 @@ tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 # The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
 # a shipped build: only `cargo test --features sim --test sim` turns it on.
 sim = []
+# Dev only: builds the pause-replay bin above. Never in a shipped build.
+pause-replay = []
 # Another crate's tests' in-process daemon that serves the v2 list (src/test_support.rs; row 7c,
 # cmux-tui-core's list callers). Never in a shipped build: only a crate's dev-dependencies turn it
 # on. Its gates print and compare their rounds through `acpmux_book::gate_rounds`.
@@ -47,11 +56,6 @@ hot-modules = ["dep:acpmux-hot"]
 # machines through the Cloud carrier's relay, Noise end to end (cmux-remote's relay client and
 # handshake). Opt-in because cmux-remote builds libghostty-vt with zig; the shipping build turns it
 # on (scripts/ci/acpmux-build-features.sh).
-# The ratatui terminal UI (src/tui/): bare `acpmux`, `attach`, `new` without --detach, `chats open`.
-# Off by default, so acpmux is headless (Lawrence, 2026-11-17: "we want to keep acpmux
-# headless"); the `cmux` multicall binary turns it on (cmux-tui's Cargo.toml), and a headless
-# acpmux hands those commands to a `cmux` (src/tui_entry.rs).
-tui = ["dep:ratatui", "dep:crossterm", "dep:syntect", "dep:pulldown-cmark", "dep:unicode-width"]
 hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait", "dep:url"]
 # The heap by allocation site (dhat) for the god-fixture profile (`tests/god_daemon.rs`): the
 # binary's allocator records every block and writes `ACPMUX_DHAT_OUT` when the daemon stops
@@ -73,11 +77,11 @@ cmux-tailnet = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
-# A hybrid start's tool calls: held, then routed (`hub/hybrid_hold.rs`).
+# A hybrid start's tool calls: held, then routed (`hub/hybrid_hold.rs`); the Cloud account and hybrid
+# rule a new chat's place weighs (place_mode.rs). One dependency, named once: the base merge that
+# brought both comments in also brought the line twice, which is a TOML duplicate key.
 cmux-cloud-start-core.workspace = true
 cmux-session-cloud.workspace = true
-# The Cloud account and hybrid rule a new chat's place weighs (place_mode.rs).
-cmux-cloud-start-core.workspace = true
 acpmux-book = { path = "../acpmux-book" }
 # The model catalog, RPC schema, secret rules and web page compiled in compressed.
 cmux-embed.workspace = true
@@ -151,14 +155,12 @@ cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
-crossterm = { version = "0.29", features = ["event-stream"], optional = true }
 dirs = "6"
 # Read the containing app identity for DEV helper discovery and the app orphan exit
 # (src/daemon/app_orphan.rs).
 plist = "1.10"
 futures = "0.3"
 futures-util = "0.3"
-ratatui = { version = "0.30", optional = true }
 serde = { version = "1", features = ["derive", "rc"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
@@ -198,7 +200,6 @@ tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
 cmux-image-linear.workspace = true
-unicode-width = { version = "0.2", optional = true }
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
 wait-timeout.workspace = true
@@ -216,14 +217,14 @@ schemars = "1"
 reqwest.workspace = true
 tar.workspace = true
 rustls.workspace = true
-pulldown-cmark = { version = "0.13", default-features = false, optional = true }
-syntect = { version = "5.3", default-features = false, features = ["default-fancy"], optional = true }
 # Codex over `codex app-server` as an ACP agent, in process
 # (src/codex_app_server.rs). Pinned to an exact commit.
 cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "dfa59bc25deb4328b06c6a8a1ada74e86f447408", default-features = false }
 cmux-host.workspace = true
 # The vault egress proxy (src/vault/egress.rs): agents get placeholders.
 cmux-vault-egress.workspace = true
+# The egress gate every outbound client passes (docs/privacy.md, Egress gate).
+cmux-egress.workspace = true
 # The hub carrier (feature `hub-carrier`).
 cmux-remote = { workspace = true, optional = true }
 cmux-remote-protocol = { workspace = true, optional = true }
@@ -237,6 +238,10 @@ url = { workspace = true, optional = true }
 # The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
 # login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
+# The daemon's allocator on Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
+# static build's, never gave freed pages back, and a daemon up 12 h held 2.5 GB with a flat live
+# heap (RFD 0156). mimalloc returns them on its own.
+mimalloc = { version = "0.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
