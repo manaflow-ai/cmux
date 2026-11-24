@@ -1,0 +1,20 @@
+[package]
+name = "cmux-braid-path"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Braid's path manager (RFD 0164): one racer for every dial and the last good route per peer, shared by cmux-remote and cmux-mobile-link"
+
+# Plain version deps, not `workspace = true`: cmux-next-ios/rust builds this crate as a path dependency
+# under its own workspace table (as it does cmux-transport).
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["time", "macros", "rt", "test-util"] }
+
+[lints]
+workspace = true
