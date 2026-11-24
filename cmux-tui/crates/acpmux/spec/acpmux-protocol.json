@@ -1124,6 +1124,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_resync",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_info",
       "params": true,
       "result": true

@@ -3167,6 +3167,7 @@ async fn dispatch_request_with_identity(
             context::handle(hub, conn, m, &params).await
         }
         method::MUX_INFO => info::info(hub, conn, &params).await,
+        method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
@@ -4664,11 +4665,9 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
     conn.chunk_deltas.set_enabled(deltas == Some(true) && conn.raw_text);
-    // Opt-in too: a client that does not ask hears each change as the whole row, as before.
-    // Only a raw-text connection may: a patch is diffed from the raw row, and the peer masker
-    // (`peer_text.rs`) knows a summary only whole, so a masked peer always gets whole rows.
-    conn.session_delta
-        .store(super::session_patch::allowed(params, conn.raw_text), Ordering::SeqCst);
+    // Opt-in too: a client that does not ask hears each change as the whole row, as before. A
+    // masked connection (a peer's link) gets patches of the masked row (`session_patch.rs`).
+    conn.session_delta.store(super::session_patch::allowed(params), Ordering::SeqCst);
     *conn.sent_rows.lock_or_recover() = Default::default();
 }
 

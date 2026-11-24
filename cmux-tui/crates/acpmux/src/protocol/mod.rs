@@ -345,6 +345,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_CONTROLS, Request),
         untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),

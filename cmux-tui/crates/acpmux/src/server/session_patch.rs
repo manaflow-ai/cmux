@@ -18,6 +18,16 @@
 //! again whenever it no longer knows what the connection holds (the row's kind changed with an
 //! attach or a detach, or the connection holds more than [`MAX_ROWS`] chats' rows).
 //!
+//! Version 2 (`sessionChangedDelta: 2`, what a peer daemon's link asks, `peer_row_patch.rs`):
+//! a connection that reads text masked (a peer's, `peer_text.rs`) gets patches too, diffed from
+//! the masked row, so a patch carries no text its whole row would not; and
+//! `_acpmux/session_resync {sessionId}` makes the daemon forget what the connection holds of a
+//! chat and send its row whole now, with the next `rowSeq`, for a client that missed a row. A
+//! daemon before version 2 reads `2` as not asking (it took only `true`) and sends whole rows,
+//! so a new link and an old daemon work as before. Before this a peer's link got every change
+//! of every attached chat whole: 142 KiB a turn on a desktop pair (transport pair matrix, long
+//! cell, 2026-11-24).
+//!
 //! `patch` is a JSON merge patch (RFC 7386): an object merges key by key, `null` removes the key
 //! (a row field that is `null` and one that is absent mean the same), anything else replaces it.
 //! One addition, for the long lists that grow at one end (the time breakdown's spans):
@@ -33,6 +43,10 @@ use std::sync::atomic::Ordering;
 
 /// The capability id `initialize` lists (`capabilities.rs`).
 pub const CAPABILITY: &str = "session-changed-delta-v1";
+/// Version 2: patches to a masked connection, and `_acpmux/session_resync`.
+pub const CAPABILITY_V2: &str = "session-changed-delta-v2";
+/// What a client that also reads version 2 sends as `sessionChangedDelta`.
+pub const VERSION: u64 = 2;
 
 /// The chats whose last row one connection keeps the shape of; past it, one is let go and its
 /// next change goes out whole.
@@ -200,9 +214,16 @@ pub(super) fn send_row(conn: &Conn, key: &str, full: bool, row: &Value, notice: 
     if !conn.session_delta.load(Ordering::SeqCst) {
         return false;
     }
-    let change = conn.sent_rows.lock_or_recover().change(key, full, row);
+    // A peer reads the row masked: the patch is diffed from the masked row, so it carries no
+    // text the whole row would not (masking a patch alone would miss a field whose summary
+    // keys it leaves out).
+    let masked = (!conn.raw_text).then(|| super::peer_text::masked_row(row)).flatten();
+    let row = masked.as_ref().unwrap_or(row);
     let Value::Object(mut params) = notice else { return false };
-    match change {
+    // Held while it is queued: a resync (`resync`) and the fan-out send rows of one chat from
+    // two tasks, and the client applies them in `rowSeq` order.
+    let mut rows = conn.sent_rows.lock_or_recover();
+    match rows.change(key, full, row) {
         Change::Whole { row_seq } => {
             params.insert("session".into(), row.clone());
             params.insert("rowSeq".into(), json!(row_seq));
@@ -215,7 +236,32 @@ pub(super) fn send_row(conn: &Conn, key: &str, full: bool, row: &Value, notice: 
             conn.send(&Message::notification(method::MUX_SESSION_PATCH, Value::Object(params)));
         }
     }
+    drop(rows);
     true
+}
+
+/// `_acpmux/session_resync {sessionId}` (version 2): the client no longer holds the chat's row
+/// (it missed one, or let it go): the daemon forgets what it sent and sends the row whole now,
+/// as `session_changed` with the next `rowSeq`. `{"sent": false}` for a connection that did not
+/// ask for patches, which hears every row whole anyway.
+pub(super) fn resync(
+    hub: &crate::hub::Hub,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Value, crate::rpc::RpcError> {
+    let id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::rpc::RpcError::invalid_params("sessionId is required"))?;
+    if !conn.session_delta.load(Ordering::SeqCst) {
+        return Ok(json!({"sent": false}));
+    }
+    forget(conn, id);
+    let s = hub.resolve(id)?;
+    let full = conn.sub_opts(id).is_some() || conn.watch_tools.load(Ordering::SeqCst);
+    let row = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+    let notice = json!({"sessionId": id, "kind": "status", "recordKind": "resync", "seq": s.meta().last_seq});
+    Ok(json!({"sent": send_row(conn, id, full, &row, notice)}))
 }
 
 /// `key`'s chat is gone from `conn`'s view: its next row goes out whole.
@@ -226,47 +272,66 @@ pub(super) fn forget(conn: &Conn, key: &str) {
 }
 
 /// Whether a connection hears row changes as patches: it asked in its `initialize`
-/// (`_meta.acpmux.sessionChangedDelta: true`) and reads raw text. A patch is diffed from the raw
-/// row, and the peer masker (`peer_text.rs`) knows a summary only whole, so a masked connection
-/// always gets whole, masked rows.
-pub(super) fn allowed(initialize: &Value, raw_text: bool) -> bool {
-    raw_text
-        && initialize.pointer("/_meta/acpmux/sessionChangedDelta").and_then(Value::as_bool)
-            == Some(true)
+/// (`_meta.acpmux.sessionChangedDelta`, `true` or a version). A masked connection (a peer's)
+/// gets patches of the masked row (`send_row`).
+pub(super) fn allowed(initialize: &Value) -> bool {
+    match initialize.pointer("/_meta/acpmux/sessionChangedDelta") {
+        Some(Value::Bool(b)) => *b,
+        Some(v) => v.as_u64().is_some_and(|v| v >= 1),
+        None => false,
+    }
+}
+
+/// Applies `patch` (this module's form) to `target`, the row held at its `baseRowSeq`: the
+/// client's side of the contract (a peer's link, `peer_row_patch.rs`). False, with `target`
+/// left part-applied, when the patch does not fit what is held (a splice past its end): the
+/// caller drops the row and reads it whole.
+pub(crate) fn apply(target: &mut Value, patch: &Value) -> bool {
+    match patch {
+        Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
+            let args = &p["$splice"];
+            let (Some(from), Some(keep), Some(items)) =
+                (args[0].as_u64(), args[1].as_u64(), args[2].as_array())
+            else {
+                return false;
+            };
+            let (from, keep) = (from as usize, keep as usize);
+            let Some(held) = target.as_array_mut() else { return false };
+            let Some(end) = from.checked_add(keep).filter(|end| *end <= held.len()) else {
+                return false;
+            };
+            held.truncate(end);
+            held.drain(..from);
+            held.extend(items.iter().cloned());
+            true
+        }
+        Value::Object(p) => {
+            if !target.is_object() {
+                *target = Value::Object(Map::new());
+            }
+            let Some(obj) = target.as_object_mut() else { return false };
+            for (k, v) in p {
+                if v.is_null() {
+                    obj.remove(k);
+                } else if !apply(obj.entry(k.clone()).or_insert(Value::Null), v) {
+                    return false;
+                }
+            }
+            true
+        }
+        other => {
+            *target = other.clone();
+            true
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Applies `patch` (this module's form) to `target`: the client's side of the contract, kept here
-    /// so the tests check the two against each other.
     fn apply(target: &mut Value, patch: &Value) {
-        match patch {
-            Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
-                let args = &p["$splice"];
-                let (from, keep) =
-                    (args[0].as_u64().unwrap() as usize, args[1].as_u64().unwrap() as usize);
-                let held = target.as_array().cloned().unwrap_or_default();
-                let mut out: Vec<Value> = held[from..from + keep].to_vec();
-                out.extend(args[2].as_array().unwrap().iter().cloned());
-                *target = Value::Array(out);
-            }
-            Value::Object(p) => {
-                if !target.is_object() {
-                    *target = Value::Object(Map::new());
-                }
-                let obj = target.as_object_mut().unwrap();
-                for (k, v) in p {
-                    if v.is_null() {
-                        obj.remove(k);
-                    } else {
-                        apply(obj.entry(k.clone()).or_insert(Value::Null), v);
-                    }
-                }
-            }
-            other => *target = other.clone(),
-        }
+        assert!(super::apply(target, patch), "{patch} applies to {target}");
     }
 
     fn roundtrip(old: Value, new: Value) -> Value {
@@ -348,14 +413,50 @@ mod tests {
         }
         assert!(rows.rows.len() <= MAX_ROWS);
     }
-    /// A peer link's rows are masked whole (`peer_text.rs`); a patch of the raw row would skip
-    /// the masker, so a masked connection never gets patches even when it asks.
+    /// A client asks with `true` (version 1) or a version; a daemon before version 2 took only
+    /// `true`, so a link's `2` reads there as not asking.
     #[test]
-    fn only_a_raw_text_connection_gets_patches() {
-        let asks = json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}});
-        let raw = |o| !crate::server::peer_text::masks(o);
-        assert!(!allowed(&asks, raw(crate::server::Origin::Peer)));
-        assert!(allowed(&asks, raw(crate::server::Origin::Local)));
-        assert!(!allowed(&json!({}), raw(crate::server::Origin::Local)));
+    fn a_client_asks_with_true_or_a_version() {
+        assert!(allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}})));
+        assert!(allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": VERSION}}})));
+        assert!(!allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": false}}})));
+        assert!(!allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": 0}}})));
+        assert!(!allowed(&json!({})));
+    }
+
+    /// A splice that does not fit the held array is refused, not a panic: the client reads the
+    /// row whole instead.
+    #[test]
+    fn a_patch_that_does_not_fit_is_refused() {
+        let mut held = json!({"a": [1, 2]});
+        assert!(!super::apply(&mut held, &json!({"a": {"$splice": [1, 5, []]}})));
+        let mut held = json!({"a": 1});
+        assert!(!super::apply(&mut held, &json!({"a": {"$splice": [0, 0, []]}})));
+        let mut held = json!({"a": [1]});
+        assert!(!super::apply(&mut held, &json!({"a": {"$splice": ["x", 0, []]}})));
+    }
+
+    /// A peer reads rows masked: the patches between two masked rows take the masked old row to
+    /// the masked new one, and never carry the secret the raw row has.
+    #[test]
+    fn a_masked_rows_patch_takes_the_masked_row_on_and_carries_no_secret() {
+        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+        let row = |title: &str, prompt: &str| {
+            json!({"sessionId": "s", "harness": "claude", "lastSeq": 1, "title": title,
+                   "lastPrompt": prompt, "status": "running"})
+        };
+        let old = row("plain", "hello");
+        let new = row(&format!("fix {token}"), &format!("use {token} now"));
+        let masked = |v: &Value| crate::server::peer_text::masked_row(v).unwrap_or(v.clone());
+        let mut rows = SentRows::default();
+        assert!(matches!(rows.change("s", true, &masked(&old)), Change::Whole { row_seq: 1 }));
+        let Change::Patch { patch, .. } = rows.change("s", true, &masked(&new)) else {
+            panic!("a patch")
+        };
+        assert!(!patch.to_string().contains(&token), "{patch}");
+        let mut held = masked(&old);
+        apply(&mut held, &patch);
+        assert_eq!(held, masked(&new));
+        assert_ne!(held["title"], new["title"], "the title is masked");
     }
 }

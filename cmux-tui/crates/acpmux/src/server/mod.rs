@@ -2973,6 +2973,10 @@ use requests::handle_notification;
 mod mirror_relay_tests;
 
 #[cfg(test)]
+#[path = "session_patch_peer_tests.rs"]
+mod session_patch_peer_tests;
+
+#[cfg(test)]
 mod request_admission_tests;
 
 #[cfg(test)]

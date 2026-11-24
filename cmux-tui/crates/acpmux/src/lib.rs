@@ -250,6 +250,7 @@ pub(crate) mod peer_notice_outbox;
 pub mod peer_mirror;
 pub mod peer_path_stats;
 pub mod peer_paths;
+pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;

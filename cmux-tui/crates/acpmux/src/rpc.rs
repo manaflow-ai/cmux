@@ -1098,6 +1098,9 @@ pub mod method {
     /// A chat's row change as only what changed, to a connection that asked for it
     /// (`server/session_patch.rs`).
     pub const MUX_SESSION_PATCH: &str = "_acpmux/session_patch";
+    /// A client that missed a chat's row asks for it whole again (`server/session_patch.rs`,
+    /// version 2).
+    pub const MUX_SESSION_RESYNC: &str = "_acpmux/session_resync";
     /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
     /// `send_remote_batch`).
     pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";

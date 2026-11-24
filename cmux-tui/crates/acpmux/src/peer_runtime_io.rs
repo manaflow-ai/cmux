@@ -539,12 +539,31 @@ impl Peer {
     pub(super) fn initialize_hello(&self) -> Value {
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
             // Large replies (the session list) may come compressed (`frame_compress.rs`).
-            "_meta": {"acpmux": {"compression": crate::frame_compress::offer()}}});
+            "_meta": {"acpmux": {"compression": crate::frame_compress::offer(),
+                // Each chat's row change after the first as a patch, which the read loop makes
+                // whole again (`peer_row_patch.rs`); a peer before version 2 sends whole rows.
+                "sessionChangedDelta": crate::peer_row_patch::VERSION}}});
         // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
         if self.github_broker() {
             hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
         }
         hello
+    }
+
+    /// Asks the peer for `id`'s row whole (`_acpmux/session_resync`): a patch of it did not apply
+    /// to what this link holds. Its answer is not waited for here: the row comes as a
+    /// `session_changed` on this link, which the read loop holds.
+    pub(super) fn resync_row(self: &Arc<Self>, link: u64, id: String) {
+        let me = self.clone();
+        self.scope.spawn_named("peer-row-resync", async move {
+            let asked = json!({"sessionId": id});
+            if let Err(e) = me
+                .send_request(method::MUX_SESSION_RESYNC, asked, Some(link), ListKey::None)
+                .await
+            {
+                tracing::debug!(peer = %me.name, session = %id, error = %e.message, "row resync not sent");
+            }
+        });
     }
 
     /// The `initialize` request for the upgrade's own flight: its id, and its masked WebSocket
@@ -1025,6 +1044,9 @@ impl Peer {
         // hub holds the last link's list and misses what changed while no link was up.
         let mut list_at: Option<(String, u64)> = None;
         let mut listed = false;
+        // Each chat's last row this link heard, which the peer's patches apply to
+        // (`peer_row_patch.rs`): the peer forgets what it sent at each `initialize`, so this does too.
+        let mut held_rows = crate::peer_row_patch::HeldRows::default();
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -1366,8 +1388,23 @@ impl Peer {
                             }
                             watch_reply!(key, reply, tx);
                         }
-                        Message::Notification { method: m, params } => {
+                        Message::Notification { method: mut m, params } => {
                             let mut p = params.unwrap_or(Value::Null);
+                            // A patch of a row this link holds is that row whole again, as the
+                            // `session_changed` the hub reads; one that does not apply asks for
+                            // the row whole (`peer_row_patch.rs`).
+                            match held_rows.read(&m, &mut p, text.len()) {
+                                crate::peer_row_patch::Read::Pass => {}
+                                crate::peer_row_patch::Read::Changed => {
+                                    m = method::MUX_SESSION_CHANGED.to_owned();
+                                }
+                                crate::peer_row_patch::Read::Drop(ask) => {
+                                    if let Some(id) = ask {
+                                        self.resync_row(link, id);
+                                    }
+                                    continue;
+                                }
+                            }
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
