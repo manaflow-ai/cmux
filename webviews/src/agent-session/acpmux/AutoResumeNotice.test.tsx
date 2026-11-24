@@ -53,12 +53,12 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(container: HTMLElement, state: Parameters<typeof AutoResumeNotice>[0]["state"]) {
+async function render(container: HTMLElement, state: Parameters<typeof AutoResumeNotice>[0]["state"], onDot = false) {
   root ??= createRoot(container);
   await act(async () => {
     root!.render(
       <NoticeSlot>
-        <AutoResumeNotice state={state} />
+        <AutoResumeNotice state={state} onDot={onDot} />
       </NoticeSlot>,
     );
   });
@@ -73,6 +73,22 @@ test("the retry line shows while the daemon waits to retry, and nothing once the
     expect(container.querySelector('[data-auto-resume="waiting"]')).not.toBeNull();
     // The retry ran and the turn went on: the condition is fixed, so the pane says nothing about it.
     await render(container, { attempt: 2 });
+    expect(container.querySelector("[data-auto-resume]")).toBeNull();
+    expect(container.textContent).toBe("");
+  } finally {
+    setLastingGrace(LASTING_MS);
+  }
+});
+
+test("a rate limit's held retry the status dot says draws no second line (RFD 0128)", async () => {
+  const container = installDom();
+  setLastingGrace(0);
+  try {
+    const held = { retry: { attempt: 1, of: 4, reason: "rate_limit" }, attempt: 1 };
+    // From an acpmux that sends no rateLimited item, the line is the only place that says the wait.
+    await render(container, held);
+    expect(container.querySelector('[data-auto-resume="waiting"]')).not.toBeNull();
+    await render(container, held, true);
     expect(container.querySelector("[data-auto-resume]")).toBeNull();
     expect(container.textContent).toBe("");
   } finally {

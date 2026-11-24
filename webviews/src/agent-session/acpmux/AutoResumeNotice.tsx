@@ -8,10 +8,12 @@ import { retryLabel } from "./subagents/retryState";
 /// the daemon waits to retry, and only once that has lasted the shared 10 s (a capacity or transport
 /// retry usually runs under it, and the person can do nothing about the wait). A turn it already
 /// resumed shows nothing; the reply says so itself. The slot's line lies over the transcript's foot
-/// (noticeSlotModel.ts `DOCK_NOTICE`), so showing it moves no row.
-export function AutoResumeNotice({ state }: { state: AutoResumeStatus | undefined }) {
+/// (noticeSlotModel.ts `DOCK_NOTICE`), so showing it moves no row. A rate limit's held retry that
+/// the composer's status dot already says (`onDot`, composerStatusModel.ts `retryOnDot`: "Rate
+/// limited until 14:05") draws no line: one place, one set of words (RFD 0128).
+export function AutoResumeNotice({ state, onDot = false }: { state: AutoResumeStatus | undefined; onDot?: boolean }) {
   const t = useT();
-  const retry = state?.retry;
+  const retry = onDot ? undefined : state?.retry;
   const lasting = useConnectionQuiet(Boolean(retry));
   return (
     <Notice id="auto-resume" tier="status" when={lasting && retry}>

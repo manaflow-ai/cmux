@@ -158,7 +158,7 @@ import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
-import { queuePauseReason } from "./queuePause";
+import { queuePauseReason, resumeQueue } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
 import {
   CAPTURE_MODES,
@@ -3658,7 +3658,12 @@ function ComposerFrame({
               link={machineLink}
               heldForHost={heldForHost}
               onReconnectMachine={onReconnectMachine}
-              onResumeQueue={canResume && !resuming ? () => runResume(canResume) : undefined}
+              // The queue's own Resume (its paused note's): never the interrupted turn's resume.
+              onResumeQueue={
+                snapshot.summary?.queuePaused === true && onQueueChange && snapshot.queue.length > 0
+                  ? () => resumeQueue(snapshot.queue, onQueueChange)
+                  : undefined
+              }
             />
           </PromptFocusProvider>
         }

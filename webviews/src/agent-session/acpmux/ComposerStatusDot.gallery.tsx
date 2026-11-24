@@ -8,10 +8,16 @@
 import { componentEntry } from "../../gallery/format";
 import { ComposerStatusDot, type ComposerStatusDotProps } from "./ComposerStatusDot";
 import type { FooterFact, StatusItem } from "./composerStatusModel";
+import { ComposerQueue } from "./ComposerQueue";
 import { ConnectionChip } from "./HostError";
+import { useT } from "./i18n";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 
-type Props = ComposerStatusDotProps & { before?: boolean };
+/// `row`: an older row drawn above the composer beside the dot, to check it against its item (RFD
+/// 0128, "the existing rows are left until each is checked against its item"): the automatic retry
+/// line a rate limit's hold drew (now gone: the dot says it, with its reset), or the queue's paused
+/// note (kept: it names the failed turn's error over the prompts it holds).
+type Props = ComposerStatusDotProps & { before?: boolean; row?: "retry" | "queue" };
 
 const NOW = Date.UTC(2026, 10, 22, 22, 40);
 const MACHINE = "walk-remote";
@@ -54,6 +60,36 @@ const queuePaused: StatusItem = {
   action: "resumeQueue",
 };
 
+const sandbox: StatusItem = {
+  kind: "harnessSandbox",
+  level: "problem",
+  words: "status.harnessSandbox.failing",
+  subject: "Codex",
+  since: NOW - 50_000,
+};
+const QUEUE = [
+  { id: "q-1", prompt: "Then rebase the picker stack onto feat-cmux-next." },
+  { id: "q-2", prompt: "Run the gallery for the composer status dot." },
+];
+const PAUSE_REASON = "API Error: 500 Internal server error";
+
+/// The older rows, as the pane draws them: AutoResumeNotice's line (its markup, past its 10 s
+/// quiet bound) and the real queue with its paused note.
+function OldRow({ row }: { row: NonNullable<Props["row"]> }) {
+  const t = useT();
+  if (row === "retry")
+    return (
+      <output className="acpmux-switch-notice" data-auto-resume="waiting">
+        {t("retry.waiting", { attempt: 1, of: 4 })}
+      </output>
+    );
+  return (
+    <div className="acpmux-composer-queue">
+      <ComposerQueue chat="gallery" queue={QUEUE} paused pauseReason={PAUSE_REASON} t={t} onChange={async () => true} />
+    </div>
+  );
+}
+
 const facts: FooterFact[] = [
   { kind: "machine", text: MACHINE, live: false },
   { kind: "folder", text: "/Users/leo/Projects/cmux/webviews", live: false },
@@ -72,10 +108,11 @@ const ACTIONS = new Set(["reconnect", "resumeQueue"] as const);
 // to its padding in the shell's row (which put the dot off the scene's left edge).
 const SHELL = { padding: 16, flexDirection: "column", justifyContent: "flex-end" } as const;
 
-function Row({ before = false, ...props }: Props) {
+function Row({ before = false, row, ...props }: Props) {
   return (
     <div className="acpmux-shell" data-composer-status-fixture style={SHELL}>
       {before ? <ConnectionChip kind="reconnecting" words="Reconnecting…" /> : null}
+      {row ? <OldRow row={row} /> : null}
       <form className="acpmux-composer">
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
@@ -137,6 +174,22 @@ const variants: Record<string, { note: string; props: Props }> = {
   pinned: {
     note: "Picked: a click pins the same card, adding only esc Close; its actions are one quiet button each.",
     props: { items: [offline, rateLimited], initial: "pinned" },
+  },
+  "rate-limit-before": {
+    note: "Before (#51343 as pushed): a rate limit's held retry drew the notice row's \"Retrying (1/4)\" over the transcript's foot and the dot's amber item, two places for one wait.",
+    props: { items: [rateLimited], row: "retry", initial: "pinned" },
+  },
+  "rate-limit-after": {
+    note: 'Picked: the row is gone; the dot\'s card says the hold and its reset ("Rate limited until …"), which the row never did. Capacity and connection retries keep their row: they have no item.',
+    props: { items: [rateLimited], initial: "pinned" },
+  },
+  "queue-paused-kept": {
+    note: "Kept: the queue's paused note names the failed turn's error over the prompts it holds, which an item cannot carry (its words are a catalog key). Both Resume buttons make the same call (queuePause.ts resumeQueue).",
+    props: { items: [queuePaused], row: "queue", initial: "pinned" },
+  },
+  "stuck-sandbox": {
+    note: "Nothing to remove: no pane row ever drew stuckReason or harnessSandboxFailing; the dot is their first surface. Each failed turn keeps its own error card in the transcript.",
+    props: { items: [stuck, sandbox], initial: "pinned" },
   },
   "dot-count": {
     note: "Not picked: a count beside the dot reads as unread messages and widens the box.",
