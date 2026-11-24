@@ -699,7 +699,7 @@
 {"file":"pages/history/styles.css","kind":"radius","property":"border-radius","values":{"7px":1}}
 {"file":"pages/history/styles.css","kind":"spacing","property":"gap","values":{"2px 14px":1,"9px":1}}
 {"file":"pages/history/styles.css","kind":"spacing","property":"margin","values":{"14px 8px 4px":1}}
-{"file":"pages/history/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 0":1,"2px 6px":1,"6px 10px":1,"3px 0 6px":1,"4px calc(var(--page-edge) - 8px) 18px":1}}
+{"file":"pages/history/styles.css","kind":"spacing","property":"padding","values":{"18px var(--page-edge) 0":1,"2px 6px":1,"6px 10px":1,"3px 0 6px":1}}
 {"file":"pages/history/styles.css","kind":"token-copy","property":"gap","values":{"2px":1}}
 {"file":"pages/history/styles.css","kind":"token-copy","property":"padding","values":{"2px":1}}
 {"file":"pages/home-channels/chief-editor.css","kind":"font-weight","property":"font-weight","values":{"700":1}}

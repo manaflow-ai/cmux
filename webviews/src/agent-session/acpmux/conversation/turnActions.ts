@@ -15,6 +15,7 @@ import type { AnswerBlock } from "../subagents/restart";
 import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
+import type { GitHubConnectOffer } from "./githubConnect";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../harnessHealthNoticeModel";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -139,6 +140,10 @@ export type TurnActions = {
   /// Add Credits… on a turn the cmux model router refused for want of a plan or credits
   /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs it on the person's click.
   access?: AccessOffer;
+  /// Connect GitHub on a turn whose GitHub call found no connection (githubConnect.ts,
+  /// GitHubConnectCard.tsx): the app's `accounts.githubConnect` with the call's repository and this
+  /// chat's link, then the chat's Continue once the person is back. Absent where the pane cannot send.
+  githubConnect?: GitHubConnectOffer;
   /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
   /// the chat offers it now; undefined while the chat is not connected.
   queuedMessages?: () => QueuedMessageActionsValue | undefined;
