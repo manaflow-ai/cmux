@@ -241,6 +241,9 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// What its Waiting waits for, written with the status (`Hub::write_status`); None while it
+    /// is not Waiting.
+    pub(super) wait_reason: StdMutex<Option<crate::store::WaitReason>>,
     /// Since when work the session started still runs past its own turn (a
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
@@ -387,6 +390,11 @@ pub struct Session {
     /// The agent message that holds its turn's start in an idle chat for the gather window, by
     /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
     pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The cold batch open in this idle chat (`cold_wake.rs`): when what it holds goes in.
+    pub(super) cold_batch: StdMutex<Option<super::cold_wake::Batch>>,
+    /// Whether the turn starting now takes a cold batch: its notice leads the agent messages
+    /// queued behind it (`digest.rs` `take_joined`).
+    pub(super) cold_batch_turn: AtomicBool,
     /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
     /// (`person_hold.rs`).
     pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,
@@ -456,6 +464,9 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The current agent process's last stderr line that could say why it quit, for its
+    /// `exited` record (`exit_reason::ExitLine`).
+    pub(super) exit_line: StdMutex<super::exit_reason::ExitLine>,
     /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
     /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
     /// process is. Not persisted: after a daemon restart, a line that continues a control opened

@@ -288,6 +288,9 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
+        let tabs = self.tabs
+        Task { await tabs.read(on: link, macID: macID) }
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
@@ -494,11 +497,6 @@ extension LiveCoordinator {
         let onWaiting: @MainActor @Sendable () -> Void = { [weak self, weak session] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, let session, session.currentLink === link else { return }
-            // A code for this Mac came in after this link's challenge: a new link presents it.
-            if pairing.invites.pending(mac: macID) != nil {
-                self.redial(session)
-                return
-            }
             self.setPairing(keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name), for: session)
         }
         let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
@@ -509,8 +507,6 @@ extension LiveCoordinator {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
                 session.pairingRetries = 0
-                // Allowed already: a code for this Mac has nothing left to approve.
-                pairing.invites.drop(mac: macID)
                 session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { _ in
                     try keys.approvalSigner()
                 }
