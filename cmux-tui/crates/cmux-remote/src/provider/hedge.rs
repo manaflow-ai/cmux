@@ -37,9 +37,9 @@ pub type HedgePolicy = cmux_braid_path::RacePolicy;
 /// no `/etc/gai.conf`, so attempt 0 was always IPv4 and IPv6 was never used where it was the
 /// faster path. An IPv6 attempt that stalls is joined by IPv4 after [`HedgePolicy::stagger`]; one
 /// with no route fails at once. (The same order as `cmux_vault_egress::happy::v6_first`.)
-pub fn v6_first(addresses: &[std::net::SocketAddr]) -> Vec<std::net::SocketAddr> {
+pub fn v6_first(addresses: &[SocketAddr]) -> Vec<SocketAddr> {
     let (mut v6, mut v4): (Vec<_>, Vec<_>) =
-        addresses.iter().copied().partition(std::net::SocketAddr::is_ipv6);
+        addresses.iter().copied().partition(SocketAddr::is_ipv6);
     v6.reverse();
     v4.reverse();
     let mut out = Vec::with_capacity(addresses.len());

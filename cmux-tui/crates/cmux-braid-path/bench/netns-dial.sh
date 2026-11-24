@@ -37,10 +37,15 @@ run() { # scenario arm
 }
 printf 'fd77::2 braid-peer\n10.77.0.2 braid-peer\n' > /etc/netns/$c/hosts
 ip netns exec "$s" ip6tables -A INPUT -p tcp --dport 7443 -j DROP
-run v6-blackhole 0; run v6-blackhole 1
+[ "${SKIP_V6:-0}" = 1 ] || { run v6-blackhole 0; run v6-blackhole 1; }
 ip netns exec "$s" ip6tables -F INPUT
 printf '10.77.0.2 braid-peer\n' > /etc/netns/$c/hosts
 ip netns exec "$s" nft -f - <<'NFT'
-table inet braid { chain input { type filter hook input priority 0; tcp dport 7443 jhash ip saddr . tcp sport mod 4 seed 0x5eed == 0 drop; } }
+table ip braid {
+  chain input {
+    type filter hook input priority 0;
+    tcp dport 7443 jhash ip saddr . tcp sport mod 4 seed 0x5eed == 0 drop
+  }
+}
 NFT
 run tuple-25 0; run tuple-25 1

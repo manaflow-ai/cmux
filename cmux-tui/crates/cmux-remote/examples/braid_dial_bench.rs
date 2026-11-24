@@ -33,17 +33,19 @@ async fn main() -> std::io::Result<()> {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     times.sort();
-    let at = |q: f64| {
-        let index = ((times.len() as f64 - 1.0) * q).round() as usize;
+    let at = |percent: usize| {
+        let index = ((times.len() - 1) * percent + 50) / 100;
         times[index.min(times.len() - 1)].as_secs_f64() * 1000.0
     };
-    let mean = times.iter().map(Duration::as_secs_f64).sum::<f64>() * 1000.0 / times.len() as f64;
+    let total: Duration = times.iter().sum();
+    let mean =
+        total.as_secs_f64() * 1000.0 / f64::from(u32::try_from(times.len()).unwrap_or(u32::MAX));
     let last_good = std::env::var("CMUX_BRAID_LAST_GOOD").map_or(true, |v| v.trim() != "0");
     println!(
         "{{\"last_good\":{last_good},\"n\":{n},\"p50_ms\":{:.1},\"p95_ms\":{:.1},\"max_ms\":{:.1},\"mean_ms\":{mean:.1}}}",
-        at(0.5),
-        at(0.95),
-        at(1.0)
+        at(50),
+        at(95),
+        at(100)
     );
     Ok(())
 }

@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::UnixStream;
 use zeroize::Zeroizing;
 
 use crate::link::LinkError;
