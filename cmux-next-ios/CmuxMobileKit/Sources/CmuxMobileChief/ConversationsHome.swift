@@ -664,7 +664,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// What Home says while the Mac's list is not in (``HomeListNote``).
     private func listNote(searching: Bool) -> HomeListNote {
         HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: homeMacID,
-                          macsMayExist: store.activeTeam == nil || !macs.isEmpty,
+                          macsMayExist: HomeListNote.macsMayAnswer(live: store.tracksMacData, macsKnown: store.activeTeam != nil,
+                                                                   anyOnline: macs.contains(where: \.isOnline)),
                           searching: searching, failing: feed.problem != nil || homeIsOffline)
     }
 
