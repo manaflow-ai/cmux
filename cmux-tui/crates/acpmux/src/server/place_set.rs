@@ -3,7 +3,7 @@
 //! they read, keeps the chat's pin, writes the move line and runs the move.
 //!
 //! * `place_set {sessionId | sessionIds, place, confirm?, why?}`, `place` being
-//!   `{"mode":"auto"}`, `{"mode":"cloud","size":"s"|"m"|"l"?}` or
+//!   `{"mode":"auto"}`, `{"mode":"cloud"}` or
 //!   `{"mode":"machine","machine":ID,"cwd":PATH?}`. Answers `{"chats":[{sessionId, state, mode,
 //!   leftBehind, reason?}]}`, one per chat (a single `sessionId` also gets its chat's fields at
 //!   the top level).
@@ -34,6 +34,8 @@ use std::time::Duration;
 const TURN_WAIT: Duration = Duration::from_secs(600);
 /// The longest a move runs.
 const MOVE_LIMIT: Duration = Duration::from_secs(1800);
+/// How long a pick waits for a move the target turns away before answering `moving`.
+const EARLY_REFUSAL: Duration = Duration::from_secs(8);
 const DEFAULT_WHY: &str = "you chose it";
 const PINS: &str = "place-modes.json";
 
@@ -258,10 +260,12 @@ async fn one(
     let (hub, sid, why) = (hub.clone(), id.clone(), why.to_owned());
     let wait = plan.state == State::AfterTurn;
     let owner = hub.scope.clone();
+    let (early_tx, early_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     owner.spawn_named(
         "place-move",
         Box::pin(async move {
             let outcome = run_move(&hub, &sid, &to, &why, cwd, wait).await;
+            let _ = early_tx.send(outcome.clone());
             match outcome {
                 Ok(()) => set_stand(&sid, None),
                 Err(reason) => {
@@ -271,6 +275,11 @@ async fn one(
             }
         }),
     );
+    // A move the target turns away (an older build refusing a guarded move, say) answers within
+    // moments: that reason is this pick's answer. A long move stays `moving`.
+    if !wait && let Ok(Ok(Err(reason))) = tokio::time::timeout(EARLY_REFUSAL, early_rx).await {
+        return refused(&id, &current, reason);
+    }
     chat(&id, plan.state, &current, &left, None)
 }
 

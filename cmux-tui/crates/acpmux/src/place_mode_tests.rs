@@ -8,20 +8,12 @@ fn here() -> &'static str {
 #[test]
 fn a_place_parses_each_mode_and_refuses_junk() {
     assert_eq!(PlaceMode::parse(&json!({"mode": "auto"})).unwrap(), PlaceMode::Auto);
-    assert_eq!(
-        PlaceMode::parse(&json!({"mode": "cloud", "size": "m"})).unwrap(),
-        PlaceMode::Cloud { size: Some(Size::M) }
-    );
-    assert_eq!(
-        PlaceMode::parse(&json!({"mode": "cloud"})).unwrap(),
-        PlaceMode::Cloud { size: None }
-    );
+    assert_eq!(PlaceMode::parse(&json!({"mode": "cloud"})).unwrap(), PlaceMode::Cloud);
     assert_eq!(
         PlaceMode::parse(&json!({"mode": "machine", "machine": "mini"})).unwrap(),
         PlaceMode::Machine { id: "mini".into() }
     );
     assert!(PlaceMode::parse(&json!({"mode": "machine", "machine": " "})).is_err());
-    assert!(PlaceMode::parse(&json!({"mode": "cloud", "size": "xl"})).is_err());
     assert!(PlaceMode::parse(&json!({"mode": "moon"})).is_err());
     let back = serde_json::to_value(PlaceMode::Machine { id: "mini".into() }).unwrap();
     assert_eq!(back, json!({"mode": "machine", "machine": "mini"}));
@@ -123,7 +115,7 @@ fn a_pick_lands_in_one_state() {
     assert_eq!(plan(&mini, here(), false, &one_left(), true).state, State::Moving);
     assert_eq!(plan(&mini, here(), true, &one_left(), true).state, State::AfterTurn);
     // Cloud says why it is refused and stores nothing.
-    let p = plan(&PlaceMode::Cloud { size: None }, here(), false, &[], true);
+    let p = plan(&PlaceMode::Cloud, here(), false, &[], true);
     assert_eq!((p.state, p.store), (State::Refused, false));
     assert!(p.reason.unwrap().contains("app"));
 }

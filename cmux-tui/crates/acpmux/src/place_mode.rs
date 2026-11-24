@@ -12,27 +12,15 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// A Cloud machine's size.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Size {
-    S,
-    M,
-    L,
-}
-
-/// A chat's place: `{"mode":"auto"}`, `{"mode":"cloud","size":"s"|"m"|"l"?}` or
+/// A chat's place: `{"mode":"auto"}`, `{"mode":"cloud"}` or
 /// `{"mode":"machine","machine":ID}`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub enum PlaceMode {
     /// Nothing moves now; later it may move to Cloud when this Mac cannot run it.
     Auto,
-    /// A fresh Cloud machine, `size` when the person named one (else what Auto would pick).
-    Cloud {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        size: Option<Size>,
-    },
+    /// A fresh Cloud machine; there is no size to choose.
+    Cloud,
     /// This machine, and the chat stays pinned there.
     Machine {
         #[serde(rename = "machine")]
@@ -45,8 +33,7 @@ impl PlaceMode {
     pub fn parse(place: &Value) -> Result<Self, String> {
         let mode = serde_json::from_value::<Self>(place.clone()).map_err(|e| {
             format!(
-                "place must be {{\"mode\":\"auto\"}}, {{\"mode\":\"cloud\",\"size\":\"s\"|\"m\"|\"l\"}} \
-                 or {{\"mode\":\"machine\",\"machine\":ID}}: {e}"
+                "place must be {{\"mode\":\"auto\"}}, {{\"mode\":\"cloud\"}} or {{\"mode\":\"machine\",\"machine\":ID}}: {e}"
             )
         })?;
         match &mode {
@@ -64,7 +51,7 @@ impl PlaceMode {
     pub fn label(&self) -> String {
         match self {
             Self::Auto => "Auto".into(),
-            Self::Cloud { .. } => "Cloud".into(),
+            Self::Cloud => "Cloud".into(),
             Self::Machine { id } => id.clone(),
         }
     }
@@ -247,9 +234,7 @@ pub fn plan(
     };
     match want {
         PlaceMode::Auto => done(State::Pinned, true, None, None),
-        PlaceMode::Cloud { .. } => {
-            done(State::Refused, false, None, Some(CLOUD_UNREACHABLE.to_owned()))
-        }
+        PlaceMode::Cloud => done(State::Refused, false, None, Some(CLOUD_UNREACHABLE.to_owned())),
         PlaceMode::Machine { id } if id == here => done(State::Pinned, true, None, None),
         PlaceMode::Machine { .. } if !left.is_empty() && !confirm => {
             done(State::NeedsConfirm, false, None, None)

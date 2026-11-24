@@ -25,9 +25,6 @@ pub struct PlaceSessionArgs {
     /// Auto (nothing moves now), cloud (a fresh cloud machine) or machine (move there, stay).
     #[arg(long, value_parser = ["auto", "cloud", "machine"], required_unless_present_any = ["undo", "status"])]
     pub mode: Option<String>,
-    /// With `--mode cloud`: the size, s, m or l (default: what Auto would pick).
-    #[arg(long, value_parser = ["s", "m", "l"])]
-    pub size: Option<String>,
     /// With `--mode machine`: the machine.
     #[arg(long, value_name = "MACHINE")]
     pub machine: Option<String>,
@@ -1504,8 +1501,7 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
-    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud [--size
-    /// s|m|l]` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
+    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
     /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
     /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
     Place(PlaceSessionArgs),

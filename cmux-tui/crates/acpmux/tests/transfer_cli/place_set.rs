@@ -53,12 +53,8 @@ async fn a_pick_pins_asks_first_and_moves_with_one_line() {
         (auto["state"].as_str(), auto["mode"]["mode"].as_str()),
         (Some("pinned"), Some("auto"))
     );
-    let cloud = src
-        .call(
-            "_acpmux/place_set",
-            json!({"sessionId": id, "place": {"mode": "cloud", "size": "s"}}),
-        )
-        .await;
+    let cloud =
+        src.call("_acpmux/place_set", json!({"sessionId": id, "place": {"mode": "cloud"}})).await;
     assert_eq!(cloud["state"], "refused", "{cloud}");
     assert!(cloud["reason"].as_str().unwrap().contains("cloud"), "{cloud}");
     let got = src.call("_acpmux/place_get", json!({"sessionId": id})).await;

@@ -1785,9 +1785,6 @@ async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bo
             }
             _ => json!({"mode": "auto"}),
         };
-        if let Some(size) = &args.size {
-            cmux_json::JsonSet::set(&mut place, "size", json!(size));
-        }
         if let Some(cwd) = &args.cwd {
             cmux_json::JsonSet::set(&mut place, "cwd", json!(cwd));
         }
