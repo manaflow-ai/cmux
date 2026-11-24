@@ -169,7 +169,7 @@ enum BrowserToolbarHandlers {
 }
 
 /// Palette rows of hand-built browser and tab bar menus (also `browser.toolbar.togglePin`, the More menu's Show in
-/// Toolbar rows, and `tabs.toolbar.togglePin`, the tab bar "…" menu's Show in Tab Bar rows), which run these actions
+/// Toolbar rows, and `tabs.toolbar.togglePin`, the palette's Pin or Unpin Tab Bar Button…), which run these actions
 /// themselves so the menu and
 /// the palette run one handler:
 /// - `browser.goToHistoryEntry` (`entry`: the offset from the current page): a row of the Back and
