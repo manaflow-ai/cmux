@@ -32,7 +32,10 @@ const JPEG_SCAN_BYTES = 16 * 1024 * 1024;
 /// A PNG, GIF, JPEG or WebP's size from its header, without decoding it: `known` with no size when
 /// it is one of those but its size cannot be read (it is then not decoded either); undefined for
 /// another type.
-export async function imageSize(file: Blob): Promise<{ known: true; width?: number; height?: number } | undefined> {
+export async function imageSize(
+  file: Blob,
+  cancelled?: () => boolean,
+): Promise<{ known: true; width?: number; height?: number } | undefined> {
   const bytes = new Uint8Array(await file.slice(0, 64).arrayBuffer());
   const view = new DataView(bytes.buffer);
   const at = (offset: number, ...sig: number[]) => sig.every((byte, index) => bytes[offset + index] === byte);
@@ -56,16 +59,16 @@ export async function imageSize(file: Blob): Promise<{ known: true; width?: numb
       return { known: true, width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
     return { known: true };
   }
-  if (at(0, 0xff, 0xd8)) return { known: true, ...(await jpegSize(file)) };
+  if (at(0, 0xff, 0xd8)) return { known: true, ...(await jpegSize(file, cancelled)) };
   return undefined;
 }
 
 /// A JPEG's size from its frame header (SOF0..SOF15 but DHT, JPG and DAC), segment by segment from
 /// the file (reading only each segment's head), within JPEG_SCAN_BYTES.
-async function jpegSize(file: Blob): Promise<{ width: number; height: number } | undefined> {
+async function jpegSize(file: Blob, cancelled?: () => boolean): Promise<{ width: number; height: number } | undefined> {
   let offset = 2;
   const end = Math.min(file.size, JPEG_SCAN_BYTES);
-  while (offset + 9 <= end) {
+  while (offset + 9 <= end && !cancelled?.()) {
     const head = new Uint8Array(await file.slice(offset, offset + 9).arrayBuffer());
     if (head.length < 4 || head[0] !== 0xff) return undefined;
     const marker = head[1]!;
@@ -110,25 +113,41 @@ function canDraw(): boolean {
   return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
 }
 
+async function decodeFile(file: Blob): Promise<ImageBitmap | undefined> {
+  if (!canDraw()) return undefined;
+  // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
+  // it goes as a file, linked or uploaded, which the agent opens itself.
+  // One whose size cannot be read is not decoded either: it may be any size. A picture the engine
+  // converts (an iPhone's HEIC, TIFF, BMP, AVIF) has no header read here: past a file size no
+  // phone photo reaches, it goes as a file.
+  if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
+  const size = await imageSize(file);
+  if (size && (size.width === undefined || size.height === undefined)) return undefined;
+  if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
+    return undefined;
+  return createImageBitmap(file);
+}
+
+/// A local file's display thumbnail. Only the small canvas result crosses back to the composer.
+export async function fileThumbnail(file: Blob): Promise<Thumb | undefined> {
+  const bitmap = await decodeFile(file);
+  if (!bitmap) return undefined;
+  try {
+    return await drawThumb(bitmap, 160, true);
+  } finally {
+    bitmap.close();
+  }
+}
+
 /// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
 /// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
 /// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
-  if (!canDraw()) return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
-    // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
-    // it goes as a file, linked or uploaded, which the agent opens itself.
-    // One whose size cannot be read is not decoded either: it may be any size. A picture the engine
-    // converts (an iPhone's HEIC, TIFF, BMP, AVIF) has no header read here: past a file size no
-    // phone photo reaches, it goes as a file.
-    if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
-    const size = await imageSize(file);
-    if (size && (size.width === undefined || size.height === undefined)) return undefined;
-    if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
-      return undefined;
-    bitmap = await createImageBitmap(file);
+    bitmap = await decodeFile(file);
+    if (!bitmap) return undefined;
     const fitted = await fit(bitmap, file.type);
     if (!fitted) return undefined;
     const thumb = await drawThumb(bitmap);
@@ -180,14 +199,19 @@ export function thumbRatio(width: number, height: number): number {
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
 /// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
-export async function drawThumb(bitmap: ImageBitmap, height = 160): Promise<Thumb | undefined> {
+export async function drawThumb(bitmap: ImageBitmap, height = 160, whole = false): Promise<Thumb | undefined> {
   if (!bitmap.width || !bitmap.height) return undefined;
-  const ratio = thumbRatio(bitmap.width, bitmap.height);
+  const ratio = whole ? bitmap.width / bitmap.height : thumbRatio(bitmap.width, bitmap.height);
   const [sourceWidth, sourceHeight] =
     bitmap.width / bitmap.height > ratio
       ? [bitmap.height * ratio, bitmap.height]
       : [bitmap.width, bitmap.width / ratio];
-  const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
+  // A linked file shares its preview with the sent bubble, which shows the whole picture.
+  const scale = whole ? Math.min(1, height / sourceHeight, 480 / sourceWidth) : height / sourceHeight;
+  const canvas = new OffscreenCanvas(
+    Math.max(1, Math.round(sourceWidth * scale)),
+    Math.max(1, Math.round(sourceHeight * scale)),
+  );
   const context = canvas.getContext("2d");
   if (!context) return undefined;
   context.drawImage(

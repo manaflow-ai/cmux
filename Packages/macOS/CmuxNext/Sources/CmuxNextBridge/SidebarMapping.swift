@@ -260,6 +260,7 @@ public struct SidebarMapping {
     public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
                                     workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
                                     explicitWorkspaceTitle: String? = nil, sessionName: String?, displayName: String? = nil,
+                                    formerSessionNames: [String] = [],
                                     chatTitle: String?, explicitChatTitle: String? = nil, taskSummary: String?) -> String {
         if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
@@ -267,17 +268,32 @@ public struct SidebarMapping {
         // the session name. Revision zero also supports launcher-named workspaces.
         if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
-            || originalName == sessionName || originalName == shortSessionName(sessionName)
+            || isSessionNamed(originalName, sessionName: sessionName, displayName: displayName,
+                              formerSessionNames: formerSessionNames)
         guard machineNamed else { return workspaceTitle }
         if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
         if let displayName, !displayName.isEmpty { return displayName }
-        for candidate in [chatTitle, taskSummary] {
-            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
-                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
-                  value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame else { continue }
-            return value
-        }
+        // A real chat title counts even when it reads as the session name: a chat renamed "mango"
+        // is titled "Mango" (`AgentTurnStates.isRenamed`), and skipping it left the row on its old name.
+        if let value = chatTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty { return value }
+        if let value = taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+           value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
+           value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame { return value }
         return workspaceTitle
+    }
+
+    /// Whether a workspace's `name` is only a name its agent had: its session name now, its given name, or a name
+    /// it had before a rename (acpmux `formerNames`). Such a workspace was named by its launcher, not forced by a
+    /// person or agent, so it keeps following the agent's name as that changes (Leo, 2026-11-24: "if it wasn't
+    /// manually adjusted and forecd by the user or agent to be a particular way, can keep being like... the main
+    /// one's name. which can change").
+    public static func isSessionNamed(_ name: String, sessionName: String?, displayName: String? = nil,
+                                      formerSessionNames: [String] = []) -> Bool {
+        guard !name.isEmpty else { return false }
+        return ([sessionName, displayName] + formerSessionNames.map(Optional.some)).contains { candidate in
+            guard let candidate, !candidate.isEmpty else { return false }
+            return name == candidate || name == shortSessionName(candidate)
+        }
     }
 
     /// Peers qualify session names for routing; the sidebar already shows the host separately.

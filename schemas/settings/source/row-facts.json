@@ -31,6 +31,8 @@
       "sidebar.workspaceRow.linesByKind": "domain:sidebar_row_lines_by_kind",
       "sidebar.workspaceRow.linesByAgent": "domain:sidebar_row_lines_by_agent",
       "agentPane.display.transcriptTokens": "domain:transcript_tokens",
+      "sidebar.sections.hidden": "domain:sidebar_section_ids",
+      "sidebar.sections.order": "domain:sidebar_section_ids",
       "machines.hosts": "domain:hosts"
     },
     "kinds": {

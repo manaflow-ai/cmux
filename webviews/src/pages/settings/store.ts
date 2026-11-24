@@ -12,7 +12,6 @@ import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState, type WorkspaceState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
-  type AppearanceArea,
   appearanceKeys,
   captureAppearance,
   captureKeys,
@@ -20,6 +19,7 @@ import {
   changeLabel,
   tracksAppearance,
   withLinked,
+  type AppearanceArea,
 } from "./appearanceUndo";
 import type { PageCommand } from "./keyboard";
 import {
@@ -49,6 +49,8 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -56,6 +58,8 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -79,29 +83,27 @@ import {
   type WireError,
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
+  type CustomizeTryOn,
+  type JoinConsentSurface,
   type KeysState,
+  type ModelsRun,
+  type ModelsState,
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type McpServersRun,
-  type AgentConfigAnswer,
-  type AgentConfigRun,
   type McpServersState,
+  type HubRun,
+  type HubState,
   type RowNoteData,
-  type CustomizeTryOn,
-  type JoinConsentSurface,
-  type LibraryListing,
-  type LibraryRun,
-  type ModelsRun,
-  type ModelsState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
   type AccountsRunReply,
-  type AllotmentSet,
-  type AllotmentView,
   type DoctorReport,
   type DoctorRun,
 } from "./ops";
@@ -873,6 +875,18 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > Integrations (the integrations hub); null when the host has none. */
+  async hubState(): Promise<HubState | null> {
+    const reply = await this.request("cmux.settings.hub.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Integrations gesture, then the card as it is after it (null: the host has none). */
+  async runHub(run: HubRun): Promise<HubState | null> {
+    await this.request("cmux.settings.hub.run", run);
+    return this.hubState();
   }
 
   /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the

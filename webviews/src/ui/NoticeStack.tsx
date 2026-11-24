@@ -21,6 +21,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Notice, type NoticeAction, type NoticeKind, type NoticeProps } from "./Notice";
+import { Slot } from "../slots/Slot";
+import { toastEnterSlot } from "../slots/toastEnter";
 import {
   ANCHORS,
   anchorColumn,
@@ -336,7 +338,7 @@ export function NoticeStack({
     return arm(() => queue.close(id, "timeout"), Math.max(0, due - t));
   }, [entries, held, queue, started, now, arm]);
 
-  const draw = ({ spec, count }: NoticeEntry) => (
+  const card = ({ spec, count }: NoticeEntry) => (
     <Notice
       {...spec}
       kind={spec.kind ?? "toast"}
@@ -355,6 +357,11 @@ export function NoticeStack({
       onDismiss={() => queue.close(spec.id, "closed")}
       dismissLabel={dismissLabel}
     />
+  );
+  // Each card is drawn through the theme slot `toast.enter` (slots/toastEnter): its default draws the
+  // card alone, as before.
+  const draw = (entry: NoticeEntry) => (
+    <Slot slot={toastEnterSlot} props={{ kind: entry.spec.kind ?? "toast", children: card(entry) }} />
   );
 
   // The surface toasts rest in: from the top anchors' edge to the stack's own line, its width.

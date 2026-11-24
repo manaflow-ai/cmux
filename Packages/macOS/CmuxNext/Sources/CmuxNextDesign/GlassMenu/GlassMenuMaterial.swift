@@ -65,7 +65,7 @@ public nonisolated struct GlassMenuMaterial {
     /// The theme ink at `ink` fit to a menu's glass (``CmuxDialogButtonLook/menuCardSurfaces(_:lift:)``: the glass over the
     /// theme's window, a white and a black page, and the opaque popup under Reduce Transparency), moved toward its pole
     /// until it reads at `minimum` on each, or the pole that reads on most where none reads on all. A SwiftUI button on
-    /// menu glass takes it (``CmuxPressFillButtonStyle``, `cmuxOnMenuGlass(_:)`): Hot Dog Stand's text read 4.16:1 on
+    /// a menu panel takes it (``ThemedHostingView``, and ``CmuxPressFillButtonStyle``): Hot Dog Stand's text read 4.16:1 on
     /// its glass over a black page at the 90% cap (NativeControlContrastAuditTests).
     public static func ink(_ ink: KeyPath<ThemeTokens, ThemeRGB>, tokens: ThemeTokens,
                            minimum: Double = CmuxDialogButtonLook.minimumContrast) -> ThemeRGB {
@@ -117,6 +117,15 @@ public nonisolated struct GlassMenuMaterial {
     /// The radius in effect: the one surface radius, concentric with the panes (Lawrence
     /// 2026-11-04), which is ``defaultCornerRadius`` unless the person changed it.
     @MainActor public static var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
+
+    /// A ``GlassMenu``'s panel radius: the surface radius around its hover pill, which is the surface radius
+    /// ``MenuMetrics/highlightInset`` in from the panel's edge, so the pill and the panel are concentric (13 points by
+    /// default, the Codex and ChatGPT menus' rounder card; Lawrence 2026-11-23: "let's just match these
+    /// screenshots"). Square stays square: a person who set no radius gets none.
+    @MainActor public static var menuCornerRadius: CGFloat { menuCornerRadius(surface: cornerRadius) }
+
+    /// ``menuCornerRadius`` for a surface radius of `surface`.
+    public static func menuCornerRadius(surface: CGFloat) -> CGFloat { surface > 0 ? surface + MenuMetrics.highlightInset : 0 }
 }
 
 extension Glass {

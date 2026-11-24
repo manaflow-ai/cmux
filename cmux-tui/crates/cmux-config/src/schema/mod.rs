@@ -21,11 +21,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color, is_search_template};
 pub use aliases::{choice_alias, choice_aliases};
 pub use backdrop::normalize_backdrop;
 pub use backdrop::{
-    RECENTS_CAP, is_selection as is_background, previous_background, recents_of, record_recent,
+    RECENTS_CAP, is_location as is_backdrop_location, is_memory as is_backdrop_memory,
+    is_picture as is_backdrop_picture, is_recents as is_backdrop_recents,
+    is_schedule as is_backdrop_schedule, is_selection as is_background, previous_background,
+    recents_of, record_recent,
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
@@ -197,6 +200,10 @@ pub enum DomainKind {
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
+    /// `sidebar.sections.hidden` / `order`: distinct section ids of 1 to 128
+    /// characters, at most 256 (cmux-layout-reducer `sidebar_section_customization`;
+    /// Swift `SidebarSectionIDsSetting.accepts`).
+    SidebarSectionIds,
     /// `sidebar.workspaceRow.lines`: a row layout the sidebar row reducer
     /// draws as written (`cmux_layout_reducer::sidebar_row_layout`, `sidebar_rows`).
     SidebarRowLines,
@@ -424,6 +431,50 @@ impl Schema {
     pub fn rows_in<'a>(&'a self, section: Option<&'a str>) -> impl Iterator<Item = &'a Row> + 'a {
         self.rows.iter().filter(move |row| section.is_none_or(|id| row.section == id))
     }
+
+    /// Rows `settings.reset_group` resets for `name`: a section id
+    /// (`appearance`, the Settings page's left column) takes every row of
+    /// the section; `<section>.<group>` (`appearance.sidebar`, a heading on
+    /// that page, [`Row::group_id`]) takes the rows of that group. Empty for
+    /// an unknown name.
+    pub fn rows_in_group(&self, name: &str) -> Vec<&Row> {
+        self.rows.iter().filter(|row| row.section == name || row.group_id() == name).collect()
+    }
+
+    /// Every name [`Schema::rows_in_group`] knows, in schema order: each
+    /// section with rows, then its groups.
+    pub fn group_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for row in &self.rows {
+            for name in [row.section.clone(), row.group_id()] {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+}
+
+impl Row {
+    /// The row's group as `settings.reset_group` names it: its section and
+    /// the last part of the group's localization key
+    /// (`settings.group.sidebar` in section `appearance` is
+    /// `appearance.sidebar`), or the group's title in lowercase letters and
+    /// digits when it has no key.
+    pub fn group_id(&self) -> String {
+        let slug = match &self.group.key {
+            Some(key) => key.rsplit('.').next().unwrap_or(key).to_string(),
+            None => self
+                .group
+                .text
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect(),
+        };
+        format!("{}.{slug}", self.section)
+    }
 }
 
 fn row(raw: Value, text: RowText) -> Result<Row, String> {
@@ -487,6 +538,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
             Validation::Domain(DomainKind::SidebarRowLinesByAgent)
         }
         "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
+        "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
         "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };

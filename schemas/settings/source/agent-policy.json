@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.autoCloud",
         "window.titlebar"
       ]
     },
@@ -100,6 +101,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
@@ -110,7 +112,12 @@
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
         "tabs.nativeNewTabPage",
-        "tabs.newTabApp"
+        "tabs.newTabApp",
+        "tabs.newTabClock.show",
+        "tabs.newTabClock.font",
+        "tabs.newTabClock.weight",
+        "tabs.newTabClock.color",
+        "tabs.newTabClock.date"
       ]
     },
     {
@@ -278,6 +285,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",
@@ -324,6 +332,7 @@
         "appearance.titleAreaContrast",
         "appearance.twoTone",
         "appearance.cornerFlush",
+        "appearance.tabShape",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -381,7 +390,10 @@
         "terminal.fontFamily",
         "terminal.fontSize",
         "terminal.term",
+        "terminal.predictiveLocalEcho",
         "sidebar.sectionLook",
+        "sidebar.sections.hidden",
+        "sidebar.sections.order",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",
@@ -455,6 +467,7 @@
         "notifications.sources.cli.dismissal",
         "notifications.delivery.permissionRequest",
         "notifications.delivery.question",
+        "notifications.delivery.blocked",
         "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
@@ -492,7 +505,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "labs.appStore"
       ]
     },
     {
@@ -507,8 +521,11 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.seeThroughDock",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -816,7 +833,10 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.environmentCard",
+        "agentPane.display.changesPill",
         "agentPane.display.finishSound",
+        "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -847,10 +867,15 @@
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
+        "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
-        "agentPane.display.commandLabels"
+        "agentPane.display.commandLabels",
+        "agentPane.display.layout.messages",
+        "agentPane.display.layout.composer",
+        "agentPane.display.layout.header"
       ]
     },
     {
@@ -1034,6 +1059,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Whether the person's agent memory (CLAUDE.md, AGENTS.md, skills, Claude's notes) is copied to the cloud: only the person opts in or out; off deletes their cloud copy.",
+      "keys": [
+        "cloud.agentMemory.follow"
+      ]
+    },
+    {
       "agent": "privacy",
       "keys": [
         "agents.chats.roots",
@@ -1072,6 +1104,14 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether a chat's sealed log segments are compressed on disk as it grows, and how hard: lossless (every byte reads back, nothing is removed), a local disk policy.",
+      "keys": [
+        "agents.chats.coldSegments",
+        "agents.chats.coldSegmentsLevel"
       ]
     },
     {
@@ -1473,6 +1513,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Live background updates download and run new daemon binaries from files.cmux.com.",
+      "keys": [
+        "updates.daemon"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "How long a nightly waits before it restarts into an update: the person's call.",
       "keys": [
@@ -1506,6 +1553,13 @@
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this Mac and the person's Cloud machines send cmux which packages agents install: the person's choice only.",
+      "keys": [
+        "diagnostics.shareInstallCounts"
       ]
     },
     {
@@ -1551,7 +1605,8 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
-        "computerUse.menus"
+        "computerUse.menus",
+        "computerUse.whileLocked"
       ]
     },
     {
@@ -1679,6 +1734,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Whether remote connections may use a Tailscale carrier changes network egress, so only the person enables it.",
+      "keys": [
+        "transport.tailnetCarrier"
+      ]
+    },
+    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1697,6 +1759,13 @@
       "why": "On, a phone signed in to the same account can open this Mac's terminals and agents.",
       "keys": [
         "mobile.allowIPhoneConnections"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.",
+      "keys": [
+        "mobile.autoApprovePhones"
       ]
     },
     {
@@ -1747,6 +1816,15 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "keys": [
+        "remoteDesktop.quality",
+        "remoteDesktop.maxFps",
+        "remoteDesktop.maxBitrateMbps"
       ]
     },
     {
@@ -1859,6 +1937,13 @@
       "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
       "keys": [
         "models.spreadUsage"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
+      "keys": [
+        "agentPane.savedPrompts"
       ]
     }
   ]

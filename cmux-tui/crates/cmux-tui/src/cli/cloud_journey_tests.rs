@@ -106,6 +106,21 @@ fn the_launch_credential_rides_the_heredoc_not_argv() {
     );
 }
 
+/// The start reaches acpmux on the socket of whichever home the machine's acpmux uses:
+/// `ACPMUX_SOCKET`, the cmux daemon's acpmux home, then acpmux's own (where a machine's
+/// `acpmux.service` listens), the order cloud-journey.ts `launchCredentialStartProgram` tries.
+#[test]
+fn the_start_program_looks_for_acpmux_in_its_own_home_too() {
+    let program =
+        launch_credential_program("journey-jr-1", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "x");
+    let paths = program.lines().find(|l| l.starts_with("paths = ")).expect("the socket list");
+    let at = |needle: &str| paths.find(needle).unwrap_or_else(|| panic!("{needle} in {paths}"));
+    let env = at("os.environ.get('ACPMUX_SOCKET')");
+    let cmux = at("home + '/.cmux/acpmux/acpmux.sock'");
+    let own = at("home + '/.acpmux/acpmux.sock'");
+    assert!(env < cmux && cmux < own, "{paths}");
+}
+
 #[test]
 fn stub_reply_needs_the_nonce_and_the_tool_output() {
     assert!(stub_reply_ok("Stub reply ab12. The tool printed ab12-tool.", "ab12"));
