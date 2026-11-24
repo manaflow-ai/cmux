@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (a recorded chat), not shipped UI.
 import { componentEntry } from "../../../gallery/format";
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import type { ReplayScreen } from "./ReplayScreen";
 import { REPLAY_SESSION, replayFixtureEvents } from "./replayFixture";
 
