@@ -186,6 +186,7 @@ fn loopback_services_are_never_measured() {
 /// A fake Worker: `/v1/netcheck/<region>` answers `ping` with `pong` after
 /// `delay(region)`, after an upgrade that itself takes `setup`; unknown
 /// regions or `status` get that HTTP status.
+#[allow(clippy::result_large_err)] // tungstenite's callback type
 async fn fake_worker(
     status: Option<u16>,
     setup: Duration,
