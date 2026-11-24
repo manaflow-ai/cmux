@@ -1808,6 +1808,14 @@ a Return that fails after the text was written says `submit failed after the tex
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
 
+With `send-typed-submit-v1`, a `submit` after typed text (`paste:false`, a non-empty `text` or `bytes`)
+writes Return 250 ms after the text, still in the same request; after a paste the PTY writer's paste
+pacing holds Return until the program read it, and a bare `submit` writes Return at once. The gap is
+past an agent TUI's paste-burst window (Codex joins unbracketed characters arriving within about
+120 ms into one paste, and took a Return right behind typed text for a newline). The phone sends a
+one-line draft for a full-screen program this way, as one keyed request, instead of the text and a
+separate Return. A server without the capability writes Return right after the text.
+
 With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
 the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
 already applied returns the same success reply and writes nothing, with `text` or `bytes`, `surface`
@@ -11626,7 +11634,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11656,6 +11664,16 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+`begin_token` (`agent-transfer-begin-token-v1`; 1 to 128 of `[A-Za-z0-9_-]`,
+else `agent_transfer.bad_request`) is the client's own mark for this begin.
+acpmux keeps it beside the move's bundle, which a restart keeps while the
+move runs, and the `transfer.moving` refusal of a later begin hands it back
+as `error_details: {transfer_id, begin_token}`. A pump that lost its begin
+answer and recorded the token first can tell the frozen move is its own (it
+learned no transfer id, so it asked no target to receive it) and abort it at
+once instead of waiting out the source's lease (`cmux link agent move`). A
+move begun without a token, or by an older acpmux, hands back none.
 
 ### agent-transfer-source
 
