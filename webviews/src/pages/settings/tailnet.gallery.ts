@@ -48,7 +48,9 @@ export default settingsPageEntry({
     ),
     "cloud-ready": {
       section: "devices",
-      options: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"], "tailnet.join.ssh": true } },
+      options: {
+        values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"], "tailnet.join.ssh": true },
+      },
       host: cloudHost,
       note: "Tailscale is enabled for Cloud machines. Join opens a sheet that asks for a key only for this operation.",
     },
@@ -56,12 +58,17 @@ export default settingsPageEntry({
       section: "devices",
       options: { values: { "tailnet.join.enabled": true } },
       host: cloudHost,
-      steps: [{ selector: '[data-card="tailnet-cloud"]', action: "wait" }, { selector: '[data-tailnet-vm-join]', action: "click" }],
+      steps: [
+        { selector: '[data-card="tailnet-cloud"]', action: "wait" },
+        { selector: "[data-tailnet-vm-join]", action: "click" },
+      ],
       note: "The secure join sheet with a Cloud machine selector and password field.",
     },
     "cloud-switch": {
       section: "devices",
-      options: { values: { "tailnet.join.enabled": true, "tailnet.join.ephemeral": true, "tailnet.join.autoJoinNewVMs": true } },
+      options: {
+        values: { "tailnet.join.enabled": true, "tailnet.join.ephemeral": true, "tailnet.join.autoJoinNewVMs": true },
+      },
       host: cloudHost,
       note: "Advanced join defaults with ephemeral devices and automatic joins available from the schema rows.",
     },

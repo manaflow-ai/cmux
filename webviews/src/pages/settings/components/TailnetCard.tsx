@@ -209,10 +209,16 @@ function TailnetVMCard({ machines }: { machines: Array<{ id: string; title: stri
   const store = useStore();
   const loginServer = String(useRowState("tailnet.join.loginServer").value ?? "");
   const hostname = String(useRowState("tailnet.join.hostname").value ?? "");
-  const tags = (useRowState("tailnet.join.tags").value as unknown[] | undefined)?.filter((v): v is string => typeof v === "string") ?? [];
+  const tags =
+    (useRowState("tailnet.join.tags").value as unknown[] | undefined)?.filter(
+      (v): v is string => typeof v === "string",
+    ) ?? [];
   const ssh = useRowState("tailnet.join.ssh").value === true;
   const ephemeral = useRowState("tailnet.join.ephemeral").value === true;
-  const servePorts = (useRowState("tailnet.join.servePorts").value as unknown[] | undefined)?.filter((v): v is string => typeof v === "string") ?? [];
+  const servePorts =
+    (useRowState("tailnet.join.servePorts").value as unknown[] | undefined)?.filter(
+      (v): v is string => typeof v === "string",
+    ) ?? [];
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<TailnetVMReply | null>(null);
   const [vm, setVM] = useState("");
@@ -282,7 +288,14 @@ function TailnetJoinDialog({
   machines: Array<{ id: string; title: string }>;
   vm: string;
   setVM: (value: string) => void;
-  options: { loginServer: string; hostname: string; tags: string[]; ssh: boolean; ephemeral: boolean; servePorts: string[] };
+  options: {
+    loginServer: string;
+    hostname: string;
+    tags: string[];
+    ssh: boolean;
+    ephemeral: boolean;
+    servePorts: string[];
+  };
   onClose: () => void;
   onJoined: (reply: TailnetVMReply) => void;
 }) {
@@ -302,34 +315,79 @@ function TailnetJoinDialog({
       setKey("");
       onJoined(reply);
     } else {
-      const detail = reply.errorCode === "missing_vm"
-        ? t("settingsPage.tailnet.missingMachine")
-        : reply.errorCode === "missing_key"
-          ? t("settingsPage.tailnet.missingCredential")
-          : reply.error ?? t("settingsPage.tailnet.unknownError");
+      const detail =
+        reply.errorCode === "missing_vm"
+          ? t("settingsPage.tailnet.missingMachine")
+          : reply.errorCode === "missing_key"
+            ? t("settingsPage.tailnet.missingCredential")
+            : (reply.error ?? t("settingsPage.tailnet.unknownError"));
       setError(detail);
     }
   };
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()} label={t("settingsPage.tailnet.join")} className="tailnet-join-sheet">
-        <form className="accounts-form tailnet-join-content" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <Dialog
+      open
+      onOpenChange={(next) => !next && onClose()}
+      label={t("settingsPage.tailnet.join")}
+      className="tailnet-join-sheet"
+    >
+      <form
+        className="accounts-form tailnet-join-content"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
         <DialogTitle>{t("settingsPage.tailnet.join")}</DialogTitle>
         <DialogDescription>{t("settingsPage.tailnet.cloudHelp")}</DialogDescription>
-        <label>{t("settingsPage.tailnet.machine")}
-          <input list="tailnet-machines" value={vm} onChange={(event) => setVM(event.target.value)} autoComplete="off" />
-          <datalist id="tailnet-machines">{machines.map((machine) => <option key={machine.id} value={machine.id}>{machine.title}</option>)}</datalist>
+        <label>
+          {t("settingsPage.tailnet.machine")}
+          <input
+            list="tailnet-machines"
+            value={vm}
+            onChange={(event) => setVM(event.target.value)}
+            autoComplete="off"
+          />
+          <datalist id="tailnet-machines">
+            {machines.map((machine) => (
+              <option key={machine.id} value={machine.id}>
+                {machine.title}
+              </option>
+            ))}
+          </datalist>
         </label>
-        <label>{t("settingsPage.tailnet.credential")}
-          <input type="password" value={key} onChange={(event) => setKey(event.target.value)} autoComplete="off" spellCheck={false} />
+        <label>
+          {t("settingsPage.tailnet.credential")}
+          <input
+            type="password"
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
         </label>
         <div className="row-help">{t("settingsPage.tailnet.keyHelp")}</div>
-        <label><input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} /> {t("settingsPage.tailnet.oauthMode")}</label>
-        <label><input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} /> {t("settingsPage.tailnet.switch")}</label>
-        {error && <div className="row-help" role="alert">{t("settingsPage.tailnet.joinError", error)}</div>}
+        <label>
+          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />{" "}
+          {t("settingsPage.tailnet.oauthMode")}
+        </label>
+        <label>
+          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />{" "}
+          {t("settingsPage.tailnet.switch")}
+        </label>
+        {error && (
+          <div className="row-help" role="alert">
+            {t("settingsPage.tailnet.joinError", error)}
+          </div>
+        )}
         {error?.includes("another tailnet") && <div className="row-help">{t("settingsPage.tailnet.switchHelp")}</div>}
         <div className="accounts-buttons">
-          <Button type="button" className="button" onClick={onClose}>{t("settingsPage.cancel")}</Button>
-          <Button type="submit" className="button" disabled={busy || !vm.trim() || !key}>{busy ? t("settingsPage.tailnet.joining") : t("settingsPage.tailnet.join")}</Button>
+          <Button type="button" className="button" onClick={onClose}>
+            {t("settingsPage.cancel")}
+          </Button>
+          <Button type="submit" className="button" disabled={busy || !vm.trim() || !key}>
+            {busy ? t("settingsPage.tailnet.joining") : t("settingsPage.tailnet.join")}
+          </Button>
         </div>
       </form>
     </Dialog>

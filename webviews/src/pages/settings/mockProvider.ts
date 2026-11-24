@@ -658,7 +658,11 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.joinVM": (params) => {
         const vm = String((params as { vm?: unknown }).vm ?? "");
         this.tailnetSteps.push(`joinVM:${vm}`);
-        return { ok: true, vm, node: { dnsName: `${vm}.ts.net`, ips: ["100.64.0.7"], tags: ["tag:cmux"], online: true } };
+        return {
+          ok: true,
+          vm,
+          node: { dnsName: `${vm}.ts.net`, ips: ["100.64.0.7"], tags: ["tag:cmux"], online: true },
+        };
       },
       "cmux.settings.tailnet.leaveVM": (params) => {
         const vm = String((params as { vm?: unknown }).vm ?? "");

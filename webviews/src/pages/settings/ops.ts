@@ -2122,7 +2122,21 @@ export type SettingsOps = {
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
   /** Native: joins one Cloud machine using a key supplied only for this gesture via stdin. */
-  "cmux.settings.tailnet.joinVM": [{ vm: string; key: string; oauth?: boolean; loginServer?: string; hostname?: string; tags?: string[]; ssh?: boolean; ephemeral?: boolean; servePorts?: string[]; switch?: boolean }, TailnetVMReply];
+  "cmux.settings.tailnet.joinVM": [
+    {
+      vm: string;
+      key: string;
+      oauth?: boolean;
+      loginServer?: string;
+      hostname?: string;
+      tags?: string[];
+      ssh?: boolean;
+      ephemeral?: boolean;
+      servePorts?: string[];
+      switch?: boolean;
+    },
+    TailnetVMReply,
+  ];
   /** Native: removes one Cloud machine from the person's tailnet. */
   "cmux.settings.tailnet.leaveVM": [{ vm: string }, TailnetVMReply];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
