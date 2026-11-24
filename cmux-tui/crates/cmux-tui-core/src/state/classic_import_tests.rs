@@ -173,8 +173,10 @@ fn settings_presence_is_probeable_without_decoding_a_classic_session() {
     assert!(plan["source"].is_null() && plan["plan"].is_null(), "{plan}");
 }
 
+#[cfg(unix)]
 #[test]
 fn consented_settings_record_imports_sidecars_once_then_finish_marks_observed() {
+    use std::os::unix::fs::PermissionsExt;
     let mux = Mux::new_for_test("classic-import-settings-record", SurfaceOptions::default());
     let home = home(false);
     let mut places = home.places();
@@ -193,6 +195,8 @@ fn consented_settings_record_imports_sidecars_once_then_finish_marks_observed() 
     let harnesses = classic.join("harnesses");
     std::fs::create_dir_all(&harnesses).unwrap();
     std::fs::write(harnesses.join("mine.toml"), "command = 'run'\n").unwrap();
+    std::fs::set_permissions(harnesses.join("mine.toml"), std::fs::Permissions::from_mode(0o600))
+        .unwrap();
     std::fs::write(
         classic.join("cmux.json"),
         br#"{"agents":{"harnesses":{"inline":{"command":"launch"}}}}"#,

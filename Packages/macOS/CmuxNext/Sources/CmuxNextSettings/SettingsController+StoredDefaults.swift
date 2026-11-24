@@ -238,39 +238,7 @@ extension SettingsController {
     ) async throws {
         guard !marker.bool(forKey: Self.classicConfigImportedKey) else { return }
         let classic = classicURL ?? CmuxConfigFile.classicURL(environment: environment)
-        // The Classic settings file lives under ~/.config even when acpmux's inline
-        // harness profiles came from XDG_CONFIG_HOME. The daemon snapshots those
-        // profiles (including their icons) before calling this consented merge.
-        let classicText = try CmuxConfigFile.source(at: classic)
-        var classicRoot: JSONValue = classicText.isEmpty ? .object([:]) : try JSONC.parse(classicText)
-        let snapshot = file.url.deletingLastPathComponent().appending(path: "classic-harnesses/profiles.json")
-        let profilesText = try CmuxConfigFile.source(at: snapshot)
-        if !profilesText.isEmpty {
-            let path = ["agents", "harnesses"]
-            let profiles = try JSONDecoder().decode([String: JSONValue].self, from: Data(profilesText.utf8))
-            let existing = classicRoot.value(at: path)?.objectValue ?? [:]
-            classicRoot = classicRoot.setting(.object(existing.merging(profiles) { _, copied in copied }), at: path)
-        }
-        let nextRoot = try await file.document()
-        var edits: [(path: [String], value: JSONValue)] = []
-        func missing(_ classic: JSONValue, _ next: JSONValue, at path: [String]) {
-            guard case .object(let classicObject) = classic else { return }
-            guard case .object(let nextObject) = next else {
-                if !path.isEmpty { edits.append((path, classic)) }
-                return
-            }
-            for (key, value) in classicObject {
-                let childPath = path + [key]
-                guard let existing = nextObject[key] else {
-                    edits.append((childPath, value))
-                    continue
-                }
-                if case .object = value, case .object = existing {
-                    missing(value, existing, at: childPath)
-                }
-            }
-        }
-        missing(classicRoot, nextRoot, at: [])
+        let edits = try await file.missingClassicSettings(from: classic)
         if !edits.isEmpty {
             _ = try await file.setUnset(edits)
             await reloadAfterWrite()
