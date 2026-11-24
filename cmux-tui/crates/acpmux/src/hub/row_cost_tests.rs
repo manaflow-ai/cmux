@@ -161,7 +161,6 @@ async fn row_cost() {
             std::hint::black_box(text.len());
             whole_ms = whole_ms.min(one.elapsed().as_secs_f64() * 1000.0);
         }
-        keep(start);
         let line: Vec<String> = steps.iter().map(|(k, us)| format!("{k}={us:.1}")).collect();
         println!(
             "PERF row_cost {label} rows={ROWS} meta_bytes={meta_bytes} whole_list_ms={whole_ms:.2} us_per_row: {}",
