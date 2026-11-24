@@ -77,6 +77,8 @@ struct Link {
     sink: SplitSink<Ws, Message>,
     rx: mpsc::UnboundedReceiver<(Instant, Value)>,
     pending: VecDeque<(Instant, Value)>,
+    /// Answers that came while a notification was awaited.
+    held: Vec<(Instant, Value)>,
     next: i64,
 }
 
@@ -109,7 +111,7 @@ impl Link {
                 }
             }
         });
-        Ok(Self { sink, rx, pending: VecDeque::new(), next: 0 })
+        Ok(Self { sink, rx, pending: VecDeque::new(), held: Vec::new(), next: 0 })
     }
 
     /// Writes the request; returns its id and its bytes.
@@ -128,17 +130,24 @@ impl Link {
         id: i64,
         deadline: Instant,
     ) -> Result<(Instant, Value, u64), String> {
+        let take = |at: Instant, v: Value| {
+            if let Some(e) = v.get("error") {
+                return Err(format!("request {id}: {e}"));
+            }
+            let n = v.to_string().len() as u64;
+            Ok((at, v["result"].clone(), n))
+        };
+        if let Some(i) = self.held.iter().position(|(_, v)| v.get("id") == Some(&json!(id))) {
+            let (at, v) = self.held.remove(i);
+            return take(at, v);
+        }
         loop {
             match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                 Err(_) => return Err(format!("no answer to request {id} in time")),
                 Ok(None) => return Err(format!("closed before the answer to request {id}")),
                 Ok(Some((at, v))) => {
                     if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
-                        if let Some(e) = v.get("error") {
-                            return Err(format!("request {id}: {e}"));
-                        }
-                        let n = v.to_string().len() as u64;
-                        return Ok((at, v["result"].clone(), n));
+                        return take(at, v);
                     }
                     if v.get("method").is_some() {
                         self.pending.push_back((at, v));
@@ -163,7 +172,7 @@ impl Link {
         loop {
             match tokio::time::timeout_at(deadline, self.rx.recv()).await {
                 Ok(Some((at, v))) if v.get("method").is_some() => return Some((at, v)),
-                Ok(Some(_)) => continue,
+                Ok(Some(answer)) => self.held.push(answer),
                 _ => return None,
             }
         }
@@ -282,12 +291,67 @@ enum Op {
     GapProbe,
     Scroll,
     SendPrompt,
+    /// Mac-local: `connect_acpmux` alone (a fresh loopback WebSocket, services.rs:1163).
+    HostDial,
+    /// Mac-local: `trusted_session_query` = a fresh loopback WebSocket + `_acpmux/info`
+    /// (services.rs:1510, no `initialize`, as the host sends it).
+    HostCanonicalize,
+    /// Mac-local: `current_mode` = `_acpmux/info` on the kept side socket (services.rs:1473).
+    HostMode,
+    /// TCP + WebSocket handshake through the shaped link.
+    Dial,
+    /// `initialize` alone: its answer from its own write.
+    Initialize,
+    /// `_acpmux/sessions {withTools:false, limit:2048}`: one list page as the peer reads it.
+    SessionsPage,
+    /// `_acpmux/attach` of the send chat (the hidden first-touch attach before a prompt).
+    SendAttach,
+    /// `session/prompt` to its answer (the turn's end).
+    PromptEnd,
+    FilePutBegin,
+    /// Every `_acpmux/file_put_chunk` of the file, each awaited in turn (ms = their sum).
+    FilePutChunks,
+    FilePutFinish,
+    /// `session/prompt` naming the upload by id, to its `user_message` record.
+    UploadPrompt,
 }
+
+const ALL_OPS: &[Op] = &[
+    Op::OpenInitWatch,
+    Op::Attach,
+    Op::Opener,
+    Op::Reattach,
+    Op::GapProbe,
+    Op::Scroll,
+    Op::SendPrompt,
+    Op::HostDial,
+    Op::HostCanonicalize,
+    Op::HostMode,
+    Op::Dial,
+    Op::Initialize,
+    Op::SessionsPage,
+    Op::SendAttach,
+    Op::PromptEnd,
+    Op::FilePutBegin,
+    Op::FilePutChunks,
+    Op::FilePutFinish,
+    Op::UploadPrompt,
+];
 
 enum Exec {
     Measure(Op),
+    /// Measured on a stand-in: the note says what stands in for what.
+    Stand(Op, &'static str),
     Na(&'static str),
 }
+
+/// The Mac-local waits, replayed: the same loopback WebSocket and request the host makes,
+/// against the hub directly (no shaper; the profile does not apply, the hub's load does).
+const LOOP: &str = "replayed on loopback against the hub, unshaped: the host's own request (cmux-mobile-host services.rs), not a network round trip; the hub's load applies, the profile does not";
+/// The Linux peer, stood in by this hub behind the shaped link.
+const PEER_STAND: &str = "one acpmux hub behind the shaped link stands in for the Linux peer; the forwarding Mac hub's own time is not in it";
+const WS_DIAL: &str = "the ws path only: TCP + WebSocket handshake through the shaped link; the staggered race and the wg/ssh/hub paths are not in this rig";
+const UPLOAD_BYTES: usize = 2 << 20;
 
 struct Row {
     flow: &'static str,
@@ -337,7 +401,7 @@ fn r(
 }
 
 fn table() -> Vec<Row> {
-    use Exec::{Measure as M, Na};
+    use Exec::{Measure as M, Na, Stand};
     let mut t = vec![
         // send text
         r(
@@ -360,7 +424,7 @@ fn table() -> Vec<Row> {
             1,
             "deletable",
             "fresh loopback WS per request just to map an alias the phone already has canonical",
-            Na(HOST),
+            Stand(Op::HostCanonicalize, LOOP),
         ),
         r(
             "send",
@@ -371,7 +435,7 @@ fn table() -> Vec<Row> {
             2,
             "pipelinable",
             "mode only picks marked vs refusal; acpmux decides by the credential; cache from the watch stream",
-            Na(HOST),
+            Stand(Op::HostMode, LOOP),
         ),
         r(
             "send",
@@ -415,7 +479,7 @@ fn table() -> Vec<Row> {
             0,
             "pipelinable",
             "peer answers a link's requests in order: attach and prompt can go back to back",
-            Na(PEER),
+            Stand(Op::SendAttach, PEER_STAND),
         ),
         r(
             "send",
@@ -426,7 +490,7 @@ fn table() -> Vec<Row> {
             1,
             "needed",
             "the request is the work",
-            Na(PEER),
+            Stand(Op::PromptEnd, PEER_STAND),
         ),
         r(
             "send",
@@ -437,7 +501,7 @@ fn table() -> Vec<Row> {
             2,
             "optimistic",
             "local hub can append under the promptId at forward time and reconcile on accepted",
-            Na(PEER),
+            Stand(Op::SendPrompt, PEER_STAND),
         ),
         // send attachment / video
         r(
@@ -537,7 +601,7 @@ fn table() -> Vec<Row> {
             0,
             "pipelinable",
             "client can mint the uploadId and send chunk 0 without waiting",
-            Na(PEER),
+            Stand(Op::FilePutBegin, PEER_STAND),
         ),
         r(
             "send-attachment",
@@ -548,7 +612,7 @@ fn table() -> Vec<Row> {
             1,
             "pipelinable",
             "N chunks = N round trips; window them and check the offset at finish",
-            Na(PEER),
+            Stand(Op::FilePutChunks, PEER_STAND),
         ),
         r(
             "send-attachment",
@@ -559,7 +623,7 @@ fn table() -> Vec<Row> {
             2,
             "pipelinable",
             "can ride with the last chunk",
-            Na(PEER),
+            Stand(Op::FilePutFinish, PEER_STAND),
         ),
         r(
             "send-attachment",
@@ -570,7 +634,7 @@ fn table() -> Vec<Row> {
             3,
             "needed",
             "the work",
-            Na(PEER),
+            Stand(Op::UploadPrompt, PEER_STAND),
         ),
         // open
         r(
@@ -604,7 +668,7 @@ fn table() -> Vec<Row> {
             2,
             "pipelinable",
             "Mac-local; keep a warm socket",
-            Na(HOST),
+            Stand(Op::HostDial, LOOP),
         ),
         r(
             "open",
@@ -692,7 +756,7 @@ fn table() -> Vec<Row> {
             10,
             "deletable",
             "see send step 2",
-            Na(HOST),
+            Stand(Op::HostCanonicalize, LOOP),
         ),
         r(
             "open",
@@ -747,7 +811,7 @@ fn table() -> Vec<Row> {
             0,
             "needed",
             "already a race",
-            Na(PEER),
+            Stand(Op::Dial, WS_DIAL),
         ),
         r(
             "open",
@@ -769,7 +833,7 @@ fn table() -> Vec<Row> {
             1,
             "needed",
             "feature negotiation",
-            Na(PEER),
+            Stand(Op::Initialize, PEER_STAND),
         ),
         r(
             "open",
@@ -780,7 +844,10 @@ fn table() -> Vec<Row> {
             3,
             "pipelinable",
             "persist the feature per peer on disk",
-            Na(PEER),
+            Stand(
+                Op::SessionsPage,
+                "the first link's serial list read, as one `_acpmux/sessions` page (2048 rows, peer.rs:708; the whole list at this load) on one hub behind the shaped link",
+            ),
         ),
         r(
             "open",
@@ -791,7 +858,10 @@ fn table() -> Vec<Row> {
             4,
             "pipelinable",
             "6 MB list took 66 s on a far restart; parallel pages or the delta from the last whole list",
-            Na(PEER),
+            Stand(
+                Op::SessionsPage,
+                "one page is the whole list at this load (2048-row pages, peer.rs:708); one hub behind the shaped link stands in for the peer",
+            ),
         ),
         r(
             "open",
@@ -802,7 +872,7 @@ fn table() -> Vec<Row> {
             5,
             "pipelinable",
             "send behind watch; admit requests before the longest chat finishes",
-            Na(PEER),
+            Stand(Op::Reattach, PEER_STAND),
         ),
         // attach
         r(
@@ -869,7 +939,7 @@ fn table() -> Vec<Row> {
             0,
             "needed",
             "one round trip",
-            Na(PEER),
+            Stand(Op::Attach, PEER_STAND),
         ),
         r(
             "attach-terminal",
@@ -947,7 +1017,7 @@ fn table() -> Vec<Row> {
             0,
             "needed",
             "1 round trip per page; prefetch is the client's job",
-            Na(PEER),
+            Stand(Op::Scroll, PEER_STAND),
         ),
     ];
     let _ = (SVC, CLD, DTS, WS, AH);
@@ -1009,6 +1079,7 @@ type Measured = Result<(f64, u64, u64), String>;
 
 async fn replay(shaper: &Shaper, fx: &Fixture, run: u64) -> HashMap<Op, Measured> {
     let mut out: HashMap<Op, Measured> = HashMap::new();
+    host_local(fx, &mut out).await;
     let start = Instant::now();
     let deadline = start + BOUND;
     // open: dial, then initialize + watch written together, both answered.
@@ -1016,6 +1087,8 @@ async fn replay(shaper: &Shaper, fx: &Fixture, run: u64) -> HashMap<Op, Measured
         let mut link = tokio::time::timeout_at(deadline, Link::dial(shaper.addr()))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
+        let dialed = Instant::now();
+        out.insert(Op::Dial, Ok((ms(dialed - start), 0, 0)));
         let meta = json!({"localAppToken": fx.token});
         let (init, u1) = link
             .post(
@@ -1027,6 +1100,7 @@ async fn replay(shaper: &Shaper, fx: &Fixture, run: u64) -> HashMap<Op, Measured
         let (watch, u2) =
             link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
         let (a1, _, d1) = link.answer(init, deadline).await?;
+        out.insert(Op::Initialize, Ok((ms(a1 - dialed), u1, d1)));
         let (a2, _, d2) = link.answer(watch, deadline).await?;
         Ok::<_, String>((link, (ms(a1.max(a2) - start), u1 + u2, d1 + d2)))
     }
@@ -1089,7 +1163,50 @@ async fn replay(shaper: &Shaper, fx: &Fixture, run: u64) -> HashMap<Op, Measured
         )
         .await;
     out.insert(Op::Scroll, scroll.map(|(a, b, c, _)| (a, b, c)));
+    let page = link.rt("_acpmux/sessions", json!({"withTools": false, "limit": 2048})).await;
+    out.insert(Op::SessionsPage, page.map(|(a, b, c, _)| (a, b, c)));
     finish_send(link, fx, run, out).await
+}
+
+/// The Mac host's own waits on its acpmux, replayed as it makes them: a fresh loopback socket
+/// (`connect_acpmux`), `trusted_session_query`'s fresh socket + `_acpmux/info`, and
+/// `current_mode`'s `_acpmux/info` on its kept side socket (the second ask; the first opens it).
+async fn host_local(fx: &Fixture, out: &mut HashMap<Op, Measured>) {
+    let start = Instant::now();
+    let dial = match tokio::time::timeout_at(start + BOUND, Link::dial(fx.hub_addr)).await {
+        Ok(Ok(l)) => Ok(l),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("loopback connect timed out".to_owned()),
+    };
+    out.insert(
+        Op::HostDial,
+        dial.as_ref().map(|_| (ms(start.elapsed()), 0, 0)).map_err(Clone::clone),
+    );
+    drop(dial);
+    let start = Instant::now();
+    let canon = async {
+        let mut l = Link::dial(fx.hub_addr).await?;
+        let (_, up, down, v) =
+            l.rt("_acpmux/info", json!({"sessionId": fx.big, "waitLogs": false})).await?;
+        if v.get("sessionId").and_then(Value::as_str).is_none() {
+            return Err(format!("_acpmux/info named no sessionId: {v}"));
+        }
+        Ok((ms(start.elapsed()), up, down))
+    };
+    out.insert(
+        Op::HostCanonicalize,
+        tokio::time::timeout(BOUND, canon).await.unwrap_or_else(|_| Err("timed out".into())),
+    );
+    let mode = async {
+        let mut side = Link::dial(fx.hub_addr).await?;
+        side.rt("_acpmux/info", json!({"sessionId": fx.small})).await?;
+        let (t, up, down, _) = side.rt("_acpmux/info", json!({"sessionId": fx.small})).await?;
+        Ok((t, up, down))
+    };
+    out.insert(
+        Op::HostMode,
+        tokio::time::timeout(BOUND, mode).await.unwrap_or_else(|_| Err("timed out".into())),
+    );
 }
 
 /// A prompt to the small chat, shown as sent when its `user_message` record comes back.
@@ -1105,9 +1222,16 @@ async fn finish_send(
             json!({"sessionId": fx.small, "limit": 20, "kinds": kinds(), "eventStream": true}),
         )
         .await;
-    if let Err(e) = attach {
-        out.insert(Op::SendPrompt, Err(format!("attach of the send chat: {e}")));
-        return out;
+    match attach {
+        Ok((t, up, down, _)) => {
+            out.insert(Op::SendAttach, Ok((t, up, down)));
+        }
+        Err(e) => {
+            for op in [Op::SendAttach, Op::SendPrompt, Op::PromptEnd] {
+                out.insert(op, Err(format!("attach of the send chat: {e}")));
+            }
+            return out;
+        }
     }
     let prompt_id = format!("rtt-{run}-{}", uuid::Uuid::now_v7());
     let start = Instant::now();
@@ -1119,25 +1243,124 @@ async fn finish_send(
                    "_meta": {"acpmux": {"promptId": prompt_id, "steer": false, "resend": false}}}),
         )
         .await;
-    let res = match sent {
-        Err(e) => Err(e),
-        Ok((_, up)) => {
-            let mut shown = Err("the prompt's user_message never came back".to_owned());
-            while let Some((at, v)) = link.notification(deadline).await {
-                let p = v["params"].to_string();
-                if v["method"] == method::MUX_EVENT
-                    && p.contains("user_message")
-                    && p.contains(&prompt_id)
-                {
-                    shown = Ok((ms(at - start), up, v.to_string().len() as u64));
-                    break;
-                }
-            }
-            shown
+    let (res, ended) = match sent {
+        Err(e) => (Err(e.clone()), Err(e)),
+        Ok((id, up)) => {
+            let shown = shown(&mut link, &prompt_id, start, up, deadline).await;
+            let ended =
+                link.answer(id, deadline).await.map(|(at, _, down)| (ms(at - start), up, down));
+            (shown, ended)
         }
     };
     out.insert(Op::SendPrompt, res);
+    out.insert(Op::PromptEnd, ended);
+    upload(&mut link, fx, run, &mut out).await;
     out
+}
+
+/// The prompt's `user_message` record (same promptId) back as `_acpmux/event`.
+async fn shown(
+    link: &mut Link,
+    prompt_id: &str,
+    start: Instant,
+    up: u64,
+    deadline: Instant,
+) -> Measured {
+    while let Some((at, v)) = link.notification(deadline).await {
+        let p = v["params"].to_string();
+        if v["method"] == method::MUX_EVENT && p.contains("user_message") && p.contains(prompt_id) {
+            return Ok((ms(at - start), up, v.to_string().len() as u64));
+        }
+    }
+    Err("the prompt's user_message never came back".to_owned())
+}
+
+/// The Mac-to-peer upload as `hub/file_uploads.rs` `forward_put` sends it: begin, each
+/// 512 KiB chunk awaited in turn, finish; then a prompt naming the upload.
+async fn upload(link: &mut Link, fx: &Fixture, run: u64, out: &mut HashMap<Op, Measured>) {
+    use base64::Engine as _;
+    let mut file = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    file.resize(UPLOAD_BYTES, (run % 251) as u8);
+    let name = format!("rtt-{run}.png");
+    let begin = json!({"sessionId": fx.small, "fileName": name, "size": file.len()});
+    let up = match link.rt("_acpmux/file_put_begin", begin).await {
+        Ok((t, u, d, v)) => {
+            out.insert(Op::FilePutBegin, Ok((t, u, d)));
+            match v["uploadId"].as_str() {
+                Some(id) => id.to_owned(),
+                None => {
+                    let e = format!("file_put_begin gave no uploadId: {v}");
+                    for op in [Op::FilePutChunks, Op::FilePutFinish, Op::UploadPrompt] {
+                        out.insert(op, Err(e.clone()));
+                    }
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            for op in [Op::FilePutBegin, Op::FilePutChunks, Op::FilePutFinish, Op::UploadPrompt] {
+                out.insert(op, Err(e.clone()));
+            }
+            return;
+        }
+    };
+    let (mut total, mut ups, mut downs) = (0.0, 0, 0);
+    for (n, piece) in file.chunks(512 << 10).enumerate() {
+        let data = base64::engine::general_purpose::STANDARD.encode(piece);
+        let put = json!({"sessionId": fx.small, "uploadId": up, "offset": n << 19, "data": data});
+        match link.rt("_acpmux/file_put_chunk", put).await {
+            Ok((t, u, d, _)) => {
+                total += t;
+                ups += u;
+                downs += d;
+            }
+            Err(e) => {
+                for op in [Op::FilePutChunks, Op::FilePutFinish, Op::UploadPrompt] {
+                    out.insert(op, Err(format!("chunk {n}: {e}")));
+                }
+                return;
+            }
+        }
+    }
+    out.insert(Op::FilePutChunks, Ok(((total * 10.0_f64).round() / 10.0, ups, downs)));
+    let finish =
+        json!({"sessionId": fx.small, "uploadId": up, "fileName": name, "size": file.len()});
+    match link.rt("_acpmux/file_put_finish", finish).await {
+        Ok((t, u, d, _)) => {
+            out.insert(Op::FilePutFinish, Ok((t, u, d)));
+        }
+        Err(e) => {
+            out.insert(Op::FilePutFinish, Err(e.clone()));
+            out.insert(Op::UploadPrompt, Err(format!("finish: {e}")));
+            return;
+        }
+    }
+    let prompt_id = format!("rtt-up-{run}-{}", uuid::Uuid::now_v7());
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let blocks = json!([{"type": "text", "text": "see this"},
+        {"type": "image", "mimeType": "image/png",
+         "_meta": {"acpmux": {"upload": {"uploadId": up, "fileName": name}}}}]);
+    let sent = link
+        .post(
+            method::SESSION_PROMPT,
+            json!({"sessionId": fx.small, "prompt": blocks,
+                   "_meta": {"acpmux": {"promptId": prompt_id, "steer": false, "resend": false}}}),
+        )
+        .await;
+    let res = match sent {
+        Err(e) => Err(e),
+        Ok((id, up)) => {
+            let r = shown(link, &prompt_id, start, up, deadline).await;
+            // The turn's end, so the next run starts on an idle chat; an error answer is the
+            // refusal and becomes the row's reason.
+            match link.answer(id, deadline).await {
+                Err(e) if r.is_err() => Err(e),
+                _ => r,
+            }
+        }
+    };
+    out.insert(Op::UploadPrompt, res);
 }
 
 fn env_list(name: &str, default: &[&str]) -> Vec<String> {
@@ -1181,7 +1404,13 @@ fn emit(row: &Row, profile: &str, load: &str, run: u64, m: Option<&Measured>) {
             line["down_bytes"] = Value::Null;
             line["reason"] = json!(why);
         }
-        (None, Exec::Measure(_)) => {}
+        (None, Exec::Measure(_) | Exec::Stand(..)) => {
+            line["ms"] = Value::Null;
+            line["reason"] = json!("the run did not reach this step");
+        }
+    }
+    if let Exec::Stand(_, note) = &row.exec {
+        line["stand_in"] = json!(note);
     }
     println!("ROUNDTRIP {line}");
 }
@@ -1217,23 +1446,14 @@ async fn round_trips() {
                     Ok((shaper, _)) => replay(&shaper, &fx, run).await,
                     Err(e) => {
                         let msg = format!("shaper: {e}");
-                        [
-                            Op::OpenInitWatch,
-                            Op::Attach,
-                            Op::Opener,
-                            Op::Reattach,
-                            Op::GapProbe,
-                            Op::Scroll,
-                            Op::SendPrompt,
-                        ]
-                        .into_iter()
-                        .map(|op| (op, Err(msg.clone())))
-                        .collect()
+                        ALL_OPS.iter().map(|op| (*op, Err(msg.clone()))).collect()
                     }
                 };
                 for row in &rows {
                     match &row.exec {
-                        Exec::Measure(op) => emit(row, &profile.name, load, run, measured.get(op)),
+                        Exec::Measure(op) | Exec::Stand(op, _) => {
+                            emit(row, &profile.name, load, run, measured.get(op))
+                        }
                         Exec::Na(_) if run == 0 => emit(row, &profile.name, load, run, None),
                         Exec::Na(_) => {}
                     }
