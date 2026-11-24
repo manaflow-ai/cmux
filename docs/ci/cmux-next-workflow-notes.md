@@ -5035,3 +5035,21 @@ verdicts are unchanged: pass is green, fail is red, and no result in 40 minutes 
 the service down, or a base reader without the phase) is `unavailable` and fails closed, as a cmux-ci exit
 other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
 canary run, and a push keeps its tip-check read and gateway compile.
+
+## note-558
+
+Above `fleet_queue_p90()` and its check in `fleet_gateway()` in `scripts/ci/side_lane_placement.py`
+(the `macos-placement` job's "Place the macOS jobs" step).
+
+Placement lists fast-tier for the build fleet (note-555's spill) only when the fleet could start its steps
+within the client's 20-minute queue wait. In the 24 hours to 2026-11-24 22Z, none of fast-tier-fleet's 771
+green runs had a fleet verdict inside 20 minutes: every one waited out `--queue-timeout 1200` (p50 21.2 min,
+16,548 gateway runner-min) and handed the tier back (725 hand-back placements). The light class's p90 queue
+wait was 3,317 s. A step the client stops waiting for keeps its place (note-539) and later runs for nobody,
+ahead of the work queued after it (cmuxterm-hq docs/handbook/process-outlives-its-reader.md): about 1,500
+such steps a day.
+
+So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.light`, 5 s timeout), like
+cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
+`cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
+gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
