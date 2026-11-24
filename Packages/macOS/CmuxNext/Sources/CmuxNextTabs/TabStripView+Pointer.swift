@@ -125,7 +125,7 @@ extension TabStripView {
         clearHover()
         newTabButton.isHovered = false
         // Deferred relayout: tabs resize once the pointer has left the extended strip for the delay.
-        if closingModeWidth != nil, drag == nil { closingWatch.pointerLeft() }
+        if closingModeWidth != nil { closingWatch.pointerLeft() }
     }
 
     // MARK: - Clicks
@@ -356,6 +356,7 @@ extension TabStripView {
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
             if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
+            closingWatch.begin()
         }
         model.send(.close(id, source: source))
     }
