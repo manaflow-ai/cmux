@@ -44,6 +44,7 @@
 //! candidate and the defaults below size it.
 
 pub(crate) mod move_targets;
+pub mod sub_fork;
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
