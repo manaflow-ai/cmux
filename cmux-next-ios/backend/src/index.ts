@@ -22,10 +22,12 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
+import { RELAY_SUBPROTOCOL, relayRoomName } from "./link-relay.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { LinkRelay } from "./link-relay.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -390,6 +392,24 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     await limit(env.ICE_LIMIT, me, "ICE requests")
     const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env, ctx))
     return json({ iceServers: list, ttl, turn })
+  }
+
+  const relay = path.match(/^\/v1\/relay\/([^/]+)$/)
+  if (relay && method === "GET") {
+    // The link's WebSocket relay (PROTOCOL.md "WebSocket relay"): only the two devices the caller's hub bound to
+    // this session can join, each with its own socket, and only after direct UDP and TURN failed them.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    const sessionId = decodeURIComponent(relay[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    const peer = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId))
+    if (!peer) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayRoomName(me, space, sessionId)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer })
+    // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    return t.span("relay", room.fetch("https://link-relay/join", { headers }))
   }
 
   if (path === "/v1/me/bootstrap" && method === "POST") {
