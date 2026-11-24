@@ -67,7 +67,6 @@ on:
           - CMUXMobileCore
           - CmuxMobilePairedMac
           - CmuxMobileShellModel
-          - CmuxHomeCore
       ios_version:
         description: "Optional simulator OS version, for example 17.5, 18.5, or 26.3; empty keeps the default"
         required: false
@@ -235,6 +234,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -592,7 +593,7 @@ jobs:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
         run: |
           case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxMobilePairedMac|CmuxMobileShellModel|CmuxHomeCore) ;;
+            ""|CMUXMobileCore|CmuxMobilePairedMac|CmuxMobileShellModel) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
@@ -715,25 +716,6 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
-
-
-      - name: Run CmuxHomeCore package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxHomeCore' }}
-        run: |
-          set -euo pipefail
-          # The rewritten iOS app's home model (ios/CmuxiOS links it). Headless
-          # SwiftPM with no app-target dependency.
-          args=(--package-path Packages/Shared/CmuxHomeCore)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
-          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
-            args+=(--filter "$SWIFT_TEST_FILTER")
-          fi
-          log_path="$RUNNER_TEMP/CmuxHomeCore-tests.log"
-          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
-            --label CmuxHomeCore --log "$log_path" -- swift test "${args[@]}"
-          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxHomeCore}"
 
   ios-simulator-build:
     needs: [runner, detect-ios-changes, package-conventions-lint]
