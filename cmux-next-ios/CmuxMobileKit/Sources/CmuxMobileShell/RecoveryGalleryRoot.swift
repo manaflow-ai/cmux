@@ -292,7 +292,7 @@ public struct RecoveryGalleryRoot: View {
             .frame(height: 280)
             .overlay(alignment: alignment) { chip().padding(.top, 8).padding(.horizontal, 20) }
         }
-        let states: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .macOffline("Mac Studio"), .offline]
+        let states: [ConnectionBannerState] = [.connectionFailed, .macOffline("Mac Studio"), .offline]
         return ScrollView {
             VStack(spacing: 12) {
                 if showsVariant("a") {
@@ -320,7 +320,7 @@ public struct RecoveryGalleryRoot: View {
                 }
                 if showsVariant("b") {
                     galleryLabel("B · top leading")
-                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!, downSince: nil) }
+                    list(.topLeading) { ConnectionChip(ConnectionBannerState.connectionFailed.chip!, downSince: nil) }
                 }
                 if showsVariant("c") {
                     galleryLabel("C · symbol only, top trailing · Mac offline")
