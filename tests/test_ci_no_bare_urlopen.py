@@ -49,7 +49,6 @@ LEGACY = {
     "fast_linux_gate.py": 1,
     "finalize-release.py": 1,
     "guard_attribution.py": 1,
-    "hosted_light_rescue.py": 1,
     "hosted_queue_wait.py": 1,
     "ios_internal_builder.py": 1,
     "ios_internal_notes.py": 1,
@@ -67,7 +66,6 @@ LEGACY = {
     "nightly_next_ring.py": 1,
     "nightly_next_train.py": 1,
     "nightly_publish_guard.py": 1,
-    "nightly_sign_yield.py": 2,
     "nightly_version.py": 1,
     "notify-indexnow.py": 1,
     "owned_pool_rescue.py": 1,
@@ -80,7 +78,6 @@ LEGACY = {
     "required_status_checks.py": 1,
     "seed_derived_data.py": 1,
     "simple_pool_picker.py": 1,
-    "stable_next.py": 2,
     "stop_if_publish_doomed.py": 1,
     "submodule_forward_only.py": 1,
     "sync_labels.py": 1,
@@ -203,7 +200,7 @@ class Transport(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the deadline is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -229,6 +226,28 @@ class Transport(unittest.TestCase):
         self.assertEqual(raised.exception.headers.get("Retry-After"), "7")
         self.assertEqual(raised.exception.read(), b"slow")
 
+    SHORT = b"HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n" + b"x" * 10
+
+    def test_a_short_body_is_read_again_once(self):
+        answers = iter([self.SHORT, self.OK])
+        server = self.serve(lambda _request: next(answers))
+        status, body, _ = deadline_http.request(server.url, 2)
+        self.assertEqual((status, body, len(server.requests)), (200, b'{"ok": true}', 2))
+
+    def test_a_short_body_twice_is_a_url_error_not_a_traceback(self):
+        server = self.serve(self.SHORT)
+        with self.assertRaises(deadline_http.BrokenAnswer) as raised:
+            deadline_http.request(server.url, 2)
+        self.assertIsInstance(raised.exception, urllib.error.URLError)
+        self.assertIsInstance(raised.exception, OSError)
+        self.assertEqual(len(server.requests), 2)
+
+    def test_a_write_broken_off_is_not_sent_again(self):
+        server = self.serve(self.SHORT)
+        with self.assertRaises(deadline_http.BrokenAnswer):
+            deadline_http.request(urllib.request.Request(server.url, data=b"{}", method="POST"), 2)
+        self.assertEqual(len(server.requests), 1)
+
     def test_trickled_headers_end_at_the_deadline(self):
         slow = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 40 + b"\r\nContent-Length: 0\r\n\r\n"
         server = self.serve(slow, 0.03)
@@ -251,13 +270,19 @@ class Transport(unittest.TestCase):
         request = urllib.request.Request(server.url, data=b"{}", method="POST")
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(request, self.BOUND)
-        time.sleep(self.BOUND)
+        # Until the late lookup has returned: past it nothing is left that could send.
+        for thread in threading.enumerate():
+            if thread.name == "deadline-http-resolve":
+                thread.join(10)
+                self.assertFalse(thread.is_alive(), "the slow lookup never returned")
         self.assertEqual(server.requests, [])
 
     def test_one_deadline_shared_by_calls_counts_time_already_spent(self):
         server = self.serve(self.OK)
-        deadline = deadline_http.Deadline(self.BOUND)
-        time.sleep(self.BOUND * 1.1)
+        # A clock moved past the bound, as if earlier calls had spent it all.
+        now = [time.monotonic()]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: now[0])
+        now[0] += self.BOUND * 1.1
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(server.url, deadline=deadline)
         self.assertEqual(server.requests, [])
@@ -291,7 +316,7 @@ class Transport(unittest.TestCase):
 
         def start(thread):
             if thread.name == "deadline-http-resolve":
-                time.sleep(0.8 * self.BOUND)
+                time.sleep(0.8 * self.BOUND)  # sleep-ok: a simulated slow thread start, measured against the bound
             return real_start(thread)
 
         threading.Thread.start = start

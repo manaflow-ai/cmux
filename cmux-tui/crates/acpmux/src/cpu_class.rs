@@ -36,8 +36,14 @@
 //!    and waits for it), whose turns then run at normal class. acpmux does not list processes
 //!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
 //!    So a Claude Code launcher defaults to `normal` ([`default_for`]): lowering it cannot reach
-//!    its agent's tools, and it can carry the agent's stream. `sr2 claude` relays Claude Code's
-//!    stdin and stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores)
+//!    its agent's tools, and it can carry the agent's stream. So does Codex's `app-server`: it
+//!    holds its model websocket in its own process and reads the macOS trust settings again on
+//!    every connect (`rustls-native-certs`). At background class on a busy Mac (2026-11-15,
+//!    load 217 on 15 cores) that read failed (`native_root_error_count=1`), the connect failed
+//!    `invalid peer certificate: UnknownIssuer` and a turn waited on its startup prewarm for
+//!    minutes: first token 167 s at background class, 3.4 s at normal, same `codex app-server`,
+//!    same minutes. An in-app Codex chat read as ready and never answered. `sr2 claude` relays
+//!    Claude Code's stdin and stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores)
 //!    what Claude Code wrote reached acpmux 6.5 s late at the median and 54 s at p90, against
 //!    0.1 s at p90 for the relays moved back to normal class in the same minutes. A tool call
 //!    whose PreToolUse hook got no answer within its 90 s was refused ("hook did not respond").
@@ -94,7 +100,11 @@ const CLAUDE_INSTALLS: &[&str] =
 /// then it and its tools run at normal class; its profile can still ask for `background`.
 /// It reads the profile's `argv`, not the spawned program: a remote chain spawns `sandbox-exec`
 /// whatever the profile runs. An empty `argv` runs `claude` (`claude_stdio::spawn_plan`).
+/// A Codex `app-server` profile defaults to `normal` too (module docs, item 2).
 pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClass {
+    if crate::codex_app_server::is_profile_launch(argv) {
+        return CpuClass::Normal;
+    }
     let launcher = kind == crate::config::HarnessKind::ClaudeStdio
         && argv.first().is_some_and(|program| {
             let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
@@ -193,7 +203,17 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
             Ok(())
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    // A daemon that took a negative nice (`daemon_priority.rs`) starts its harness at no better
+    // than the default: the daemon outranks its agents, never lends them its rank.
+    #[cfg(unix)]
+    // SAFETY: as above: getpriority(2) and setpriority(2) on itself, async-signal-safe.
+    unsafe {
+        cmd.pre_exec(|| {
+            crate::qos::at_least_default_nice();
+            Ok(())
+        });
+    }
+    #[cfg(not(unix))]
     let _ = cmd;
 }
 
@@ -429,7 +449,10 @@ mod imp {
     }
 
     /// `proc_pidinfo(pid, flavor)` into a `T`, or None.
-    fn pidinfo<T>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
+    ///
+    /// # Safety
+    /// `T` must be the C struct the kernel writes for `flavor`: integers only, valid for any bytes.
+    unsafe fn pidinfo<T>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
         let mut out = std::mem::MaybeUninit::<T>::zeroed();
         let size = libc::c_int::try_from(std::mem::size_of::<T>()).ok()?;
         // SAFETY: the buffer is `size` bytes of a `T`, which the kernel fills for this flavor.
@@ -473,8 +496,10 @@ mod imp {
     #[allow(deprecated)]
     pub(super) fn state(pid: u32) -> Option<HarnessState> {
         let id = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
-        let task: libc::proc_taskinfo = pidinfo(id, libc::PROC_PIDTASKINFO)?;
-        let bsd: libc::proc_bsdinfo = pidinfo(id, libc::PROC_PIDTBSDINFO)?;
+        // SAFETY: proc_taskinfo is the integer-only struct PROC_PIDTASKINFO writes.
+        let task: libc::proc_taskinfo = unsafe { pidinfo(id, libc::PROC_PIDTASKINFO) }?;
+        // SAFETY: proc_bsdinfo is the integer-only struct PROC_PIDTBSDINFO writes.
+        let bsd: libc::proc_bsdinfo = unsafe { pidinfo(id, libc::PROC_PIDTBSDINFO) }?;
         // The task's CPU times are in Mach time units (nanoseconds only on Intel).
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
         // SAFETY: the call fills the struct it is given.
@@ -493,14 +518,19 @@ mod imp {
         let kids: Vec<(libc::c_int, libc::c_int, libc::proc_taskinfo)> = tree(id)
             .into_iter()
             .skip(1)
-            .filter_map(|(kid, parent)| Some((kid, parent, pidinfo(kid, libc::PROC_PIDTASKINFO)?)))
+            .filter_map(|(kid, parent)| {
+                // SAFETY: proc_taskinfo is the integer-only struct PROC_PIDTASKINFO writes.
+                let task = unsafe { pidinfo(kid, libc::PROC_PIDTASKINFO) }?;
+                Some((kid, parent, task))
+            })
             .collect();
         // Its first process: of those it started itself, the one that started first.
         let first_child = kids
             .iter()
             .filter(|(_, parent, _)| *parent == id)
             .filter_map(|(kid, _, t)| {
-                let b: libc::proc_bsdinfo = pidinfo(*kid, libc::PROC_PIDTBSDINFO)?;
+                // SAFETY: proc_bsdinfo is the integer-only struct PROC_PIDTBSDINFO writes.
+                let b: libc::proc_bsdinfo = unsafe { pidinfo(*kid, libc::PROC_PIDTBSDINFO) }?;
                 Some(((b.pbi_start_tvsec, b.pbi_start_tvusec), *kid, name_of(&b), t))
             })
             .min_by_key(|(started, kid, _, _)| (*started, *kid))
@@ -671,6 +701,33 @@ mod tests {
         // Another protocol keeps the default: no case of a relay is known there.
         assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
         assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);
+    }
+
+    /// 2026-11-15: Codex's app-server at background class failed its own TLS (`UnknownIssuer`)
+    /// and answered a turn in 167 s, against 3.4 s at normal class (module docs, item 2).
+    #[test]
+    fn a_codex_app_server_defaults_to_normal() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for launch in [
+            argv(&["/Users/me/.local/bin/codex", "app-server"]),
+            argv(&[
+                "codex",
+                "-c",
+                "agents.max_depth=16",
+                "-c",
+                "tools.update_plan.enabled=true",
+                "app-server",
+            ]),
+        ] {
+            assert_eq!(default_for(HarnessKind::Acp, &launch), CpuClass::Normal, "{launch:?}");
+        }
+        // Other Codex commands, and the profile's own `cpuClass`, still decide as before.
+        assert_eq!(
+            default_for(HarnessKind::Acp, &argv(&["codex", "app-server", "proxy"])),
+            DEFAULT
+        );
+        let bg = CpuClass::resolve(Some("background"), None, None, CpuClass::Normal);
+        assert_eq!(bg, CpuClass::Background);
     }
 
     #[test]

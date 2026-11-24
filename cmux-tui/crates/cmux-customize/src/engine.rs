@@ -87,7 +87,9 @@ impl Customize {
             .as_ref()
             .and_then(|draft| draft.asks.last())
             .and_then(|ask| first_change_after(ask.at_ms, &changes, &scan));
+        let try_on = self.store.try_on()?.filter(|try_on| index.current == Some(try_on.generation));
         Ok(Status {
+            try_on,
             current: index.current().cloned(),
             draft: draft.as_ref().map(DraftInfo::from),
             changes,
@@ -178,12 +180,14 @@ impl Customize {
         let mut draft = existing.unwrap_or(Draft {
             base: index.current,
             started_ms: now_ms,
+            absent_dirs: tree::absent_dirs(&self.roots),
             ..Draft::default()
         });
         draft.asks.push(Ask {
             text: ask.trim().to_owned(),
             at_ms: now_ms,
             origin: origin.to_owned(),
+            description: None,
         });
         self.store.put_draft(Some(&draft))?;
         Ok(Begun { draft: DraftInfo::from(&draft), baseline, by_hand, refined })
@@ -214,14 +218,31 @@ impl Customize {
     /// [`Error::Invalid`] records nothing and leaves the preview live.
     pub fn apply(&self, label: Option<&str>, origin: &str, now_ms: u64) -> Result<Applied, Error> {
         let _lock = self.store.lock()?;
+        self.apply_locked(label, origin, now_ms)
+    }
+
+    /// [`Customize::apply`] for a caller that holds the store's lock (a
+    /// try-on).
+    pub(crate) fn apply_locked(
+        &self,
+        label: Option<&str>,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Applied, Error> {
         let mut index = self.store.index()?;
         let draft = self.store.draft()?;
         let scan = tree::scan(&self.roots)?;
-        let problems = validate::problems(&self.live_bytes(&scan.tree)?);
+        let base = self.current_tree(&index)?;
+        // A refused value the applied generation already held, unchanged, is
+        // the person's own (one an older build wrote): it stays as written
+        // and status lists it, but only what this change brings stops it.
+        let problems = validate::introduced(
+            validate::problems(&self.live_bytes(&scan.tree)?),
+            &self.settings_problems_in(&base)?,
+        );
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
-        let base = self.current_tree(&index)?;
         let changed = changes(&base, &scan.tree, draft.as_ref());
         if let Some(current) = index.current().filter(|_| changed.is_empty()).cloned() {
             self.store.put_draft(None)?;
@@ -247,6 +268,25 @@ impl Customize {
         // written never fails the apply it follows.
         let library = self.remember_locked(&generation, draft.as_ref(), now_ms).ok().flatten();
         Ok(Applied { generation, recorded: true, changes: changed, library })
+    }
+
+    pub(crate) fn current_generation(&self) -> Result<Option<u32>, Error> {
+        Ok(self.store.index()?.current)
+    }
+
+    /// Makes generation `n` current and live for a caller that holds the
+    /// lock; what was live is kept as `keep` when it differs.
+    pub(crate) fn restore_locked(
+        &self,
+        n: u32,
+        keep: Kind,
+        origin: &str,
+        label: &str,
+        now_ms: u64,
+    ) -> Result<Restored, Error> {
+        let mut index = self.store.index()?;
+        let target = index.get(n).cloned().ok_or(Error::NoSuchGeneration(n))?;
+        self.restore_to(&mut index, target, keep, origin, label, now_ms)
     }
 
     /// Puts the current generation back. What was live is kept as a
@@ -292,6 +332,39 @@ impl Customize {
             Some(n) => self.store.tree(n),
             None => Ok(Tree::new()),
         }
+    }
+
+    /// What is wrong with the settings files and stylesheets of a recorded
+    /// generation, as stored (the bytes the person had when it was recorded).
+    /// An object it cannot read counts as holding nothing, so its problems
+    /// stop the apply as before.
+    pub(crate) fn settings_problems_in(&self, tree: &Tree) -> io::Result<Vec<validate::Problem>> {
+        let mut files = BTreeMap::new();
+        // Stylesheets too: one that would load something by address, held
+        // unchanged, is the person's own (validate::introduced).
+        for (path, entry) in
+            tree.iter().filter(|(path, _)| matches!(Part::of(path), Part::Settings | Part::Styles))
+        {
+            if let Ok(bytes) = self.store.object(&entry.sha) {
+                files.insert(path.clone(), bytes);
+            }
+        }
+        Ok(validate::problems(&files))
+    }
+
+    /// What is wrong with the live versions of `paths` now, before anything
+    /// writes over them: the person's own, to tell from what a change brings.
+    pub(crate) fn live_problems<'a>(
+        &self,
+        paths: impl IntoIterator<Item = &'a String>,
+    ) -> io::Result<Vec<validate::Problem>> {
+        let mut files = BTreeMap::new();
+        for path in paths {
+            if let Some(bytes) = tree::read(&self.roots, path)? {
+                files.insert(path.clone(), bytes);
+            }
+        }
+        Ok(validate::problems(&files))
     }
 
     fn live_bytes(&self, tree: &Tree) -> io::Result<BTreeMap<String, Vec<u8>>> {
@@ -357,6 +430,9 @@ impl Customize {
             parent: index.current,
             changed: changed.len() as u32,
             parts,
+            // A library that cannot be read records no on-state, and a
+            // restore to this generation leaves the library as it is.
+            library_on: self.library_mark().map(|mark| mark.on),
         };
         self.store.put_tree(n, tree)?;
         index.version = 1;
@@ -448,6 +524,12 @@ impl Customize {
         self.store.put_index(index)?;
         self.store.put_draft(None)?;
         self.store.prune(index)?;
+        // The library says on for what is live again: an entry whose change
+        // this took away is off, one it brought back is on. A library that
+        // cannot be written never fails the restore it follows.
+        if let Some(on) = &target.library_on {
+            let _ = self.library_follow_locked(on, None, now_ms);
+        }
         Ok(Restored { generation: target, kept_as, changes: changes(&live, &target_tree, None) })
     }
 }

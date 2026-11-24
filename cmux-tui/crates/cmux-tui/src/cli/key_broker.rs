@@ -5,8 +5,14 @@
 //!                                                            prompt or stdin, never argv
 //!     cmux keys mint cloudflare-r2 --bucket B (--rw|--ro) [--ttl 90d] [--create-bucket]
 //!         [--expire-objects-days N] --store SPEC [--store SPEC]
+//!     cmux keys mint cloudflare-r2 --via MAC --bucket B (--rw|--ro) ... --store SPEC
+//!                                                            from a machine without the bootstrap (a Linux
+//!                                                            host): MAC's broker mints over the acpmux peer
+//!                                                            link and sends back only the scoped key
 //!     cmux keys ls                                           every provider and every key minted (the audit)
 //!     cmux keys revoke ID                                    delete a minted key at its provider
+//!     cmux keys rotate ID [--ttl 90d]                        mint the same scope again, store it under
+//!                                                            the same names, then revoke the old key
 //!
 //! A store SPEC is `gh-secret:OWNER/REPO:PREFIX` (repository secrets), `gh-secret:OWNER/REPO@ENV:PREFIX`
 //! (an environment's), or `keychain:PREFIX` / `keychain:OWNER/REPO:PREFIX` (this Mac's cloud secrets, the
@@ -19,6 +25,10 @@
 //! pipes (`gh secret set`, `security -i`) and are never printed, logged or put in argv.
 //! `~/.config/cmux/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
 //! scope, expiry, where it was stored and who asked, never a value. docs/cmux-next/keys.md is the design.
+//!
+//! Keys from any other provider (one an agent got from an API or CLI, one the person pastes once, a
+//! generated one) are stored, used as env, written and filled by `local.rs`: `cmux keys put|generate|
+//! request|use|write|fill|rm`. Cloudflare minting is one provider among them.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -29,6 +39,11 @@ use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
 use super::UsageError;
+
+pub(super) mod local;
+mod store;
+
+pub(super) use store::Store;
 
 /// The Keychain service of a provider's bootstrap token; the account is `<provider>/<account id>`.
 const PROVIDER_SERVICE: &str = "cmux-key-provider";
@@ -41,9 +56,10 @@ const R2_ADMIN_WRITE: &str = "Workers R2 Storage Write";
 const R2_ITEM_WRITE: &str = "Workers R2 Storage Bucket Item Write";
 const R2_ITEM_READ: &str = "Workers R2 Storage Bucket Item Read";
 
-const USAGE: &str = "usage: cmux keys connect cloudflare --account ACCOUNT_ID\n       \
-cmux keys mint cloudflare-r2 --bucket B (--rw|--ro) [--ttl 90d] [--create-bucket] [--expire-objects-days N] --store SPEC...\n       \
-cmux keys ls\n       cmux keys revoke ID\n\
+const USAGE: &str = "usage: cmux keys ls\n       cmux keys revoke ID|NAME\n       \
+cmux keys rotate ID [--ttl 90d]\n       \
+cmux keys connect cloudflare --account ACCOUNT_ID\n       \
+cmux keys mint cloudflare-r2 --bucket B (--rw|--ro) [--ttl 90d] [--create-bucket] [--expire-objects-days N] [--via MACHINE] --store SPEC...\n\
 SPEC: gh-secret:OWNER/REPO[@ENV]:PREFIX, keychain:[OWNER/REPO:]PREFIX or vault:PREFIX";
 
 /// `Some(exit code)` when `args` is `keys …`.
@@ -65,10 +81,35 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
     };
     if command == Command::Help {
-        println!("{USAGE}");
+        println!("{USAGE}\n       {}", local::USAGE);
         return Some(0);
     }
-    let result = Paths::home().and_then(|paths| run(command, &paths, &Live::new()?, &LiveSinks));
+    if let Command::Local(local::Local::Use(run)) = &command {
+        // The command's own exit code and output (masked), not a reply.
+        let ran = Paths::home().and_then(|paths| {
+            local::run_use(&paths, &local::OsVault, run, std::io::stdout(), std::io::stderr())
+        });
+        return Some(match ran {
+            Ok(code) => code,
+            Err(message) => {
+                super::app::failure("keys.failed", &format!("cmux: {message}"), global.output, 1)
+            }
+        });
+    }
+    let result = Paths::home().and_then(|paths| match command {
+        Command::Local(local) => local::run(
+            local,
+            &paths,
+            &local::OsVault,
+            &LiveSinks,
+            &local::LiveApp(&global),
+            &|name| acpmux::cli::harness_secret::read_value(name).map_err(|e| e.to_string()),
+        ),
+        Command::MintR2(mint) if mint.via.is_some() => {
+            mint_via(mint, &paths, &LivePeerBroker, &LiveSinks)
+        }
+        command => run(command, &paths, &Live::new()?, &LiveSinks, &local::OsVault),
+    });
     Some(match result {
         Ok(answer) => super::wire::print_local_success(&answer, global.output),
         Err(message) => {
@@ -80,10 +121,22 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Command {
     Help,
-    Connect { account: String },
+    Connect {
+        account: String,
+    },
     MintR2(MintR2),
     Ls,
-    Revoke { id: String },
+    Revoke {
+        id: String,
+    },
+    /// Mint a minted key's scope again, store it under the same names, revoke the old one. `ttl`
+    /// is the old key's lifetime when not given.
+    Rotate {
+        id: String,
+        ttl: Option<Duration>,
+    },
+    /// Keys from any provider: put, generate, request, use, write, fill.
+    Local(local::Local),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -95,125 +148,22 @@ pub(super) struct MintR2 {
     create_bucket: bool,
     expire_objects_days: Option<u32>,
     stores: Vec<Store>,
+    /// `--via MACHINE`: the peer whose broker holds the bootstrap mints the key and sends back only
+    /// it, over the acpmux peer link (`acpmux` `server/keys_relay.rs`); this machine stores it.
+    via: Option<String>,
+    /// `--reply-to-machine NAME`: the key goes back to the asking machine on stdout (a pipe the
+    /// acpmux relay reads), stored nowhere here. Only the relay runs this.
+    reply_to: Option<String>,
 }
 
-/// Where a minted value goes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Store {
-    GhSecret {
-        repo: String,
-        environment: Option<String>,
-        prefix: String,
-    },
-    Keychain {
-        scope: Option<String>,
-        prefix: String,
-    },
-    /// This machine's kept keys (`acpmux machine vault keep NAME --env`): agents the daemon starts get the
-    /// values. `--env`, not `--host`: an S3 pair signs requests locally (SigV4) and the secret never goes
-    /// on the wire, so the egress proxy has no placeholder it could fill.
-    Vault {
-        prefix: String,
-    },
+/// A machine's name as the relay passes it: printable, at most 256 characters.
+fn valid_machine(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)
 }
 
-impl Store {
-    fn parse(spec: &str) -> Result<Self, UsageError> {
-        let bad = || {
-            UsageError::new(format!(
-                "--store {spec:?}: expected gh-secret:OWNER/REPO[@ENV]:PREFIX or keychain:[OWNER/REPO:]PREFIX"
-            ))
-        };
-        if let Some(rest) = spec.strip_prefix("gh-secret:") {
-            let (target, prefix) = rest.rsplit_once(':').ok_or_else(bad)?;
-            let (repo, environment) = match target.split_once('@') {
-                Some((repo, env)) if valid_environment(env) => (repo, Some(env.to_owned())),
-                Some(_) => return Err(bad()),
-                None => (target, None),
-            };
-            if !valid_repo(repo) || !valid_prefix(prefix) {
-                return Err(bad());
-            }
-            return Ok(Self::GhSecret {
-                repo: repo.to_owned(),
-                environment,
-                prefix: prefix.to_owned(),
-            });
-        }
-        if let Some(rest) = spec.strip_prefix("keychain:") {
-            let (scope, prefix) = match rest.rsplit_once(':') {
-                Some((repo, prefix)) if valid_repo(repo) => {
-                    (Some(repo.to_ascii_lowercase()), prefix)
-                }
-                Some(_) => return Err(bad()),
-                None => (None, rest),
-            };
-            if !valid_prefix(prefix) {
-                return Err(bad());
-            }
-            super::cloud_secret::check_name(&format!("{prefix}_ACCESS_KEY_ID"))?;
-            return Ok(Self::Keychain { scope, prefix: prefix.to_owned() });
-        }
-        if let Some(prefix) = spec.strip_prefix("vault:") {
-            if !valid_prefix(prefix) {
-                return Err(bad());
-            }
-            return Ok(Self::Vault { prefix: prefix.to_owned() });
-        }
-        Err(bad())
-    }
-
-    /// The store's full name of one value: `PREFIX_SUFFIX` where it lives.
-    fn label(&self, suffix: &str) -> String {
-        match self {
-            Self::GhSecret { repo, environment: Some(env), prefix } => {
-                format!("gh-secret:{repo}@{env}:{prefix}_{suffix}")
-            }
-            Self::GhSecret { repo, environment: None, prefix } => {
-                format!("gh-secret:{repo}:{prefix}_{suffix}")
-            }
-            Self::Keychain { scope, prefix } => {
-                format!("keychain:{}/{prefix}_{suffix}", scope.as_deref().unwrap_or("*"))
-            }
-            Self::Vault { prefix } => format!("vault:{prefix}_{suffix}"),
-        }
-    }
-
-    fn name(&self, suffix: &str) -> String {
-        match self {
-            Self::GhSecret { prefix, .. }
-            | Self::Keychain { prefix, .. }
-            | Self::Vault { prefix } => {
-                format!("{prefix}_{suffix}")
-            }
-        }
-    }
-}
-
-fn valid_repo(repo: &str) -> bool {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.len() <= 100
-            && p != "."
-            && p != ".."
-            && p.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-    };
-    matches!(repo.split_once('/'), Some((owner, name)) if part(owner) && part(name))
-}
-
-fn valid_environment(env: &str) -> bool {
-    !env.is_empty()
-        && env.len() <= 255
-        && env.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-}
-
-/// GitHub's secret names, upper case only: `[A-Z_][A-Z0-9_]*`, leaving room for the longest suffix.
-fn valid_prefix(prefix: &str) -> bool {
-    !prefix.is_empty()
-        && prefix.len() <= 80
-        && !prefix.starts_with("GITHUB_")
-        && prefix.chars().next().is_some_and(|c| c.is_ascii_uppercase() || c == '_')
-        && prefix.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+/// A minted key's provider id, or a stored key's NAME.
+fn valid_key_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn valid_account_id(id: &str) -> bool {
@@ -252,15 +202,16 @@ fn parse_ttl(text: &str) -> Result<Duration, UsageError> {
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     let usage = || UsageError::new(USAGE);
     let Some((verb, rest)) = args.split_first() else { return Ok(Command::Help) };
+    if let Some(local) = local::parse(verb, rest) {
+        return local.map(Command::Local);
+    }
     match (verb.as_str(), rest) {
         ("--help" | "-h" | "help", []) => Ok(Command::Help),
         ("ls" | "list", []) => Ok(Command::Ls),
-        ("revoke", [id])
-            if !id.is_empty()
-                && id.len() <= 64
-                && id.chars().all(|c| c.is_ascii_alphanumeric()) =>
-        {
-            Ok(Command::Revoke { id: id.clone() })
+        ("revoke" | "rm", [id]) if valid_key_id(id) => Ok(Command::Revoke { id: id.clone() }),
+        ("rotate", [id]) if valid_key_id(id) => Ok(Command::Rotate { id: id.clone(), ttl: None }),
+        ("rotate", [id, flag, ttl]) if valid_key_id(id) && flag == "--ttl" => {
+            Ok(Command::Rotate { id: id.clone(), ttl: Some(parse_ttl(ttl)?) })
         }
         ("connect", [provider, flag, account])
             if provider == "cloudflare" && flag == "--account" =>
@@ -288,6 +239,8 @@ fn parse_mint_r2(flags: &[String]) -> Result<MintR2, UsageError> {
         create_bucket: false,
         expire_objects_days: None,
         stores: Vec::new(),
+        via: None,
+        reply_to: None,
     };
     let mut access = None;
     let mut it = flags.iter();
@@ -322,6 +275,19 @@ fn parse_mint_r2(flags: &[String]) -> Result<MintR2, UsageError> {
                 mint.expire_objects_days = Some(days);
             }
             "--store" => mint.stores.push(Store::parse(&value()?)?),
+            "--via" | "--reply-to-machine" => {
+                let machine = value()?;
+                if !valid_machine(&machine) {
+                    return Err(UsageError::new(format!(
+                        "{flag} {machine:?} is not a machine name"
+                    )));
+                }
+                if flag == "--via" {
+                    mint.via = Some(machine);
+                } else {
+                    mint.reply_to = Some(machine);
+                }
+            }
             other => return Err(UsageError::new(format!("unknown flag {other:?}\n{USAGE}"))),
         }
     }
@@ -329,6 +295,14 @@ fn parse_mint_r2(flags: &[String]) -> Result<MintR2, UsageError> {
         return Err(UsageError::new("--bucket NAME is required: 3 to 63 of a-z, 0-9 and -"));
     }
     mint.write = access.ok_or_else(|| UsageError::new("give --rw or --ro"))?;
+    if mint.reply_to.is_some() {
+        if !mint.stores.is_empty() || mint.via.is_some() {
+            return Err(UsageError::new(
+                "--reply-to-machine sends the key back to the asking machine: no --store or --via",
+            ));
+        }
+        return Ok(mint);
+    }
     if mint.stores.is_empty() {
         return Err(UsageError::new(
             "give at least one --store: a minted key that is stored nowhere is lost",
@@ -407,7 +381,7 @@ impl Http for Live {
     }
 }
 
-struct LiveSinks;
+pub(super) struct LiveSinks;
 
 impl Sinks for LiveSinks {
     fn provider_token(&self, provider_account: &str) -> Result<Zeroizing<String>, String> {
@@ -468,12 +442,16 @@ impl Sinks for LiveSinks {
                 let account = format!("{}/{name}", scope.as_deref().unwrap_or("*"));
                 super::cloud_secret::store_value(&account, value)
             }
-            Store::Vault { .. } => pipe_to(
-                "acpmux",
-                &["machine", "vault", "keep", name, "--env"],
-                value,
-                &format!("acpmux machine vault keep {name}"),
-            ),
+            Store::Vault { hosts, .. } => {
+                let mut args = vec!["machine", "vault", "keep", name];
+                if hosts.is_empty() {
+                    args.push("--env");
+                }
+                for host in hosts {
+                    args.extend(["--host", host.as_str()]);
+                }
+                pipe_to("acpmux", &args, value, &format!("acpmux machine vault keep {name}"))
+            }
         }
     }
 }
@@ -504,9 +482,26 @@ pub(super) struct Paths {
     audit: PathBuf,
 }
 
+/// Names this build's audit: a DEV app sets it for its terminals (Swift `BuildStatePaths`), so a dev
+/// build never reads or changes nightly's or another tag's list.
+pub(super) const AUDIT_OVERRIDE: &str = "CMUX_NEXT_KEYS_AUDIT_FILE";
+
 impl Paths {
-    fn home() -> Result<Self, String> {
-        let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+    pub(super) fn home() -> Result<Self, String> {
+        let other_app = crate::app_identity::this_process_in_other_apps_terminal();
+        Self::from_env(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
+    }
+
+    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json`. A `cmux` bundled in another
+    /// app than the terminal's (`other_app`) ignores the variable: it is that app's audit.
+    pub(super) fn from_env(
+        env: impl Fn(&str) -> Option<std::ffi::OsString>,
+        other_app: bool,
+    ) -> Result<Self, String> {
+        if !other_app && let Some(path) = env(AUDIT_OVERRIDE) {
+            return Ok(Self { audit: PathBuf::from(path) });
+        }
+        let home = env("HOME").ok_or("HOME is not set")?;
         Ok(Self { audit: PathBuf::from(home).join(".config/cmux/keys.json") })
     }
 }
@@ -596,6 +591,33 @@ fn rfc3339(secs: u64) -> String {
         rem % 3_600 / 60,
         rem % 60
     )
+}
+
+/// The seconds since the epoch of an `rfc3339` time; `None` for any other text.
+fn parse_rfc3339(text: &str) -> Option<u64> {
+    let b = text.as_bytes();
+    if b.len() != 20 || [b[4], b[7], b[10], b[13], b[16], b[19]] != *b"--T::Z" {
+        return None;
+    }
+    let num = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    // Howard Hinnant's days_from_civil, the inverse of `rfc3339`.
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from(days * 86_400 + hour * 3_600 + minute * 60 + second).ok()
 }
 
 /// Who asked for a key, for the audit: the agent session when one is known, else the user.
@@ -825,31 +847,37 @@ fn cloudflare_account(audit: &Value, wanted: Option<&str>) -> Result<String, Str
     }
 }
 
+/// Every provider and every key, each with its state and the fields a list shows, never a value.
+pub(super) fn list(paths: &Paths) -> Result<Value, String> {
+    let _lock = AuditLock::take(&paths.audit)?;
+    let mut audit = read_audit(&paths.audit)?;
+    let now = now_secs();
+    for key in local::array_mut(&mut audit, "keys").into_iter().flatten() {
+        local::listed(key, now);
+    }
+    Ok(audit)
+}
+
 pub(super) fn run(
     command: Command,
     paths: &Paths,
     http: &dyn Http,
     sinks: &dyn Sinks,
+    vault: &dyn local::KeyVault,
 ) -> Result<Value, String> {
     match command {
         Command::Help => Ok(json!({"usage": USAGE})),
-        Command::Ls => {
-            let _lock = AuditLock::take(&paths.audit)?;
-            let mut audit = read_audit(&paths.audit)?;
-            let now = now_secs();
-            for key in audit["keys"].as_array_mut().into_iter().flatten() {
-                let expired =
-                    key.get("expires_at_s").and_then(Value::as_u64).is_some_and(|at| at <= now);
-                let state = if key.get("revoked_at").is_some_and(|v| !v.is_null()) {
-                    "revoked"
-                } else if expired {
-                    "expired"
-                } else {
-                    "live"
-                };
-                key["state"] = json!(state);
-            }
-            Ok(audit)
+        Command::Ls => list(paths),
+        Command::Local(_) => Err("a stored key's command: local::run".into()),
+        Command::Revoke { id }
+            if read_audit(&paths.audit)?.get("keys").and_then(Value::as_array).is_some_and(
+                |keys| {
+                    keys.iter()
+                        .any(|k| local::is_local(k) && local::field(k, "name") == id.as_str())
+                },
+            ) =>
+        {
+            local::revoke(paths, vault, &id)
         }
         Command::Connect { account } => {
             let token = sinks.read_bootstrap()?;
@@ -907,6 +935,18 @@ pub(super) fn run(
                     .collect::<String>(),
             );
             drop(key.value);
+            if let Some(machine) = &mint.reply_to {
+                // The asking machine stores it: here the audit records where it went, and the
+                // answer carries the pair to the relay's pipe. The bootstrap is not in it.
+                let record = key_record(&key.id, &account, &mint, access, created_at, expires_at)
+                    .with_stores(vec![format!("machine:{machine}")], format!("machine={machine}"));
+                append_audit(paths, &record, &key.id)?;
+                return Ok(json!({
+                    "minted": record,
+                    "bucket": bucket,
+                    "values": {"ACCESS_KEY_ID": key.id, "SECRET_ACCESS_KEY": secret.as_str()},
+                }));
+            }
             let mut stored = Vec::new();
             for store in &mint.stores {
                 for (suffix, value) in
@@ -934,31 +974,12 @@ pub(super) fn run(
                 }
             }
             drop(secret);
-            let record = json!({
-                "id": key.id,
-                "provider": "cloudflare",
-                "account": account,
-                "kind": "r2",
-                "bucket": mint.bucket,
-                "access": access,
-                "created_at": rfc3339(created_at),
-                "expires_at": rfc3339(expires_at),
-                "expires_at_s": expires_at,
-                "stores": stored,
-                "by": requester(),
-                "revoked_at": Value::Null,
-            });
-            let _lock = AuditLock::take(&paths.audit)?;
-            let mut audit = read_audit(&paths.audit)?;
-            audit["keys"].as_array_mut().ok_or("bad audit")?.push(record.clone());
-            write_audit(&paths.audit, &audit).map_err(|e| {
-                format!(
-                    "the key {} is minted and stored, but the audit was not written: {e}",
-                    key.id
-                )
-            })?;
+            let record = key_record(&key.id, &account, &mint, access, created_at, expires_at)
+                .with_stores(stored, requester());
+            append_audit(paths, &record, &key.id)?;
             Ok(json!({"minted": record, "bucket": bucket}))
         }
+        Command::Rotate { id, ttl } => rotate(&id, ttl, paths, http, sinks, vault),
         Command::Revoke { id } => {
             let _lock = AuditLock::take(&paths.audit)?;
             let mut audit = read_audit(&paths.audit)?;
@@ -978,314 +999,230 @@ pub(super) fn run(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
+/// A minted key's audit record, before its stores and asker.
+fn key_record(
+    id: &str,
+    account: &str,
+    mint: &MintR2,
+    access: &str,
+    created_at: u64,
+    expires_at: u64,
+) -> Value {
+    json!({
+        "id": id,
+        "provider": "cloudflare",
+        "account": account,
+        "kind": "r2",
+        "bucket": mint.bucket,
+        "access": access,
+        "created_at": rfc3339(created_at),
+        "expires_at": rfc3339(expires_at),
+        "expires_at_s": expires_at,
+        "revoked_at": Value::Null,
+    })
+}
 
-    fn words(text: &str) -> Vec<String> {
-        text.split_whitespace().map(str::to_owned).collect()
-    }
+trait WithStores {
+    fn with_stores(self, stores: Vec<String>, by: String) -> Value;
+}
 
-    const ACCOUNT: &str = "0123456789abcdef0123456789abcdef";
-
-    /// One recorded call: method, path, bearer, body.
-    type Call = (String, String, String, Option<Value>);
-
-    /// Answers Cloudflare calls from a script and records every call.
-    struct FakeCloudflare {
-        calls: RefCell<Vec<Call>>,
-        bucket_exists: bool,
-        fail_first_bucket_read: RefCell<bool>,
-    }
-
-    impl FakeCloudflare {
-        fn new(bucket_exists: bool) -> Self {
-            Self {
-                calls: RefCell::new(Vec::new()),
-                bucket_exists,
-                fail_first_bucket_read: RefCell::new(true),
-            }
+impl WithStores for Value {
+    fn with_stores(mut self, stores: Vec<String>, by: String) -> Value {
+        if let Some(fields) = self.as_object_mut() {
+            fields.insert("stores".to_owned(), json!(stores));
+            fields.insert("by".to_owned(), json!(by));
         }
-        fn paths(&self) -> Vec<String> {
-            self.calls.borrow().iter().map(|(m, p, _, _)| format!("{m} {p}")).collect()
-        }
-    }
-
-    impl Http for FakeCloudflare {
-        fn call(
-            &self,
-            method: &str,
-            url: &str,
-            bearer: &str,
-            body: Option<&Value>,
-        ) -> Result<(u16, Value), String> {
-            let path = url.strip_prefix(CLOUDFLARE_API).unwrap().to_owned();
-            self.calls.borrow_mut().push((
-                method.into(),
-                path.clone(),
-                bearer.into(),
-                body.cloned(),
-            ));
-            let ok = |result: Value| Ok((200, json!({"success": true, "result": result})));
-            let tokens = format!("/accounts/{ACCOUNT}/tokens");
-            match (method, path.as_str()) {
-                ("GET", p) if p == format!("{tokens}/verify") => ok(json!({"status": "active"})),
-                ("GET", p) if p == format!("{tokens}/permission_groups") => ok(json!([
-                    {"id": "g-admin", "name": R2_ADMIN_WRITE},
-                    {"id": "g-write", "name": R2_ITEM_WRITE},
-                    {"id": "g-read", "name": R2_ITEM_READ},
-                ])),
-                ("POST", p) if p == tokens => {
-                    let name = body.unwrap()["name"].as_str().unwrap();
-                    let id = if name.contains("set up") { "setup-id" } else { "key-id" };
-                    ok(json!({"id": id, "value": format!("{id}-value")}))
-                }
-                ("DELETE", p) if p.starts_with(&tokens) => ok(json!({})),
-                ("GET", p) if p.ends_with("/r2/buckets/handoff") => {
-                    // A fresh token's first call: not yet propagated.
-                    if self.fail_first_bucket_read.replace(false) {
-                        return Ok((
-                            403,
-                            json!({"success": false, "errors": [{"code": 10000, "message": "Authentication error"}]}),
-                        ));
-                    }
-                    if self.bucket_exists {
-                        ok(json!({"name": "handoff"}))
-                    } else {
-                        Ok((404, json!({"success": false})))
-                    }
-                }
-                ("POST", p) if p.ends_with("/r2/buckets") => ok(json!({"name": "handoff"})),
-                ("PUT", p) if p.ends_with("/lifecycle") => ok(json!({})),
-                _ => Ok((
-                    500,
-                    json!({"success": false, "errors": [{"code": 1, "message": "unexpected"}]}),
-                )),
-            }
-        }
-    }
-
-    #[derive(Default)]
-    struct FakeSinks {
-        put: RefCell<Vec<(Store, String, String)>>,
-        saved: RefCell<Vec<(String, String)>>,
-        fail_put: bool,
-    }
-
-    impl Sinks for FakeSinks {
-        fn provider_token(&self, _: &str) -> Result<Zeroizing<String>, String> {
-            Ok(Zeroizing::new("bootstrap".into()))
-        }
-        fn save_provider_token(&self, account: &str, token: &str) -> Result<(), String> {
-            self.saved.borrow_mut().push((account.into(), token.into()));
-            Ok(())
-        }
-        fn read_bootstrap(&self) -> Result<Zeroizing<String>, String> {
-            Ok(Zeroizing::new("bootstrap".into()))
-        }
-        fn put(&self, store: &Store, name: &str, value: &str) -> Result<(), String> {
-            if self.fail_put {
-                return Err("gh refused".into());
-            }
-            self.put.borrow_mut().push((store.clone(), name.into(), value.into()));
-            Ok(())
-        }
-    }
-
-    fn connected(dir: &tempfile::TempDir) -> Paths {
-        let paths = Paths { audit: dir.path().join("keys.json") };
-        run(
-            Command::Connect { account: ACCOUNT.into() },
-            &paths,
-            &FakeCloudflare::new(true),
-            &FakeSinks::default(),
-        )
-        .unwrap();
-        paths
-    }
-
-    #[test]
-    fn mint_parses_the_r2_ask_and_never_takes_a_value() {
-        let Command::MintR2(mint) = parse(&words(
-            "mint cloudflare-r2 --bucket cmux-ci-handoff --rw --ttl 180d --create-bucket --expire-objects-days 1 --store gh-secret:manaflow-ai/cmux:CI_HANDOFF_R2",
-        ))
-        .unwrap() else {
-            panic!("not a mint")
-        };
-        assert_eq!(mint.bucket, "cmux-ci-handoff");
-        assert!(mint.write && mint.create_bucket);
-        assert_eq!(mint.ttl, Duration::from_secs(180 * 86_400));
-        assert_eq!(mint.expire_objects_days, Some(1));
-        assert_eq!(
-            mint.stores,
-            vec![Store::GhSecret {
-                repo: "manaflow-ai/cmux".into(),
-                environment: None,
-                prefix: "CI_HANDOFF_R2".into()
-            }]
-        );
-        for bad in [
-            "mint cloudflare-r2 --bucket b --rw --store gh-secret:a/b:X", // bucket too short
-            "mint cloudflare-r2 --bucket bucket --store gh-secret:a/b:X", // no access
-            "mint cloudflare-r2 --bucket bucket --rw --ro --store gh-secret:a/b:X", // both
-            "mint cloudflare-r2 --bucket bucket --rw",                    // stored nowhere
-            "mint cloudflare-r2 --bucket bucket --rw --ttl 0d --store gh-secret:a/b:X",
-            "mint cloudflare-r2 --bucket bucket --rw --ttl 400d --store gh-secret:a/b:X",
-            "mint cloudflare-r2 --bucket bucket --rw --store gh-secret:a/b:lower",
-            "mint cloudflare-r2 --bucket bucket --rw --store gh-secret:a/b:GITHUB_X",
-            "mint cloudflare-r2 --bucket bucket --rw --store keychain:CMUX_X",
-            "mint cloudflare-r2 --bucket bucket --rw --store s3:X",
-            "connect cloudflare --account nothex",
-            "connect cloudflare tok_live_value",
-            "revoke",
-        ] {
-            assert!(parse(&words(bad)).is_err(), "{bad}");
-        }
-        assert_eq!(
-            Store::parse("gh-secret:manaflow-ai/cmux@ci-cache-writer:CACHE")
-                .unwrap()
-                .label("ACCESS_KEY_ID"),
-            "gh-secret:manaflow-ai/cmux@ci-cache-writer:CACHE_ACCESS_KEY_ID"
-        );
-        assert_eq!(
-            Store::parse("keychain:Acme/App:R2").unwrap().label("ACCESS_KEY_ID"),
-            "keychain:acme/app/R2_ACCESS_KEY_ID"
-        );
-        assert_eq!(
-            Store::parse("vault:CI_R2").unwrap().label("SECRET_ACCESS_KEY"),
-            "vault:CI_R2_SECRET_ACCESS_KEY"
-        );
-        assert!(Store::parse("vault:ci_r2").is_err());
-    }
-
-    #[test]
-    fn connect_verifies_then_keeps_the_token_in_the_keychain_and_lists_the_provider() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths { audit: dir.path().join("keys.json") };
-        let sinks = FakeSinks::default();
-        let http = FakeCloudflare::new(true);
-        run(Command::Connect { account: ACCOUNT.into() }, &paths, &http, &sinks).unwrap();
-        assert_eq!(
-            sinks.saved.borrow().as_slice(),
-            &[(format!("cloudflare/{ACCOUNT}"), "bootstrap".to_owned())]
-        );
-        let audit = std::fs::read_to_string(&paths.audit).unwrap();
-        assert!(!audit.contains("bootstrap"), "the audit never holds a value");
-        assert!(audit.contains(ACCOUNT));
-    }
-
-    #[test]
-    fn mint_sets_up_the_bucket_with_a_short_token_then_mints_a_bucket_scoped_key_and_stores_its_s3_pair()
-     {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = connected(&dir);
-        let http = FakeCloudflare::new(false);
-        let sinks = FakeSinks::default();
-        let Command::MintR2(mint) = parse(&words(
-            "mint cloudflare-r2 --bucket handoff --rw --create-bucket --expire-objects-days 1 --store gh-secret:manaflow-ai/cmux:CI_HANDOFF_R2",
-        ))
-        .unwrap() else {
-            panic!()
-        };
-        let answer = run(Command::MintR2(mint), &paths, &http, &sinks).unwrap();
-        let tokens = format!("/accounts/{ACCOUNT}/tokens");
-        let buckets = format!("/accounts/{ACCOUNT}/r2/buckets");
-        assert_eq!(
-            http.paths(),
-            vec![
-                format!("GET {tokens}/permission_groups"),
-                format!("POST {tokens}"),
-                format!("GET {buckets}/handoff"),
-                format!("GET {buckets}/handoff"),
-                format!("POST {buckets}"),
-                format!("PUT {buckets}/handoff/lifecycle"),
-                format!("DELETE {tokens}/setup-id"),
-                format!("POST {tokens}"),
-            ]
-        );
-        let calls = http.calls.borrow();
-        // Bucket work uses the setup token, never the bootstrap; the setup token is account-wide R2 admin.
-        assert!(calls[2..6].iter().all(|(_, _, bearer, _)| bearer == "setup-id-value"));
-        assert_eq!(
-            calls[1].3.as_ref().unwrap()["policies"][0]["permission_groups"][0]["id"],
-            "g-admin"
-        );
-        assert_eq!(
-            calls[5].3.as_ref().unwrap()["rules"][0]["deleteObjectsTransition"]["condition"]["maxAge"],
-            86_400
-        );
-        // The stored key is scoped to the one bucket, with item write only, and expires.
-        let key = calls[7].3.as_ref().unwrap();
-        assert_eq!(
-            key["policies"][0]["resources"],
-            json!({format!("com.cloudflare.edge.r2.bucket.{ACCOUNT}_default_handoff"): "*"})
-        );
-        assert_eq!(key["policies"][0]["permission_groups"][0]["id"], "g-write");
-        assert!(key["expires_on"].as_str().unwrap().ends_with('Z'));
-        let put = sinks.put.borrow();
-        let expected_secret: String =
-            Sha256::digest(b"key-id-value").iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(put[0].1, "CI_HANDOFF_R2_ACCESS_KEY_ID");
-        assert_eq!(put[0].2, "key-id");
-        assert_eq!(put[1].1, "CI_HANDOFF_R2_SECRET_ACCESS_KEY");
-        assert_eq!(put[1].2, expected_secret);
-        assert_eq!(answer["bucket"]["created"], true);
-        let audit = std::fs::read_to_string(&paths.audit).unwrap();
-        assert!(
-            !audit.contains("key-id-value") && !audit.contains(&expected_secret),
-            "no value in the audit"
-        );
-        assert!(audit.contains("gh-secret:manaflow-ai/cmux:CI_HANDOFF_R2_SECRET_ACCESS_KEY"));
-    }
-
-    #[test]
-    fn a_key_that_cannot_be_stored_is_revoked_and_left_out_of_the_audit() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = connected(&dir);
-        let http = FakeCloudflare::new(true);
-        let sinks = FakeSinks { fail_put: true, ..FakeSinks::default() };
-        let Command::MintR2(mint) =
-            parse(&words("mint cloudflare-r2 --bucket handoff --ro --store gh-secret:a/b:R2"))
-                .unwrap()
-        else {
-            panic!()
-        };
-        let error = run(Command::MintR2(mint), &paths, &http, &sinks).unwrap_err();
-        assert!(error.contains("revoked"), "{error}");
-        assert!(http.paths().last().unwrap().ends_with("/tokens/key-id"));
-        assert!(!std::fs::read_to_string(&paths.audit).unwrap().contains("key-id"));
-    }
-
-    #[test]
-    fn revoke_deletes_at_the_provider_and_ls_shows_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = connected(&dir);
-        let http = FakeCloudflare::new(true);
-        let Command::MintR2(mint) =
-            parse(&words("mint cloudflare-r2 --bucket handoff --ro --store gh-secret:a/b:R2"))
-                .unwrap()
-        else {
-            panic!()
-        };
-        run(Command::MintR2(mint), &paths, &http, &FakeSinks::default()).unwrap();
-        let listed = run(Command::Ls, &paths, &http, &FakeSinks::default()).unwrap();
-        assert_eq!(listed["keys"][0]["state"], "live");
-        run(Command::Revoke { id: "key-id".into() }, &paths, &http, &FakeSinks::default()).unwrap();
-        assert_eq!(
-            http.paths().last().unwrap(),
-            &format!("DELETE /accounts/{ACCOUNT}/tokens/key-id")
-        );
-        assert_eq!(
-            run(Command::Ls, &paths, &http, &FakeSinks::default()).unwrap()["keys"][0]["state"],
-            "revoked"
-        );
-    }
-
-    #[test]
-    fn times_are_rfc3339_utc() {
-        assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
-        assert_eq!(rfc3339(1_794_700_800), "2026-11-15T00:00:00Z");
-        assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+        self
     }
 }
+
+fn append_audit(paths: &Paths, record: &Value, id: &str) -> Result<(), String> {
+    let _lock = AuditLock::take(&paths.audit)?;
+    let mut audit = read_audit(&paths.audit)?;
+    audit.get_mut("keys").and_then(Value::as_array_mut).ok_or("bad audit")?.push(record.clone());
+    write_audit(&paths.audit, &audit).map_err(|e| {
+        format!("the key {id} is minted and stored, but the audit was not written: {e}")
+    })
+}
+
+/// Asks another machine's broker for a key over the acpmux peer link. A trait so tests answer
+/// without a daemon.
+pub(super) trait PeerBroker {
+    fn mint(&self, ask: Value) -> Result<Value, String>;
+}
+
+struct LivePeerBroker;
+
+impl PeerBroker for LivePeerBroker {
+    fn mint(&self, ask: Value) -> Result<Value, String> {
+        acpmux::computer_use::client::acpmux_request(acpmux::rpc::method::MUX_KEYS_MINT, ask)
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// `cmux keys mint ... --via MACHINE`: that machine's broker mints with the bootstrap it keeps and
+/// sends back the scoped key alone; this machine stores it in its own `--store`s and audit. The
+/// bootstrap never comes here, and the pair is never printed.
+pub(super) fn mint_via(
+    mint: MintR2,
+    paths: &Paths,
+    broker: &dyn PeerBroker,
+    sinks: &dyn Sinks,
+) -> Result<Value, String> {
+    let machine = mint.via.clone().ok_or("--via names the minting machine")?;
+    let mut ask = serde_json::Map::new();
+    ask.insert("machine".to_owned(), json!(machine));
+    ask.insert("kind".to_owned(), json!("cloudflare-r2"));
+    ask.insert("bucket".to_owned(), json!(mint.bucket));
+    ask.insert("access".to_owned(), json!(if mint.write { "rw" } else { "ro" }));
+    ask.insert("ttl".to_owned(), json!(format!("{}m", mint.ttl.as_secs() / 60)));
+    if let Some(account) = &mint.account {
+        ask.insert("account".to_owned(), json!(account));
+    }
+    if mint.create_bucket {
+        ask.insert("create_bucket".to_owned(), json!(true));
+    }
+    if let Some(days) = mint.expire_objects_days {
+        ask.insert("expire_objects_days".to_owned(), json!(days));
+    }
+    let mut answer = broker
+        .mint(Value::Object(ask))
+        .map_err(|e| format!("{machine} did not mint the key: {e}"))?;
+    let mut record = answer.get("minted").cloned().ok_or("the answer has no key")?;
+    let id =
+        record.get("id").and_then(Value::as_str).ok_or("the answer's key has no id")?.to_owned();
+    let mut take = |name: &str| -> Result<Zeroizing<String>, String> {
+        match answer.pointer_mut(&format!("/values/{name}")).map(Value::take) {
+            Some(Value::String(v)) if !v.is_empty() => Ok(Zeroizing::new(v)),
+            _ => Err(format!("the answer has no {name}")),
+        }
+    };
+    let pair = [
+        ("ACCESS_KEY_ID", take("ACCESS_KEY_ID")?),
+        ("SECRET_ACCESS_KEY", take("SECRET_ACCESS_KEY")?),
+    ];
+    drop(answer);
+    let mut stored = Vec::new();
+    for store in &mint.stores {
+        for (suffix, value) in &pair {
+            if let Err(message) = sinks.put(store, &store.name(suffix), value) {
+                return Err(format!(
+                    "{message}\nthe new key {id} is live on {machine}: revoke it there (cmux keys revoke {id}); already stored: {}",
+                    if stored.is_empty() { "nothing".to_owned() } else { stored.join(", ") }
+                ));
+            }
+            stored.push(store.label(suffix));
+        }
+    }
+    drop(pair);
+    record
+        .as_object_mut()
+        .ok_or("the answer's key is not an object")?
+        .insert("via".to_owned(), json!(machine));
+    let record = record.with_stores(stored, requester());
+    append_audit(paths, &record, &id)?;
+    Ok(json!({"minted": record}))
+}
+
+/// `cmux keys rotate ID`: the old key's scope (account, bucket, access) minted again with its
+/// lifetime, stored under every name the old one was, then the old key revoked at the provider. The
+/// new key is stored before the old one is revoked, so the stored names are never left dead.
+fn rotate(
+    id: &str,
+    ttl: Option<Duration>,
+    paths: &Paths,
+    http: &dyn Http,
+    sinks: &dyn Sinks,
+    vault: &dyn local::KeyVault,
+) -> Result<Value, String> {
+    let audit = read_audit(&paths.audit)?;
+    let old = audit["keys"]
+        .as_array()
+        .and_then(|keys| keys.iter().find(|k| !local::is_local(k) && k["id"] == id))
+        .ok_or_else(|| {
+            if audit["keys"].as_array().into_iter().flatten().any(|k| {
+                local::is_local(k) && local::field(k, "name") == id
+            }) {
+                format!("{id} is a stored key, not a minted one: get a new value from its provider and `cmux keys put {id} --replace`")
+            } else {
+                format!("no minted key {id} in the audit (cmux keys ls)")
+            }
+        })?;
+    if old["provider"] != "cloudflare" || old["kind"] != "r2" {
+        return Err(format!("key {id} is not a Cloudflare R2 key: only those can be rotated"));
+    }
+    let text = |field: &str| {
+        old[field]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| format!("the audit record of {id} has no {field}"))
+    };
+    let stores = old["stores"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|label| Store::from_label(label, "ACCESS_KEY_ID"))
+        .collect::<Vec<_>>();
+    if stores.is_empty() {
+        return Err(format!("the audit record of {id} names no store to put a new key in"));
+    }
+    let ttl = ttl.unwrap_or_else(|| {
+        old["expires_at_s"]
+            .as_u64()
+            .zip(old["created_at"].as_str().and_then(parse_rfc3339))
+            .and_then(|(expires, created)| expires.checked_sub(created))
+            .map(Duration::from_secs)
+            .filter(|ttl| !ttl.is_zero() && *ttl <= MAX_TTL)
+            .unwrap_or(DEFAULT_TTL)
+    });
+    let access = text("access")?;
+    let mint = MintR2 {
+        account: Some(text("account")?),
+        bucket: text("bucket")?,
+        write: match access.as_str() {
+            "rw" => true,
+            "ro" => false,
+            other => return Err(format!("the audit record of {id} has access {other:?}")),
+        },
+        ttl,
+        create_bucket: false,
+        expire_objects_days: None,
+        stores,
+        via: None,
+        reply_to: None,
+    };
+    let already_revoked = !old["revoked_at"].is_null();
+    let account = text("account")?;
+    let minted = run(Command::MintR2(mint), paths, http, sinks, vault)?;
+    let new_id = minted["minted"]["id"].as_str().ok_or("the new key has no id")?.to_owned();
+    let revoked = if already_revoked {
+        Ok(())
+    } else {
+        sinks
+            .provider_token(&format!("cloudflare/{account}"))
+            .and_then(|bootstrap| delete_token(http, &account, &bootstrap, id))
+    };
+    let _lock = AuditLock::take(&paths.audit)?;
+    let mut audit = read_audit(&paths.audit)?;
+    for key in audit["keys"].as_array_mut().into_iter().flatten() {
+        if key["id"] == new_id.as_str() {
+            key["rotated_from"] = json!(id);
+        } else if key["id"] == id && !local::is_local(key) {
+            key["rotated_to"] = json!(new_id);
+            if revoked.is_ok() && !already_revoked {
+                key["revoked_at"] = json!(rfc3339(now_secs()));
+            }
+        }
+    }
+    write_audit(&paths.audit, &audit)?;
+    if let Err(message) = revoked {
+        return Err(format!(
+            "the new key {new_id} is stored under the same names, but the old key {id} was not revoked: {message}\nrevoke it with: cmux keys revoke {id}"
+        ));
+    }
+    Ok(json!({"rotated": id, "revoked": !already_revoked, "minted": minted["minted"]}))
+}
+
+#[cfg(test)]
+mod tests;

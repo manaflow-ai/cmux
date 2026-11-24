@@ -11,6 +11,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -116,7 +117,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
       name: "model",
       query: "",
       height: 720,
-      button: ".acpmux-model .acpmux-picker-button",
+      button: MODEL_PICKER,
       menu: ".acpmux-cols",
       rows: "[role=option], [role=radio], [role=switch]",
     },

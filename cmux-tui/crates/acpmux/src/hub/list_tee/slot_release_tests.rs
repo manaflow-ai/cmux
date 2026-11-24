@@ -57,14 +57,14 @@ impl Live {
                 row.extra = extra.clone();
                 self.v2.hub.submit(row).unwrap();
             }
-            let last = format!("pad-{}", chunk * 100 + 99);
-            until("the padding rows", || self.index().get(&last).is_some()).await;
+            // The writer may publish the rows in a different order from their submission.
+            until("the padding rows", || self.rows_of("local").len() == (chunk + 1) * 100).await;
         }
         for n in 0..1000 {
             self.v2.hub.remove("local", &format!("pad-{n}")).unwrap();
         }
         until("a compaction", || self.v2.hub.compaction_stats().completed > done).await;
-        until("the padding gone", || self.index().get("pad-999").is_none()).await;
+        until("the padding gone", || self.rows_of("local").is_empty()).await;
     }
 
     async fn stop(self) {
@@ -178,8 +178,12 @@ async fn one_change_on_a_refused_machine_after_a_slot_frees_brings_every_chat() 
     book(&live.v1, &listed);
     until("the 257th whole", || live.rows_of(LAST).len() == 3).await;
     until("its record", || origin(&live.index(), LAST) == Some(OriginState::Connected)).await;
-    let changed = live.index().get_row(&RowKey::new(LAST, "machine-256-2")).unwrap();
-    assert_eq!(changed.state, "waiting");
+    until("the changed row", || {
+        live.index()
+            .get_row(&RowKey::new(LAST, "machine-256-2"))
+            .is_some_and(|r| r.state == "waiting")
+    })
+    .await;
     assert_eq!(v2_keys(&live.index()), v1_keys(&live.v1));
     live.stop().await;
 }
@@ -228,6 +232,48 @@ async fn an_overflow_of_refused_machines_is_answered_by_one_whole_reconcile() {
         }
     }
     assert_eq!(out.len(), 1, "{out:?}");
-    assert!(!live.kept().1, "the whole reconcile cleared the flag");
+    // The reconcile cleared the flag and the one left out was refused again: it is kept, or the
+    // flag is set again, so the next freed slot brings it.
+    until("the one left out kept", || {
+        let (ids, overflow) = live.kept();
+        overflow || ids.contains(&out[0])
+    })
+    .await;
+    assert!(live.state.refused_any.load(Ordering::Acquire));
+    live.stop().await;
+}
+
+/// A refusal the tee could not tell: its read of the index had a slot that the writer's fill took
+/// (`stale_read` stands for that read), so it notes nothing and keeps no origin. The hub's
+/// refusal count moves, the tee sets the overflow flag, and the next freed slot brings the 257th
+/// machine back whole, its record and three chats, with no v1 change on it.
+#[tokio::test]
+async fn a_refusal_the_tee_could_not_tell_is_released_whole_on_the_next_freed_slot() {
+    let live = Live::start();
+    let mut listed = machines("machine", 0, 256, 1);
+    book(&live.v1, &listed);
+    until("256 origins", || live.index().origins().count() == 256).await;
+
+    live.state.refused.lock().unwrap().stale_read = true;
+    let refusals = live.v2.hub.origins_refused();
+    listed.extend(machines("machine", 256, 1, 3));
+    book(&live.v1, &listed);
+    until("the writer's refusal", || live.v2.hub.origins_refused() > refusals).await;
+    until("the flag, with no origin kept", || live.kept() == (Vec::new(), true)).await;
+    live.state.refused.lock().unwrap().stale_read = false;
+    assert!(origin(&live.index(), LAST).is_none());
+    assert!(live.rows_of(LAST).is_empty());
+
+    listed.remove(0);
+    book(&live.v1, &listed);
+    until("machine-000 removed", || {
+        origin(&live.index(), "machine-000") == Some(OriginState::Removed)
+            && live.rows_of("machine-000").is_empty()
+    })
+    .await;
+    live.compact().await;
+    until("the 257th whole", || live.rows_of(LAST).len() == 3).await;
+    until("its record", || origin(&live.index(), LAST) == Some(OriginState::Connected)).await;
+    assert_eq!(v2_keys(&live.index()), v1_keys(&live.v1));
     live.stop().await;
 }

@@ -130,6 +130,7 @@ fn crash_run_with(seed: u64, kinds: &[Crash], faults: Faults) -> Result<(), Stri
         full_sync_interval: Duration::from_millis(rng.below(4)),
         stream_sync_delay: Duration::from_millis(rng.below(3)),
         kept_sync_quiet: Duration::from_millis(1),
+        ack_group_window: Duration::from_millis(1),
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(2),
     };

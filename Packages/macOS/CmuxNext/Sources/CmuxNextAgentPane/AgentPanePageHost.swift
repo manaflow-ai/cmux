@@ -7,10 +7,13 @@ enum AgentPanePageHost {
     /// The page view for the bundled page in `root` (`testRoot`: a test's fixture), nil when the page host refuses that root.
     static func makePage(root: URL, testRoot: Bool = false, provider: AgentPageProvider, renderRate: AgentPaneRenderRate,
                          chromium: (any PageChromiumHosting)?, panelProvider: (any PageProvider)? = nil,
-                         resources: AgentPageResources? = nil) -> PageWebView? {
+                         resources: AgentPageResources? = nil, chatModel: AgentPaneModel? = nil) -> PageWebView? {
         // The agent page's files live in this module's bundle, not the page host's.
         PageID.registerBundledRoot(root, for: PageDescriptor.agent.id)
-        var routes = [PageRoute(prefix: AgentPageOps.namespace, provider: provider)]
+        // A chat's rows over the pane's v2 handle (AgentPaneChatRows): the longer prefix wins.
+        let chatRows = AgentPaneChatRows(model: chatModel)
+        var routes = [PageRoute(prefix: AgentPageOps.namespace, provider: provider),
+                      PageRoute(prefix: AgentPaneChatRows.prefix, provider: chatRows)]
         if let panelProvider { routes.append(PageRoute(prefix: AppsPanelsPageProvider.namespace, provider: panelProvider)) }
         // The app sections' bundle images (`__appbundle/`), for this page's own mounts.
         if let resources, let panels = panelProvider as? AppsPanelsPageProvider {
@@ -28,11 +31,14 @@ enum AgentPanePageHost {
                                chromium: chromium)
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
+        if let page { chatRows.watch(page) }
+        // App health names a stuck chat by its tab's title and workspace.
+        page?.healthTabKey = { [weak provider] in provider?.tabKey() }
         return page
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview
-    /// features, the in-session status toggle, the chat's machine link, the New Tab page's chats and closed items, the
+    /// features, the in-session status toggle, the Experiments switches, the chat's machine link, the New Tab page's chats and closed items, the
     /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
@@ -43,8 +49,10 @@ enum AgentPanePageHost {
         }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(.liveTree(view.liveTree))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
+        events.append(.experiments(view.model.experiments))
         events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))
         if let link = view.model.machineLink { events.append(link.event(for: view)) }
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
@@ -59,6 +67,7 @@ enum AgentPanePageHost {
         events.append(.display(view.model.display))
         events.append(.toolCards(view.model.toolCards))
         events.append(.computerUsePreview(view.model.computerUsePreview))
+        if let computerUse = view.model.computerUse { events.append(computerUse.event(for: view)) }
         events.append(view.model.tabRow.event)
         let nativeSessionInfo = view.drawsSessionInfo
         view.model.sessionInfo.announced = nativeSessionInfo

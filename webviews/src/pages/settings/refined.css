@@ -14,8 +14,12 @@
     color-mix(in srgb, var(--polish-ink) 10%, transparent),
     color-mix(in srgb, var(--polish-ink) 8%, transparent)
   );
-  --polish-muted: color-mix(in srgb, var(--polish-ink) 60%, var(--polish-base));
-  --polish-placeholder: color-mix(in srgb, var(--polish-ink) 45%, var(--polish-base));
+  /* The theme's own quieter inks (WebTheme --cmux-text-secondary 4.5:1, --cmux-text-tertiary 3:1 on every
+     fill and see-through ground), about the same 60% and 45% steps toward the page in a theme that has
+     the room: the fixed mixes fell to 2.5:1 on low-contrast themes (Everforest Light Hard, Belafonte
+     Day; test/control-contrast-N.test.ts). */
+  --polish-muted: var(--cmux-text-secondary, color-mix(in srgb, var(--polish-ink) 60%, var(--polish-base)));
+  --polish-placeholder: var(--cmux-text-tertiary, color-mix(in srgb, var(--polish-ink) 45%, var(--polish-base)));
   /* The app's fill ramp (design-tokens.md section 1: hoverFill, selectionFill, pressedFill), as the
      host derives it from the terminal theme, so a Settings hover, selection and press read as the
      sidebar's, the palette's and every shared control's. Pressed is mixed here, not taken from
@@ -58,14 +62,26 @@
   --on-accent: var(--polish-base);
   --accent-soft: var(--polish-selected);
   /* One centered reading column, as desktop settings windows lay it out (user, 2026-10-30). */
-  --column: 680px;
-  --sidebar-width: 220px;
+  --column: var(--page-size-680);
+  --sidebar-width: var(--page-size-220);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
 
+/* One grid for both columns (Lawrence 2026-11-23: "remove settings header, align things better like
+   the search input with the h1"). The sidebar has no title: the search field opens it, its middle on
+   the page title's middle so both columns start on one line, and its edges on the rows' edges below:
+   the field's box on the row pills' edge (the sidebar's padding), its magnifier on the row icons'
+   column, its placeholder on the row names. --settings-page-top is the content's top padding, set
+   here so the sidebar can read it. */
+:root[data-settings-look="refined"] .settings {
+  --settings-page-top: var(--ds-space-6);
+  --settings-nav-icon: calc(16px * var(--cmux-row-icon-scale, var(--page-density, 1)));
+}
+
 :root[data-settings-look="refined"] .settings > .sidebar {
-  padding: var(--ds-space-4) var(--ds-space-3) 0;
+  padding: calc(var(--settings-page-top) + (var(--text-heading--line-height) - var(--ds-control-primary)) / 2)
+    var(--ds-space-3) 0;
   border-right: 0;
   background: transparent;
   gap: var(--ds-space-3);
@@ -88,7 +104,7 @@
 /* Its thumb as wide as macOS's overlay scroller (7 px inside a 1 px inset; Lucas 2026-11-11: "still
    too skinny"); ScrollArea's own 6 px bar drew a 4 px thumb. */
 :root[data-settings-look="refined"] .settings .sidebar-scroll > .cmux-scrollbar[data-orientation="vertical"] {
-  width: 9px;
+  width: var(--page-size-9);
 }
 
 /* It comes in at once when the list scrolls and fades off slowly after it stops (Lucas 2026-11-11:
@@ -113,19 +129,6 @@
   --ui-scroll-thumb-hover: color-mix(in srgb, currentColor 36%, transparent);
 }
 
-/* One background for the whole page (user, 2026-10-30: "everything cohesive with same bg color"):
-   the sidebar and the content pane paint nothing of their own and no divider runs between them;
-   only the cards and controls take a fill. */
-:root[data-settings-look="refined"] .settings .sidebar-title {
-  margin: 0;
-  padding: 0 var(--ds-space-2) var(--ds-space-1);
-  color: var(--polish-ink);
-  font-size: var(--text-heading);
-  line-height: var(--text-heading--line-height);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-
 :root[data-settings-look="refined"] .settings .search-input:not(.ui-input) {
   border-color: transparent;
   background: var(--polish-hover);
@@ -139,31 +142,48 @@
 
 :root[data-settings-look="refined"] .settings .search-input:not(.ui-input)::placeholder { color: var(--polish-placeholder); }
 
+:root[data-settings-look="refined"] .settings .search .icon {
+  left: var(--look-nav-inset);
+  width: var(--settings-nav-icon);
+  height: var(--settings-nav-icon);
+}
+
+:root[data-settings-look="refined"] .settings .search .search-input {
+  padding-left: calc(var(--look-nav-inset) + var(--settings-nav-icon) + var(--ds-space-2));
+}
+
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--ds-control-primary);
-  padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-md);
-  color: color-mix(in srgb, var(--polish-ink) 82%, var(--polish-base));
+  /* 82% of the way from the secondary ink to the text: between two inks that both read, so it reads too. */
+  color: color-mix(in srgb, var(--polish-ink) 82%, var(--polish-muted));
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
 }
 
+:root[data-settings-look="refined"] .settings .section-link:is(:hover, :active) > .section-link-content {
+  background: var(--polish-hover);
+}
+
+:root[data-settings-look="refined"] .settings .section-link[aria-current] > .section-link-content {
+  background: var(--settings-nav-selection-fill, var(--polish-selected));
+}
+
 :root[data-settings-look="refined"] .settings .section-link[aria-current] {
-  /* The sidebar's selected row: selectionFill at the item radius. */
-  background: var(--polish-selected);
   color: var(--polish-ink);
 }
 
-:root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
-:root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
+:root[data-settings-look="refined"] .settings .section-icon {
+  color: var(--polish-muted);
+}
 :root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
-:root[data-settings-look="refined"] .settings .section-icon svg { width: var(--ds-icon-16); height: var(--ds-icon-16); }
+:root[data-settings-look="refined"] .settings .section-icon svg { width: var(--settings-nav-icon); height: var(--settings-nav-icon); }
 /* A category's SF Symbol from the host (SectionList CategoryIcon): its template PNG masks a box in
    the row's ink, centered in the same 16 px slot as the drawn icons. */
 :root[data-settings-look="refined"] .settings .section-symbol {
-  width: var(--ds-icon-16);
-  height: var(--ds-icon-16);
+  width: var(--settings-nav-icon);
+  height: var(--settings-nav-icon);
   background: currentColor;
   mask-position: center;
   mask-size: contain;
@@ -174,7 +194,7 @@
    everything but the scrollbar's 14 px strip on the right, so an outline here showed only as a
    stray rounded fragment at the pane's right edge (live QA 7b). */
 :root[data-settings-look="refined"] .settings > .content {
-  --content-pad-start: var(--ds-space-6);
+  --content-pad-start: var(--settings-page-top);
   --content-pad-inline: round(nearest, clamp(var(--ds-space-5), 4vw, calc(var(--ds-space-6) * 2)), var(--ds-space-1));
   --content-pad-end: calc(var(--ds-space-6) * 2);
   padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end);
@@ -256,6 +276,7 @@
 }
 /* The title and its description keep to the card's left ~60%; the control owns the right. */
 :root[data-settings-look="refined"] .settings .rows .row-label { max-width: 60%; }
+:root[data-settings-look="refined"] .settings .rows .hub-wide .row-label { max-width: none; }
 :root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; letter-spacing: var(--text-body--letter-spacing); }
 :root[data-settings-look="refined"] .settings .row-help {
   margin-top: var(--ds-space-1);
@@ -313,19 +334,18 @@
 
   :root[data-settings-look="refined"] .settings .section-link {
     min-height: 0;
-    padding: var(--ds-space-1) var(--ds-space-2);
   }
 
   :root[data-settings-look="refined"] .settings > .content {
     margin: 0;
   }
 
-  :root[data-settings-look="refined"] .settings .sidebar-title { display: none; }
 }
 
 @media (max-width: 640px) {
-  :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }
-  :root[data-settings-look="refined"] .settings > .content { --content-pad-start: var(--ds-space-5); --content-pad-inline: var(--ds-space-3); --content-pad-end: var(--ds-space-6); padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end); }
+  :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: var(--page-size-156); }
+  :root[data-settings-look="refined"] .settings { --settings-page-top: var(--ds-space-5); }
+  :root[data-settings-look="refined"] .settings > .content { --content-pad-start: var(--settings-page-top); --content-pad-inline: var(--ds-space-3); --content-pad-end: var(--ds-space-6); padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end); }
   :root[data-settings-look="refined"] .settings { --settings-row-inset: var(--ds-space-3); }
   :root[data-settings-look="refined"] .settings .row { padding: var(--ds-space-3); }
   :root[data-settings-look="refined"] .settings { --row-main-gap: var(--ds-space-2); }
@@ -351,8 +371,8 @@
    Chromium's own slider does not allow: the track is a faint tint of the text with no outline, filled
    in the accent up to the knob (`--range-p`, format.ts rangeFill). */
 :root[data-settings-look="refined"] .settings input[type="range"] {
-  --range-thumb: 16px;
-  --range-track: 8px;
+  --range-thumb: var(--ds-space-4);
+  --range-track: var(--ds-space-2);
   --range-off: color-mix(in srgb, var(--polish-ink) 12%, transparent);
   --range-on: var(--accent);
   -webkit-appearance: none;

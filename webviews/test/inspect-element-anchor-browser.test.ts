@@ -95,6 +95,21 @@ await requireBrowserLane("inspect-element-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("a far move inside the grace, then a click after it with no move between, picks under the click", async () => {
+    const page = await open();
+    await inspectFromMenu(page);
+    await at(page, 20);
+    await page.mouse.move(B.x, B.y + 1); // origin: the first move after the menu
+    await at(page, 300);
+    await page.mouse.move(C.x, C.y, { steps: 3 }); // far, but inside 500 ms: A still holds
+    expect(await outlined(page)).toBe("a");
+    await at(page, 900); // the grace ends with no further move
+    await page.evaluate(([x, y]) => (window as any).picker.pick(x, y), [C.x, C.y]);
+    const reports = await page.evaluate(() => (window as any).state.reports.map((r: any) => r.text_content));
+    expect(reports).toEqual(["C, moved to on purpose"]);
+    await page.close();
+  });
+
   test("a deliberate move after the grace resumes hover-picking", async () => {
     const page = await open();
     await inspectFromMenu(page);

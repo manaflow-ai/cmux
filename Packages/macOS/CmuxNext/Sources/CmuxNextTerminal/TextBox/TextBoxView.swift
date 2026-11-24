@@ -13,7 +13,7 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
 
     package let model: TextBoxModel
     package let textView = TextBoxTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 20))
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let placeholder = NSTextField(labelWithString: TextBoxStrings.placeholder)
     private let actionButton = NSButton()
     private let attachButton = NSButton()
@@ -63,7 +63,6 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
             addSubview(button)
         }
         actionButton.action = #selector(cycle(_:))
-        actionButton.themedToolTip = TextBoxStrings.cycleHelp
         attachButton.action = #selector(attach(_:))
         attachButton.image = NSImage.icon(.composerAttach, size: 14)
         attachButton.setAccessibilityLabel(TextBoxStrings.addFiles)
@@ -83,7 +82,11 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         if textView.string != text { textView.replaceText(text) }
         actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
         actionButton.setAccessibilityLabel(action.title)
-        actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
+        // The tooltip names the action (a1315: a name and a shortcut, one line); VoiceOver hears how to change it.
+        actionButton.themedToolTip = action.title
+        // Shift-Tab picks the next action: the tooltip shows it as the action's shortcut.
+        actionButton.themedToolTipShortcut = "⇧⇥"
+        actionButton.setAccessibilityHelp(TextBoxStrings.cycleHelp)
         if isHidden == visible { isHidden = !visible }
         refreshHeight()
     }

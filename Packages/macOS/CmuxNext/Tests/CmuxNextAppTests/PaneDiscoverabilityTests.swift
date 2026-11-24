@@ -121,7 +121,7 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func narrowBrowserBandKeepsTabsAndHiddenPinsAccessible(inSplit: Bool) throws {
+    func narrowBrowserBandKeepsTabsAndOverflowActionsAccessible(inSplit: Bool) throws {
         let density = DesignSettings.shared.density
         DesignSettings.shared.density = .comfortable
         defer { DesignSettings.shared.density = density }
@@ -156,10 +156,9 @@ import Testing
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX)
             }
-            // A pin the narrow pane hid stays in the tab bar's right-click (the pane's "…" is gone).
-            let menuActions = toolbar.tabBarMenuRows().joined().compactMap { ActionRegistry.menuRun(of: $0)?.id }
+            // A pin that does not fit hides; its key and the palette still run it (the bar has no ⋮, #53356).
             for (item, button) in zip(toolbar.view.items, toolbar.view.buttons) where button.isHidden && pins.contains(item.id) {
-                #expect(menuActions.contains(ActionID(rawValue: item.id)), "overflowed pins must remain actionable")
+                #expect(registry.descriptor(for: ActionID(rawValue: item.id)) != nil, "overflowed pins must remain actionable")
             }
         }
     }

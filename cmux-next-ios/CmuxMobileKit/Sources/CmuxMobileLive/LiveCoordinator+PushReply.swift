@@ -37,6 +37,12 @@ extension LiveCoordinator {
     /// Delivers `reply` to its Mac. Throws `PushReplyFailure`.
     public func deliver(_ reply: PushReply, budget: Duration = LiveCoordinator.pushReplyBudget) async throws {
         touch(reply.mac)
+        // A button tapped in the background: the Mac holds a parked link's
+        // answers until the phone wakes it, so it resumes for this reply.
+        try await withLinkAwake(reply.mac) { try await deliverAwake(reply, budget: budget) }
+    }
+
+    private func deliverAwake(_ reply: PushReply, budget: Duration) async throws {
         if reply.kind == .chief {
             try await deliverToChief(reply, budget: budget)
             return
@@ -127,7 +133,9 @@ extension LiveCoordinator {
             guard let data = attachment.data, let mime = attachment.imageMIMEType, let size = UIImage(data: data)?.size else { return nil }
             return ConversationComposeImage(data: data, width: Int(size.width), height: Int(size.height), mimeType: mime)
         }
-        chief.send(ConversationComposeMessage(text: text, images: images))
+        guard chief.send(ConversationComposeMessage(text: text, images: images)) else {
+            throw PushReplyFailure(reason: .unreachable)
+        }
     }
 
     /// Send Message… to the Chief about a workspace or a tab of `macID`: Chief runs on the
@@ -139,8 +147,7 @@ extension LiveCoordinator {
         if focusedMacID != macID { select(macID: macID) }
         let chief = ChiefSession.shared
         guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
-        chief.send(text: text)
-        return true
+        return chief.send(text: text)
     }
 
     /// Text into the terminal that posted the notification, over the Mac's

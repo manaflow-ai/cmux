@@ -6,8 +6,24 @@ import Foundation
 /// `debug.agent_pane` reads of the chat page that the capture scenes and benches use (DEBUG
 /// builds): its readiness for a still and the ACP Inspector toggle.
 extension AgentPaneView {
+    /// The composer's DOM caret and native input readiness together: a caret can be focused while
+    /// the key router still queues its letters. `requestFocus` is the typing bench's explicit focus action.
+    public func debugComposerFocus(pane: String, requestFocus: Bool = false) async -> JSONValue {
+        let script = """
+            const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
+            if (requestFocus) field?.focus();
+            return !!field && document.activeElement === field;
+            """
+        let focused = (try? await callPageScript(script, arguments: ["requestFocus": requestFocus])) as? Bool ?? false
+        return .object(["pane": .string(pane), "focused": .bool(focused), "native": .bool(debugHoldsKeyboard),
+                        "input_ready": .bool(inputReadiness.isReady), "focus_epoch": JSONValue(inputReadiness.focusEpoch)])
+    }
+
     /// `debug.agent_pane readiness`: whether the page drew a transcript and a composer, and (with
-    /// `waitForAnimations`, up to 1 s) whether its menus finished animating.
+    /// `waitForAnimations`, up to 1 s) whether its menus finished animating. `open_waits` is the host's
+    /// count of waits for another process before this open's first paint (``AgentPaneOpenWaits``).
+    /// `debug_hook` is whether the page installed `cmuxAcpmuxDebug`, which every other page verb needs, and
+    /// `pane_failure` the throw that took the page down (PaneBoundary.tsx), so a bench names it (hq#15602).
     public func debugReadiness(pane: String, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
@@ -25,8 +41,12 @@ extension AgentPaneView {
           ]);
         }
         const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
+        const failure = window.__cmuxPaneFailure;
         return JSON.stringify({
           body_text_length: bodyText.length,
+          body_text_head: bodyText.slice(0, 160),
+          debug_hook: !!debug,
+          ...(failure ? { pane_failure: failure } : {}),
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
           composer_text_length: (composer?.innerText || '').trim().length,
@@ -44,6 +64,8 @@ extension AgentPaneView {
                 return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
             }
             members["pane"] = .string(pane)
+            members["open_waits"] = .object(["count": .number(Double(model.openWaits.count)),
+                                             "steps": .array(model.openWaits.steps.map { .string($0.rawValue) })])
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])

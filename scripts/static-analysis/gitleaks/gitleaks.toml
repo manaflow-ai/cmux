@@ -1,0 +1,33 @@
+# gitleaks config for scripts/static-analysis/gitleaks.sh.
+# Starts from gitleaks' default rules; add entries here only for known non-secrets.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "lockfiles, test data and public client identifiers"
+paths = [
+  '''(^|/)(bun\.lock|package-lock\.json|Cargo\.lock|Package\.resolved|go\.sum|yarn\.lock|pnpm-lock\.yaml)$''',
+  '''(^|/)static-analysis-out/''',
+  '''(^|/)testdata/''',
+  # cmux-tui's Rust integration tests: fixture workspace keys are UUIDs, generic-api-key's shape.
+  '''^cmux-tui/crates/[^/]+/tests/''',
+]
+# Matched against the secret itself. Stack Auth publishable client keys (pck_...) ship inside apps by design.
+# A keyboard chord ("key": "cmd+shift+down" in a keybindings file) is generic-api-key's shape, never a key; a
+# value that says it is fake ("Bearer test-token-not-real" in a test) is not one either. Both were the only
+# findings in a backtest of 100 merged pull requests (scripts/static-analysis/README.md).
+regexes = [
+  '''^pck_[a-z0-9]+$''',
+  '''^(?i)(cmd|command|ctrl|control|alt|opt|option|shift|super|meta|hyper|fn)([+-][^\s"']+)+$''',
+  '''(?i)(not[-_]?real|fake|dummy|placeholder|redacted|example)''',
+  # Test fixtures that moved out of inline `mod tests` into *_tests.rs files (cmux#49132), so the scan read them
+  # as new: WebSocket handshake nonces (RFC 6455's "the sample nonce", base64), a fixture UUID, a git tree hash
+  # pinned by ssh_artifacts, and a counting hex string.
+  '''^dGhlIHNhbXBsZSBub25jZQ==$''',
+  '''^dGhlIHNhbXBsZSA2NA==$''',
+  '''^FBC6C273-1E11-4696-A320-1B29E00E73C7$''',
+  '''^df65220e9948cbe76924483c2a7ae1a98d52efbc$''',
+  '''^(0123456789abcdef)+$''',
+  # The made-up Stripe test key in cmux hub's parser tests (cmux-tui cli/hub_tests.rs): no account has it.
+  '''^rk_test_abc123$''',
+]

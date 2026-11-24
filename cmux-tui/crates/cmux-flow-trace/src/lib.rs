@@ -15,9 +15,11 @@
 //!   terminal id is copied as at most 32 bytes). A full ring drops the record and
 //!   counts it (`{"dropped":N}` in the file).
 //!
-//! The writer thread drains the ring every [`DRAIN_INTERVAL`] while tracing is on
+//! The writer thread drains the ring every [`DRAIN_INTERVAL`] while hops come in
 //! (a deliberate timer: a diagnostic mode, never on in a normal run), or at once
-//! when a hop finds the ring half full (the one wake a hop may send). Each record
+//! when a hop finds the ring half full. After [`IDLE_BEFORE_SLEEP`] with nothing to
+//! write it sleeps with no timer, and the next hop wakes it (one `unpark` per idle
+//! spell: the only other wake a hop sends). Each record
 //! is one JSON line: hop name, flow id or 0, terminal hex id, pid, thread id and
 //! `CLOCK_UPTIME_RAW` in nanoseconds on macOS (the performance counter on Windows,
 //! `CLOCK_MONOTONIC` elsewhere): the clock of the app's signposts, so no offset is guessed.
@@ -33,7 +35,7 @@
 use std::cell::UnsafeCell;
 use std::io::Write;
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -41,6 +43,8 @@ use std::time::Duration;
 pub const RING_SLOTS: usize = 8192;
 /// How often the writer drains the ring while tracing is on.
 pub const DRAIN_INTERVAL: Duration = Duration::from_millis(50);
+/// How long a writer with nothing to write keeps its timed drains before it sleeps until a hop wakes it.
+const IDLE_BEFORE_SLEEP: Duration = Duration::from_secs(1);
 /// A hop that finds this many records waiting wakes the writer at once.
 const HIGH_WATER: usize = RING_SLOTS / 2;
 /// The longest terminal id a record keeps (a 16-byte id in lowercase hex).
@@ -162,9 +166,13 @@ struct Shared {
     dropped: AtomicU64,
     /// A hop asked the writer to drain early (cleared by the writer).
     nudged: AtomicBool,
+    /// The writer sleeps with no timer (idle); the next hop clears it and wakes the writer.
+    asleep: AtomicBool,
     /// Records written so far, for [`flush`] (records pushed: `ring.tail`).
     written: Mutex<usize>,
     written_changed: Condvar,
+    /// Passes of the writer loop so far (the tests count the writer's wakeups with it).
+    drains: AtomicU64,
 }
 
 struct Sink {
@@ -187,8 +195,10 @@ pub fn init() -> bool {
             ring: Ring::new(),
             dropped: AtomicU64::new(0),
             nudged: AtomicBool::new(false),
+            asleep: AtomicBool::new(false),
             written: Mutex::new(0),
             written_changed: Condvar::new(),
+            drains: AtomicU64::new(0),
         });
         let drained = shared.clone();
         let writer = std::thread::Builder::new()
@@ -205,11 +215,15 @@ fn sink() -> Option<&'static Sink> {
 }
 
 /// The writer thread: drains the ring every [`DRAIN_INTERVAL`] (or when nudged),
-/// one JSON line per record, one flush per drain.
+/// one JSON line per record, one flush per drain. A drain that pops nothing parks
+/// (a slot a preempted producer claimed but has not published yet counts in
+/// `waiting()` with nothing to pop: looping on it spun a core), and after
+/// [`IDLE_BEFORE_SLEEP`] of empty drains it parks with no timer until a hop wakes it.
 fn write_records(file: std::fs::File, sink: &Shared) {
     let mut out = std::io::BufWriter::new(file);
     let mut reported = 0;
     let pid = std::process::id();
+    let mut idle_since = std::time::Instant::now();
     loop {
         let mut count = 0;
         while let Some(record) = sink.ring.pop() {
@@ -239,8 +253,25 @@ fn write_records(file: std::fs::File, sink: &Shared) {
             *written += count;
             sink.written_changed.notify_all();
         }
+        sink.drains.fetch_add(1, Ordering::Relaxed);
         sink.nudged.store(false, Ordering::Relaxed);
-        if sink.ring.waiting() == 0 {
+        if count > 0 {
+            idle_since = std::time::Instant::now();
+            if sink.ring.waiting() > 0 {
+                continue; // more came in while this drain wrote
+            }
+        }
+        if count == 0 && sink.ring.waiting() == 0 && idle_since.elapsed() >= IDLE_BEFORE_SLEEP {
+            sink.asleep.store(true, Ordering::Relaxed);
+            // Pairs with the fence in `push`: either that hop sees `asleep` and unparks, or this check sees its
+            // record (`tail`), so no hop is left unwritten while the writer sleeps.
+            fence(Ordering::SeqCst);
+            if sink.ring.waiting() == 0 {
+                std::thread::park();
+            }
+            sink.asleep.store(false, Ordering::Relaxed);
+            idle_since = std::time::Instant::now();
+        } else {
             std::thread::park_timeout(DRAIN_INTERVAL);
         }
     }
@@ -362,7 +393,14 @@ fn push(sink: &Sink, record: Record) {
         shared.dropped.fetch_add(1, Ordering::Relaxed);
         return;
     }
-    // The one wake a hop may send: the ring is half full before the next timed drain.
+    // Pairs with the writer's fence before it sleeps (see `write_records`).
+    fence(Ordering::SeqCst);
+    // The first hop after an idle spell wakes the sleeping writer (one swap clears it: one unpark per spell).
+    if shared.asleep.load(Ordering::Relaxed) && shared.asleep.swap(false, Ordering::Relaxed) {
+        sink.writer.unpark();
+        return;
+    }
+    // The other wake a hop may send: the ring is half full before the next timed drain.
     if shared.ring.waiting() >= HIGH_WATER && !shared.nudged.swap(true, Ordering::Relaxed) {
         sink.writer.unpark();
     }
@@ -466,49 +504,5 @@ fn thread_id() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hex_matches_the_daemon_terminal_id() {
-        assert_eq!(hex(&[0x00, 0x0f, 0xa5, 0xff]), "000fa5ff");
-    }
-
-    #[test]
-    fn json_safe_keeps_ids_and_drops_the_rest() {
-        assert_eq!(json_safe("ab12.x_y-z"), "ab12.x_y-z");
-        assert_eq!(json_safe("a\"b\\c\nd"), "abcd");
-    }
-
-    #[test]
-    fn the_clock_moves_forward() {
-        let first = now_ns();
-        let second = now_ns();
-        assert!(first > 0 && second >= first);
-    }
-
-    #[test]
-    fn the_ring_keeps_order_and_refuses_when_full() {
-        let ring = Ring::new();
-        let record = |flow| Record {
-            name: "x",
-            flow,
-            terminal: [0; TERMINAL_BYTES],
-            terminal_len: 0,
-            tid: 0,
-            t_ns: 0,
-        };
-        for flow in 0..RING_SLOTS as u64 {
-            assert!(ring.push(record(flow)));
-        }
-        assert!(!ring.push(record(u64::MAX)), "a full ring took a record");
-        assert_eq!(ring.pop().map(|r| r.flow), Some(0));
-        assert!(ring.push(record(7)), "a freed slot was not reused");
-        let mut last = 0;
-        while let Some(r) = ring.pop() {
-            last = r.flow;
-        }
-        assert_eq!(last, 7);
-        assert_eq!(ring.waiting(), 0);
-    }
-}
+#[path = "tests.rs"]
+mod tests;

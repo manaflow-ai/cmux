@@ -8,6 +8,7 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextFocus
+import os
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -60,6 +61,7 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        drawIfOnScreen("select")
         // The record can list the tab a main-actor hop before this strip (the focus topology) does: else the select is dropped.
         if stripIsStale { syncStripFromStore() }
         // Only a switch this action may show is timed (a refused one never ends its interval).
@@ -117,6 +119,7 @@ extension PaneController {
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
                         placementOwner: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
+        drawIfOnScreen("new terminal tab")
         // Placement owns selection in Home: selecting its provisional or real tab here releases
         // the outbound hold and flashes Home's strip before the move callback runs.
         // A caller callback may only notify or close a source page; only a callback that owns
@@ -235,9 +238,10 @@ extension PaneController {
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
                        notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
                        split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
-                                                    split: split, then: then)
+        drawIfOnScreen("new browser tab")
+        return PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
+                                                           profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
+                                                           split: split, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -431,11 +435,9 @@ extension PaneController {
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved, registry: registry), customize: true).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
-            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu), with what the pane's "…"
-            // offered that it lacks (PaneToolbar.tabBarMenuRows) above its More.
-            let menu = registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
-            Self.insert(view.toolbar?.tabBarMenuRows() ?? [], into: menu)
-            return menu.themeRows(in: view.themeScope.fullStrength)
+            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu).
+            return registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
+                .themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
@@ -444,17 +446,25 @@ extension PaneController {
         }
     }
 
-    /// The right-clicked tab's own first rows: Toggle Terminal and Chat on half of a terminal and chat pair (the
-    /// pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
-    /// docked Home's Chief Actions), which the pane's "…" listed first.
+    /// The right-clicked tab's own first rows: Switch to Chat or Switch to Terminal on half of a terminal and chat pair
+    /// (the pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
+    /// docked Home's Chief Actions).
     private func prependOwnRows(to menu: NSMenu, tab id: String, model: TabModel?) {
-        let pair = model.map { TerminalChatHandler.offersToggle(on: $0, services: services) } ?? false
-        let toggle = pair ? Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID) : []
+        let toggle = model.map { terminalChatSwitchRows(tab: id, model: $0) } ?? []
         let content = stripModel.selectedID?.rawValue == id ? view.toolbar?.contentRows() ?? [] : []
         Self.prepend(toggle + content, to: menu)
     }
 
-    /// Toggle Terminal and Chat's row for tab `id`, running the action on that tab as its key does on the focused one.
+    /// Switch to Chat or Switch to Terminal for tab `id` (`model`) on half of a terminal and chat pair, else none:
+    /// the tab's right-click leads with it (the pane's ⋮ that also did went with
+    /// https://github.com/manaflow-ai/cmux/issues/53356). One walk of the machines' agents per menu, as the key's own.
+    func terminalChatSwitchRows(tab id: String, model: TabModel) -> [NSMenuItem] {
+        guard TerminalChatHandler.offersToggle(on: model, services: services) else { return [] }
+        return Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID)
+    }
+
+    /// Toggle Terminal and Chat's row for tab `id`, running the action on that tab as its key does on the focused one;
+    /// titled by the way it goes (the action's target title: Switch to Chat, Switch to Terminal).
     static func terminalChatRows(tab id: String, registry: ActionRegistry, machineID: String?) -> [NSMenuItem] {
         let menu = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: id), entries: [.action(terminalChatToggle)],
                                             machineID: machineID)
@@ -472,16 +482,17 @@ extension PaneController {
 
     /// Toggle Terminal and Chat (`palette.toggleTerminalChat`): the tab right-click's row runs it, as its key does.
     static let terminalChatToggle: ActionID = "palette.toggleTerminalChat"
+}
 
-    /// Puts `sections` into the tab bar's `menu`, each between separators, just above its trailing More submenu
-    /// (``ActionRegistry/makeTabStripMenu(target:machineID:)``), else at its end.
-    static func insert(_ sections: [[NSMenuItem]], into menu: NSMenu) {
-        let endsWithMore = menu.items.last.map { $0.submenu != nil && $0.title == MenuFolder.more.title } ?? false
-        var index = endsWithMore ? menu.items.count - 1 : menu.items.count
-        for section in sections where !section.isEmpty {
-            if index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index); index += 1 }
-            for row in section { menu.insertItem(row, at: index); index += 1 }
-        }
-        if endsWithMore, index > 0, !menu.items[index - 1].isSeparatorItem { menu.insertItem(.separator(), at: index) }
+/// Leo, 2026-11-03: "cmd t it makes it... then removes it after a second". A workspace that draws nothing maps no
+/// strip, so the store's tab replacing Cmd-T's stand-in left the strip. The person acting on a pane whose workspace
+/// view shows means it is on screen: it draws again, and the drift is logged (`workspace.draws`).
+extension PaneController {
+    func drawIfOnScreen(_ reason: StaticString) {
+        guard isSuspended, let workspace, workspace.contentView.window != nil,
+              !workspace.contentView.isHiddenOrHasHiddenAncestor else { return }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "workspace.draws").error(
+            "suspended pane on screen: \(workspace.workspace.id, privacy: .public) reason=\(reason, privacy: .public)")
+        if workspace.drawsNothing { workspace.followAttention() } else { resume() }
     }
 }

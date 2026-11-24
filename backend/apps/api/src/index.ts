@@ -1,13 +1,16 @@
 import { isMachineInstallKind } from "./machine-installs.ts"
 import { authenticate } from "./auth.ts"
 import type { Principal } from "@cmux/ownership"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
+import { BASE_SPACE, spaceOf, spacedEnv } from "./build-space.ts"
+import { withRequestEnv } from "./request-env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
+import { DEV_FIXTURES_PATH, handleDevFixtures } from "./dev-fixtures.ts"
 import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
 import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket, type WireScope } from "./wire-ticket.ts"
 
@@ -26,8 +29,10 @@ import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handlePairInviteWait } from "./pair-invite-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
+import { AUTH_HANDOFFS_PATH, AUTH_HANDOFFS_REDEEM_PATH, handleAuthHandoffMint, handleAuthHandoffRedeem } from "./auth-handoff-routes.ts"
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
+import { GITHUB_AUTHORIZE_PATH, handleGithubAuthorize } from "./integrations/github-authorize-route.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 import { isCloudPath, platformForward } from "./platform-forward.ts"
 
@@ -35,6 +40,9 @@ export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
+// Named entrypoint for cmux-platform's joined-machine GitHub token route only (integrations/machine-github.ts).
+export { MachineGitHub } from "./integrations/machine-github.ts"
+export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
@@ -45,6 +53,7 @@ export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 export { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { LOCAL_CHIEF_COMPUTER_PATH, handleLocalChiefComputer } from "./chief-brain/local-computer-routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
@@ -76,6 +85,7 @@ export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 export { SpendGuardDO } from "./inference/spend-guard-do.ts"
+export { ModelCatalogDO } from "./models-catalog/catalog-do.ts"
 export { FreeDeviceDO } from "./inference/free-device-do.ts"
 
 /** The SSO gate could not reach a TeamDO or UserDO: retryable, never a 500 (cx-44j.51). */
@@ -199,7 +209,11 @@ const PROJECTION_COMPARE_CRON = "*/15 * * * *"
 const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, raw: RawEnv, ctx: ExecutionContext): Promise<Response> {
+    // The request's build space (build-space.ts): every object it reaches is that space's. Production ignores it.
+    const space = spaceOf(request, raw)
+    if (!space.ok) return space.response
+    const env = spacedEnv(raw, space.space)
     const url = new URL(request.url)
     // A wire ticket is spent by the first request that carries it, on any path (wire-ticket.ts).
     const spent = await spendTicketAtEntry(request, env)
@@ -226,10 +240,13 @@ export default {
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
     if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
+    // The computer of a Chief that runs on its owner's Mac (chief-brain/local-computer-routes.ts), keyed by the session's user.
+    const localComputer = url.pathname.match(LOCAL_CHIEF_COMPUTER_PATH)
+    if (localComputer) return handleLocalChiefComputer(request, env, localComputer[1]!, localComputer[2])
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
+    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" || chiefBrain?.[2]?.startsWith("computer") ? chiefBrain[2] : "runs"
     if (chiefBrain && chiefBrainPath === "runs" && (opencodeOn(env) || durableOn(env))) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
@@ -255,6 +272,8 @@ export default {
     if (handoff) return handleHandoffs(request, env, handoff)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
+    // The live model catalog (models-catalog/route.ts): public reads, internal publish and kill switch.
+    if (url.pathname.startsWith("/v1/models/") || url.pathname.startsWith("/internal/v1/models/")) return (await import("./models-catalog/route.ts")).handleModelsCatalog(env, request, url.pathname)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
     if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
     if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env)
@@ -295,6 +314,8 @@ export default {
     if (tvmExport) return handleTeamVmExport(request, env, tvmExport[1]!, tvmExport[2]!)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     if (url.pathname === STACK_WEBHOOK_PATH) return handleStackWebhook(request, env)
+    // The Cloud self-test's test identities: development, local and test Workers only, behind its own secret (dev-fixtures.ts).
+    if (url.pathname === DEV_FIXTURES_PATH) return handleDevFixtures(request, env)
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
     const chiefHook = url.pathname.match(CHIEF_JOB_HOOK)
@@ -308,22 +329,29 @@ export default {
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
+    // Sign-in hand-off to another device of the same person (auth-handoff.ts): each route checks its own credential.
+    if (url.pathname === AUTH_HANDOFFS_PATH) return handleAuthHandoffMint(request, env)
+    if (url.pathname === AUTH_HANDOFFS_REDEEM_PATH) return handleAuthHandoffRedeem(request, env)
     // A GitHub Actions job signs in as its one test account by OIDC token (ci-session.ts): no stored password.
     if (url.pathname === CI_SESSION_PATH) return handleCiSession(request, env)
     // Google push receivers: staging and development only until the backend lead reviews them for production.
     if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
+    // GitHub came back from an existing installation with no code: on to its authorize page (integrations/github-authorize-route.ts).
+    if (url.pathname === GITHUB_AUTHORIZE_PATH) return handleGithubAuthorize(request, env)
     // GitHub installation tokens for git and gh (integrations/github-token-route.ts): bearer only, never the op path.
     const ghToken = url.pathname.match(GITHUB_TOKEN_PATH)
     if (ghToken) return handleGithubToken(request, env, ghToken[1]!)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
-    return apiHandler(request)
+    return withRequestEnv(env, () => apiHandler(request))
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
   // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts),
   // and hourly where configured the full read-only verify of every projected row (projection-compare-full-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(controller: ScheduledController, raw: RawEnv): Promise<void> {
+    // Crons carry no build space: they sweep and compare nightly and stable's objects and rows only.
+    const env = spacedEnv(raw, BASE_SPACE)
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
     if (controller.cron === HOME_HEALTH_CRON) {
       await runHomeHealth(env, { fetcher: sentryFetch })
@@ -356,4 +384,4 @@ export default {
     if (report.status === "rejected") throw report.reason
     console.log(JSON.stringify({ msg: "feed.sweep", ...report.value }))
   }
-} satisfies ExportedHandler<Env>
+} satisfies ExportedHandler<RawEnv>

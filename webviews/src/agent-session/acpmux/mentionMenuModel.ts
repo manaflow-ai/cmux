@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { readFileSearch, type FileMatch, type FileSearchSource } from "./fileSearchModel";
 
 /// How long typing settles before the picker asks again (as Search files does).
+// motion-allow: a typing debounce
 const MENTION_DEBOUNCE_MS = 80;
 
 /// The `@` picker (cx-ncc.68): typing `@` at a word start in the prompt lists other chats, then the

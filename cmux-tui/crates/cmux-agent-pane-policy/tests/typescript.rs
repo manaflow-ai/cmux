@@ -94,6 +94,8 @@ fn the_allowlist_is_what_the_page_sends() {
     sent.insert(constant(&direct, "PREWARM_METHOD"));
     sent.insert(constant(&direct, "MCP_RECONNECT_METHOD"));
     sent.insert(constant(&direct, "PROJECT_NEW_METHOD"));
+    // Auto's Where (autoWhereModel.ts `PLACE_CHAT_METHOD`, sent through direct.ts `placeChat`).
+    sent.insert(constant(&read(&dir, "autoWhereModel.ts"), "PLACE_CHAT_METHOD"));
     // A chat's typing (multiplayer/presenceClient.ts) and a failed subagent's, sub-session's or
     // turn's Retry (subagents/retryState.ts `RETRY_METHOD`, sent through direct.ts `retry`).
     sent.extend(quoted_after(&read(&dir, "multiplayer/presenceClient.ts"), "this.send("));
@@ -101,6 +103,13 @@ fn the_allowlist_is_what_the_page_sends() {
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");
+    // The relay allows the move picker's targets read (#49141, AcpmuxPaneMethods.swift) before the
+    // page sends it; the app's own move commands read it on their own connection.
+    assert!(
+        !sent.contains("_acpmux/move_targets"),
+        "the page now sends _acpmux/move_targets: drop this line"
+    );
+    sent.insert("_acpmux/move_targets".to_owned());
     assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct

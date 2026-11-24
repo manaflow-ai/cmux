@@ -30,7 +30,7 @@ final class PageUnresponsiveView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius, tone: .neutralGlass(.transient))
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
