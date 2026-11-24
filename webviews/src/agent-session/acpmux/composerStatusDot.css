@@ -201,3 +201,23 @@
   font-size: var(--agent-font-small, 11px);
   opacity: 0.7;
 }
+/* The machine name at rest (composer-machine-at-rest): a chat on another machine names it beside the
+   dot, in the row's quiet ink, cut with an ellipsis before it can push the model chip. A click pins
+   the dot's card, as a counter's does. */
+.acpmux-composer-foot.acpmux-composer-foot .acpmux-composer-status > .acpmux-composer-status-machine {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 18ch;
+  min-height: var(--grid-composer-quiet-row-height, 28px);
+  padding: 0 4px 0 0;
+  border: 0;
+  background: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-control);
+  line-height: 16px;
+  cursor: default;
+}

@@ -16,6 +16,7 @@ import { useCallback, useEffect, useId, useState, type PointerEvent as ReactPoin
 import { experimentArm } from "../../experiments/experiment";
 import { HOVER_INTENT, HoverBridge, StatusCard, Keycap, focusAfterEscape, tooltipsWarm } from "./composerStatusCard";
 import { composerFooterFacts } from "./composerFooterFacts.experiment";
+import { composerMachineAtRest } from "./composerMachineAtRest.experiment";
 import {
   counterText,
   dedupe,
@@ -51,6 +52,9 @@ import "./composerStatusDot.css";
 const QUIET: FocusOptions = { preventScroll: true };
 
 export type FactsArm = "off" | "pulse" | "door" | "strip";
+
+/// The machine-name-at-rest switch (composerMachineAtRest.experiment.ts).
+export type MachineAtRestArm = "off" | "on";
 
 /// The gallery's alternates (not shipped): a count of items on the dot, or a warning glyph.
 export type DotLook = "dot" | "count" | "glyph";
@@ -251,6 +255,9 @@ export type ComposerStatusDotProps = {
   actions?: ReadonlySet<StatusAction>;
   /// The footer facts arm (composerFooterFacts.experiment.ts); the pane passes none and reads it.
   arm?: FactsArm;
+  /// The machine-name-at-rest switch (composerMachineAtRest.experiment.ts); the pane passes none and
+  /// reads it.
+  machineAtRest?: MachineAtRestArm;
   /// A fixed clock, for the gallery and tests; the pane passes none.
   now?: number;
   /// The card's first state, for the gallery.
@@ -266,6 +273,7 @@ export function ComposerStatusDot({
   onAction,
   actions = NO_ACTIONS,
   arm: fixedArm,
+  machineAtRest: fixedMachineAtRest,
   now: fixedNow,
   initial = "closed",
   look = "dot",
@@ -274,6 +282,7 @@ export function ComposerStatusDot({
   const lang = usePaneLanguage();
   const cardId = useId();
   const arm = fixedArm ?? experimentArm(composerFooterFacts);
+  const machineAtRest = fixedMachineAtRest ?? experimentArm(composerMachineAtRest);
   const [state, setState] = useState<PeekPinState>(initial);
   const [driver] = useState(() => new PeekPinDriver(initial, setState));
   const [dot, setDotNode] = useState<HTMLButtonElement | null>(null);
@@ -313,7 +322,13 @@ export function ComposerStatusDot({
   const worst = worstLevel(visible);
   const factsOn = arm !== "off" && facts.length > 0;
   const counters = arm === "pulse" || arm === "strip" ? facts : [];
-  const shows = worst !== undefined || connectedTo !== undefined || factsOn;
+  // The machine a chat on another machine runs on, when acpmux marks it worth its name at rest and the
+  // switch is on; the strip arm already writes it in its line.
+  const restingMachine =
+    machineAtRest === "on" && arm !== "strip"
+      ? facts.find((fact) => fact.kind === "machine" && fact.atRest && fact.text)?.text
+      : undefined;
+  const shows = worst !== undefined || connectedTo !== undefined || factsOn || restingMachine !== undefined;
   const tone = worst ?? (connectedTo !== undefined ? "connected" : "resting");
   const first = visible[0];
   const firstWords = first ? itemWords(first, t, lang) : undefined;
@@ -444,6 +459,17 @@ export function ComposerStatusDot({
         ) : null}
         {look === "glyph" && worst === "problem" ? <Icon name="status.warning" size={12} /> : null}
       </button>
+      {restingMachine !== undefined ? (
+        <button
+          type="button"
+          className="acpmux-composer-status-machine"
+          title={restingMachine}
+          tabIndex={-1}
+          onClick={press}
+        >
+          {restingMachine}
+        </button>
+      ) : null}
       {arm === "pulse" || arm === "strip"
         ? live.map((counter) => (
             <button

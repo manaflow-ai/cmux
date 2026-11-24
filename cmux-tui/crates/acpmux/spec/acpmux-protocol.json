@@ -4029,6 +4029,10 @@
     "FooterFact": {
       "description": "One piece of the footer's quiet metadata.",
       "properties": {
+        "atRest": {
+          "description": "Worth its words in the footer at rest, with no status and no hover: the machine of a\nsession on another machine, where a command does something else than here (RFD 0130: \"a\nchat on another machine earns its machine name in view\"). The pane draws it only behind\nits own switch (`composer-machine-at-rest`, default off). Absent otherwise.",
+          "type": "boolean"
+        },
         "count": {
           "format": "uint32",
           "minimum": 0,

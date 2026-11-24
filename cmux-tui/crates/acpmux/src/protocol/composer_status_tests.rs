@@ -347,7 +347,12 @@ fn from_summary_reads_the_wire_row() {
             "subject": "claude", "since": 30,
         })
     );
-    assert_eq!(wire["facts"][0], json!({"kind": "machine", "text": "mini-3", "live": false}));
+    assert_eq!(
+        wire["facts"][0],
+        json!({"kind": "machine", "text": "mini-3", "live": false, "atRest": true}),
+        "a peer's machine earns its name at rest"
+    );
+    assert!(wire["facts"][1].get("atRest").is_none(), "no other fact is marked at rest");
     assert_eq!(wire["facts"][8], json!({"kind": "queued", "count": 3, "live": true}));
     let back: ComposerStatus = serde_json::from_value(wire).unwrap();
     assert_eq!(back, status);
