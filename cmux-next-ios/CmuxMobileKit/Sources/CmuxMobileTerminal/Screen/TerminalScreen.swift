@@ -26,8 +26,11 @@ public struct TerminalScreen: View {
             .ignoresSafeArea()
             .background(Color.black)
             .overlay {
-                if !model.connectionState.isAttached {
-                    TerminalConnectingView(lastFrame: model.coldFrame, showsPlaceholder: !model.connectionState.keepsWarmFrame)
+                // A live surface (warm, or fed its kept rows) has nothing over it; only a page with
+                // no rows yet shows the Mac's text or a skeleton, never a still picture.
+                if !model.connectionState.isAttached, !model.seeded, !model.drewLiveOutput,
+                   !model.connectionState.keepsWarmFrame {
+                    TerminalConnectingView(screenText: model.cardScreenText)
                         .transition(.opacity)
                 }
             }
