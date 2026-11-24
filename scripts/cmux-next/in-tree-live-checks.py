@@ -140,6 +140,10 @@ body{margin:0;background:#246;color:#fff;font:14px sans-serif} .t{position:fixed
 <button class="t" id="tl" data-t="tl"></button><button class="t" id="tr" data-t="tr"></button><button class="t" id="bl" data-t="bl"></button>
 <button class="t" id="br" data-t="br"></button><button class="t" id="c" data-t="c"></button>
 <button id="pop" onclick="window.__pop = window.open('/popup?float', 'floatpopup', 'width=520,height=420')">popup 520x420</button>
+<button id="pop2" style="position:fixed;left:48px;top:calc(50% + 40px);width:140px;height:24px;background:#0c0;border:0"
+ onclick="window.__pop2 = (window.__pop2 || 0) + 1; window.open('/popup?choose', 'choosepopup', 'width=360,height=280')">Open pop-up</button>
+<label id="filebox" style="position:fixed;left:48px;top:calc(50% + 80px);width:140px;height:24px;background:#ff8000;display:block">
+<input id="file2" type="file" style="width:140px;height:24px;opacity:0" onclick="window.__file2 = (window.__file2 || 0) + 1"></label>
 <div id="rows"></div>
 <script>
 window.__popupFile = []; window.__vp = []; window.__clicks = [];
@@ -692,12 +696,41 @@ def page_pane(tab):
     return None
 
 
+def page_frames(layers):
+    """Each shown page's frame [x, y, w, h] in window points from the bottom left, by pane: the in-tree page views, and
+    with in-tree off each child-window page's host view (debug.layers browsers host_screen_rect less the window's
+    origin), so the paint rows judge the old layer hosting the same way."""
+    frames = {v.get("pane"): v.get("frame_in_window") for v in layers.get("page_views") or [] if not v.get("parked")}
+    window = layers.get("frame")
+    for b in layers.get("browsers") or []:
+        rect = b.get("host_screen_rect")
+        if b.get("pane") not in frames and rect and window and b.get("presentation") == "child_window":
+            frames[b.get("pane")] = [rect[0] - window[0], rect[1] - window[1], rect[2], rect[3]]
+    return frames
+
+
 def page_view(pane, layers=None):
-    """The in-tree page view of `pane` in the main window: its frame [x, y, w, h] in window points from the bottom left,
-    or None (mode off, or no view: the rows that need it say INFO)."""
-    layers = layers or main_layers()
-    views = [v for v in layers.get("page_views") or [] if not v.get("parked") and (pane is None or v.get("pane") == pane)]
-    return views[0].get("frame_in_window") if views else None
+    """The page view of `pane` in the main window (page_frames): its frame [x, y, w, h] in window points from the bottom
+    left, or None (no shown page there: the rows that need it say INFO)."""
+    frames = page_frames(layers or main_layers())
+    if pane is None:
+        return next(iter(frames.values()), None)
+    return frames.get(pane)
+
+
+def misfit_count(layers):
+    """Pages whose drawing layer is off its view (debug.layers page_views geometry `fits` false), and how many read."""
+    bad = read = 0
+    for v in layers.get("page_views") or []:
+        if v.get("parked") or not v.get("geometry"):
+            continue
+        try:
+            fits = json.loads(v["geometry"]).get("fits")
+        except ValueError:
+            continue
+        read += 1
+        bad += fits is False
+    return bad, read
 
 
 def content_height(layers=None):
@@ -815,15 +848,17 @@ def open_layout(tab, query=""):
 PAINT_PX = 2.0      # the page's painted top and bottom edges sit within this many points of its view's
 
 
-def band_rows(path, columns):
+def band_rows(path, columns, span=None):
     """Per image column (pixels), the first row of the layout page's magenta top band and the last row of its cyan
-    bottom band, or None where that band does not show."""
+    bottom band inside `span` (image rows [first, last), default the whole image), or None where that band does not
+    show there."""
     width, height, rows = png_rgb(path)
+    first, last = span or (0, height)
     out = []
     for x in columns:
         x = max(0, min(width - 1, int(x)))
         top = bottom = None
-        for y in range(height):
+        for y in range(max(0, int(first)), min(height, int(last))):
             r, g, b = rows[y][3 * x], rows[y][3 * x + 1], rows[y][3 * x + 2]
             if top is None and r > 180 and b > 180 and r - g > 70 and b - g > 70:  # magenta
                 top = y
@@ -869,7 +904,8 @@ def check_paint(pane, label):
     x, y, w, h = frame
     view_top, view_bottom = window[3] - (y + h), window[3] - y  # points from the window's top
     columns = [(x + w * f) * sx for f in (0.3, 0.5, 0.7)]
-    _, _, found = band_rows(shot, columns)
+    # Only this view's rows (30 pt either side): the panes below have bands of their own.
+    _, _, found = band_rows(shot, columns, ((view_top - 30) * sy, (view_bottom + 30) * sy))
     edges = [{"top": None if t is None else round(t / sy, 1), "bottom": None if b is None else round((b + 1) / sy, 1)}
              for t, b in found]
     seen = [e for e in edges if e["top"] is not None or e["bottom"] is not None]
@@ -1209,14 +1245,20 @@ class MotionCapture:
         while self.running:
             t = time.time()
             layers = main_layers()
-            views = {v.get("pane"): v.get("frame_in_window") for v in layers.get("page_views") or [] if not v.get("parked")}
-            self.samples.append({"t": t, "window": layers.get("frame"), "views": views})
+            bad, read = misfit_count(layers)
+            self.samples.append({"t": t, "window": layers.get("frame"), "views": page_frames(layers), "misfits": bad, "read": read})
             time.sleep(0.008)  # test harness: about two layer reads a display frame
 
     def stop(self):
         self.running = False
         for thread in self.threads:
             thread.join(timeout=15)
+
+    def misfits(self, t_start):
+        """Layer samples after t_start: how many were read, how many had a page whose drawing layer was off its view."""
+        after = [smp for smp in self.samples if smp["t"] >= t_start and smp.get("read")]
+        bad = [round((smp["t"] - t_start) * 1000) for smp in after if smp.get("misfits")]
+        return {"samples": len(after), "with_misfit": len(bad), "first_ms": bad[:6]}
 
     def around(self, frame, slack=0.03):
         return [s for s in self.samples if frame["t0"] - slack <= s["t"] <= frame["t1"] + slack and s["window"]]
@@ -1261,6 +1303,14 @@ def region_colors(rows, width, sx, sy, window, view, colors):
     return [round(c / total, 3) if total else 0 for c in counts]
 
 
+def pixel_row(ok, name, detail):
+    """A row judged on the main window's captures: INFO with in-tree off, where each page is a child window that a
+    capture of the main window leaves out (its frames show the host's backdrop, not the page)."""
+    if opts.in_tree == "off":
+        return row("INFO", name, dict(detail, note="in-tree off: the pages are child windows, not in the main window's capture"))
+    return row(ok, name, detail)
+
+
 def judge_frames(cap, t_start, panes, pane_rules):
     """Each capture after t_start, against the layer samples around it: pane_rules(frame, rows, width, sx, sy, sample)
     returns a list of problems (empty: the frame is right for some sample taken while it ran)."""
@@ -1296,6 +1346,16 @@ def judge_frames(cap, t_start, panes, pane_rules):
     return judged, bad
 
 
+def terminal_tab_id():
+    """A terminal tab of the main window (debug.focus topology), else the split's created tab."""
+    focus = rpc("debug.focus") or {}
+    for pane in [p for w in focus.get("windows") or [] for p in w.get("topology") or []] + (focus.get("topology") or []):
+        for t in pane.get("tabs") or []:
+            if str(t).endswith(":terminal"):
+                return str(t).split(":", 1)[0]
+    return next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+
+
 def open_page_in(pane_tab, query):
     """Opens the layout page (`query`) as a new tab in the pane of `pane_tab`; its tab id or None."""
     action("tab.focus", target=f"tab:{pane_tab}")
@@ -1312,7 +1372,7 @@ def check_zoom_motion(tab, pane):
     A grows), and from 300 ms after the trigger (the zoom spring is about 220 ms) A's top band is at A's view top.
     zoom_motion.unzoom: from 300 ms after the trigger, A's colour never shows inside B's view (A drawn at its zoomed size
     over B) and both pages' top bands are at their views' tops."""
-    terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+    terminal_tab = terminal_tab_id()
     if not terminal_tab or not page_view(pane):
         row("INFO", "zoom_motion", {"note": "no terminal pane or no page view", "terminal_tab": terminal_tab})
         return
@@ -1329,6 +1389,7 @@ def check_zoom_motion(tab, pane):
     time.sleep(0.4)  # test harness: focus lands
     for direction in ("zoom", "unzoom"):
         cap = MotionCapture(os.path.join(opts.out, f"zoom-motion-{direction}"))
+        record(f"zoom_motion_{direction}", 3)
         if not cap.start():
             row("INFO", f"zoom_motion.{direction}", {"note": "no window captures on this host"})
             return
@@ -1365,11 +1426,15 @@ def check_zoom_motion(tab, pane):
             return problems
 
         judged, bad = judge_frames(cap, t_start, [pane, b_pane], rules)
-        RAW[f"zoom_motion_{direction}"] = {"judged": judged, "bad": bad, "samples": len(cap.samples)}
+        layer_fit = cap.misfits(t_start)
+        RAW[f"zoom_motion_{direction}"] = {"judged": judged, "bad": bad, "samples": len(cap.samples), "layer_fit": layer_fit}
+        if layer_fit["samples"]:
+            row(layer_fit["with_misfit"] == 0, f"zoom_motion.{direction}.layers",
+                dict(layer_fit, bug=13, pass_if="no debug.layers sample during the zoom has a page drawing layer off its view"))
         if not judged:
             row("INFO", f"zoom_motion.{direction}", {"note": "no capture matched a layer sample", "captures": len(cap.frames)})
             continue
-        row(not bad, f"zoom_motion.{direction}",
+        pixel_row(not bad, f"zoom_motion.{direction}",
             {"bug": "sweep D2", "judged": judged, "bad_frames": len(bad), "first_bad": bad[:4], "before": before,
              "pass_if": "zoom: B never blank, A's top band at its top from 300 ms; unzoom: from 300 ms A never inside B, both bands at the top"})
     RAW["zoom_motion_tabs"] = [tab, b_tab]
@@ -1383,7 +1448,7 @@ def check_grid_resize(tab, pane):
     the last step, check_paint's band rows for each page."""
     b_tab = (RAW.get("zoom_motion_b") or {}).get("tab")
     if not b_tab:
-        terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+        terminal_tab = terminal_tab_id()
         b_tab = open_page_in(terminal_tab, "gridb&c=664422") if terminal_tab else None
     tabs = [tab, b_tab]
     for source, query in ((tab, "gridc&c=225522"), (b_tab, "gridd&c=442266")):
@@ -1395,12 +1460,27 @@ def check_grid_resize(tab, pane):
         created = next((c for c in (split or {}).get("created") or [] if str(c).startswith("tab_")), None)
         time.sleep(1.0)  # test harness: the new pane's terminal attaches
         tabs.append(open_page_in(created, query) if created else None)
+    # The user's workspace also has a heavy page: an animating canvas in a fifth pane, right of the first page.
+    if tabs[0]:
+        action("tab.focus", target=f"tab:{tabs[0]}")
+        time.sleep(0.3)  # test harness: focus lands
+        split = action("splitRight")
+        created = next((c for c in (split or {}).get("created") or [] if str(c).startswith("tab_")), None)
+        time.sleep(1.0)  # test harness: the new pane's terminal attaches
+        heavy = open_page_in(created, "heavy&c=111111") if created else None
+        if heavy:
+            page_eval("(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400;"
+                      " c.style.cssText = 'position:fixed;left:0;top:30%;width:100%;height:40%'; document.body.appendChild(c);"
+                      " const g = c.getContext('2d'); (function f(t) { for (let i = 0; i < 400; i++) { g.fillStyle ="
+                      " 'hsl(' + ((i * 7 + t / 5) % 360) + ',80%,60%)'; g.beginPath(); g.arc((i * 37 + t / 3) % 600,"
+                      " (i * 53 + t / 7) % 400, 9, 0, 7); g.fill(); } requestAnimationFrame(f); })(0); return true; })()", heavy)
+        RAW["grid_heavy_tab"] = heavy
     panes = [page_pane(t) if t else None for t in tabs]
     RAW["grid_resize_setup"] = {"tabs": tabs, "panes": panes}
     if not all(panes) or len(set(panes)) != 4 or not all(page_view(p) for p in panes):
-        row(False, "grid_resize.setup", {"tabs": tabs, "panes": panes})
+        row(False, "grid_resize.setup", {"tabs": tabs, "panes": panes, "frames": page_frames(main_layers())})
         return
-    time.sleep(1.5)  # test harness: four pages draw
+    time.sleep(1.5)  # test harness: the pages draw
     start = main_layers().get("frame")
     top = start[1] + start[3]
     steps = [[start[0], top - (start[3] - 200 * k / 45), start[2] - 400 * k / 45, start[3] - 200 * k / 45] for k in range(1, 46)]
@@ -1432,15 +1512,118 @@ def check_grid_resize(tab, pane):
         return problems
 
     judged, bad = judge_frames(cap, t_start, panes, rules)
-    RAW["grid_resize"] = {"judged": judged, "bad": bad, "samples": len(cap.samples), "steps": len(steps)}
+    layer_fit = cap.misfits(t_start)
+    RAW["grid_resize"] = {"judged": judged, "bad": bad, "samples": len(cap.samples), "steps": len(steps), "layer_fit": layer_fit}
+    if layer_fit["samples"]:
+        row(layer_fit["with_misfit"] == 0, "grid_resize.layers",
+            dict(layer_fit, bug=13, pass_if="no debug.layers sample during the window resize has a page drawing layer off its view"))
     if not judged:
         row("INFO", "grid_resize.top", {"note": "no capture matched a layer sample", "captures": len(cap.frames)})
     else:
-        row(not bad, "grid_resize.top",
+        pixel_row(not bad, "grid_resize.top",
             {"bug": "sweep D5", "judged": judged, "bad_frames": len(bad), "first_bad": bad[:4],
              "pass_if": "each page's top band at its view's top within 3 pt in every captured frame of the resize"})
+    grid_divider(tabs, panes, rules)
     for i, p in enumerate(panes):
         check_paint(p, f"grid{i}")
+    choose_file_click(tabs[0], panes[0])
+
+
+def grid_divider(tabs, panes, rules):
+    """grid_divider.top and .layers: the vertical divider beside the grid's first page dragged 160 pt left and back at
+    60 Hz, with window captures and layer samples through it (the same rules as grid_resize)."""
+    layers = main_layers()
+    frame = page_view(panes[0], layers)
+    divider = vertical_divider_near(frame[0] + frame[2], layers) if frame else None
+    if not divider:
+        row("INFO", "grid_divider", {"note": "no divider beside the first page", "frame": frame})
+        return
+    cap = MotionCapture(os.path.join(opts.out, "grid-divider"))
+    if not cap.start():
+        row("INFO", "grid_divider.top", {"note": "no window captures on this host"})
+        return
+    record("grid_divider", 5)
+    time.sleep(0.3)  # test harness: captures from before the drag
+    t_start = time.time()
+    drag_divider(divider, -160)
+    drag_divider((divider[0] - 160, divider[1]), 160)
+    time.sleep(1.0)  # test harness: the pages settle
+    cap.stop()
+    judged, bad = judge_frames(cap, t_start, panes, rules)
+    layer_fit = cap.misfits(t_start)
+    RAW["grid_divider"] = {"judged": judged, "bad": bad, "layer_fit": layer_fit}
+    if judged:
+        pixel_row(not bad, "grid_divider.top", {"bug": 13, "judged": judged, "bad_frames": len(bad), "first_bad": bad[:4],
+                                           "pass_if": "each page's top band at its view's top in every captured frame of the drag"})
+    else:
+        row("INFO", "grid_divider.top", {"note": "no capture matched a layer sample", "captures": len(cap.frames)})
+    if layer_fit["samples"]:
+        row(layer_fit["with_misfit"] == 0, "grid_divider.layers",
+            dict(layer_fit, bug=13, pass_if="no debug.layers sample during the drag has a page drawing layer off its view"))
+
+
+def orange_centre(path, view, window, sx, sy):
+    """The centre (window points from the top left) of the orange file box drawn in `view`, from a window capture."""
+    width, height, rows = png_rgb(path)
+    x, y, w, h = view
+    top = window[3] - (y + h)
+    xs, ys = [], []
+    for yy in range(max(0, int(top * sy)), min(height, int((top + h) * sy))):
+        line = rows[yy]
+        for xx in range(max(0, int(x * sx)), min(width, int((x + w) * sx)), 2):
+            r, g, b = line[3 * xx], line[3 * xx + 1], line[3 * xx + 2]
+            if r > 220 and 100 < g < 170 and b < 70:
+                xs.append(xx)
+                ys.append(yy)
+    if len(xs) < 20:
+        return None
+    return ((min(xs) + max(xs)) / 2 / sx, (min(ys) + max(ys)) / 2 / sy)
+
+
+def choose_file_click(tab, pane):
+    """grid.choose_file (the user's V3 17.7 s): after the resizes, a click where the page DRAWS its Choose File box
+    (found in a window capture) must open the file chooser, not the Open pop-up button 40 pt above it. The click goes to
+    the page at that point less the view's origin, the point a person's click there reaches."""
+    layers = main_layers()
+    view, window = page_view(pane, layers), layers.get("frame")
+    wid = main_window_id(RAW.get("pid")) if CUA_DRIVER else None
+    shot = os.path.join(opts.out, "choose-file-before.png")
+    if not view or not window or not wid:
+        row("INFO", "grid.choose_file", {"note": "no page view, window or capture"})
+        return
+    cua("get_window_state", {"pid": RAW.get("pid"), "window_id": wid, "include_accessibility_tree": False,
+                             "screenshot_out_file": shot, "max_image_dimension": 4000})
+    if not os.path.exists(shot):
+        row("INFO", "grid.choose_file", {"note": "no capture"})
+        return
+    width, height, _ = band_rows(shot, [], (0, 0))
+    sx, sy = width / window[2], height / window[3]
+    drawn = orange_centre(shot, view, window, sx, sy)
+    real = page_json("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('filebox').getBoundingClientRect()))", tab)
+    in_tree = any(v.get("pane") == pane for v in layers.get("page_views") or [])
+    if not drawn and not in_tree:
+        row("INFO", "grid.choose_file", {"note": "a child-window page is not in the main window's capture (in-tree off)", "real": real})
+        return
+    if not drawn:
+        row(False, "grid.choose_file", {"bug": 13, "note": "the Choose File box is not drawn in the page's view", "capture": os.path.basename(shot), "real": real})
+        return
+    view_top = window[3] - (view[1] + view[3])
+    point = [round(drawn[0] - view[0], 1), round(drawn[1] - view_top, 1)]
+    page_eval("window.__file2 = 0; window.__pop2 = 0; true", tab)
+    dialogs = file_dialogs()["received"]
+    rpc("debug.popups", {"action": "close"})
+    click = rpc("debug.mouse", {"target": "page", "pane": pane, "x": point[0], "y": point[1]})
+    time.sleep(1.2)  # test harness: the chooser or the pop-up shows
+    got = {"file_clicks": page_eval("window.__file2 || 0", tab).get("value"),
+           "popup_clicks": page_eval("window.__pop2 || 0", tab).get("value"),
+           "file_dialogs_received": file_dialogs()["received"] - dialogs, "popup_open": popup_index() is not None}
+    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "choose-file-after.png")})
+    rpc("debug.key", {"key": "escape", "target": "dialog"})
+    rpc("debug.popups", {"action": "close"})
+    ok = bool(got["file_clicks"]) and got["file_dialogs_received"] > 0 and not got["popup_clicks"]
+    row(ok, "grid.choose_file", {"bug": 13, "drawn_in_window": [round(drawn[0], 1), round(drawn[1], 1)], "page_point": point,
+                                  "real_centre": real, "click": click, "got": got, "capture": os.path.basename(shot),
+                                  "pass_if": "a click on the drawn Choose File opens the file chooser and not the pop-up"})
 
 
 REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "pane_zoom", "popup_float", "omnibar_narrow",
