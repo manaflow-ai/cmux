@@ -349,10 +349,26 @@ export function trayHeadGroups(
   );
   const parts: TrayHeadPart[] = [];
   if (agents.length > 0) {
-    const lead = agents[0]!;
-    const harness =
-      (lead.kind === "agent" ? lead.agent.harness : lead.kind === "session" ? lead.session.harness : undefined) ??
-      chatHarness;
+    // The group draws the harness most of its subagents run on (the chat's own on a tie).
+    const byFamily = new Map<string, { harness: string; n: number }>();
+    for (const item of agents) {
+      const own =
+        (item.kind === "agent" ? item.agent.harness : item.kind === "session" ? item.session.harness : undefined) ??
+        chatHarness;
+      if (!own) continue;
+      const family = harnessFamily(own);
+      const entry = byFamily.get(family);
+      if (entry) entry.n += 1;
+      else byFamily.set(family, { harness: own, n: 1 });
+    }
+    const chatFamily = chatHarness ? harnessFamily(chatHarness) : undefined;
+    let harness: string | undefined;
+    let most = 0;
+    for (const [family, entry] of byFamily)
+      if (entry.n > most || (entry.n === most && family === chatFamily)) {
+        harness = entry.harness;
+        most = entry.n;
+      }
     parts.push({
       key: "agents",
       icon: SUBAGENT_ICON,

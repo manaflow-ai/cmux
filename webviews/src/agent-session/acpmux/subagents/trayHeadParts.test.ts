@@ -130,6 +130,8 @@ test("the groups count subagents and every other backgrounded call, then only wh
   );
   const finished = finishedTrayItems([subagent("f", "failed"), subagent("d", "completed")], []);
   const parts = trayHeadGroups(translate, { items, finished, waiting: new Set() }, "claude");
+  // Two of the three run on the chat's harness: the group draws its mark, not the Codex one.
+  expect(parts[0]!.harness).toBe("claude");
   expect(parts.map((part) => [part.key, part.items.length, part.tone])).toEqual([
     ["agents", 3, undefined],
     ["background", 3, undefined],
