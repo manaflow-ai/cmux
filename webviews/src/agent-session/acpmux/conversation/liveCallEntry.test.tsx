@@ -34,6 +34,8 @@ beforeEach(() => {
 afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  globalThis.setTimeout = realSetTimeout;
+  globalThis.clearTimeout = realClearTimeout;
   await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -46,6 +48,23 @@ afterEach(async () => {
 
 let time = 0;
 const clock = () => time;
+// The entry wait's timer on a manual queue: `wait` moves the clock and runs what came due, so the
+// test never sleeps real time.
+type Timer = { at: number; run: () => void };
+let timers = new Map<number, Timer>();
+let nextTimer = 1;
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+beforeEach(() => {
+  timers = new Map();
+  globalThis.setTimeout = ((run: () => void, ms = 0) => {
+    const id = nextTimer++;
+    timers.set(id, { at: time + ms, run });
+    return id;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = ((id: number) => void timers.delete(id)) as unknown as typeof clearTimeout;
+});
+
 const ENTRY = 40;
 
 const thinking = { id: "live", kind: "thinking", version: 1, at: 0 } as AcpmuxRow;
@@ -59,12 +78,16 @@ function Probe({ row, entry = ENTRY }: { row: AcpmuxRow; entry?: number }) {
 const shown = () => container.querySelector("output")!.textContent;
 const draw = (row: AcpmuxRow, entry?: number) => act(() => root!.render(<Probe row={row} entry={entry} />));
 const wait = (ms: number) =>
-  act(async () => {
+  act(() => {
     time += ms;
-    await new Promise((resolve) => setTimeout(resolve, ms + 5));
+    for (const [id, timer] of [...timers].sort((a, b) => a[1].at - b[1].at)) {
+      if (timer.at > time) continue;
+      timers.delete(id);
+      timer.run();
+    }
   });
 
-test("a call done before the entry wait never shows: the line stays on Thinking through a burst", async () => {
+test("a call done before the entry wait never shows: the line stays on Thinking through a burst", () => {
   time = 0;
   draw(thinking);
   for (let i = 0; i < 30; i++) {
@@ -73,17 +96,17 @@ test("a call done before the entry wait never shows: the line stays on Thinking 
     expect(shown()).toBe("Thinking");
   }
   draw(thinking);
-  await wait(ENTRY);
+  wait(ENTRY);
   expect(shown()).toBe("Thinking");
 });
 
-test("a call that runs past the entry wait shows, with its newest words", async () => {
+test("a call that runs past the entry wait shows, with its newest words", () => {
   time = 0;
   draw(thinking);
   draw(call("c1", "Running grep"));
   expect(shown()).toBe("Thinking");
   draw(call("c1", "Running grep -n"));
-  await wait(ENTRY);
+  wait(ENTRY);
   expect(shown()).toBe("Running grep -n");
   // Its own updates pass straight through.
   draw(call("c1", "Ran grep -n"));
