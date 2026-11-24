@@ -88,4 +88,83 @@ final class PaneLayersUITests: XCTestCase {
         guard let samples = Int(values["samples"] ?? ""), samples > 0 else { return nil }
         return Int(values["overlap"] ?? "")
     }
+
+    // MARK: The cached frame
+
+    /// Leo, 2026-11-24: "the served cached thing included the gap induced by my built-in keyboard,
+    /// and i couldnt interact with it stil." `-CmuxMobileColdFrameDemo` serves every mock terminal
+    /// a cached still taken keyboard-up (rows end at 45% of the screen) and never attaches. With
+    /// the keyboard down the still's last row rests on the key row, not mid screen, and the
+    /// composer takes a tap and typing at once; keyboard up, the rows ride above the dock.
+    @MainActor
+    func testCachedFrameFillsViewportAndTakesInput() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle",
+                                "-CmuxMobileColdFrameDemo"]
+        app.launch()
+        let field = app.textViews["terminal.composer.field"]
+        let keyRow = app.buttons["terminal.key.keyboard"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "composer\n\(app.debugDescription)")
+        XCTAssertTrue(keyRow.waitForExistence(timeout: 10), "key row")
+        RunLoop.current.run(until: Date().addingTimeInterval(2.0))
+        attach(app, "cold-1-keyboard-down")
+
+        let downGap = gapAboveDock(app, dockTop: min(keyRow.frame.minY, field.frame.minY))
+        print("CMUX_COLD_FRAME keyboard-down gap=\(downGap.map { String(Int($0)) } ?? "none")")
+        XCTAssertNotNil(downGap, "no cached rows drawn above the dock")
+        XCTAssertLessThanOrEqual(downGap ?? .greatestFiniteMagnitude, 60,
+                                 "the cached still's last row sits \(Int(downGap ?? -1)) pt above the dock: the keyboard gap it was taken with")
+
+        // Interactive at once: the composer takes the tap and the keys, over the cached still.
+        XCTAssertTrue(field.isHittable, "the composer is under the cached still")
+        field.tap()
+        field.typeText("ls")
+        XCTAssertTrue((field.value as? String ?? "").contains("ls"), "typing reached the composer (\(field.value ?? "nil"))")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        attach(app, "cold-2-keyboard-up")
+        let upGap = gapAboveDock(app, dockTop: min(keyRow.frame.minY, field.frame.minY))
+        print("CMUX_COLD_FRAME keyboard-up gap=\(upGap.map { String(Int($0)) } ?? "none")")
+        XCTAssertLessThanOrEqual(upGap ?? .greatestFiniteMagnitude, 60, "keyboard up: the rows end on the dock")
+
+        // Keyboard down again: the still reflows back onto the dock.
+        if keyRow.isHittable { keyRow.tap() }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        attach(app, "cold-3-keyboard-down-again")
+        let againGap = gapAboveDock(app, dockTop: min(keyRow.frame.minY, field.frame.minY))
+        print("CMUX_COLD_FRAME keyboard-down-again gap=\(againGap.map { String(Int($0)) } ?? "none")")
+        XCTAssertLessThanOrEqual(againGap ?? .greatestFiniteMagnitude, 60, "keyboard down again: the rows end on the dock")
+    }
+
+    /// Points between the dock's top and the lowest bright (text) pixel row above it, read from a
+    /// screenshot, in the page's text column. Nil: no bright row between mid-top and the dock.
+    @MainActor
+    func gapAboveDock(_ app: XCUIApplication, dockTop: CGFloat) -> CGFloat? {
+        let image = app.screenshot().image
+        guard let cg = image.cgImage else { return nil }
+        let width = cg.width, height = cg.height
+        let scale = CGFloat(height) / max(1, app.frame.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let start = Int((dockTop - 3) * scale)
+        let stop = Int(CGFloat(height) * 0.12)
+        let x0 = Int(8 * scale), x1 = Int(CGFloat(width) * 0.7)
+        var y = min(height - 1, start)
+        while y > stop {
+            // The bitmap's first row is the image's top row.
+            let row = y * width * 4
+            var x = x0
+            while x < x1 {
+                let o = row + x * 4
+                if pixels[o] > 200, pixels[o + 1] > 200, pixels[o + 2] > 200 { return dockTop - CGFloat(y) / scale }
+                x += 1
+            }
+            y -= 1
+        }
+        return nil
+    }
 }
