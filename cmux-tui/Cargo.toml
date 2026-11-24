@@ -61,6 +61,7 @@ members = [
     "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-session-pack",
+    "crates/cmux-bundle",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
@@ -186,6 +187,7 @@ members = [
     "crates/cmux-source-scan",
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
+    "crates/cmux-redact",
 ]
 default-members = [
     "crates/acpmux",
