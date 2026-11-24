@@ -243,8 +243,17 @@ public enum Egress {
         return configuration
     }
 
-    /// The gated stand-in for `URLSession.shared`.
-    public static let shared: URLSession = session(site: "URLSession.shared")
+    /// `URLSession.shared` with the gate registered: on Apple platforms a registered URLProtocol is
+    /// asked before the built-in ones for the shared session, so no second shared session is kept.
+    public static var shared: URLSession {
+        _ = registered
+        return .shared
+    }
+
+    private static let registered: Bool = {
+        URLProtocol.registerClass(EgressURLProtocol.self)
+        return true
+    }()
 
     /// A WebSocket task on `session` whose URL passed the gate. When the gate refuses it, the task is made
     /// for `egress-refused.invalid` instead, so it fails at connect through the caller's own error path.

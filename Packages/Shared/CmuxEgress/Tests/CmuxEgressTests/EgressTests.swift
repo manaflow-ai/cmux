@@ -85,4 +85,14 @@ import Testing
         let allowed = Egress.webSocketTask(in: .shared, with: URL(string: "wss://cloud-api.cmux.dev/ws")!, site: "EgressTests")
         #expect(allowed.originalRequest?.url?.host == "cloud-api.cmux.dev")
     }
+
+    #if canImport(Darwin)
+    @Test func theSharedSessionRefusesToo() async {
+        Egress.setMode(.enforce)
+        defer { Egress.setMode(.log) }
+        await #expect(throws: URLError.self) {
+            _ = try await Egress.shared.data(from: URL(string: "https://evil-gate-test.org/")!)
+        }
+    }
+    #endif
 }
