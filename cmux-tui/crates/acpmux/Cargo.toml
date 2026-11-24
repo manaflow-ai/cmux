@@ -305,3 +305,8 @@ required-features = ["sim"]
 name = "hub_carrier"
 path = "tests/hub_carrier.rs"
 required-features = ["hub-carrier"]
+
+[[test]]
+name = "pair_matrix_desktop"
+path = "tests/pair_matrix_desktop.rs"
+required-features = ["hub-carrier"]
