@@ -2,6 +2,7 @@ import type { PromptHeads } from "./promptHeads";
 import { PendingEntrances } from "./conversation/pendingEntrances";
 import { TRANSCRIPT_COMPOSER_GAP, gridScale } from "./transcriptGrid";
 import React, {
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -383,6 +384,30 @@ function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>):
   for (const [id, entry] of updates) if (!sameDrawn(current.get(id), entry)) return true;
   return false;
 }
+
+/// Whether every report in `updates` is a row's first, at the width and height its estimate placed it
+/// at (`estimate`, the last `layoutConversation` pass): recording them places no row anywhere new.
+/// O(reports) after one O(rows) index per estimate.
+function drawnAtEstimate(
+  current: DrawnHeights,
+  updates: Map<string, DrawnHeight>,
+  estimate: LastEstimate | undefined,
+  width: number,
+): boolean {
+  if (!estimate || estimate.width !== width) return false;
+  let index: Map<string, number> | undefined = estimateIndex.get(estimate);
+  for (const [id, entry] of updates) {
+    if (current.get(id) || entry.width !== width || entry.collapsing) return false;
+    if (!index) {
+      index = new Map(estimate.rows.map((row, at) => [row.id, at]));
+      estimateIndex.set(estimate, index);
+    }
+    const at = index.get(id);
+    if (at === undefined || estimate.layout.heights[at] !== entry.height) return false;
+  }
+  return true;
+}
+const estimateIndex = new WeakMap<LastEstimate, Map<string, number>>();
 
 /// Whether `updates` move any row from where `current` places it: `changesDrawn` but for a version
 /// alone. Placement never reads a drawn height's version (a streamed token keeps the height placed
@@ -2350,16 +2375,23 @@ function TranscriptView({
     if (ask.ran && ask.result === drawnRef.current && !changesDrawn(drawnRef.current, updates)) return;
     // An equal report can correct a different height still queued at a lower priority.
     // Compare in the updater, against the state React rebases it onto, not drawnRef.
-    askDrawn((current) => {
-      let changes: Map<string, DrawnHeight> | undefined;
-      for (const [id, entry] of updates) {
-        if (sameDrawn(current.get(id), entry)) continue;
-        changedDrawn.current.add(id);
-        changes = changes ?? new Map();
-        changes.set(id, entry);
-      }
-      return changes ? current.with(changes) : current;
-    });
+    const record = () =>
+      askDrawn((current) => {
+        let changes: Map<string, DrawnHeight> | undefined;
+        for (const [id, entry] of updates) {
+          if (sameDrawn(current.get(id), entry)) continue;
+          changedDrawn.current.add(id);
+          changes = changes ?? new Map();
+          changes.set(id, entry);
+        }
+        return changes ? current.with(changes) : current;
+      });
+    // Rows drawn for the first time at exactly the height their estimate placed them at (a chat's
+    // open: 16 of 16 rows, then 58 of 58, in bench/chat-open.bench.ts) move nothing: recording them is
+    // a whole transcript pass that places every row where it already is. Before the paint that pass
+    // held the newest message off the screen (about 15 ms of a 146 ms open); it runs after the paint.
+    if (drawnAtEstimate(drawnRef.current, updates, lastEstimate.current, rowWidthRef.current)) startTransition(record);
+    else record();
   }, [askDrawn]);
   /// Where a flowing drag's rows hang from (`FLOW_CLASS`). A view that follows the latest row shows
   /// what it shows once the width holds: the rows hang from the end of a box that ends where the
