@@ -754,6 +754,11 @@ try {
         for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
         // What held the settle back: the moves the judge saw, and each frame where the bottom-most row changed.
         for (const reason of judged.why) console.log(`    moved ${reason}`);
+        if (process.env.FRAMES === "1" && judged.shifts > 0)
+          for (const frame of read.frames.filter((one) => one.t >= read.t0))
+            console.log(
+              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
+            );
         let bottom: string | undefined;
         for (const frame of read.frames) {
           if (frame.t < read.t0) continue;
