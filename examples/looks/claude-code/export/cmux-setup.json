@@ -1,0 +1,12 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-export",
+  "name": "Claude Code conversation export",
+  "description": "Copy the focused cmux conversation as Markdown with Command-J then X.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "screenshots": [
+    "preview.png"
+  ]
+}

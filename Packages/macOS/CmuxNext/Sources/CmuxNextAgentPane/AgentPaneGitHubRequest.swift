@@ -18,7 +18,10 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     /// worktree of that checkout, as New Worktree's `git.worktree.create` does, on the same click.
     case checkout(repo: String, candidates: [String], key: String)
 
-    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list", "github.repos.checkout"]
+    /// Clone a credential-free HTTPS URL on this Mac, without creating a worktree.
+    case cloneURL(url: String, key: String)
+
+    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list", "github.repos.checkout", "repo.clone"]
 
     /// The page's params, checked; nil for anything else. `query` is the picker's search text, or null.
     init?(method: String, params: [String: Any]?) {
@@ -34,6 +37,10 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
             } else {
                 return nil
             }
+        case "repo.clone":
+            guard let url = params?["url"] as? String, url.utf8.count <= 4096, !url.contains("\0"),
+                  let key = params?["idempotency_key"] as? String, AgentPaneGitWrite.isKey(key) else { return nil }
+            self = .cloneURL(url: url, key: key)
         case "github.repos.checkout":
             guard let repo = params?["repo"] as? String, CloudGitHubRepos.isFullName(repo),
                   let key = params?["idempotency_key"] as? String, AgentPaneGitWrite.isKey(key) else { return nil }
@@ -58,13 +65,14 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         case .connect: "github.connect"
         case .repos: "github.repos.list"
         case .checkout: "github.repos.checkout"
+        case .cloneURL: "repo.clone"
         }
     }
 
     /// The reply. Connect opens the person's browser, so only on their own click (`gesture`).
     @MainActor func reply(_ gitHub: AgentPaneGitHub?, gesture: () -> Bool) async -> [String: Any] {
         guard let gitHub else {
-            // No GitHub for this pane (a preview, a page with no Cloud): the picker shows no section.
+            // A preview or a pane without Cloud still explains why GitHub is unavailable.
             if case .status = self { return Self.statusReply(.unavailable(.unreachable)) }
             return Self.unavailableReply(.unreachable)
         }
@@ -96,17 +104,33 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
             case .failure(.unavailable):
                 return AgentPaneReply.failure(code: "github.unavailable", message: AgentPaneModel.gitHubUnavailableMessage)
             }
-        case .checkout:
+        case .checkout, .cloneURL:
             // The pane model answers it with the chat's worktree (``AgentPaneGitWriteReply``).
             return AgentPaneModel.unsupported(method)
         }
     }
 
-    /// `{state, repos_scope, reason}`: `reason` (`signed_out`, `not_configured`, `unreachable`) only when unavailable,
-    /// so the picker can still offer Connect GitHub.
+    /// `{state, repos_scope, reason, problem, message}`: `reason` (`signed_out`, `not_configured`, `unreachable`) only when
+    /// unavailable, so the picker can still offer Connect GitHub. A not-connected state that needs more than "Connect" says
+    /// so in `problem` (`needs_reauth`, `linking`, `error`, `link_refused`) and `message`, the words the Connect row shows;
+    /// both are null otherwise.
     @MainActor static func statusReply(_ status: CloudGitHubPicker.Status) -> [String: Any] {
         AgentPaneReply.success(["state": status.state, "repos_scope": status.reposScope.map { $0 as Any } ?? NSNull(),
-                                "reason": status.reason.map { $0.rawValue as Any } ?? NSNull()])
+                                "reason": status.reason.map { $0.rawValue as Any } ?? NSNull(),
+                                "problem": status.problem.map { $0 as Any } ?? NSNull(),
+                                "message": message(for: status).map { $0 as Any } ?? NSNull()])
+    }
+
+    /// The words for a Connect GitHub state that is not a plain "not connected": the server's reason or the API's own when
+    /// it gave one, else the app's.
+    @MainActor static func message(for status: CloudGitHubPicker.Status) -> String? {
+        switch status {
+        case .needsReauth(let detail): detail ?? AgentPaneModel.gitHubReauthMessage
+        case .linking: AgentPaneModel.gitHubConnectPendingMessage
+        case .error: AgentPaneModel.gitHubConnectionErrorMessage
+        case .linkRefused(let reason): reason ?? AgentPaneModel.gitHubLinkExpiredMessage
+        case .ready, .notConnected, .unavailable: nil
+        }
     }
 
     /// Connect GitHub where GitHub is unavailable: `github.signed_out`, `github.not_configured` or `github.unavailable`.
@@ -192,7 +216,6 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
         switch connect {
         case .open(let url): open(url); self = .opened
         case .connected: self = .alreadyConnected
-        case .pending: self = .failed(AgentPaneModel.gitHubConnectPendingMessage)
         case .unavailable(.signedOut) where signIn != nil: signIn?(); self = .opened
         case .unavailable(let reason): self = .unavailable(reason)
         case .failed: self = .failed("")

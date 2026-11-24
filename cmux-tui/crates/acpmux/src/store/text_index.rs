@@ -24,7 +24,7 @@ use crate::session_search::{Entry, KINDS, Projector};
 
 /// The folder of a chat's text copies, beside its `events`.
 pub const DIR: &str = "search-index";
-const SCHEMA: &str = "acpmux.search-index.v2";
+const SCHEMA: &str = "acpmux.search-index.v3";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -62,7 +62,7 @@ fn seal(
 }
 
 /// Whether a log line may hold a message: its kind is one of [`KINDS`], or its head does not say.
-fn wanted(line: &[u8]) -> bool {
+pub(super) fn wanted(line: &[u8]) -> bool {
     record_kind(line).is_none_or(|kind| KINDS.iter().any(|k| k.as_bytes() == kind))
 }
 
@@ -94,20 +94,24 @@ impl LocalStore {
         path: &Path,
         incoming: Option<(String, Entry)>,
     ) -> Result<Projector> {
-        let mut file = crate::config::private_state_file(path)?;
-        let stamp = Stamp::of(&file)?;
+        // A cold segment (`store/cold_segments.rs`) reads through its archive and keeps no copy:
+        // it has no file of its own to stamp.
+        let mut file = super::cold_segments::open_segment(path)?;
+        let stamp = file.local().map(Stamp::of).transpose()?;
         let incoming_hash = fnv(serde_json::to_vec(&incoming)?.into_iter());
-        let (mut projector, from, had_copy) =
-            match self.read_text_index(id, index, &stamp, incoming_hash) {
-                Some((entries, len, open)) => (Projector { entries, open }, len, true),
-                None => {
-                    let projector = match incoming {
-                        Some((open, entry)) => Projector { entries: vec![entry], open: Some(open) },
-                        None => Projector::default(),
-                    };
-                    (projector, 0, false)
-                }
-            };
+        let (mut projector, from, had_copy) = match stamp
+            .as_ref()
+            .and_then(|stamp| self.read_text_index(id, index, stamp, incoming_hash))
+        {
+            Some((entries, len, open)) => (Projector { entries, open }, len, true),
+            None => {
+                let projector = match incoming {
+                    Some((open, entry)) => Projector { entries: vec![entry], open: Some(open) },
+                    None => Projector::default(),
+                };
+                (projector, 0, false)
+            }
+        };
         if from > 0 {
             std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
         }
@@ -131,10 +135,11 @@ impl LocalStore {
             }
         }
         if (!had_copy || covered >= COPY_AFTER)
+            && let Some(stamp) = stamp.as_ref()
             && let Err(e) = self.write_text_index(
                 id,
                 index,
-                &stamp,
+                stamp,
                 from.saturating_add(covered),
                 &projector,
                 incoming_hash,

@@ -96,6 +96,30 @@ extension Animation {
     public static let cmuxMobileGentle = Animation.spring(duration: 0.5, bounce: 0)
 }
 
+/// A composer gaining or losing a line (typing a newline, wrapping, deleting one, a send
+/// clearing the draft): the field, the stack around it and the transcript above it move
+/// together on one short spring, never the 0.35 s `cmuxMobileSmooth` the stack's other
+/// changes take (Leo, 2026-11-23: "We can very easily just have this be one good motion and
+/// feeling nigh instant."). 150 ms is the ChatGPT composer's measured growth
+/// (hq docs/design/chatgpt-send-pattern.md, section 7).
+public enum ComposerLineMotion {
+    public static let defaultSeconds: Double = 0.15
+    /// `-cmux-mobile-line-motion-ms N` (DEBUG) picks another length for gallery runs; 0 is
+    /// no motion at all (the line lands in one frame).
+    public static let seconds: Double = {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-cmux-mobile-line-motion-ms"),
+           arguments.indices.contains(index + 1), let ms = Double(arguments[index + 1]), ms >= 0 {
+            return ms / 1000
+        }
+        #endif
+        return defaultSeconds
+    }()
+    /// The spring, or nil when the line lands at once (no motion configured).
+    public static var animation: Animation? { seconds > 0 ? .spring(duration: seconds, bounce: 0) : nil }
+}
+
 /// SPEC 4.1 `IconAction`: a 32 pt hit target around a 17 pt `label2` symbol.
 public struct IconAction: View {
     let systemImage: String
