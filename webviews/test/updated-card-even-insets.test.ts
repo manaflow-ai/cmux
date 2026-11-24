@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("updated-card-even-insets.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -102,7 +102,10 @@ await requireBrowserLane("updated-card-even-insets.test.ts", async () => {
 
   const engines: [string, BrowserType][] = [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("updated-card-even-insets webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ];
   for (const [name, engine] of engines) {
     describe(name, () => {
