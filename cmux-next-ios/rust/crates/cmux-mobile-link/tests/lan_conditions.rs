@@ -256,6 +256,32 @@ async fn dial_relayed_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option
     timeout(WAIT, attempt).await.ok().flatten()
 }
 
+/// MEASUREMENT ONLY. `relayed-seq`: the redial before #52992: reconnect signaling, then dial
+/// (`dial::connect`), so TURN allocates after the reconnect.
+async fn dial_relayed_seq_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option<Up> {
+    let options = DialOptions {
+        include_loopback: true,
+        relay_only: true,
+        ice_servers: vec![radio.turn.clone()],
+        timeout: WAIT,
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    };
+    let attempt = async {
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let phone =
+            SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id).await.ok()?;
+        timeline.mark("signaling_connected");
+        let connected =
+            dial::connect(&phone, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+                .await
+                .map_err(|error| eprintln!("SEQDIALERR {error:?}"))
+                .ok()?;
+        Some(Up { connected, _signaling: Some(phone) })
+    };
+    timeout(WAIT, attempt).await.ok().flatten()
+}
+
 /// The warm-socket dial: signaling is already connected on this radio (the app's pool keeps it
 /// for a returning user), so the dial starts at the offer, on the pool's `dial::connect`.
 async fn dial_warm_on(mac: &Mac, radio: &Radio, warm: SignalingClient, timeline: Timeline) -> Option<Up> {
@@ -545,6 +571,9 @@ async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u
         }
         (Some(addr), None) => {
             first_up_named(dial_lan(&mac, addr), dial_relayed_on(&mac, &cellular, stages.clone())).await
+        }
+        (None, None) if path == "relayed-seq" => {
+            dial_relayed_seq_on(&mac, &cellular, stages.clone()).await.map(|up| (up, "relayed"))
         }
         (None, None) if path == "mac-relay-blocked" => {
             dial_blocked_on(&mac, &cellular, stages.clone()).await.map(|up| (up, "relayed"))
