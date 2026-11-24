@@ -10,11 +10,13 @@
 //! ([`plan::FallbackCode`]). Bad usage exits 64.
 
 mod git;
+// The per-workspace remote of a folder with no remote (RFD 0066 piece 7).
 mod github;
 pub(crate) mod plan;
 mod secrets;
 #[cfg(test)]
 mod tests;
+pub(super) mod workspace_remote;
 
 use std::path::PathBuf;
 
