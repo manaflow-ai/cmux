@@ -342,6 +342,22 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_ios_reattaching_pill_is_a_connection_state(self):
+        """The iOS terminal pill's "Reattaching…" (Leo's gray-out report) is read like "Reconnecting…"."""
+        old = ("struct TerminalTabPill {\n"
+               "    func subtitle(down: Bool) -> String? { down ? \"Reattaching…\" : nil }\n}\n")
+        held = ("struct TerminalTabPill {\n"
+                "    let gate = QuietStatusGate()\n"
+                "    func subtitle(down: Bool) -> String? { gate.isShown(down) ? \"Reattaching…\" : nil }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/TerminalTabPill.swift", old)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("TerminalTabPill shows a connection state ('Reattaching…')", out)
+        tree.write(f"{IOS}/TerminalTabPill.swift", held)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
     def test_a_swiftui_trailing_closure_button_is_an_action(self):
         """`Button { ... } label: { ... }` is a person action like `Button("Retry")` (iOS ConnectionChip)."""
         chip = ("struct ConnectionChip: View {\n"
