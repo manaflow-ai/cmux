@@ -287,6 +287,8 @@ async fn wireguard_forced_relay_rides_the_services_relay() {
                 include_loopback: true,
                 relay_only: false,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
                 force_relay: true,
                 video_lane: false,
                 webrtc_media: false,
