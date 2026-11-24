@@ -29,7 +29,7 @@ command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
-cargo test --locked --release -p acpmux --test god_daemon --no-run 2>&1 | tail -n 3
+cargo test --locked --release -p acpmux --test acpmux_all --no-run 2>&1 | tail -n 3
 [[ "$build_only" == 1 ]] && exit 0
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
@@ -47,7 +47,7 @@ for ((i = 1; i <= runs; i++)); do
   code=0
   # Each run's homes (about 2 GB for god) under a temp dir of its own, removed after the run however it ended.
   mkdir -p "$out/tmp$i"
-  TMPDIR="$out/tmp$i" timeout --kill-after=30 "$left" cargo test --locked --release -p acpmux --test god_daemon -- \
+  TMPDIR="$out/tmp$i" timeout --kill-after=30 "$left" cargo test --locked --release -p acpmux --test acpmux_all god_daemon -- \
     --ignored --nocapture --exact god_and_small_homes_in_one_harness >"$out/run$i.log" 2>&1 || code=$?
   rm -rf "$out/tmp$i"
   took=$((SECONDS - began))

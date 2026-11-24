@@ -69,7 +69,7 @@
 //!
 //! ```text
 //! cmux-ci test --route fleet -- 'cd cmux-tui && ACPMUX_DURESS=1 cargo test -p acpmux --release \
-//!   --test duress_daemon -- --ignored --nocapture duress_bench legs=relay,bigchat'
+//!   --test acpmux_all duress_daemon -- --ignored --nocapture duress_bench legs=relay,bigchat'
 //! ```
 //!
 //! `host150` (Leo's laptop, 2026-11-23: load 10 x cores, memory and swap pressure, 40 peers, a

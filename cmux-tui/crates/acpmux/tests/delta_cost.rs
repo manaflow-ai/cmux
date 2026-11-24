@@ -25,7 +25,7 @@
 //! measure with the god value, the small one, their ratio and the bar (god at most 1.2x small,
 //! bytes per delta at most the delta's length plus a constant). The byte and row bars fail the
 //! test; the time bars are printed, since one CI sample is noisy. Manual, on Linux CI:
-//! `cargo test -p acpmux --release --test delta_cost -- --ignored --nocapture`.
+//! `cargo test -p acpmux --release --test acpmux_all delta_cost -- --ignored --nocapture`.
 
 // The per-home `json!` has more keys than the default limit expands, as in `god_daemon.rs`.
 #![recursion_limit = "256"]
