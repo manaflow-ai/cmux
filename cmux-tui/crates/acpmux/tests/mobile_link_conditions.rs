@@ -140,6 +140,9 @@ struct Link {
     /// Every inbound frame with its arrival: `None` for a ping or pong.
     rx: mpsc::UnboundedReceiver<(Instant, Option<Value>)>,
     pending: VecDeque<(Instant, Value)>,
+    /// Replies that came before the one being waited on: acpmux may answer a later request of a
+    /// burst first, and the phone's connection matches replies by id (`AcpmuxConnection`).
+    early: std::collections::HashMap<i64, (Instant, Value)>,
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
@@ -188,6 +191,7 @@ impl Link {
             sink,
             rx,
             pending: VecDeque::new(),
+            early: std::collections::HashMap::new(),
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
@@ -242,17 +246,25 @@ impl Link {
 
     /// The answer to `id` and when it came; notifications on the way wait in `pending`.
     async fn answer(&mut self, id: i64, deadline: Instant) -> Result<(Instant, Value), String> {
+        let done = |at: Instant, v: Value| match v.get("error") {
+            Some(e) => Err(format!("request {id}: {e}")),
+            None => Ok((at, v["result"].clone())),
+        };
+        if let Some((at, v)) = self.early.remove(&id) {
+            return done(at, v);
+        }
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) => {
-                    if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
-                        if let Some(e) = v.get("error") {
-                            return Err(format!("request {id}: {e}"));
-                        }
-                        return Ok((at, v["result"].clone()));
-                    }
                     if v.get("method").is_some() {
                         self.pending.push_back((at, v));
+                    } else if v.get("id") == Some(&json!(id)) {
+                        return done(at, v);
+                    } else if let Some(other) = v.get("id").and_then(Value::as_i64) {
+                        if std::env::var_os("NETCOND_DEBUG").is_some() {
+                            eprintln!("netcond-debug reply {other} came before {id}");
+                        }
+                        self.early.insert(other, (at, v));
                     }
                 }
                 Next::Silent => return Err(format!("no answer to request {id} in time")),
@@ -1338,7 +1350,10 @@ async fn bg_chat_once(
     let tail = |kinds: Value| {
         json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": kinds,
         "eventStream": true, "afterSeq": after, "beforeSeq": TAIL_BEFORE_SEQ,
-        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES})
+        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES,
+        // The phone holds a breakdown version from its last attach, so it asks for none
+        // (`AcpmuxHub.attachParams`).
+        "omitTimeBreakdown": true})
     };
     let (upgrade, mut link, reply) = if phase == "before" {
         let mut link = Link::open(shaper.addr(), token, deadline).await?;
@@ -1429,6 +1444,41 @@ async fn bg_chat_once(
         cursor = events.last().copied();
     }
     let took = start.elapsed();
+    if std::env::var_os("NETCOND_DEBUG").is_some() {
+        // What came down, by message type, against the shaper's count.
+        // Each notification, with its biggest session fields, and what lands in the next 1.5 s.
+        let show = |when: &str, v: &Value| {
+            let mut fields: Vec<(String, usize)> = v["params"]["session"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, x)| (k.clone(), x.to_string().len())).collect())
+                .unwrap_or_default();
+            fields.sort_by(|a, b| b.1.cmp(&a.1));
+            fields.truncate(6);
+            eprintln!(
+                "netcond-debug {phase} {when} {} kind {} recordKind {} seq {} bytes {} top {:?}",
+                v["method"],
+                v["params"]["kind"],
+                v["params"]["recordKind"],
+                v["params"]["seq"],
+                v.to_string().len(),
+                fields
+            );
+        };
+        for (_, v) in &link.pending {
+            show("held", v);
+        }
+        let tail_end = Instant::now() + Duration::from_millis(1500);
+        while let Next::Frame(_, v) = link.frame(tail_end).await {
+            show("late", &v);
+        }
+        let tapped = link.tap.take();
+        let total: u64 = tapped.down.values().map(|(_, b)| b).sum();
+        eprintln!(
+            "netcond-debug {phase} down: {total} bytes read, {} on the wire, {:?}",
+            shaper.counters().down_bytes,
+            tapped.down
+        );
+    }
     if held < last {
         return Err(format!("the phone holds {held}, the host {last}"));
     }
