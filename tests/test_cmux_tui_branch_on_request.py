@@ -85,6 +85,19 @@ class BranchOnRequest(unittest.TestCase):
         hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
         self.assertIn("gh workflow run cmux-tui-artifacts.yml", hv)
 
+    def test_hot_verify_sends_no_dispatch_that_cannot_publish(self) -> None:
+        # The artifacts workflow publishes a dispatched run only on main or feat-cmux-next, so a dispatch on a pull
+        # request's branch built three targets and published nothing (82 lane/* heads, 2026-11-24 05:08-10:20Z).
+        wf = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
+        publish_if = next(l for l in wf.split("\n  publish-tree:\n", 1)[1].splitlines() if l.strip().startswith("if:"))
+        self.assertIn("github.event_name == 'push'", publish_if)
+        self.assertNotIn("workflow_dispatch", publish_if)
+        hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
+        step = hv.split("- name: Ask for the head's tree when it is not published", 1)[1].split("\n  # ", 1)[0]
+        self.assertIn("LOOK_DISPATCH: ${{ vars.CMUX_TUI_LOOK_DISPATCH }}", step)
+        gate = step.index('if [[ "${LOOK_DISPATCH:-}" != 1 ]]; then')
+        self.assertLess(gate, step.index("gh workflow run cmux-tui-artifacts.yml"))
+
 
 if __name__ == "__main__":
     unittest.main()
