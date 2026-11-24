@@ -216,6 +216,8 @@ public struct WelcomeView: View {
             WelcomeHeroBloom(t: heroT).opacity(fade)
         case .morph:
             WelcomeHeroMorph(t: heroT).opacity(fade)
+        case .glide:
+            WelcomeHeroMorph(t: heroT, centered: true).opacity(fade)
         case .decode:
             WelcomeHeroDecode(t: heroT).opacity(fade)
         case .shimmer:
@@ -379,17 +381,17 @@ public struct WelcomeView: View {
         return GlassEffectContainer(spacing: 0) {
             VStack(spacing: theme.metrics.ctaWelcomeGap) {
                 if apple {
-                    ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple) {
+                    ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple, signInBusy: auth.isBusy) {
                         Image(systemName: "apple.logo").font(.system(size: icon + 1, weight: .medium))
                     } action: { signIn(.apple) }
                 }
-                ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google) {
+                ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google, signInBusy: auth.isBusy) {
                     Image("GoogleLogo", bundle: .module).resizable().frame(width: icon, height: icon)
                 } action: { signIn(.google) }
-                ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github) {
+                ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github, signInBusy: auth.isBusy) {
                     Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: icon, height: icon)
                 } action: { signIn(.github) }
-                ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false) {
+                ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false, signInBusy: auth.isBusy) {
                     Image(systemName: "envelope").font(.system(size: icon - 1, weight: .medium))
                 } action: {
                     auth.errorMessage = nil
@@ -397,7 +399,6 @@ public struct WelcomeView: View {
                 }
             }
         }
-        .disabled(auth.isBusy)
     }
 
     private func signIn(_ provider: CmuxMobileAuthModel.Provider) {
@@ -542,17 +543,22 @@ struct CmuxLogoMark: View {
     }
 }
 
-/// A welcome sign-in row: at least 50 pt, growing with Dynamic Type, its
-/// label wrapping centered with the icon on the first line. Every row is
-/// Liquid Glass: the first tinted solid (black or white), the others clear.
-/// Busy shows a spinner in place of the icon.
+/// A welcome sign-in row: a system glass button, full width, growing with
+/// Dynamic Type, its label wrapping centered with the icon on the first
+/// line. The first row is prominent glass tinted solid (black or white, as
+/// Sign in with Apple), the others clear glass. The system glass styles own
+/// the touch: a held row stays lit and stretches toward a dragging finger,
+/// and dragging off cancels. Busy shows a spinner in place of the icon;
+/// while any sign-in runs, the other rows are disabled.
 private struct ProviderButton<Icon: View>: View {
     let title: LocalizedStringKey
     let isPrimary: Bool
     let isBusy: Bool
+    /// A sign-in is running (this row's or another's).
+    let signInBusy: Bool
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
-    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Half the `cta` cap height: centers the icon on the first line.
     @ScaledMetric(relativeTo: .headline) private var iconLift: CGFloat = 6
     /// The icon's slot: 22 pt, growing with the label like the icon (capped).
@@ -572,36 +578,40 @@ private struct ProviderButton<Icon: View>: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .font(theme.type.cta)
+            .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)
+            // Accessibility sizes: a little less side room, for the larger icon.
+            .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 0 : 4)
+            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(ProviderStyle(isPrimary: isPrimary))
-        .opacity(isEnabled || isBusy ? 1 : 0.5)
+        .modifier(ProviderGlass(isPrimary: isPrimary))
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        // The busy row keeps its look (spinner, full colour) but takes no
+        // second tap; the others are disabled until the sign-in ends.
+        .disabled(signInBusy && !isBusy)
+        .allowsHitTesting(!isBusy)
     }
 }
 
-private struct ProviderStyle: ButtonStyle {
+/// The rows' system glass. Sign-in buttons stay black or white whatever
+/// accent the user picked. The clear rows take the faint `fill` tint where
+/// the system offers a tinted glass button (iOS 26.1): over the welcome's
+/// flat page there is nothing behind the glass to bend, and untinted it all
+/// but vanishes on white.
+private struct ProviderGlass: ViewModifier {
     let isPrimary: Bool
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: theme.metrics.ctaWelcomeHeight / 2, style: .continuous)
-        // Sign-in buttons stay black or white whatever accent the user picked
-        // (Sign in with Apple's own colours). Interactive glass is the press
-        // feedback: it lights and flexes under the finger. The clear rows
-        // take the faint `fill` tint: over the welcome's flat page there is
-        // nothing behind the glass to bend, and untinted it all but vanishes
-        // on white.
-        let glass: Glass = isPrimary
-            ? .regular.tint(theme.colors.neutralAccent.color).interactive()
-            : .regular.tint(theme.colors.fill.color).interactive()
-        configuration.label
-            .font(theme.type.cta)
-            .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)
-            // Accessibility sizes: a little less side padding, room for the larger icon.
-            .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: theme.metrics.ctaWelcomeHeight)
-            .contentShape(shape)
-            .glassEffect(glass, in: shape)
+    func body(content: Content) -> some View {
+        if isPrimary {
+            content
+                .buttonStyle(.glassProminent)
+                .tint(theme.colors.neutralAccent.color)
+        } else if #available(iOS 26.1, *) {
+            content.buttonStyle(GlassButtonStyle(.regular.tint(theme.colors.fill.color)))
+        } else {
+            content.buttonStyle(.glass)
+        }
     }
 }
 #endif

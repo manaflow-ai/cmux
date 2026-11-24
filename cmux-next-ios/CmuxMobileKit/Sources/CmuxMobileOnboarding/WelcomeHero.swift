@@ -42,6 +42,10 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
     case circuit
     /// One hollow tube, lit like a sign: the letters flicker on in turn.
     case tube
+    /// Morph, centered: "cmux" types out centered on the screen, then as the
+    /// cursor bends into the chevron and flies to its left, the word slides
+    /// right, so the lockup lands centered.
+    case glide
 
     var id: Int { rawValue }
 
@@ -59,13 +63,15 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         case .keys: "Keys"
         case .circuit: "Circuit"
         case .tube: "Tube"
+        case .glide: "Glide"
         }
     }
 
-    /// The picker's two rows: round 4's Geist directions, then round 3's drawn marks.
+    /// The picker's two rows: round 4's Geist directions (Glide beside the
+    /// Morph it varies), then Shimmer and round 3's drawn marks.
     static let pickerRows: [[WelcomeHeroVariant]] = [
-        [.lockup, .site, .bloom, .morph, .decode, .shimmer],
-        [.raster, .draft, .keys, .circuit, .tube],
+        [.lockup, .site, .bloom, .morph, .glide, .decode],
+        [.shimmer, .raster, .draft, .keys, .circuit, .tube],
     ]
 
     /// The variants the picker offers (today's design is in the report, not the pill).
@@ -86,6 +92,7 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         case .shimmer: 1.4
         case .morph: 1.5
         case .site: 1.6
+        case .glide: 1.75
         }
     }
 
@@ -561,49 +568,68 @@ struct WelcomeHeroBloom: View {
     }
 }
 
-// MARK: Morph
+// MARK: Morph and Glide
 
 /// A block cursor in the chevron's gradient blinks, types "cmux" in Geist
 /// SemiBold, blinks once more, then bends into the chevron as it flies back
 /// to the front of the word: one shape, never a swap.
+///
+/// `centered` is Glide: the typed line (letters and cursor) stays centered
+/// as it grows, so a lone cursor blinks in the middle and the word types out
+/// from there; then, while the cursor flies to the left of the word, the
+/// word slides right on the same curve, and the lockup lands centered.
 struct WelcomeHeroMorph: View {
     var t: Double
+    var centered = false
 
     private static let word = GlyphOutline.make("cmux", font: Geist.semibold.ctFont(size: 100), tracking: -2.5)
 
     var body: some View {
         let word = Self.word
+        let centered = centered
         let xh = word.xHeight
         let chevronHeight = xh * 1.42
         let chevronWidth = chevronHeight * Chevron.aspect
-        let wordX = chevronWidth + xh * 0.42
-        let width = wordX + word.width + xh * 0.1
+        // The word's place in the settled lockup (the chevron is at x 0).
+        let lockupWordX = chevronWidth + xh * 0.42
+        let width = lockupWordX + word.width + xh * 0.1
         let height = chevronHeight
-        HeroStack(t: t, taglineAt: 1.3, spacing: 22, name: WelcomeHeroVariant.morph.name) {
+        // Glide flies home over a little longer: two shapes move at once.
+        let flight = centered ? 0.5 : 0.42
+        let name = centered ? WelcomeHeroVariant.glide.name : WelcomeHeroVariant.morph.name
+        HeroStack(t: t, taglineAt: centered ? 1.45 : 1.3, spacing: 22, name: name) {
             Canvas { context, size in
                 typealias E = IntroEase
                 let scale = size.width / width
                 context.scaleBy(x: scale, y: scale)
                 let baseline = (height + xh) / 2
                 let label = GraphicsContext.Shading.color(theme.colors.label.color)
+                let blockWidth = xh * 0.6, blockHeight = xh * 1.2
 
-                // Typing: one letter per 0.1 s; the cursor steps after each.
+                // Typing: one letter per 0.1 s; the cursor steps after each,
+                // measured from the word's left edge.
                 let typedAt = word.glyphs.indices.map { 0.45 + 0.1 * Double($0) }
                 let step = xh * 0.1
-                var cursorX = wordX
+                var cursorOffset: CGFloat = 0
                 for (glyph, at) in zip(word.glyphs, typedAt) {
                     let p = CGFloat(E.outQuint(E.seg(t, at, at + 0.08)))
-                    cursorX += (wordX + glyph.x + glyph.advance + step - cursorX) * p
+                    cursorOffset += (glyph.x + glyph.advance + step - cursorOffset) * p
                 }
+                let m = E.inOut(E.seg(t, 1.0, 1.0 + flight))
+
+                // Where the word is typed: at its lockup place (Morph), or
+                // with the typed line centered on the settled lockup's center
+                // (Glide), which then slides into the lockup with the cursor.
+                let typingWordX = centered ? ((lockupWordX + word.width) - (cursorOffset + blockWidth)) / 2 : lockupWordX
+                let wordX = typingWordX + (lockupWordX - typingWordX) * CGFloat(m)
 
                 // The cursor, drawn first: on its way home it passes behind
                 // the letters, which stay crisp over it.
                 let blink = (0.22..<0.34).contains(t) || (0.86..<0.98).contains(t)
                 if t >= 0.04, !blink {
-                    // A block a little taller than the x-height.
-                    let blockWidth = xh * 0.6, blockHeight = xh * 1.2
-                    let block = CGRect(x: cursorX, y: baseline + xh * 0.1 - blockHeight, width: blockWidth, height: blockHeight)
-                    let m = E.inOut(E.seg(t, 1.0, 1.42))
+                    // A block a little taller than the x-height, where typing left it.
+                    let block = CGRect(x: typingWordX + cursorOffset, y: baseline + xh * 0.1 - blockHeight,
+                                       width: blockWidth, height: blockHeight)
                     // Eight points each, in the same order, so the block bends into
                     // the arrow: its right side becomes the tip, its left side the notch.
                     let from: [CGPoint] = [

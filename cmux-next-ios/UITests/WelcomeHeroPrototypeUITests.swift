@@ -5,7 +5,7 @@ import XCTest
 /// wordmark, and leaves the sign-in rows in place; a pinned launch hides the
 /// picker. Goes away with the prototype once a direction is picked.
 final class WelcomeHeroPrototypeUITests: XCTestCase {
-    private let directions = ["lockup", "site", "bloom", "morph", "decode", "shimmer", "raster", "draft", "keys", "circuit", "tube"]
+    private let directions = ["lockup", "site", "bloom", "morph", "glide", "decode", "shimmer", "raster", "draft", "keys", "circuit", "tube"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -39,6 +39,26 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
         XCTAssertTrue(element(app, id: "welcome.wordmark.morph").waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["welcome.hero.raster"].exists, "a pinned launch must not show the picker")
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
+    }
+
+    /// Glide (Morph, centered) plays its reveal on a pinned launch in light
+    /// and in dark: the word types out centered, then slides right as the
+    /// cursor flies home. The recording shows both; the stills are settled.
+    @MainActor
+    func testGlideRevealsInLightAndDark() throws {
+        defer { XCUIDevice.shared.appearance = .light }
+        for dark in [false, true] {
+            XCUIDevice.shared.appearance = dark ? .dark : .light
+            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "glide"])
+            XCTAssertTrue(element(app, id: "welcome.wordmark.glide").waitForExistence(timeout: 20))
+            XCTAssertFalse(app.buttons["welcome.hero.morph"].exists, "a pinned launch must not show the picker")
+            // The whole reveal, for the recording.
+            _ = app.staticTexts["__never__"].waitForExistence(timeout: 3)
+            XCTAssertTrue(element(app, label: "Your Macs, in your pocket").exists, "glide: tagline missing")
+            XCTAssertTrue(app.buttons["Continue with Google"].exists)
+            capture("glide-\(dark ? "dark" : "light")")
+            app.terminate()
+        }
     }
 
     /// The sign-in rows answer a held finger the way system glass does: held,
