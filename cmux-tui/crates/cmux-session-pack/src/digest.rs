@@ -68,6 +68,17 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
         let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
         let update = v.pointer("/msg/params/update");
         match kind {
+            // A turn starts at its `turn_started` record, which follows the person's message: the
+            // message itself ends the turn before, so the ask is shown here too.
+            "turn_started" => {
+                let asked = v
+                    .pointer("/msg/promptLine")
+                    .or_else(|| v.pointer("/msg/prompt"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let (shown, _) = cut(asked, limits.prompt);
+                let _ = writeln!(out, "\nasked (seq {seq}): {shown}");
+            }
             "agent_message_chunk" => {
                 say.push_str(
                     update
@@ -166,31 +177,61 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
     Ok(out)
 }
 
-/// One line a turn: its range name, when it started (ms since 1970), how many records it holds,
-/// and the start of what was asked.
-pub fn outline(pack: &Pack) -> Result<String> {
+/// One turn of an outline: its range, when it started (ms since 1970), how many records it
+/// holds, and the start of what was asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Turn {
+    /// The turn's lines, `<session>@<first>-<last>`.
+    pub range: RangeId,
+    /// When its first record was written, ms since 1970 (0 when the record says none).
+    pub at: u64,
+    /// How many records it holds.
+    pub records: u64,
+    /// The first 160 bytes of what was asked (cut at a character).
+    pub ask: String,
+}
+
+/// The turns of `pack`, in order ([`outline`] as data).
+pub fn turns(pack: &Pack) -> Result<Vec<Turn>> {
+    turns_window(pack, 0, usize::MAX)
+}
+
+/// Turns `from..to` (by their order in the pack) of `pack`: only those turns' first lines are
+/// read, so a window of a long chat costs what the window does.
+pub fn turns_window(pack: &Pack, from: usize, to: usize) -> Result<Vec<Turn>> {
     let m = &pack.manifest;
     let starts: Vec<u64> = m.marks().collect();
-    let mut out = String::new();
+    let to = to.min(starts.len());
+    let from = from.min(to);
     // Long strings are left out, so no blob chunk is read: the prompt's first line is short.
-    let all = pack.skim_lines(&starts)?;
-    for (i, first) in starts.iter().enumerate() {
+    let all = pack.skim_lines(starts.get(from..to).unwrap_or(&[]))?;
+    let mut out = Vec::with_capacity(to - from);
+    for i in from..to {
+        let first = starts.get(i).copied().unwrap_or(0);
         let last = starts.get(i + 1).copied().unwrap_or(m.lines) - 1;
-        let line = all.get(i).ok_or("a turn's first line is missing")?;
+        let line = all.get(i - from).ok_or("a turn's first line is missing")?;
         let v: Value = serde_json::from_slice(line).unwrap_or(Value::Null);
         let prompt = v
             .pointer("/msg/promptLine")
             .or_else(|| v.pointer("/msg/prompt"))
             .and_then(Value::as_str)
             .unwrap_or("");
-        let at = v.get("at").and_then(Value::as_u64).unwrap_or(0);
-        let _ = writeln!(
-            out,
-            "{}\t{at}\t{}\t{}",
-            RangeId { name: m.name.clone(), first: *first, last },
-            last - first + 1,
-            cut(prompt, 160).0
-        );
+        out.push(Turn {
+            range: RangeId { name: m.name.clone(), first, last },
+            at: v.get("at").and_then(Value::as_u64).unwrap_or(0),
+            records: last - first + 1,
+            ask: cut(prompt, 160).0.to_owned(),
+        });
+    }
+    Ok(out)
+}
+
+/// One line a turn: its range name, when it started (ms since 1970), how many records it holds,
+/// and the start of what was asked.
+pub fn outline(pack: &Pack) -> Result<String> {
+    let mut out = String::new();
+    for t in turns(pack)? {
+        let _ = writeln!(out, "{}\t{}\t{}\t{}", t.range, t.at, t.records, t.ask);
     }
     Ok(out)
 }

@@ -262,6 +262,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
 }
 
+#[path = "compaction_outline.rs"]
+pub(super) mod compaction_outline;
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;

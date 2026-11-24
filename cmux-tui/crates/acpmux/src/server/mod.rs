@@ -2778,6 +2778,7 @@ mod agent_home;
 mod bg_tasks;
 mod github_prs;
 mod goal;
+mod history;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 mod machine_files_relay;
