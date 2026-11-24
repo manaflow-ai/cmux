@@ -15,10 +15,13 @@ import OSLog
 ///   ``hold`` (the keyboard's own limit, `DaemonTerminalSession.inputHoldLimit`) after the tap.
 /// - **Never silent.** Past the hold, `type` throws ``notSent`` (no attempt went out) or
 ///   ``maybeSent`` (one did, and its answer never came), which the caller shows.
-/// - **The screen check stays the caller's.** A key is queued only on the connection the caller
-///   checked the screen on. Only an attempt that already went out goes again on a newer
-///   connection (its key makes that safe); a key that never went out is given up as not sent
-///   when the connection changes, so the caller checks the screen again before typing it.
+/// - **Carried across a redial.** A key is queued only on the connection the caller checked the
+///   screen on. When that connection stalls or drops, every key not answered yet stays queued, in
+///   typed order, and goes on the connection that replaces it (an attempt that already went out
+///   goes again under its own key, so the Mac types it once). The Rust outbox decides this
+///   (`ComposerOutbox.attach`); the hold bounds it, so a key is never typed late into a screen
+///   the person has moved on from.
+/// - **`identify` once per connection**, before the first key on it, never per key.
 @MainActor
 final class TerminalKeyOutbox {
     static let notSent = "keys-not-sent"
@@ -42,11 +45,8 @@ final class TerminalKeyOutbox {
         let continuation: CheckedContinuation<Void, any Error>
     }
     private var waiters: [UInt64: Waiter] = [:]
-    /// Entries an attempt went out for.
-    private var attempted: Set<UInt64> = []
-    /// The connection the queue is bound to, and whether its daemon takes keys (nil: not asked).
+    /// The connection the queue is bound to (the outbox's `attach` decides what a change does).
     private var attached: Int?
-    private var keyed: Bool?
     private var driver: Task<Void, Never>?
     private let log = Logger(subsystem: "com.cmuxterm.mobile", category: "terminal-key-outbox")
 
@@ -64,7 +64,6 @@ final class TerminalKeyOutbox {
         guard self.connection?() == connection, request != nil else {
             throw LinkError(code: "no-link", message: "Not connected to the Mac")
         }
-        if outbox.pending() == 0 { attached = connection; keyed = nil }
         let seq = outbox.pushKeys(bytes: bytes, nowMs: nowMs())
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             waiters[seq] = Waiter(surface: surface, bytes: bytes, continuation: continuation)
@@ -86,27 +85,20 @@ final class TerminalKeyOutbox {
     }
 
     private func drive(_ current: Int) async {
-        if attached != current {
-            // A new connection: an attempt that went out goes again under its key; a key that
-            // never went out is given up, so its caller checks the screen again.
+        if outbox.attach(connection: UInt64(truncatingIfNeeded: current)) {
+            // A new connection: what went out goes again under its key, the rest stays queued in
+            // typed order under its hold.
             attached = current
-            keyed = nil
-            outbox.linkLost()
-            for seq in waiters.keys.sorted() where !attempted.contains(seq) {
-                if let done = outbox.giveUpSend(seq: seq) { finish([done]) }
-            }
         }
-        if keyed == nil {
+        if outbox.needsIdentify() {
             guard let reply = try? await request?("identify", Data("{}".utf8), current, attemptDeadline), attached == current else { return }
-            let caps = DaemonTerminalSession.capabilities(reply)
-            keyed = outbox.setCapabilities(capabilities: caps)
+            _ = outbox.setCapabilities(capabilities: DaemonTerminalSession.capabilities(reply))
         }
-        guard keyed == true else {
+        guard outbox.isServed() else {
             await sendUnkeyed(current)
             return
         }
         while let next = outbox.nextRequest() {
-            attempted.insert(next.seq)
             Task { [weak self] in await self?.attempt(next, on: current) }
         }
     }
@@ -120,7 +112,7 @@ final class TerminalKeyOutbox {
         do {
             reply = try await request?("send", body, current, attemptDeadline) ?? Data()
         } catch {
-            // Only the connection the queue is on counts: an older one was already given up.
+            // Only the connection the queue is on counts: an older one's attempts were requeued.
             if attached == current { settle(next.seq, .lost) }
             return
         }
@@ -142,7 +134,6 @@ final class TerminalKeyOutbox {
         let queued = outbox.giveUp()
         for done in queued {
             guard let waiter = waiters.removeValue(forKey: done.seq) else { continue }
-            attempted.remove(done.seq)
             do {
                 let reply = try await request?("send", (try? JSONSerialization.data(withJSONObject: ["surface": waiter.surface, "bytes": waiter.bytes.base64EncodedString()] as [String: Any])) ?? Data("{}".utf8), current, .seconds(20)) ?? Data()
                 _ = try WorkspaceSync.check(reply)
@@ -159,7 +150,6 @@ final class TerminalKeyOutbox {
 
     private func finish(_ dones: [ComposerSendDone]) {
         for done in dones {
-            attempted.remove(done.seq)
             guard let waiter = waiters.removeValue(forKey: done.seq) else { continue }
             switch done.outcome {
             case .sent:

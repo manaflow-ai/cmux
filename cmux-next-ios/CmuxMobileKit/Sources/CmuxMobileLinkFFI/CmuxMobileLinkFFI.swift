@@ -1336,6 +1336,14 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
     func answer(seq: UInt64, answer: ComposerSendAnswer)  -> ComposerSendDone?
     
     /**
+     * The session is on `connection` (its serial). Returns whether that is a new one: then what
+     * was in flight goes again under its key, every entry not answered yet stays queued in tap
+     * order under its own hold (nothing is given up for the change alone), and the daemon is
+     * asked `identify` once before anything goes on it (see [`Self::needs_identify`]).
+     */
+    func attach(connection: UInt64)  -> Bool
+    
+    /**
      * Sends past the hold at `now_ms`, given up, in tap order.
      */
     func expire(nowMs: UInt64)  -> [ComposerSendDone]
@@ -1359,6 +1367,12 @@ public protocol ComposerOutboxProtocol: AnyObject, Sendable {
      * The channel dropped: what was in flight goes again on the next one.
      */
     func linkLost() 
+    
+    /**
+     * Whether the attached connection's daemon still has to be asked `identify`: once per
+     * connection, never per entry.
+     */
+    func needsIdentify()  -> Bool
     
     /**
      * Milliseconds after `now_ms` until the oldest Send runs out of hold (0 when it has), or
@@ -1475,6 +1489,21 @@ open func answer(seq: UInt64, answer: ComposerSendAnswer) -> ComposerSendDone?  
 }
     
     /**
+     * The session is on `connection` (its serial). Returns whether that is a new one: then what
+     * was in flight goes again under its key, every entry not answered yet stays queued in tap
+     * order under its own hold (nothing is given up for the change alone), and the daemon is
+     * asked `identify` once before anything goes on it (see [`Self::needs_identify`]).
+     */
+open func attach(connection: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_attach(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(connection),$0
+    )
+})
+}
+    
+    /**
      * Sends past the hold at `now_ms`, given up, in tap order.
      */
 open func expire(nowMs: UInt64) -> [ComposerSendDone]  {
@@ -1528,6 +1557,18 @@ open func linkLost()  {try! rustCall() {
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Whether the attached connection's daemon still has to be asked `identify`: once per
+     * connection, never per entry.
+     */
+open func needsIdentify() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_composeroutbox_needs_identify(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -7227,6 +7268,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_answer() != 43398) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_attach() != 60193) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_expire() != 45077) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7240,6 +7284,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_link_lost() != 26551) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_needs_identify() != 37913) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_composeroutbox_next_deadline_ms() != 21898) {
