@@ -19,20 +19,22 @@ fn matches_at(pattern: &[char], text: &[char]) -> bool {
     let (mut p, mut t) = (0, 0);
     let mut star: Option<(usize, usize, bool)> = None;
     while t < text.len() {
-        if p < pattern.len() && pattern[p] == '*' {
+        if pattern.get(p) == Some(&'*') {
             let double = pattern.get(p + 1) == Some(&'*');
             p += if double { 2 } else { 1 };
             star = Some((p, t, double));
             continue;
         }
-        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
+        if let Some(c) = pattern.get(p)
+            && (*c == '?' || text.get(t) == Some(c))
+        {
             p += 1;
             t += 1;
             continue;
         }
         match star {
             // A single star never swallows a '/'.
-            Some((sp, st, double)) if double || text[st] != '/' => {
+            Some((sp, st, double)) if double || text.get(st) != Some(&'/') => {
                 star = Some((sp, st + 1, double));
                 p = sp;
                 t = st + 1;
@@ -40,7 +42,7 @@ fn matches_at(pattern: &[char], text: &[char]) -> bool {
             _ => return false,
         }
     }
-    pattern[p..].iter().all(|c| *c == '*')
+    pattern.get(p..).is_some_and(|rest| rest.iter().all(|c| *c == '*'))
 }
 
 #[cfg(test)]
