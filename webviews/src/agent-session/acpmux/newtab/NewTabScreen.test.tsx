@@ -840,8 +840,8 @@ test("with a remembered pick and no catalog, Return asks instead of searching", 
     field.acpmuxMarkdownField!.type("look at the ios connection failures");
   });
   const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
-  // The prompt is Return's with no row of its own (David Beyer 2026-11-20); the web search is a row.
-  expect(document.querySelector('.nt-row[data-type="ask"]')).toBeNull();
+  // The prompt leads as the Ask row; the web search is a row too.
+  expect(document.querySelector('.nt-row[data-type="ask"]')).toBeTruthy();
   expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
   await press(field, "Enter");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -2474,10 +2474,9 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });
 
-// David Beyer 2026-11-20 (first-run call): "the Ask Claude code thing is confusing 'cause it's not clear that I'm ...
-// already set on Claude Code". The prompt for the chip's own agent is what Return does with plain text, which the
-// chip and Send already say: the suggestions draw it as no row, nothing is highlighted, and Return asks.
-test("a prompt for the chip's agent is no suggestion row: nothing is highlighted and Return asks", async () => {
+// The prompt for the chip's own agent is the top row (Lucas 2026-11-23): "Ask Claude Code" says what Return does
+// with plain text. It is highlighted, with no Return keycap (its name says what Return does), and Return asks.
+test("a prompt for the chip's agent leads as the Ask row: highlighted, Return asks", async () => {
   const asks: unknown[][] = [];
   const searches: string[] = [];
   await act(async () => {
@@ -2492,16 +2491,42 @@ test("a prompt for the chip's agent is no suggestion row: nothing is highlighted
     );
   });
   const field = await typePrompt("fix the failing test");
-  expect(document.querySelector('.nt-row[data-type="ask"]'), "no Ask row for the chip's own agent").toBeNull();
-  expect(document.querySelector(".nt-row.is-selected"), "no row is Return's").toBeNull();
-  expect(document.querySelector(".nt-row-return"), "no row shows Return's keycap").toBeNull();
+  const ask = document.querySelector<HTMLElement>('.nt-popover .nt-row[data-type="ask"]');
+  expect(ask, "the Ask row for the chip's own agent").toBeTruthy();
+  expect(document.querySelector(".nt-popover .nt-row"), "it is the top row").toBe(ask);
+  expect(ask!.classList.contains("is-selected"), "it is Return's row").toBe(true);
+  expect(ask!.querySelector(".nt-row-return"), "no Return keycap on the Ask row").toBeNull();
   expect(document.querySelector(".nt-send")?.getAttribute("data-returns"), "Send is the prompt's arrow").toBeNull();
   await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
   expect(searches).toEqual([]);
 });
 
-test("Down from the prompt highlights the first drawn row, Up goes back to the prompt", async () => {
+test("a primary press on the Ask row asks; a right or Control press does nothing", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("fix the failing test");
+  const ask = document.querySelector<HTMLElement>('.nt-popover .nt-row[data-type="ask"]')!;
+  const MouseEvent = ask.ownerDocument.defaultView!.MouseEvent;
+  const press = (init: MouseEventInit) =>
+    act(async () => void ask.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, ...init })));
+  await press({ button: 2 });
+  await press({ button: 0, ctrlKey: true });
+  expect(asks, "no ask from a right or Control press").toEqual([]);
+  await press({ button: 0 });
+  expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
+});
+
+test("Down from the Ask row highlights the next row, Up goes back to it", async () => {
   const asks: unknown[][] = [];
   const searches: string[] = [];
   await act(async () => {
@@ -2517,17 +2542,13 @@ test("Down from the prompt highlights the first drawn row, Up goes back to the p
   });
   const field = await typePrompt("fix the failing test");
   const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
-  expect(rows().length).toBeGreaterThan(0);
+  expect(rows().length).toBeGreaterThan(1);
   await press(field, "ArrowDown");
-  expect(rows()[0]!.classList.contains("is-selected"), "the first drawn row").toBe(true);
-  expect(rows()[0]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
+  expect(rows()[1]!.classList.contains("is-selected"), "the row under the Ask row").toBe(true);
+  expect(rows()[1]!.querySelector(".nt-row-return"), "Return's keycap on it").toBeTruthy();
   await press(field, "ArrowUp");
-  expect(document.querySelector(".nt-row.is-selected"), "back on the prompt").toBeNull();
-  // The prompt is one stop: one more Up wraps to the last drawn row, and Down from it comes back.
-  await press(field, "ArrowUp");
-  expect(rows().at(-1)!.classList.contains("is-selected"), "the last drawn row").toBe(true);
-  await press(field, "ArrowDown");
-  expect(document.querySelector(".nt-row.is-selected"), "the prompt again").toBeNull();
+  expect(rows()[0]!.getAttribute("data-type"), "the Ask row").toBe("ask");
+  expect(rows()[0]!.classList.contains("is-selected"), "back on the Ask row").toBe(true);
   await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix the failing test"]);
   expect(searches).toEqual([]);
