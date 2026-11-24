@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -12,7 +13,6 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
-  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -26,9 +26,9 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -111,11 +111,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
-  type ReferenceScope,
-  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -154,9 +154,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
-  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
+  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -168,7 +168,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -202,7 +202,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
+import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -242,8 +242,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -717,6 +717,7 @@ function TranscriptView({
   anchorNow,
   placeNow,
   inViewNow,
+  onSeenRows,
   heldWorkedClosing,
   onLoadOlder,
   sends = 0,
@@ -769,6 +770,8 @@ function TranscriptView({
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
+  /// The rows truly on screen, with no overscan, whenever the visible layout range changes.
+  onSeenRows?: (rows: readonly AcpmuxRow[]) => void;
   /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
   /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
   /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
@@ -4021,6 +4024,12 @@ function TranscriptView({
   );
   // The run of mounted rows the reader sees.
   const view = visibleLayoutRange(layout, shownTop, height);
+  // Overscan rows are mounted for smooth scrolling but have not been seen by the reader.
+  const onScreen = visibleLayoutRange(layout, shownTop, height, 0);
+  useLayoutEffect(() => {
+    if (!onSeenRows || sessionId === undefined || onScreen.last <= onScreen.first) return;
+    onSeenRows(rows.slice(onScreen.first, onScreen.last));
+  }, [onSeenRows, rows, sessionId, onScreen.first, onScreen.last]);
   const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
@@ -6959,9 +6968,16 @@ function TranscriptView({
   }, [canLoadNewer, height, onLoadNewer, newerLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(newerRecheck.current), []);
   // The view went to the latest message (the reader scrolled to the end, a send) while the rows end in history: the
-  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`).
+  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`). Only the view starting to
+  // follow is that move. A rail jump far back makes the window (`jumpWindow`) while the view still follows the
+  // chat's end, a frame before the jump scrolls to its prompt: read as a return, it swapped the window for the
+  // newest page, and the jump drew its prompt, went to the chat's end and came back (bench/thread-rail-jump.bench.ts,
+  // unloaded case: 872 px moved).
+  const followedForReturn = useRef(following);
   useEffect(() => {
-    if (following && canLoadNewer) void onReturnToLatest?.();
+    const started = following && !followedForReturn.current;
+    followedForReturn.current = following;
+    if (started && canLoadNewer) void onReturnToLatest?.();
   }, [following, canLoadNewer, onReturnToLatest]);
   // A Jump to latest pressed while the rows end in history waits for the newest page, then goes there.
   useEffect(() => {
@@ -7131,6 +7147,10 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
+    // A followed view's offset is not where its rows draw until the placement pass runs: none is
+    // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
+    viewTop: shownTop,
+    viewHeight: renderFollowing ? 0 : height,
     frameKey,
     registry,
     setSizeRef,
