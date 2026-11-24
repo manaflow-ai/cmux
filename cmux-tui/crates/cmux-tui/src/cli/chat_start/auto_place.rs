@@ -8,7 +8,7 @@ use acpmux::place_mode::{self, Facts, Place, PlaceMode};
 use cmux_cloud_start_core::hybrid::Account;
 use serde_json::Value;
 
-use super::super::cloud_start_chat::{self, Machine};
+use super::super::cloud_start_chat::Machine;
 use super::super::{GlobalArgs, OutputMode};
 use super::{Route, Start, hybrid_start};
 
@@ -40,8 +40,17 @@ pub(super) fn pick(
     let account = if local.busy.is_some() { account() } else { Account::default() };
     let decision =
         place_mode::decide(&PlaceMode::Auto, &Facts { local, account, machines: vec![] });
-    let route = matches!(decision.place, Place::Cloud { .. }).then_some(Route::Cloud(Machine::New));
-    (route, decision.why)
+    // Auto leaves a busy Mac only where the hybrid start is on for the account (its flag or a
+    // plan that grants it): nobody without it gets a Cloud VM they did not pick.
+    match decision.place {
+        Place::Cloud { hybrid: true } => (Some(Route::Cloud(Machine::New)), decision.why),
+        Place::Cloud { hybrid: false } => (
+            None,
+            "this Mac is busy, and hybrid chats are not on for this account, so it starts here"
+                .into(),
+        ),
+        _ => (None, decision.why),
+    }
 }
 
 /// The route Auto gives `start`, or `Route::Here`. A Cloud route says why on stderr.
@@ -51,8 +60,7 @@ pub(super) fn route(global: &GlobalArgs, start: &Start) -> Route {
     }
     // Signed in and Cloud allowed, read with the start's own machine list; the plan is the
     // hybrid start's own read, so none here.
-    let account =
-        || hybrid_start::account(Some(false), cloud_start_chat::app_machines(global), || None);
+    let account = || hybrid_start::account_now(global);
     let (route, why) = pick(super::super::agents::chat::chat_place_verdict(global), account);
     match route {
         Some(route) => {
@@ -84,7 +92,7 @@ mod tests {
     }
 
     fn signed_in() -> Account {
-        Account { signed_in: true, ..Account::default() }
+        Account { signed_in: true, flag: Some(true), ..Account::default() }
     }
 
     /// A chat nobody placed: here with room (the account is never read), a new Cloud VM when
@@ -101,6 +109,10 @@ mod tests {
         let disabled = || Account { cloud_disabled: true, ..signed_in() };
         assert_eq!(pick(Ok(verdict(true)), disabled).0, None);
         assert_eq!(pick(Err("no acpmux".into()), signed_in).0, None);
+        let no_hybrid = || Account { flag: Some(false), ..signed_in() };
+        let (route, why) = pick(Ok(verdict(true)), no_hybrid);
+        assert_eq!(route, None);
+        assert!(why.contains("hybrid chats are not on"), "{why}");
     }
 
     /// Auto weighs only a start a Cloud VM runs the same: no target named, nothing of this
