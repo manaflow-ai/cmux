@@ -316,20 +316,23 @@ test("a prompt held at dispatch never reaches acpmux and says why", async () => 
 // itself, under its own prompt id, with no click; a refusal that would come back the same does not.
 test("a send that got no answer in time goes again by itself and lands, with no click", async () => {
   const timedOut = Object.assign(new Error("no answer from acpmux"), { code: "timeout" });
-  const pane = await paneWith((attempt) => (attempt === 1 ? timedOut : undefined));
+  let resent!: () => void;
+  const secondTry = new Promise<void>((resolve) => (resent = resolve));
+  const pane = await paneWith((attempt) => {
+    if (attempt === 2) resent();
+    return attempt === 1 ? timedOut : undefined;
+  });
   try {
     await pane.client.send("deploy after the timeout").catch(() => undefined);
-    expect(pane.rows().find((row) => row.kind === "user" && row.text === "deploy after the timeout")?.failed).toBe(
-      true,
-    );
-    const { SELF_RESEND_FIRST_MS } = await import("./sendWhenReady");
-    const deadline = Date.now() + SELF_RESEND_FIRST_MS + 4_000;
-    while (pane.prompts.length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const users = () => pane.rows().filter((row) => row.kind === "user" && row.text === "deploy after the timeout");
+    expect(users()[0]?.failed).toBe(true);
+    // The pane's own backoff sends it again; nothing here clicks.
+    await secondTry;
     expect(pane.prompts).toEqual(["deploy after the timeout", "deploy after the timeout"]);
-    const users = pane.rows().filter((row) => row.kind === "user" && row.text === "deploy after the timeout");
-    expect(users).toHaveLength(1);
-    expect(users[0]!.failed).toBeFalsy();
+    // fixed-wait: the row clears when the second send's answer comes back, an await inside the pane with no event out.
+    for (let turn = 0; turn < 40 && users()[0]?.failed; turn++) await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(users()).toHaveLength(1);
+    expect(users()[0]!.failed).toBeFalsy();
   } finally {
     pane.client.close?.();
   }
@@ -341,6 +344,7 @@ test("a refusal that would come back the same is not sent again by itself", asyn
   try {
     await pane.client.send("refused for good").catch(() => undefined);
     const { SELF_RESEND_FIRST_MS } = await import("./sendWhenReady");
+    // fixed-wait: proves a send does not happen, so it waits past the first self-resend's delay.
     await new Promise((resolve) => setTimeout(resolve, SELF_RESEND_FIRST_MS + 300));
     expect(pane.prompts).toEqual(["refused for good"]);
   } finally {
