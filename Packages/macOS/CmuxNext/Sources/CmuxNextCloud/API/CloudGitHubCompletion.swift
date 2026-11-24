@@ -105,7 +105,7 @@ extension CloudGitHubCompletion {
             await auth.awaitRestored()
             guard auth.isSignedIn else { return }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            let (answer, reason) = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+            let (answer, reason) = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
                 .gitHubCompleteWithReason(completion)
             auth.gitHubChanges.record(answer, reason: reason)
         }
@@ -129,10 +129,12 @@ extension CloudOwnerAPIClient {
 
     /// ``gitHubComplete(_:)`` and, for a refusal, the API's own words (``refusalReason(body:)``).
     public func gitHubCompleteWithReason(_ completion: CloudGitHubCompletion) async -> (answer: GitHubCompletion, reason: String?) {
-        let body: [String: Any] = ["op": "integration.complete", "params": completion.params, "origin": "user", "idempotency_key": completion.idempotencyKey]
-        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return (.noAnswer, nil) }
-        let result = Self.completion(status: answer.status, body: answer.body)
-        return (result, result == .refused ? Self.refusalReason(body: answer.body) : nil)
+        let args: [String: any Sendable] = ["params": completion.params, "idempotencyKey": completion.idempotencyKey]
+        guard let data = try? await daemon("owner.github_complete", args, timeout: Self.bound(Self.personWait)),
+              let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let status = reply["status"] as? Int else { return (.noAnswer, nil) }
+        let body = reply["body"].flatMap { $0 is NSNull ? nil : (try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed)) } ?? Data()
+        let result = Self.completion(status: status, body: body)
+        return (result, result == .refused ? Self.refusalReason(body: body) : nil)
     }
 
     /// The API's message for a refused completion (`{error: {code, message}}`), trimmed and capped; nil when it gave none,
