@@ -58,7 +58,6 @@ import Testing
         var starOn: Ink
         var puzzle: Ink
         var more: Ink
-        var tabBarMore: Ink
     }
 
     static func glyphs(_ preset: DensityPreset) throws -> Glyphs {
@@ -87,11 +86,7 @@ import Testing
         if puzzle.superview == nil { chrome.addSubview(puzzle) }
         chrome.layoutSubtreeIfNeeded()
         let more = try #require(chrome.toolbarButtons.anchor(for: .overflow) as? ChromeIconButton)
-        let pane = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 600, height: Metrics.tabStripHeight))
-        pane.show(more: true, lit: false)
-        pane.layoutSubtreeIfNeeded()
-        return Glyphs(star: off, starOn: on, puzzle: try ink(puzzle), more: try ink(more),
-                      tabBarMore: try ink(pane.moreButton))
+        return Glyphs(star: off, starOn: on, puzzle: try ink(puzzle), more: try ink(more))
     }
 
     @Test func compactsStarIs13AndAHalfAndItsExtensionsPuzzle16Tall() throws {
@@ -162,14 +157,13 @@ import Testing
         }
     }
 
-    /// The ⋮ is Helium's and Chrome's: 24 rows (12 pt) by 6 columns at 2x, the same in the toolbar and the pane's tab bar
-    /// above it (Lawrence msg 19627: one ⋮ in the pane), at Compact and Default.
+    /// The toolbar's ⋮ is Helium's and Chrome's: 24 rows (12 pt) by 6 columns at 2x, at Compact and Default (the pane's
+    /// tab bar has no ⋮ of its own, #53356).
     @Test(arguments: [DensityPreset.compact, .cozy])
     func theMoreDrawsChromesDots(preset: DensityPreset) throws {
         let glyphs = try Self.glyphs(preset)
         #expect(glyphs.more.rows.count == 24 && glyphs.more.columns == 6,
                 "\(preset): the toolbar ⋮ is \(glyphs.more.rows.count) rows by \(glyphs.more.columns): want 24 by 6")
-        #expect(glyphs.tabBarMore == glyphs.more, "\(preset): the tab bar ⋮ \(glyphs.tabBarMore.rows.count) rows by \(glyphs.tabBarMore.columns), the toolbar's \(glyphs.more.rows.count) by \(glyphs.more.columns)")
     }
 
     /// Default's Extensions puzzle and ⋮ draw Compact's pixels, row for row.
