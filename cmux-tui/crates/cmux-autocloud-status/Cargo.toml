@@ -1,0 +1,17 @@
+[package]
+name = "cmux-autocloud-status"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "What the sidebar's AutoCloud status icon shows: the cloud VM's phase, the Mac<->VM sync state and who is here (people and agents), as one typed snapshot, and the one headline it draws. The feeds (acpmux `_acpmux/here`, the cmux-sync crate) fill the snapshot; the native and web views only draw it."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

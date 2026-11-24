@@ -1,0 +1,126 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "matrix-spaces-off",
+      "entry": "sidebar.autocloud-status-matrix",
+      "variant": "spaces-off",
+      "width": 1180,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "matrix-spaces-on",
+      "entry": "sidebar.autocloud-status-matrix",
+      "variant": "spaces-on",
+      "width": 1180,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "glyph-popover",
+      "entry": "sidebar.autocloud-status",
+      "variant": "glyph-popover",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "glyph-spaces",
+      "entry": "sidebar.autocloud-status",
+      "variant": "glyph-spaces",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "pill-popover",
+      "entry": "sidebar.autocloud-status",
+      "variant": "pill-popover",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "pill-spaces",
+      "entry": "sidebar.autocloud-status",
+      "variant": "pill-spaces",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "split-popover",
+      "entry": "sidebar.autocloud-status",
+      "variant": "split-popover",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "split-spaces",
+      "entry": "sidebar.autocloud-status",
+      "variant": "split-spaces",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "strip-popover",
+      "entry": "sidebar.autocloud-status",
+      "variant": "strip-popover",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "strip-spaces",
+      "entry": "sidebar.autocloud-status",
+      "variant": "strip-spaces",
+      "width": 300,
+      "height": 400,
+      "deviceScaleFactor": 2,
+      "clip": ".acs-sidebar",
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}

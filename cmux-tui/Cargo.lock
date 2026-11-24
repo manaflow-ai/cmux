@@ -1482,6 +1482,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud-status"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [

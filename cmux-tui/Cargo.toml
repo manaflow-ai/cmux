@@ -223,6 +223,7 @@ members = [
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
+    "crates/cmux-autocloud-status",
     "crates/cmux-usage-patterns",
     "crates/cmux-usage-share",
     "crates/cmux-vault-egress",
@@ -401,6 +402,7 @@ default-members = [
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
     "crates/cmux-device-kind",
+    "crates/cmux-autocloud-status",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/cmux-embed",
@@ -523,6 +525,7 @@ cmux-image-linear = { path = "crates/cmux-image-linear" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-device-kind = { path = "crates/cmux-device-kind" }
+cmux-autocloud-status = { path = "crates/cmux-autocloud-status" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
 cmux-usage-share = { path = "crates/cmux-usage-share" }
 cmux-command-class = { path = "crates/cmux-command-class" }
