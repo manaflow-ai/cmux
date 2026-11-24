@@ -472,6 +472,7 @@ mod refused_append_tests;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
+pub(crate) mod session_hold;
 #[cfg(feature = "sim")]
 mod sim_startup;
 pub(crate) mod stop_if_idle;
@@ -1251,6 +1252,8 @@ pub struct Hub {
     /// Whether surge admission holds messages, set by tests; `None` reads Settings >
     /// Experimental > Labs > Show Preview Features (`inbox_surge.rs` `surge_inbox_on`).
     pub(super) surge_inbox: StdMutex<Option<bool>>,
+    /// The fleet hold as its file last read (`session_hold.rs`).
+    pub(crate) fleet_hold: StdMutex<session_hold::FleetHoldCache>,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1699,6 +1702,7 @@ impl Hub {
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
             surge_inbox: StdMutex::new(None),
+            fleet_hold: StdMutex::new(session_hold::FleetHoldCache::default()),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -2301,6 +2305,7 @@ impl Hub {
             idle: std::sync::atomic::AtomicUsize::new(0),
             turn_ended_seq: AtomicU64::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            exit_line: StdMutex::new(Default::default()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             kept_messages: StdMutex::new(std::collections::VecDeque::new()),

@@ -262,9 +262,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `terminalSwitch`: also answer whether the chat is half of a terminal and chat pair (its "..." asks as it
     /// opens, and once as the chat loads; never on a hover, since that answer walks every machine's agents).
     case tabState(refresh: Bool, terminalSwitch: Bool = false)
-    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
-    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
-    case tabRowTools(width: Double)
+    /// `pane.tabRowTools {width, need?}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there; `need` is that width less
+    /// what takes only the row's leftover room (the rolling summary), what decides whether the pane offers the row.
+    case tabRowTools(width: Double, need: Double? = nil)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
