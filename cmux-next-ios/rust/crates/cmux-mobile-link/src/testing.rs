@@ -27,7 +27,9 @@ use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, 
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
+mod hub;
 mod shaped;
+pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{LINK_PROFILES_JSON, LinkProfile, set_link_profile, shape_by_profile, shaped_counts};
 
 #[derive(Debug, Clone, Default)]

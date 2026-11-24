@@ -11,6 +11,7 @@ import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.expe
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
+import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
@@ -94,6 +95,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { composerPlusReturnHint } from "../agent-session/acpmux/composerPlusReturnHint.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
+import { composerControlsAnchor } from "../agent-session/acpmux/composerControlsAnchor.experiment";
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
@@ -230,6 +232,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   composerPlusReturnHint,
   promptSuggestionLook,
+  composerControlsAnchor,
   cloudStartComposerLook,
   cmuxLinkLook,
   sentPasteJoin,
@@ -241,6 +244,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   planUsageLook,
   emojiShortcodeLook,
   pastePlaceholderLook,
+  attachStripSize,
   sendStopMorph,
   stopPresence,
   sendMenuLook,

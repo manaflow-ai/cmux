@@ -5,6 +5,13 @@
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
 //!            [--no-turn-prewarm]
+//!   cmux-mobile-dial --local --mac MAC_DEVICE_ID [--local-addr HOST:PORT]... [...]
+//!
+//! `--local` (ultra-connectivity P7) dials with no Worker and no internet:
+//! it browses mDNS for the Mac's `_cmux-link._tcp` ad (or takes
+//! `--local-addr`), signals through the Mac's local hub, and offers no ICE
+//! servers. It needs no `--base-url`, `--token-file` or `--team`; the JSON
+//! adds `discover_ms` (the browse) and `local: true`.
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
@@ -59,6 +66,8 @@ struct Args {
     pings: usize,
     stock_ice_waits: bool,
     no_turn_prewarm: bool,
+    local: bool,
+    local_addrs: Vec<std::net::SocketAddr>,
 }
 
 fn parse() -> Result<Args> {
@@ -70,6 +79,8 @@ fn parse() -> Result<Args> {
     let (mut drop_wireguard, mut proxy_only) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let (mut no_input_lane, mut no_turn_prewarm) = (false, false);
+    let mut local = false;
+    let mut local_addrs = Vec::new();
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -94,13 +105,32 @@ fn parse() -> Result<Args> {
             "--no-turn-prewarm" => no_turn_prewarm = true,
             "--daemon" => daemon = true,
             "--stock-ice-waits" => stock_ice_waits = true,
+            "--local" => local = true,
+            "--local-addr" => {
+                local = true;
+                local_addrs.push(value()?.parse().context("--local-addr is HOST:PORT")?);
+            }
             other => bail!("unknown argument {other}"),
         }
     }
-    let token_file = token_file.context("--token-file is required")?;
-    let token = std::fs::read_to_string(&token_file).with_context(|| format!("reading {token_file}"))?;
+    let token = match (local, token_file) {
+        (true, None) => String::new(),
+        (_, token_file) => {
+            let token_file = token_file.context("--token-file is required")?;
+            std::fs::read_to_string(&token_file).with_context(|| format!("reading {token_file}"))?
+        }
+    };
     if transports.is_empty() {
-        transports = vec![TransportKind::WebRtc, TransportKind::WireGuard];
+        // A local dial is WireGuard's: the phone's link to a Mac beside it.
+        transports = if local {
+            vec![TransportKind::WireGuard]
+        } else {
+            vec![TransportKind::WebRtc, TransportKind::WireGuard]
+        };
+    }
+    if local {
+        base_url.get_or_insert_default();
+        team.get_or_insert_default();
     }
     Ok(Args {
         base_url: base_url.context("--base-url is required")?,
@@ -120,6 +150,8 @@ fn parse() -> Result<Args> {
         pings,
         stock_ice_waits,
         no_turn_prewarm,
+        local,
+        local_addrs,
     })
 }
 
@@ -127,7 +159,13 @@ fn millis(duration: Duration) -> f64 {
     (duration.as_secs_f64() * 10_000.0).round() / 10.0
 }
 
+/// How long `--local` browses mDNS for the Mac's ad.
+const BROWSE_WAIT: Duration = Duration::from_secs(5);
+
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
+    if args.local {
+        return run_local(args, kind).await;
+    }
     let api = ApiClient::new(&args.base_url, &args.token);
     let device = uuid::Uuid::new_v4().to_string();
     // The backend admits a signaling socket only for a registered device. The
@@ -145,17 +183,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     .context("POST /v1/devices")?;
     let started = Instant::now();
     let timeline = cmux_mobile_link::Timeline::starting_at(started);
-    let mut options = DialOptions {
-        exclude_cgnat: args.exclude_cgnat,
-        relay_only: args.relay_only,
-        block_udp: args.block_udp || args.proxy_only,
-        drop_wireguard_udp: args.drop_wireguard,
-        egress: cmux_mobile_link::egress::Egress { require_proxy: args.proxy_only, ..Default::default() },
-        input_lane: !args.no_input_lane,
-        timeline: timeline.clone(),
-        stock_ice_waits: args.stock_ice_waits,
-        ..DialOptions::default()
-    };
+    let options = dial_options(args, &timeline);
     // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
     // allocation starts once ICE answers.
     let ice = async {
@@ -187,7 +215,68 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let ((ice_servers, ice_fetch, early), signaling) = tokio::join!(ice, signaling);
     let (signaling, signaled) = signaling?;
     let turn_urls = cmux_mobile_link::dial::turn_url_count(&ice_servers);
-    options.ice_servers = ice_servers;
+    let options = DialOptions { ice_servers, ..options };
+    // From ICE's answer, so that ice_fetch_ms + connect_ms is the link up time.
+    let mut result = measure(args, kind, signaling, options, early, started + ice_fetch, signaled).await?;
+    result["turn_prewarm"] = json!(!args.no_turn_prewarm);
+    result["ice_beside_signaling"] = json!(true);
+    result["ice_fetch_ms"] = json!(millis(ice_fetch));
+    result["ice_turn_urls"] = json!(turn_urls);
+    Ok(result)
+}
+
+/// `--local`: find the Mac's hub (mDNS, or `--local-addr`), signal through it.
+async fn run_local(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
+    let browse_started = Instant::now();
+    let addresses = if args.local_addrs.is_empty() {
+        cmux_mobile_host::local_link::browse(&args.mac, None, BROWSE_WAIT).await
+    } else {
+        cmux_mobile_link::local::ordered(args.local_addrs.clone())
+    };
+    let discover = browse_started.elapsed();
+    if addresses.is_empty() {
+        bail!("no local ad for Mac {} within {}s", args.mac, BROWSE_WAIT.as_secs());
+    }
+    let device = uuid::Uuid::new_v4().to_string();
+    let started = Instant::now();
+    let timeline = cmux_mobile_link::Timeline::starting_at(started);
+    let signaling = cmux_mobile_link::local::connect_hub(&addresses, &device).await?;
+    let signaled = started.elapsed();
+    timeline.mark("signaling_open");
+    let options = dial_options(args, &timeline);
+    let mut result = measure(args, kind, signaling, options, None, started, signaled).await?;
+    result["local"] = json!(true);
+    result["discover_ms"] = json!(millis(discover));
+    result["hub_addresses"] = json!(addresses.iter().map(ToString::to_string).collect::<Vec<_>>());
+    Ok(result)
+}
+
+/// The dial's options from the flags, with no ICE servers yet.
+fn dial_options(args: &Args, timeline: &cmux_mobile_link::Timeline) -> DialOptions {
+    DialOptions {
+        exclude_cgnat: args.exclude_cgnat,
+        relay_only: args.relay_only,
+        block_udp: args.block_udp || args.proxy_only,
+        drop_wireguard_udp: args.drop_wireguard,
+        egress: cmux_mobile_link::egress::Egress { require_proxy: args.proxy_only, ..Default::default() },
+        input_lane: !args.no_input_lane,
+        timeline: timeline.clone(),
+        stock_ice_waits: args.stock_ice_waits,
+        ..DialOptions::default()
+    }
+}
+
+/// Dial, then measure the link. `connect_ms` counts from `connect_from`.
+async fn measure(
+    args: &Args,
+    kind: TransportKind,
+    signaling: SignalingClient,
+    options: DialOptions,
+    early: Option<cmux_mobile_link::dial::EarlyTurn>,
+    connect_from: Instant,
+    signaled: Duration,
+) -> Result<serde_json::Value> {
+    let timeline = options.timeline.clone();
     let connected = cmux_mobile_link::dial::connect_with_early_turn(
         &signaling,
         &args.mac,
@@ -197,8 +286,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         early,
     )
     .await?;
-    // From ICE's answer, so that ice_fetch_ms + connect_ms is the link up time.
-    let connect = started.elapsed().saturating_sub(ice_fetch);
+    let connect = connect_from.elapsed();
     let link = &connected.link;
     // The app's first request: a `daemon` channel and its first answer.
     let first_daemon = if args.daemon {
@@ -281,14 +369,10 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         "relay_only": args.relay_only,
         "block_udp": args.block_udp,
         "no_turn": args.no_turn,
-        "turn_prewarm": !args.no_turn_prewarm,
-        "ice_beside_signaling": true,
         "path": path,
-        "ice_fetch_ms": millis(ice_fetch),
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),
         "timings": marks,
-        "ice_turn_urls": turn_urls,
         "pings": rtts.len(),
         "rtt_ms": {"min": millis(rtts[0]), "median": millis(median), "p95": millis(p95), "max": millis(*rtts.last().unwrap())},
         "first_echo_ms": millis(first_echo),
