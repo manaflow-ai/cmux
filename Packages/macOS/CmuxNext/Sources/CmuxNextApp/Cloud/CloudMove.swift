@@ -291,22 +291,14 @@ struct CloudMove {
     /// machines' copies at one path would overwrite each other's). `progress` hears the copy's progress lines.
     func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI, retry: CloudMoveRetries.Retry,
               suffix: String = "", progress: CloudMoveProgress? = nil) async throws -> (folder: String, chat: String) {
-        var last = CloudMoveCLI.Answer(ok: false)
-        for root in services.cloud.move.workRoots {
-            let remote = folder.remote(under: root, suffix: suffix)
-            do {
-                last = try await SeedProgress.feed({ [root = folder.root, to = remote.folder] in
-                    try await cli.seedPush(socket: socket, local: root, remote: to, stderrLine: $0)
-                }, each: { progress?.copied($0) })
-            } catch {
-                // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
-                throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
-            }
-            if last.ok { return remote }
-            // Not this machine's home (an image without the work user): the next root.
-            guard last.errorCode == "fs.permission_denied" else { break }
+        let pushed: (remote: (folder: String, chat: String)?, last: CloudMoveCLI.Answer)
+        do {
+            pushed = try await folder.push(with: cli, roots: services.cloud.move.workRoots, socket: socket, suffix: suffix) { progress?.copied($0) }
+        } catch { // Nothing moved yet, so Retry runs the move again on this machine.
+            throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
         }
-        throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
+        if let remote = pushed.remote { return remote }
+        throw CloudMoveFailure.syncing(pushed.last, machine: machine, retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
