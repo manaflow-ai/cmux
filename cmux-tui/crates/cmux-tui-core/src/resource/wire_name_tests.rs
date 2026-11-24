@@ -22,6 +22,7 @@ fn wire_name_round_trips_through_serde() {
         "git.review.comment",
         "git.review.post",
         "diff.comments.send",
+        "diff.comments.thread",
         "stream.cancel",
         "origin.confirmation.issue",
         "chief.continue",
