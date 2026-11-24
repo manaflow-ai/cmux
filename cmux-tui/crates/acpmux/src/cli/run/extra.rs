@@ -1459,7 +1459,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Load { .. } | PeerCmd::DiskWalk | PeerCmd::Verdict | PeerCmd::Notice { .. } => {
+                PeerCmd::Load { .. }
+                | PeerCmd::DiskWalk
+                | PeerCmd::Verdict
+                | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
                         "machine load, disk-walk, verdict and notice are handled before connecting"
                     ));
