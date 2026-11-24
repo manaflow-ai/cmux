@@ -54,7 +54,7 @@ fn run(name: &str, page: &str, root: &Path, bun: &Path) -> Result<(), String> {
     options.bun = Some(bun.to_path_buf());
     let (sender, wakes) = channel();
     let daemon = Daemon::connect(&global(&fake.socket), sender, wakes)?;
-    let mut session = dev::Session::new(dir.clone(), &options, daemon);
+    let mut session = dev::Session::new(dir, &options, daemon);
     let outcome = session.reload(true);
     if outcome.phase != Phase::Done {
         return Err(format!("phase {:?}: {:?}", outcome.phase, outcome.errors));

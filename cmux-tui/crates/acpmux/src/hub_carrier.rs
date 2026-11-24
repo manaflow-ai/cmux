@@ -818,7 +818,7 @@ impl HubCarrier {
         if self.acpmux_streams.load(Ordering::SeqCst) {
             let slot = self.kept.slot(daemon, lane);
             let refused_until = slot.lock().await.no_acpmux_until;
-            if !refused_until.is_some_and(|until| Instant::now() < until) {
+            if refused_until.is_none_or(|until| Instant::now() >= until) {
                 let hello = hello_record(CircuitService::Acpmux);
                 match self.kept_open(daemon, lane, hello, &mut DialReport::default()).await {
                     KeptOpen::Stream(stream) => return Ok(stream),

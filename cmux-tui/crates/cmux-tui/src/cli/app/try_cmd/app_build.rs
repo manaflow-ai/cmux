@@ -513,7 +513,7 @@ pub(super) fn run_swap(spec_path: &Path) -> i32 {
         "undo" => put_back(&spec),
         _ => swap(&spec),
     };
-    let mut receipt = spec.receipt.clone();
+    let mut receipt = spec.receipt;
     super::set(&mut receipt, "swap_secs", json!(started.elapsed().as_secs_f64()));
     super::set(&mut receipt, "at", json!(super::now()));
     let code = match result {
