@@ -68,6 +68,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_GITHUB_ACTION,
     // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
     method::MUX_GITHUB_APP_LEASE,
+    // So are the app's own GitHub calls with it (`github_rest_op.rs`).
+    method::MUX_GITHUB_REST,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -108,6 +110,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
     method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
@@ -484,7 +488,8 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 }
 
 /// Whether request `m` says a person is writing to the chat: typing turned on
-/// (`_acpmux/typing`), or a surface's unsent text that is not blank (`_acpmux/composer_set`).
+/// (`_acpmux/typing`), or a surface's unsent draft that is not blank: text, or an image
+/// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
 fn composing(m: &str, params: &Value) -> bool {
@@ -492,6 +497,7 @@ fn composing(m: &str, params: &Value) -> bool {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {
             params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+                || params.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty())
         }
         _ => false,
     }
