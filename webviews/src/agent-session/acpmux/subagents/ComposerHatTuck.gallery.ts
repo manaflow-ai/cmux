@@ -62,6 +62,11 @@ export default componentEntry<Props>({
       props: { start: "done", tuck: true, side: "middle", panel: true },
       play: revealed,
     },
+    "left-with-controls": {
+      note: "Variant: the tab 12px in from the left corner; clear of the icons, but off the hat's axis and under the tucked pill's old middle.",
+      props: { start: "done", tuck: true, side: "left", panel: true },
+      play: revealed,
+    },
     revealed: {
       note: "The pointer on the hat: the tuck control shows at its top middle, at rest.",
       props: { start: "done", tuck: true },
