@@ -849,7 +849,7 @@ impl Hub {
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
         }
-        self.set_status(session, SessionStatus::Idle);
+        self.set_status(session, NotWaiting::Idle);
         self.append(session, "mux", event, record);
     }
 

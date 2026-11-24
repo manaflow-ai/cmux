@@ -247,10 +247,26 @@ impl Hub {
         if !session.inbox().surge_rate.arrival(now, period) {
             return Ok(None);
         }
+        self.hold_in_inbox(session, prompt_id, client, blocks, opts, from).map(Some)
+    }
+
+    /// Keeps a prompt from `from` whole in `session`'s journal and inbox as a held message: no
+    /// turn, steer or inbox notice (the surge, and a held chat: `session_hold.rs`).
+    pub(in crate::hub) fn hold_in_inbox(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        client: &str,
+        blocks: &[Value],
+        opts: &PromptOptions,
+        from: String,
+    ) -> Result<Value, RpcError> {
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
         }
-
+        let now = now_ms();
+        let period =
+            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
         let provenance = opts.provenance.as_ref();
         let text = prompt_text(blocks);
         let notice = tool_notice_of(provenance);
@@ -308,6 +324,7 @@ impl Hub {
             fire: fire_notice(notice.as_ref()),
             tool_notice: notice,
             surge_held: true,
+            verdict: None,
             noticed: true,
             read: false,
             answer: None,
@@ -316,9 +333,9 @@ impl Hub {
         let mut inbox = session.inbox();
         inbox.items.push(item);
         trim(&mut inbox);
-        Ok(Some(
+        Ok(
             json!({"sessionId":session.id,"promptId":prompt_id,"threadId":thread,"inbox":true,"surgeHeld":true,"queued":false}),
-        ))
+        )
     }
 }
 

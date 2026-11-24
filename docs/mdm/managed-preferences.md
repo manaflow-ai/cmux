@@ -125,7 +125,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
-| `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. The cmux app on your iPhone can open this Mac's workspaces, on the same account. |
+| `mobile.allowIPhoneConnections` | boolean | `true` |  | Allow iPhone Connections. The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once. |
+| `mobile.autoApprovePhones` | boolean | `false` |  | Approve Phone Requests Automatically. A new phone signed in to your account connects without asking you first. Other accounts never connect. |
 | `mobile.terminalSizing` | string | `"smallest"` | `smallest`, `mac`, `latest`, `priority` | Terminal Size When Shared. The size of a terminal shown on this Mac and a phone at once. |
 | `mobile.terminalSizingOrder` | array | `[]` |  | Terminal Size Priority. The devices a shared terminal sizes to first, highest first. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
