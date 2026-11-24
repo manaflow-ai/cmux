@@ -1,0 +1,186 @@
+{
+  "version": 1,
+  "build": "4529584712101",
+  "notes": "notes/4529584712101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41013,
+      "title": "Go back to the previous nightly in one relaunch, named and by date",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52938,
+      "title": "relaunch bench: time the chat drawn live, not its saved copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51987,
+      "title": "session-pack: a session's log as range-readable, content-addressed zstd chunks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52678,
+      "title": "Measure two-account chat sharing on staging",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51137,
+      "title": "acpmux: a restored subagent ends as it really did, dated when it ended (no relaunch 'Subagent disconnected' flood)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50176,
+      "title": "acpmux: fork a subagent into a chat of its own, in a picked model and mode",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49015,
+      "title": "cmux remote: --connect-timeout-seconds 3 reports 3s, not 2s",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49015/hv-78cc2cd01b68-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52150,
+      "title": "Agent chat: every turn state against Stop, Send, Esc, Edit and the queue's delete, a table test and a gallery",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51345,
+      "title": "fix(next): a workspace switch, a sidebar switch and a tab click blink the entered pane's ring out at once",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52381,
+      "title": "acpmux: a queued message never goes before the one sent ahead of it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52079,
+      "title": "cmux-tui: share access requests (ask the owner, approve with a role or decline)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52595,
+      "title": "WIP (machine checkpoint of a gone session, do not land): lane/duress-starved-leg",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52070,
+      "title": "Palette: Set My Picture, Make This Agent a Chief, Show Last Line in Sidebar run in the app (step B of #50757)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52650,
+      "title": "Rollback check: a pass reads again a session whose store name is a link",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51972,
+      "title": "Agent pane: Jump to latest back on the center line, the hat's pill aside, its count past 99",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50538,
+      "title": "pre-push: judge a push once (pass cache), and leave the CI layers to CI on a loaded host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52876,
+      "title": "review.sh --approve-first: say where the Allow prompt waits, and prove a late Allow",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52654,
+      "title": "WIP: automatic checkpoint (SessionEnd)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52281,
+      "title": "Machines: New Workspace on a machine joined by sign-in, over the hub route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52864,
+      "title": "Cloud: hold the automatic machine update through a start's first turn, also for the composer's start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52685,
+      "title": "cmux NEXT: pack the SDK's tokens.ts so extensions build in the release app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52791,
+      "title": "acpmux: session route moves a dead host's session from this machine's copy before briefs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50950,
+      "title": "Living wallpapers draw at 30 fps while calm, 60 while the pointer or a ring moves them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52645,
+      "title": "iOS UI tests: wait on the state, not a fixed pause",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50259,
+      "title": "cmux-vm: team key caps for running VMs and daily/monthly spend on create, start and resume",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51627,
+      "title": "cmux-apps: start each app with its own secrets from process-env",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50834,
+      "title": "device hub: a billing read that fails is not a free plan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52817,
+      "title": "ci(next): PR autofix fetches the base scripts' blobs in one batch before restoring them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51944,
+      "title": "stop subagent hold spam: one re-prompt, waits on the user count as a stop",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    }
+  ]
+}
