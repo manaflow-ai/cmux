@@ -1176,29 +1176,47 @@ impl ChildAgent {
         // what it queues (review 87 of #23322).
         let mut queue = WriterQueue(stdin_rx, ended_tx);
         let writer = tokio::spawn(async move {
+            use futures_util::FutureExt as _;
             let mut stdin = stdin;
-            while let Some((line, fence)) = queue.0.recv().await {
-                #[cfg(test)]
-                pause_input(&seam, &line, false).await;
-                if fence.as_ref().is_some_and(|f| !f.begin()) {
-                    continue;
-                }
-                if let Some(f) = &fence {
-                    *in_flight.lock().unwrap_or_else(|e| e.into_inner()) = Some(f.clone());
-                }
-                #[cfg(test)]
-                pause_input(&seam, &line, true).await;
-                if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                    if let Some(f) = fence {
-                        f.failed();
+            let wrote = std::panic::AssertUnwindSafe(async {
+                while let Some((line, fence)) = queue.0.recv().await {
+                    #[cfg(test)]
+                    pause_input(&seam, &line, false).await;
+                    if fence.as_ref().is_some_and(|f| !f.begin()) {
+                        continue;
                     }
-                    break;
+                    if let Some(f) = &fence {
+                        *in_flight.lock().unwrap_or_else(|e| e.into_inner()) = Some(f.clone());
+                    }
+                    #[cfg(test)]
+                    pause_input(&seam, &line, true).await;
+                    crate::supervise::panic_point("agent writer", &line);
+                    if stdin.write_all(line.as_bytes()).await.is_err()
+                        || stdin.flush().await.is_err()
+                    {
+                        if let Some(f) = fence {
+                            f.failed();
+                        }
+                        break;
+                    }
+                    in_flight.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    if let Some(f) = fence {
+                        f.written();
+                    }
                 }
-                in_flight.lock().unwrap_or_else(|e| e.into_inner()).take();
-                if let Some(f) = fence {
-                    f.written();
-                }
+            })
+            .catch_unwind()
+            .await;
+            // A writer that panicked (not one a cut or its agent's end aborted, which settle its
+            // message themselves, `end_direct`, `WriterStop::agent_ended`) never writes the message
+            // it had: it fails now, as what it still queues does (`WriterQueue`). Before, its holder
+            // waited on it until the agent ended (#54378).
+            if wrote.is_err()
+                && let Some(f) = in_flight.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                f.failed();
             }
+            drop(queue);
         });
         let _ = agent.writer_stop.set(WriterStop { abort: writer.abort_handle(), ended, writing });
 
@@ -2623,119 +2641,137 @@ impl ChildAgent {
         self.take_custody(&link);
         let reader = self.clone();
         tokio::spawn(async move {
+            use futures_util::FutureExt as _;
             let Some(hosted) = reader.hosted.as_ref() else { return };
-            let mut entries = link.entries.lock().await;
-            // Entries logged since the last ack.
-            let mut unacked = 0usize;
-            while let Some((h, entry)) = entries.recv().await {
-                let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
-                #[cfg(debug_assertions)]
-                let ack_fails = ack_fails_once(&entry);
-                #[cfg(not(debug_assertions))]
-                let ack_fails = false;
-                // An entry the reader of an earlier link logged already (its queue outlived its
-                // link, and the host replayed the entry here) is only acknowledged.
-                let turn = hosted.log_turn.lock().await;
-                let fresh = h > *hosted.logged.borrow();
-                if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
-                    drop(turn);
-                    // Not stored: never acknowledge it or anything after it. The hub answers the
-                    // open requests at the notice below (`Inbound::LinkBroken`), with the store's
-                    // refusal; the next request reattaches.
-                    tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
-                    if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+            let read = std::panic::AssertUnwindSafe(async {
+                let mut entries = link.entries.lock().await;
+                // Entries logged since the last ack.
+                let mut unacked = 0usize;
+                while let Some((h, entry)) = entries.recv().await {
+                    let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
+                    crate::supervise::panic_point_with("agent reader", || format!("{entry:?}"));
+                    #[cfg(debug_assertions)]
+                    let ack_fails = ack_fails_once(&entry);
+                    #[cfg(not(debug_assertions))]
+                    let ack_fails = false;
+                    // An entry the reader of an earlier link logged already (its queue outlived its
+                    // link, and the host replayed the entry here) is only acknowledged.
+                    let turn = hosted.log_turn.lock().await;
+                    let fresh = h > *hosted.logged.borrow();
+                    if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
+                        drop(turn);
+                        // Not stored: never acknowledge it or anything after it. The hub answers the
+                        // open requests at the notice below (`Inbound::LinkBroken`), with the store's
+                        // refusal; the next request reattaches.
+                        tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
+                        if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                            return;
+                        }
+                        // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
+                        // broken link before it is sent, as a busy inbound loop does, so the daemon's
+                        // integration tests can reattach the link first. Bounded; release builds have
+                        // no seam.
+                        #[cfg(debug_assertions)]
+                        if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
+                            .ok()
+                            .and_then(|v| v.parse::<u64>().ok())
+                        {
+                            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                        }
+                        let _ =
+                            hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                         return;
                     }
-                    // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
-                    // broken link before it is sent, as a busy inbound loop does, so the daemon's
-                    // integration tests can reattach the link first. Bounded; release builds have
-                    // no seam.
-                    #[cfg(debug_assertions)]
-                    if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
-                        .ok()
-                        .and_then(|v| v.parse::<u64>().ok())
-                    {
-                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    if fresh {
+                        hosted.logged.send_replace(h);
                     }
+                    // The ring offset of the last line logged through `h` (the agent holder).
+                    if let Some(o) = link.take_offset_through(h) {
+                        hosted.logged_o.fetch_max(o, Ordering::SeqCst);
+                    }
+                    drop(turn);
+                    if is_exit {
+                        // The harness ended: its stdio copies go (`custody.rs`).
+                        #[cfg(unix)]
+                        {
+                            *hosted.custody.lock_or_recover() = None;
+                        }
+                        // Written before anyone hears of the exit: a daemon that
+                        // ends the agent and exits at once still acks the Exit.
+                        let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
+                        hosted.exited.store(true, Ordering::SeqCst);
+                        hosted.exit.notify_waiters();
+                        if acked.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                    if ack_fails {
+                        break;
+                    }
+                    // An ack is cumulative: the host drops every entry through `h` (`host.rs`
+                    // `drop_through`, so since the first host build). While more entries wait here
+                    // one ack goes per ACK_BATCH entries; the entry that empties the queue is always
+                    // acked, so an idle link leaves none unacked.
+                    unacked += 1;
+                    if unacked >= ACK_BATCH || entries.is_empty() {
+                        if link.ack(h).await.is_err() {
+                            break;
+                        }
+                        unacked = 0;
+                    }
+                }
+                #[cfg(debug_assertions)]
+                reader_stop_hold().await;
+                // The agent holder (`agent_host/custody.rs`): a host that died while its harness
+                // runs is replaced, and nothing below happens: the turn and its requests go on.
+                #[cfg(unix)]
+                if Arc::ptr_eq(&hosted.link(), &link) && reader.recover_host().await {
+                    return;
+                }
+                // The host died or another owner took it, or an acknowledgement failed: the link is
+                // not heard from here, before anything is told. A detach hands the agent and its open
+                // requests to the next daemon; a replaced link hands them to its own reader. A host
+                // that lives on keeps its agent's open requests for the reattach (the hub reattaches
+                // at the notice below, `hub/hosts.rs` `reach_lost_link`), which gets their real
+                // answers; they fail only once the host is proven gone (`fail_pending_once_host_ends`).
+                // Before, a takeover or a lost socket failed every open turn of a live agent.
+                let dead = crate::agent_host::host_dead_now(&link.record);
+                {
+                    let mut p = reader.pending.lock().await;
+                    if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
+                        return;
+                    }
+                    hosted.stopped.store(true, Ordering::SeqCst);
+                    if dead {
+                        for (_, tx) in p.map.drain() {
+                            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+                        }
+                    }
+                }
+                if !dead {
+                    let agent = reader.clone();
+                    let link = link.clone();
+                    // task-owner: ends with the host (its live lock frees at its death), at once when
+                    // that lock can not be watched, and does nothing once a reattach replaced `link`.
+                    tokio::spawn(async move { agent.fail_pending_once_host_ends(&link).await });
+                }
+                let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
+            })
+            .catch_unwind()
+            .await;
+            // A reader that panicked stopped as one that could not log an entry does: the entry
+            // is neither logged nor acknowledged, the hub answers the open requests at the notice
+            // (`Inbound::LinkBroken`) and reattaches with a backoff (`Hub::reach_broken_link`), and
+            // the host replays from the last logged entry. Before, the panic skipped all of this:
+            // the agent's open requests and its turn waited for ever (#54378).
+            if read.is_err() {
+                tracing::error!(agent = %reader.name, "agent host reader panicked; its link stops");
+                if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
                     let _ =
                         hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
-                    return;
-                }
-                if fresh {
-                    hosted.logged.send_replace(h);
-                }
-                // The ring offset of the last line logged through `h` (the agent holder).
-                if let Some(o) = link.take_offset_through(h) {
-                    hosted.logged_o.fetch_max(o, Ordering::SeqCst);
-                }
-                drop(turn);
-                if is_exit {
-                    // The harness ended: its stdio copies go (`custody.rs`).
-                    #[cfg(unix)]
-                    {
-                        *hosted.custody.lock_or_recover() = None;
-                    }
-                    // Written before anyone hears of the exit: a daemon that
-                    // ends the agent and exits at once still acks the Exit.
-                    let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
-                    hosted.exited.store(true, Ordering::SeqCst);
-                    hosted.exit.notify_waiters();
-                    if acked.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-                if ack_fails {
-                    break;
-                }
-                // An ack is cumulative: the host drops every entry through `h` (`host.rs`
-                // `drop_through`, so since the first host build). While more entries wait here
-                // one ack goes per ACK_BATCH entries; the entry that empties the queue is always
-                // acked, so an idle link leaves none unacked.
-                unacked += 1;
-                if unacked >= ACK_BATCH || entries.is_empty() {
-                    if link.ack(h).await.is_err() {
-                        break;
-                    }
-                    unacked = 0;
                 }
             }
-            #[cfg(debug_assertions)]
-            reader_stop_hold().await;
-            // The agent holder (`agent_host/custody.rs`): a host that died while its harness
-            // runs is replaced, and nothing below happens: the turn and its requests go on.
-            #[cfg(unix)]
-            if Arc::ptr_eq(&hosted.link(), &link) && reader.recover_host().await {
-                return;
-            }
-            // The host died or another owner took it, or an acknowledgement failed: the link is
-            // not heard from here, before anything is told. A detach hands the agent and its open
-            // requests to the next daemon; a replaced link hands them to its own reader. A host
-            // that lives on keeps its agent's open requests for the reattach (the hub reattaches
-            // at the notice below, `hub/hosts.rs` `reach_lost_link`), which gets their real
-            // answers; they fail only once the host is proven gone (`fail_pending_once_host_ends`).
-            // Before, a takeover or a lost socket failed every open turn of a live agent.
-            let dead = crate::agent_host::host_dead_now(&link.record);
-            {
-                let mut p = reader.pending.lock().await;
-                if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
-                    return;
-                }
-                hosted.stopped.store(true, Ordering::SeqCst);
-                if dead {
-                    for (_, tx) in p.map.drain() {
-                        let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
-                    }
-                }
-            }
-            if !dead {
-                let agent = reader.clone();
-                let link = link.clone();
-                // task-owner: ends with the host (its live lock frees at its death), at once when
-                // that lock can not be watched, and does nothing once a reattach replaced `link`.
-                tokio::spawn(async move { agent.fail_pending_once_host_ends(&link).await });
-            }
-            let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
     }
 
@@ -3265,6 +3301,32 @@ mod spawn_error_tests {
 #[cfg(all(test, unix))]
 mod fence_tests {
     use super::*;
+
+    /// #54378: an agent's stdin writer that panicked while it had a message left that message
+    /// unsettled, so its holder waited on it until the agent ended. It fails now.
+    #[tokio::test]
+    async fn a_writer_that_panics_fails_the_message_it_had() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let profile: HarnessProfile =
+            serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/env", "python3", fake]}))
+                .unwrap();
+        let (inbound, _rx) = mpsc::channel(16);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let agent = ChildAgent::spawn("fake", &profile, &std::env::temp_dir(), inbound, tap)
+            .await
+            .expect("the stand-in agent starts");
+        let needle = "writer-panics-54378";
+        crate::supervise::arm_panic("agent writer", needle);
+        let fence = Fence::default();
+        let note = Message::notification("note", serde_json::json!({"text": needle}));
+        agent.write_fenced(&note, Some(&fence)).await.unwrap();
+        let settled =
+            tokio::time::timeout(std::time::Duration::from_secs(5), fence.settled()).await;
+        let failed = fence.now() == Fence::FAILED;
+        agent.kill().await;
+        assert!(settled.is_ok(), "the message a panicked writer had never settled");
+        assert!(failed, "it is failed, not written or cut");
+    }
 
     /// Review 81 of #23322: the Codex bridge's empty batch (a translation that gives the
     /// app-server nothing) queues nothing on the agent's stdin, so the reader that sends one

@@ -1173,13 +1173,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "worker-lag-canary",
         crate::gauges::worker_lag_canary(crate::gauges::worker_lag()),
     );
+    // Supervised: a panic starts the loop again (`crate::supervise`).
     #[cfg(target_os = "linux")]
-    tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud hand-off", &hub.fatal.clone(), move || {
+            cloud_handoff::handoff_loop(hub.clone())
+        });
+    }
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
     let _usage_upload =
         hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
     #[cfg(target_os = "linux")]
-    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud activity", &hub.fatal.clone(), move || {
+            cloud_activity::activity_loop(hub.clone())
+        });
+    }
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]

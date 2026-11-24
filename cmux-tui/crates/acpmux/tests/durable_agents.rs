@@ -40,6 +40,8 @@ mod idle_adopted;
 mod idle_subsessions_restart;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
+#[path = "durable_agents/loop_panic.rs"]
+mod loop_panic;
 #[path = "durable_agents/lost_link_turn.rs"]
 mod lost_link_turn;
 #[path = "durable_agents/queue_edit_parts.rs"]

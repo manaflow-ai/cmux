@@ -102,6 +102,107 @@ where
     })
 }
 
+/// Debug builds only: a panic at `point` once it is armed, where `text` holds the armed text:
+/// by a unit test ([`arm_panic`]) or by `ACPMUX_TEST_PANIC_AT=POINT[:TEXT]` for the daemon's
+/// integration tests. Each arming fires once, and counts every pass of its point after
+/// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release builds have no
+/// seam.
+#[cfg(debug_assertions)]
+pub(crate) fn panic_point(point: &str, text: &str) {
+    let fire = {
+        let mut seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+        if !seam.read_env {
+            seam.read_env = true;
+            if let Ok(v) = std::env::var("ACPMUX_TEST_PANIC_AT") {
+                let (p, t) = v.split_once(':').unwrap_or((&v, ""));
+                seam.armed.push(Armed { point: p.into(), text: t.into(), ..Armed::default() });
+            }
+        }
+        let mut fire = false;
+        for armed in seam.armed.iter_mut() {
+            if armed.point == point && text.contains(armed.text.as_str()) {
+                armed.passes += 1;
+                // One arming fires per pass.
+                if !fire && !armed.fired {
+                    (armed.fired, fire) = (true, true);
+                }
+            }
+        }
+        fire
+    };
+    if fire {
+        crate::daemon::test_panic(&format!("test panic at {point}"));
+    }
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+pub(crate) fn panic_point(_point: &str, _text: &str) {}
+
+/// [`panic_point`] whose text is made only while something is armed at `point`.
+#[cfg(debug_assertions)]
+pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
+    let armed = {
+        let seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+        !seam.read_env || seam.armed.iter().any(|a| a.point == point)
+    };
+    if armed {
+        panic_point(point, &text());
+    }
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+pub(crate) fn panic_point_with(_point: &str, _text: impl FnOnce() -> String) {}
+
+#[cfg(debug_assertions)]
+#[derive(Default)]
+struct Armed {
+    point: String,
+    text: String,
+    fired: bool,
+    passes: usize,
+}
+
+#[cfg(debug_assertions)]
+struct PanicSeam {
+    read_env: bool,
+    armed: Vec<Armed>,
+}
+
+#[cfg(debug_assertions)]
+static PANIC_SEAM: std::sync::Mutex<PanicSeam> =
+    std::sync::Mutex::new(PanicSeam { read_env: false, armed: Vec::new() });
+
+/// Tests only: [`panic_point`] panics once at `point` where its text holds `text`.
+#[cfg(test)]
+pub(crate) fn arm_panic(point: &str, text: &str) {
+    let mut seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+    seam.armed.push(Armed { point: point.into(), text: text.into(), ..Armed::default() });
+}
+
+/// Tests only: how often `point` was passed with `text` since [`arm_panic`] armed it, the pass
+/// that panicked included.
+#[cfg(test)]
+pub(crate) fn armed_passes(point: &str, text: &str) -> usize {
+    let seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
+    seam.armed.iter().filter(|a| a.point == point && a.text == text).map(|a| a.passes).sum()
+}
+
+/// Tests only: waits up to `within` until `point` was passed at least `passes` times since it
+/// was armed.
+#[cfg(test)]
+pub(crate) async fn passed(point: &str, text: &str, passes: usize, within: Duration) -> bool {
+    let deadline = std::time::Instant::now() + within;
+    while armed_passes(point, text) < passes {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

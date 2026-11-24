@@ -2017,6 +2017,28 @@ impl Hub {
         sessions.values().filter(|s| s.turn().is_none()).cloned().collect()
     }
 
+    /// Tests only: `session`'s record of `kind`, heard as the hub's own event.
+    #[cfg(test)]
+    pub(crate) fn emit_for_test(&self, session: &str, kind: &str, msg: Value) {
+        let record = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        let _ = self.events.send(HubEvent {
+            session_id: session.into(),
+            record: Arc::new(record),
+            remote: None,
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: 0,
+            peer_batch: false,
+        });
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
     }

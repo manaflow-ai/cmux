@@ -1011,3 +1011,36 @@ fn a_cloud_agent_socket_is_seen_when_made_later_and_kept_once_gone() {
     std::fs::remove_file(&socket).unwrap();
     assert_eq!(reports_to(&socket, &seen), linux, "the agent restarting");
 }
+
+/// #54378: the reporter that sends each hand-off step could panic and end, and the loop that
+/// queues steps for it then ended quietly too: no hand-off was reported until the daemon
+/// restarted. Its panic is now the loop's, and the supervised loop starts both again.
+#[tokio::test]
+async fn a_reporter_that_panics_starts_the_hand_off_loop_again() {
+    let root = std::env::temp_dir().join(format!("acpmux-handoff-{}", uuid::Uuid::now_v7()));
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+    let session = "handoff-reporter-panics";
+    crate::supervise::arm_panic("hand-off reporter", session);
+    let looped = {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud hand-off", &hub.fatal.clone(), move || {
+            handoff_loop(hub.clone())
+        })
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut again = false;
+    while std::time::Instant::now() < deadline {
+        hub.emit_for_test(session, "status", json!({"status": "closed"}));
+        if crate::supervise::armed_passes("hand-off reporter", session) >= 2 {
+            again = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    looped.abort();
+    assert!(again, "no step was reported again after the reporter panicked");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

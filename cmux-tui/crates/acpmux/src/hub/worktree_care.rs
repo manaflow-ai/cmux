@@ -222,18 +222,29 @@ impl Hub {
     /// Starts the daemon's one cleanup worker: on each wake (a status
     /// change, and once now for the start) it runs a pass when one is due
     /// (`spacing`) and none runs. It holds the hub weakly and ends with it.
-    pub(crate) fn care_worker(self: &Arc<Self>) {
+    /// Supervised (`crate::supervise`): a pass that panics starts the worker again, which wakes
+    /// itself once so the pass that panicked is tried again; before, the panic ended the worker
+    /// and no pass ran until the daemon restarted.
+    pub(crate) fn care_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let hub = Arc::downgrade(self);
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
         CARE.wake.notify_one();
-        tokio::spawn(async move {
-            loop {
-                CARE.wake.notified().await;
-                let Some(hub) = hub.upgrade() else { return };
-                let why = *CARE.why.lock().unwrap_or_else(|e| e.into_inner());
-                hub.care_if_due(why).await;
+        let mut again = false;
+        crate::supervise::restarting("worktree care", &self.fatal, move || {
+            if std::mem::replace(&mut again, true) {
+                CARE.wake.notify_one();
             }
-        });
+            let hub = hub.clone();
+            async move {
+                loop {
+                    CARE.wake.notified().await;
+                    let why = *CARE.why.lock().unwrap_or_else(|e| e.into_inner());
+                    crate::supervise::panic_point("worktree care", why);
+                    let Some(hub) = hub.upgrade() else { return };
+                    hub.care_if_due(why).await;
+                }
+            }
+        })
     }
 
     async fn care_if_due(&self, why: &'static str) {
@@ -585,5 +596,26 @@ mod care_tests {
         }));
         assert!(caught.is_err());
         assert!(Running::claim(&flag).is_some(), "the panic cleared it");
+    }
+
+    /// #54378: a care pass that panicked ended the daemon's one cleanup worker for good. The
+    /// supervised worker starts again and takes the wake it lost (a second armed panic holds it
+    /// there, so the test runs no real pass over this machine's worktrees).
+    #[tokio::test]
+    async fn a_care_pass_that_panics_starts_the_worker_again() {
+        let root = std::env::temp_dir().join(format!("acpmux-care-{}", uuid::Uuid::now_v7()));
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+        crate::supervise::arm_panic("worktree care", "startup");
+        crate::supervise::arm_panic("worktree care", "startup");
+        let worker = hub.care_worker();
+        let within = std::time::Duration::from_secs(10);
+        // Each pass counts once per arming.
+        let again = crate::supervise::passed("worktree care", "startup", 4, within).await;
+        worker.abort();
+        assert!(again, "the worker never ran again after its pass panicked");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

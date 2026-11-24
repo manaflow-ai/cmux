@@ -627,35 +627,60 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     let receipted = adopted.version >= RECEIPT_VERSION;
     let host = record.clone();
     tokio::spawn(async move {
-        while let Some((mut frame, written, fence)) = rx.recv().await {
-            if fence.as_ref().is_some_and(|f| !f.begin()) {
-                continue;
-            }
-            let mut receipt = None;
-            if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) = (&fence, &mut frame) {
-                let r = await_receipt(&host, f);
-                if receipted {
-                    *asked = Some(r);
+        use futures_util::FutureExt as _;
+        // The frame being written and its receipt, settled below if the writer panics on it.
+        let mut in_flight: Option<(crate::agent::Fence, Option<u64>)> = None;
+        let wrote = std::panic::AssertUnwindSafe(async {
+            while let Some((mut frame, written, fence)) = rx.recv().await {
+                if fence.as_ref().is_some_and(|f| !f.begin()) {
+                    continue;
                 }
-                receipt = Some(r);
-            }
-            if write_frame(&mut wr, &frame).await.is_err() {
-                if let Some(r) = receipt {
-                    RECEIPTS.lock_or_recover().remove(&r);
+                let mut receipt = None;
+                if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) =
+                    (&fence, &mut frame)
+                {
+                    let r = await_receipt(&host, f);
+                    if receipted {
+                        *asked = Some(r);
+                    }
+                    receipt = Some(r);
                 }
-                if let Some(f) = fence {
-                    f.failed();
+                in_flight = fence.clone().map(|f| (f, receipt));
+                #[cfg(debug_assertions)]
+                if let ControllerFrame::Line { msg, .. } = &frame {
+                    crate::supervise::panic_point_with("link writer", || msg.to_string());
                 }
-                break;
+                if write_frame(&mut wr, &frame).await.is_err() {
+                    if let Some(r) = receipt {
+                        RECEIPTS.lock_or_recover().remove(&r);
+                    }
+                    if let Some(f) = fence {
+                        f.failed();
+                    }
+                    break;
+                }
+                in_flight = None;
+                if let Some(f) = fence.filter(|_| receipt.is_none()) {
+                    f.written();
+                }
+                // The frame is in the socket: a caller that must not outlive an
+                // unsent frame (the Exit ack before the daemon exits) waits here.
+                if let Some(written) = written {
+                    let _ = written.send(());
+                }
             }
-            if let Some(f) = fence.filter(|_| receipt.is_none()) {
-                f.written();
+        })
+        .catch_unwind()
+        .await;
+        // A writer that panicked never writes the frame it had: its message fails, so its holder
+        // never waits on it (#54378), and its link is cut below like a closed one.
+        if wrote.is_err()
+            && let Some((f, receipt)) = in_flight.take()
+        {
+            if let Some(r) = receipt {
+                RECEIPTS.lock_or_recover().remove(&r);
             }
-            // The frame is in the socket: a caller that must not outlive an
-            // unsent frame (the Exit ack before the daemon exits) waits here.
-            if let Some(written) = written {
-                let _ = written.send(());
-            }
+            f.failed();
         }
         // Never sent now: what it still queues is cut, so no holder waits on it.
         rx.close();
