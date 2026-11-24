@@ -11,7 +11,12 @@
 # Writes only under OUT (default a new temporary directory) and deletes what it wrote.
 set -u
 D=$(cd "$(dirname "$0")" && pwd)
-export OUT=${OUT:-$(mktemp -d)}
+if [ -z "${OUT:-}" ]; then
+  OUT=$(mktemp -d)
+  # Only the directory this run made goes; a given OUT stays.
+  trap 'rm -rf -- "$OUT"' EXIT
+fi
+export OUT
 OLD="-p TasksMax=4096"
 NEW="-p MemoryMax=2G -p MemoryHigh=1843M -p TasksMax=4096 -p CPUWeight=50 -p CPUQuota=1200% -p IOWeight=50 -p OOMPolicy=continue"
 probe() { systemd-run --user --scope --quiet --slice=budgetexp.slice --unit=bexp-neighbor-$1 python3 -I "$D/neighbor.py" "$2" "$OUT/n-$1.json"; }
