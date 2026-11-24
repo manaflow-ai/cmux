@@ -5,11 +5,11 @@
 // frame with 2,000 rows. Chrome's model: a change repaints what it damages.
 //
 // When a snapshot differs from the one the pane drew only in that row's text (`textOnly`), the
-// pane keeps its snapshot and the row's newer value goes here; the transcript reads it
-// (`useStreamingRow`) and draws that one row. Any other change goes through the pane as before and
+// pane keeps its snapshot and the row's newer value goes here; the reply's row reads it
+// (`useStreamingRowFor`) and draws alone. Any other change goes through the pane as before and
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
-import { startTransition, useLayoutEffect, useState, useMemo } from "react";
+import { startTransition, useLayoutEffect, useMemo, useState } from "react";
 import type { AcpmuxRow } from "./model";
 import { keptPrefix } from "./conversation/prefixFlatMap";
 
@@ -59,8 +59,8 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
   return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
 }
 
-/// The streaming row the transcript draws ahead of the pane's snapshot, if any. Only the pane's
-/// live transcript (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
+/// The streaming row the reply's row draws ahead of the pane's snapshot, if any. Only the pane's
+/// live transcript's reply (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
 ///
 /// Each streamed frame's draw is a transition: React renders it in 5 ms slices and a key goes
 /// between them, so a key waits for at most one slice, not for the whole transcript's render. As
@@ -81,24 +81,16 @@ export function useStreamingRow(active: boolean): StreamingRow | undefined {
   return active ? live : undefined;
 }
 
-/// The live line's kind (conversation/turns.ts `THINKING`), here to keep this module free of turns.ts.
-const LIVE_LINE = "thinking";
-
-/// The streaming reply's row, or the live line under it, as the transcript draws it now: the store's
-/// newer text while it moved on from the text the row was drawn with. The row reads the store itself,
-/// so a chunk renders that row (and the line that reads "Writing" under it), not the transcript:
-/// nothing copies the transcript's rows per chunk (Leo, 2026-11-16: "the dream is infinite chats of
-/// infinite length with flat or no growth in cpu/memory/even disk"). Only the pane's live transcript
-/// (`active`) subscribes, and only a streaming reply or a line that names one (`quietKey`).
+/// The streaming reply's row as the transcript draws it now: the store's newer text while it moved
+/// on from the text the row was drawn with. The row reads the store itself, so a chunk renders that
+/// row, not the transcript: nothing copies the transcript's rows per chunk (Leo, 2026-11-16: "the
+/// dream is infinite chats of infinite length with flat or no growth in cpu/memory/even disk"). The
+/// live line under it hears the chunk through the transcript's pulse (VirtualTranscript
+/// `lineDrawnNow`, conversation/liveLinePulse.ts) and draws for none of them. Only the pane's live
+/// transcript (`active`) subscribes, and only a streaming reply.
+/// Its draw is a transition (`useStreamingRow`), so a key still goes between its slices.
 export function useStreamingRowFor(row: AcpmuxRow, active: boolean): AcpmuxRow {
-  const reply = row.kind === "assistant" && row.streaming === true;
-  const line = row.kind === LIVE_LINE && typeof row.quietKey === "string";
-  const listens = active && (reply || line);
-  const live = useSyncExternalStore(
-    listens ? streamingRow.subscribe : noSubscribe,
-    listens ? streamingRow.get : none,
-    none,
-  );
+  const live = useStreamingRow(active && row.kind === "assistant" && row.streaming === true);
   return useMemo(() => (live ? streamedRow(row, live) : row), [row, live]);
 }
 

@@ -168,9 +168,9 @@ export async function loadRun(
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
     chunkMs: Math.max(1, options.chunk_ms ?? 4),
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
+    kind: options.stream_kind,
     prefixWords: options.reply_words,
     prefixSettleMs: options.reply_settle_ms,
-    kind: options.stream_kind,
   });
   let streamDone = false;
   let streamFinished: number | undefined;

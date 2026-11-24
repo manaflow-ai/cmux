@@ -87,8 +87,8 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
 import { transition, type MotionList } from "./conversation/motionOwner";
 import { useCountedRender } from "./perfRender";
-import { drewStreamingRow } from "./streamingRow";
-import { drewThoughts, rowsDrawnNow } from "./liveThought";
+import { drewStreamingRow, streamedRow, streamingRow } from "./streamingRow";
+import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
 import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
@@ -672,6 +672,15 @@ function coldOpenRoughAbove(
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
 const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
 
+/// The live line as the pane's live transcript draws it now: its `quietKey` naming the streaming
+/// reply's newer version (streamingRow.ts) and its `heardKey` moved on by each thought chunk
+/// (liveThought.ts), both drawn without the pane. Only the live line's pulse reads it
+/// (conversation/liveLinePulse.ts), so a chunk tells the line without drawing it or any row.
+function lineDrawnNow(line: AcpmuxRow): AcpmuxRow {
+  const live = streamingRow.get();
+  return lineHeardNow(live ? streamedRow(line, live) : line);
+}
+
 function TranscriptView({
   rows: paneRows,
   streams = false,
@@ -899,7 +908,17 @@ function TranscriptView({
   // changes (conversation/liveLinePulse.ts). After the line's own effects, so a line mounted in this
   // pass already listens.
   const [livePulse] = useState(createLiveLinePulse);
-  useLayoutEffect(() => livePulse.note(rows), [livePulse, rows]);
+  useLayoutEffect(() => livePulse.note(rows, streams ? lineDrawnNow : undefined), [livePulse, rows, streams]);
+  useEffect(() => {
+    if (!streams) return;
+    const hear = () => livePulse.heardChunk();
+    const offReply = streamingRow.subscribe(hear);
+    const offThought = liveThoughtHeard.subscribe(hear);
+    return () => {
+      offReply();
+      offThought();
+    };
+  }, [livePulse, streams]);
   // What this transcript drew of the pane's streaming reply and the running turn's thoughts: the pane
   // takes their fast paths only while those are drawn as the client holds them.
   useLayoutEffect(() => {
