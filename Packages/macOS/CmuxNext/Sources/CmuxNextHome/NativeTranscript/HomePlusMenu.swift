@@ -51,7 +51,7 @@ enum HomePlusMenu {
                 menu.addItem(.sectionHeader(title: HomeStrings.plusMenuClipboard))
             }
             for (rowIndex, item) in section.enumerated() {
-                menu.addItem(row(item, section: index, rowIndex: rowIndex, thumbnail: thumbnail, makeRow: row, perform: perform))
+                menu.addItem(Self.row(item, section: index, rowIndex: rowIndex, thumbnail: thumbnail, makeRow: row, perform: perform))
             }
         }
         return menu
