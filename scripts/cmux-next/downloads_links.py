@@ -4,11 +4,12 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import time
+import threading
 
 TEXT = b"cmux handoff synthetic attachment\n"
 BLOCK = bytes(range(256)) * 1024
 LARGE_BYTES = 64 << 20
+large_progress_seen = threading.Event()
 LARGE_SHA256 = "281e519df3077b557c6b03f5da83c4e8d397219259615dd7c3308f89cae8f2a6"
 
 
@@ -45,9 +46,13 @@ document.querySelector('#file').onchange = async e => {{
         request.send_header("Content-Disposition", f'attachment; filename="{name}"')
     request.end_headers()
     if large:
-        for _ in range(LARGE_BYTES // len(BLOCK)):
+        # Leave the transfer in progress until its byte count reaches the Downloads list.
+        # A busy runner can then observe it without relying on hundreds of timed sleeps.
+        request.wfile.write(BLOCK * 8)
+        request.wfile.flush()
+        large_progress_seen.wait(30)
+        for _ in range(LARGE_BYTES // len(BLOCK) - 8):
             request.wfile.write(BLOCK)
-            time.sleep(0.025)
     else:
         request.wfile.write(body)
 
@@ -74,6 +79,8 @@ def exercise(rpc, wait_for, check, origin, folder, run, written):
         name = f"{key}-{run}." + ("bin" if key == "large" else "txt")
         target = Path(folder, name)
         written.append(str(target))
+        if key == "large":
+            large_progress_seen.clear()
         point = value(f"""(() => {{
           const el=document.getElementById('{key}'); el.scrollIntoView({{block:'center'}});
           const r=el.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
@@ -94,6 +101,7 @@ def exercise(rpc, wait_for, check, origin, folder, run, written):
                 return row
             if row and 0 < row.get("received", 0) < LARGE_BYTES and row.get("total") == LARGE_BYTES:
                 progress = row["received"]
+                large_progress_seen.set()
             if not row and not answered:
                 prompts = rpc("debug.browser.prompts", {"tab": tab}).get("prompts", [])
                 if prompts:
@@ -105,7 +113,7 @@ def exercise(rpc, wait_for, check, origin, folder, run, written):
                         return {"error": "could not answer automaticDownloads"}
             return None
 
-        row = wait_for(outcome, f"chromium: {key} download ends", 45)
+        row = wait_for(outcome, f"chromium: {key} download ends", 120 if key == "large" else 30)
         if not row:
             continue
         if row.get("status") != "finished" or Path(row.get("destination", "")).resolve() != target.resolve() or not target.is_file():
