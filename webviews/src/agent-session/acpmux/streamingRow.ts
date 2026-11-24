@@ -81,9 +81,12 @@ export function useStreamingRow(active: boolean): StreamingRow | undefined {
 /// (test/agent-pane-stream-renders.test.ts): each was a second whole transcript pass for one chunk.
 export function useStreamingRowCatchUp(active: boolean): { live: StreamingRow | undefined; catchUp: () => void } {
   const [live, setLive] = useState<StreamingRow | undefined>(() => (active ? current : undefined));
+  // Written in the effect, not the render (the React Compiler skips a hook that writes a ref while it
+  // renders). A catch-up in the render before this effect reads the last committed `active`, and the
+  // hook's own result is gated on this render's `active` either way.
   const activeRef = useRef(active);
-  activeRef.current = active;
   useLayoutEffect(() => {
+    activeRef.current = active;
     if (!active) return;
     // A frame that landed between the render and this effect.
     setLive(current);
