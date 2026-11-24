@@ -170,7 +170,36 @@ await requireBrowserLane("composer-bottom-controls.browser.test.ts", async () =>
           },
           { scroller, SCROLLING_ATTRIBUTE },
         );
-      await page.waitForTimeout(REST_MS);
+      // At rest: the fade's own timer has cleared the scrolling mark and the thumb has no ink, for three
+      // frames running (the frame the mark goes reads the fade's 0% end before its transition starts).
+      const settled = () =>
+        page.evaluate(
+          ({ scroller, SCROLLING_ATTRIBUTE, timeout }) =>
+            new Promise<void>((done, fail) => {
+              const start = performance.now();
+              let still = 0;
+              const tick = () => {
+                const element = document.querySelector<HTMLElement>(scroller);
+                const resting =
+                  !!element &&
+                  !element.hasAttribute(SCROLLING_ATTRIBUTE) &&
+                  getComputedStyle(element).getPropertyValue("--cmux-shown-scroller-ink").trim() === "0%";
+                still = resting ? still + 1 : 0;
+                if (still >= 3) return done();
+                if (performance.now() - start > timeout) return fail(new Error("the thumb never came to rest"));
+                requestAnimationFrame(tick);
+              };
+              tick();
+            }),
+          { scroller, SCROLLING_ATTRIBUTE, timeout: REST_MS * 4 },
+        );
+      // Typing past the cap flashed it (the mark lands a few frames after the last key).
+      await page.waitForFunction(
+        ({ scroller, SCROLLING_ATTRIBUTE }) => document.querySelector(scroller)?.hasAttribute(SCROLLING_ATTRIBUTE),
+        { scroller, SCROLLING_ATTRIBUTE },
+        { timeout: 1_000 },
+      );
+      await settled();
       const rest = await state();
       expect(rest.overflows).toBe(true);
       expect(rest).toMatchObject({ marked: false, ink: "0%" });
@@ -183,7 +212,7 @@ await requireBrowserLane("composer-bottom-controls.browser.test.ts", async () =>
         { scroller, SCROLLING_ATTRIBUTE },
         { timeout: 1_000 },
       );
-      await page.waitForTimeout(REST_MS);
+      await settled();
       expect((await state()).marked).toBe(false);
 
       // A wheel scroll over the draft shows it.
@@ -196,7 +225,7 @@ await requireBrowserLane("composer-bottom-controls.browser.test.ts", async () =>
         { timeout: 1_000 },
       );
       await page.mouse.move(0, 0);
-      await page.waitForTimeout(REST_MS);
+      await settled();
       expect((await state()).marked).toBe(false);
     } finally {
       await page.close();
