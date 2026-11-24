@@ -18,6 +18,9 @@
 //! ```
 //!
 //! Rows: `both` (direct and TURN, the default), `relay-only`, `lan-only`.
+//! The loopback TURN server answers the client's requests after
+//! `--turn-answer-ms` (default: the profile's RTT), as a server a round trip
+//! away does.
 //! The CSV has `seq,sent_ms,echo_ms` (sent_ms from the start of typing;
 //! the tracing log's uptime timestamps share that origin to within a
 //! millisecond, so a spike's time can be matched to what the link logged).
@@ -31,7 +34,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::testing::{
-    FakeOptions, FakeSignaling, LinkProfile, TestTurn, set_link_profile, shape_by_profile, shaped_counts,
+    FakeOptions, FakeSignaling, LinkProfile, TestTurn, set_link_profile, set_turn_answer_delay,
+    shape_by_profile, shaped_counts,
 };
 use cmux_mobile_link::{ChannelEvent, DialOptions, Lane, LinkConfig, SignalingClient, TransportKind};
 use tokio::time::{Instant, sleep_until};
@@ -43,6 +47,7 @@ struct Args {
     row: String,
     csv: Option<String>,
     seed: u64,
+    turn_answer_ms: Option<u64>,
 }
 
 fn args() -> Args {
@@ -53,6 +58,7 @@ fn args() -> Args {
         row: "both".into(),
         csv: None,
         seed: 0x7e57_2024,
+        turn_answer_ms: None,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -64,6 +70,7 @@ fn args() -> Args {
             "--row" => parsed.row = value,
             "--csv" => parsed.csv = Some(value),
             "--seed" => parsed.seed = value.parse().unwrap_or(parsed.seed),
+            "--turn-answer-ms" => parsed.turn_answer_ms = value.parse().ok(),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -109,6 +116,11 @@ async fn main() {
     let profile = LinkProfile::named(&args.profile);
     let threshold_us = (profile.rtt_ms + 50) * 1000;
     set_link_profile(Some(profile.clone()), args.seed);
+    // The TURN server is a round trip away, as a real one is: its answers to
+    // the client's Allocate, Refresh, CreatePermission and ChannelBind wait
+    // that long (the profile's RTT unless --turn-answer-ms says otherwise).
+    let turn_answer_ms = args.turn_answer_ms.unwrap_or(profile.rtt_ms);
+    set_turn_answer_delay(Duration::from_millis(turn_answer_ms));
     let turn = TestTurn::start().await;
     let mut options = DialOptions {
         include_loopback: true,
@@ -235,7 +247,7 @@ async fn main() {
         "{{\"workload\":\"typing\",\"profile\":\"{}\",\"row\":\"{}\",\"seconds\":{},\"rate\":{},\
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
-         \"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
+         \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
          \"final_path\":\"{path:?}\",\"spikes\":[{}]}}",
         args.profile,
         args.row,

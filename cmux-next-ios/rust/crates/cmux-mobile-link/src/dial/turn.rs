@@ -55,6 +55,9 @@ const UDP_GRACE: Duration = Duration::from_millis(250);
 /// STUN retransmission timeout on a stream: TCP already retransmits, so
 /// a request is repeated only when the server truly did not answer.
 const STREAM_RTO_MS: u16 = 1500;
+/// A send through the allocation that took this long is logged (one is
+/// a UDP write, microseconds).
+const SEND_WAIT_LOGGED: Duration = Duration::from_millis(10);
 /// Datagrams received from the TURN server before new ones are dropped.
 const INBOUND_QUEUE: usize = 1024;
 /// Bound on the TCP connect and TLS handshake to a TURN server.
@@ -533,7 +536,13 @@ impl TurnCarrier {
                     if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
                         continue;
                     }
-                    match relay.send_to(&datagram, to).await {
+                    let asked = tokio::time::Instant::now();
+                    let sent = relay.send_to(&datagram, to).await;
+                    let waited = asked.elapsed();
+                    if waited >= SEND_WAIT_LOGGED {
+                        tracing::debug!(waited_ms = waited.as_millis() as u64, %to, "TURN send waited");
+                    }
+                    match sent {
                         Ok(_) => {
                             failed.remove(&to);
                         }
