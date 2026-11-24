@@ -233,3 +233,15 @@ test("a finished subagent draws the fuller of the chat's page and its own record
   const rows = subagentPaneView(CLAUDE, chat, { log: whole, loading: false }, new Set(), "coordinator");
   expect(rows.length).toBeGreaterThan(subagentPaneView(CLAUDE, chat, { loading: false }, new Set(), "c").length);
 });
+
+test("a finished subagent the chat's page holds whole draws from the chat, with no read that swaps its rows", () => {
+  const whole = foldOwnLog(CLAUDE, claudeLog, { session: CHAT, harness: "claude" });
+  expect(whole.agent?.state).not.toBe("running");
+  // The page's first record is the subagent's own first: its earlier records may be on an older page.
+  expect(needsOwnLog(CLAUDE, { rows: whole.rows, views: whole.views })).toBe(true);
+  // A row older than its first record: the page runs on from there, so it holds the subagent whole.
+  const older: AcpmuxRow = { id: "turn-1", version: 1, at: 1_000, kind: "turnSummary", seq: 10 };
+  expect(needsOwnLog(CLAUDE, { rows: [older, ...whole.rows], views: whole.views })).toBe(false);
+  // The chat's whole history is loaded: no older page.
+  expect(needsOwnLog(CLAUDE, { rows: whole.rows, views: whole.views, wholeHistory: true })).toBe(false);
+});

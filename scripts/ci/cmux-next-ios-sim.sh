@@ -37,7 +37,7 @@
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
-#               against a Debug app; with ui= and no only=, the kit run is skipped.
+#               against the app in config= (below); with ui= and no only=, the kit run is skipped.
 #               A suite named *ColdUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
 #               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
@@ -51,6 +51,13 @@
 #               same suites once per SPEC on one simulator after one build: the before
 #               and after of the same harness, each run's logs under ui-duress-SLUG*
 #               and its resolved knobs (duress.json) under duress/SLUG/.
+#             config=debug|demo   the configuration the UI tests' app is built in.
+#               Default: demo (optimized -O, with the DEBUG developer surface, mock
+#               sign-in and demo drivers) when every ui= suite is a LaunchTTI* suite,
+#               so launch timings are of an optimized app as every shipped build is;
+#               debug otherwise. A -Onone Debug app with its debug dylib launches
+#               far slower than anything a person installs, so its launch numbers
+#               measure the build, not the app.
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -336,6 +343,7 @@ ui_suites=()
 ui_cold=()
 ui_video=0
 ui_profile=0
+ui_config=""
 duress_specs=()
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
@@ -361,13 +369,26 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
           { echo "cmux-next-ios-sim.sh: duress= wants off or PRESET[,knob=value...], got '$sel'" >&2; exit 2; }
         duress_specs+=("${sel#duress=}") ;;
+      config=debug) ui_config=Debug ;;
+      config=demo) ui_config=Demo ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, config=debug|demo, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
+  fi
+  if [[ -z "$ui_config" ]]; then
+    # Launch timing suites alone: an optimized (Demo) app, as every shipped build is (see config= above).
+    ui_config=Debug
+    if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
+      ui_config=Demo
+      # Guarded expansions: Bash 3.2 under set -u treats an empty array as unbound (only warm or only cold suites).
+      for item in ${ui_suites[@]+"${ui_suites[@]#-only-testing:CmuxMobileAppUITests/}"} ${ui_cold[@]+"${ui_cold[@]}"}; do
+        [[ "${item%%/*}" == LaunchTTI* ]] || { ui_config=Debug; break; }
+      done
+    fi
   fi
   if [[ ${#duress_specs[@]} -gt 0 && ( ${#ui_suites[@]} -eq 0 || ${#ui_cold[@]} -gt 0 || $ui_profile -eq 1 || $ui_video -eq 1 ) ]]; then
     echo "cmux-next-ios-sim.sh: duress= runs warm UI suites (ui=SUITE,...), without cold suites, profile or video" >&2; exit 2
@@ -1422,7 +1443,7 @@ ui_duress_runs() {
 # --- UI tests (test ui=...) -------------------------------------------------
 if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   t0=$SECONDS
-  # A Debug build of the app and its UI test bundle, on a new iPhone in the
+  # A build of the app and its UI test bundle in $ui_config (config= above), on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the App Store
   # configurations and ios-review-gate.yml do: Debug hides it, so
@@ -1435,9 +1456,14 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
   fi
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
-  ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
+  ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$ui_config"
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES -quiet)
+  if [[ "$ui_config" == Demo ]]; then
+    # Demo builds the Swift packages as Release (no DEBUG): the app's DEBUG code would reference package
+    # symbols that are not built (LaunchMarksProbe). The same conditions as the Demo app build above.
+    ui_xcodebuild+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+  fi
   ui_action=test
   ui_status=0
   if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
