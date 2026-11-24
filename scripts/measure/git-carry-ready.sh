@@ -135,7 +135,7 @@ for mode in clone carry; do
     times+=("$secs")
     rm -rf "$d"
   done
-  echo "$mode median_ready_s=$(printf '%s\n' "${times[@]}" | median) runs=$RUNS"
+  echo "$mode median_ready_s=$(printf '%s\n' ${times[@]+"${times[@]}"} | median) runs=$RUNS"
 done
 rm -rf "$WORK/seed.bundle" "$WORK/work.index"
 exit $ok
