@@ -1,7 +1,8 @@
 public import CmuxNextDesign
 
 /// `sidebar.workspaceRow.*` (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE): one toggle
-/// per row element, the second line's order, and the same keys under a
+/// per row element, the second line's order, where the status mark draws
+/// (`statusPlacement`, every kind alike), and the toggles and order under a
 /// workspace kind (`sidebar.workspaceRow.terminal.directory`) to override them
 /// for that kind. A missing key is its default; a bad value is the default
 /// plus a diagnostic.
@@ -34,6 +35,12 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
         root + (kind.map { [$0.rawValue] } ?? []) + [orderKey]
     }
 
+    /// The All Workspaces order a kind's order key follows while it has no value (``parse(_:diagnostics:)``
+    /// keeps the base order for it); nil for any other path.
+    public static func inheritedOrderPath(for path: [String]) -> [String]? {
+        WorkspaceRowKind.allCases.contains { orderPath(kind: $0) == path } ? orderPath() : nil
+    }
+
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowPreferences {
         var shown = Set(WorkspaceRowElement.allCases.filter(Self.fallback))
         for element in WorkspaceRowElement.allCases {
@@ -53,7 +60,20 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
             if !change.isEmpty { overrides[kind] = change }
         }
         return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides,
+                                       statusPlacement: placement(root, &diagnostics),
                                        layouts: WorkspaceRowLayoutResolver().parse(root, diagnostics: &diagnostics))
+    }
+
+    /// `statusPlacement`: its default when absent or invalid (with a diagnostic).
+    private func placement(_ root: JSONValue, _ diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowStatusPlacement {
+        let path = Self.statusPlacementPath
+        guard let value = root.value(at: path) else { return Self.statusPlacementDefault }
+        guard let placement = value.stringValue.flatMap(WorkspaceRowStatusPlacement.init(rawValue:)) else {
+            let names = WorkspaceRowStatusPlacement.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected one of " + names))
+            return Self.statusPlacementDefault
+        }
+        return placement
     }
 
     private func flag(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> Bool? {

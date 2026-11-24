@@ -30,6 +30,21 @@ import Testing
         #expect(upgrade.upgradable { _ in true }.isEmpty)
     }
 
+    @Test func keptRowsLiveBesideTheFramesAsText() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let frames = TerminalFrameStore(directory: dir)
+        let rows = frames.rows
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        rows.save(Data("$ ls".utf8), for: key)
+        #expect(rows.url(for: key).pathExtension == "txt")
+        #expect(rows.url(for: key) != frames.url(for: key))
+        #expect(frames.rows.load(key) == Data("$ ls".utf8), "read back on the next launch")
+        #expect(frames.load(key) == nil)
+        rows.remove(key)
+        #expect(rows.load(key) == nil)
+    }
+
     @Test func lastFramesSurviveARelaunch() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }

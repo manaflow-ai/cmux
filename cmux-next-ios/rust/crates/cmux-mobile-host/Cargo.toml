@@ -30,7 +30,11 @@ cmux-tab-snapshots.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 libc = "0.2"
+# The local link's Bonjour ad and the dial tool's browse (src/local_link.rs, ultra-connectivity P7).
+mdns-sd = { version = "0.22", default-features = false, features = ["async"] }
 reqwest.workspace = true
+# The local link's one-shot mDNS query on each interface (src/local_link.rs).
+socket2 = "0.6"
 # P-256 verification of the phone's pairing keys (src/pairing.rs); already in
 # the graph through rustls.
 ring = "0.17"
