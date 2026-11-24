@@ -60,6 +60,7 @@ pub(super) use summary::Summary;
 mod links;
 mod listed;
 mod local;
+pub(crate) mod memory;
 mod merge;
 mod names;
 mod packs;

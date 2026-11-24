@@ -223,7 +223,7 @@ public final class LinkController {
         default:
             break
         }
-        quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
+        quickProbe = (event == .foreground || event == .resume || { if case .resumed = event { true } else { false } }()) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
@@ -238,12 +238,14 @@ public final class LinkController {
         }
         if case .waiting(_, _, let reason, _) = machine.phase { lastFailure = reason }
         if machine.phase.isConnected { lastFailure = nil }
-        for effect in effects { run(effect) }
+        // Before the effects: a background probe still out is cancelled first, so a probe an
+        // effect starts now (a short resume's quick probe) is the one that runs.
         if wasBackgrounded != machine.isBackgrounded, phase.isConnected {
             probeTask?.cancel()
             probeTask = nil
             startHeartbeat(generation: machine.generation)
         }
+        for effect in effects { run(effect) }
     }
 
     private func run(_ effect: LinkMachine.Effect) {
@@ -488,6 +490,10 @@ public final class LinkController {
                     log.info("link dropped: \(reason, privacy: .public)")
                     self.events.dropped(reason: reason)
                     self.send(.linkDropped(generation: generation, reason: reason))
+                case .suspect(let silentMillis):
+                    // Rust heard nothing after a ping: prove the link now (cmux#49296).
+                    log.info("link suspect: silent \(silentMillis, privacy: .public) ms")
+                    self.suspect()
                 case .idle, .connecting:
                     break
                 }

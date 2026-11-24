@@ -26,7 +26,7 @@ final class SidebarUpdateCardView: NSView {
     /// The cards' surface, under everything else, its veil in the theme's glass tint (as the
     /// Updated and notice cards'; Leo 2026-11-03: "will this be themeed properly?").
     let surface = CardSurfaceView() // concentric-allow: `layout()` rounds it by `cardCornerRadius`, from `buttonContainer`
-    private let titleLabel = ChromeLabel(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
     let detailLabel = ChromeLabel(labelWithString: "")
     let toggle = SidebarUpdateToggle()
@@ -194,15 +194,15 @@ final class SidebarUpdateCardView: NSView {
 
     // MARK: Geometry
 
-    /// Compact (Leo 2026-10-19): a 10 pt inset, the detail right under the
-    /// title. 6 pt between the rows (Leo 2026-11-03: "stretched out wasted space"; it was 8).
-    private static var padding: CGFloat { Metrics.space2 + Metrics.space1 / 2 }
+    /// Every card's padding (``Metrics/cardPadding``, 10 pt at Default; Leo 2026-10-19 asked for a 10 pt inset, and the
+    /// card had drifted to 5): the detail right under the title, ``Metrics/cardRowGap`` between the rows (#49579).
+    private static var padding: CGFloat { Metrics.cardPadding }
     /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
-    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
-    private static var rowGap: CGFloat { Metrics.space1 + Metrics.space1 / 2 }
-    private static var titleFont: NSFont { Typography.bodyEmphasized }
+    static var cardCornerRadius: CGFloat { Metrics.cardCornerRadius }
+    private static var rowGap: CGFloat { Metrics.cardRowGap }
+    private static var titleFont: NSFont { Typography.cardTitle }
 
-    private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
+    private static var captionHeight: CGFloat { ceil(Typography.cardBody.boundingRectForFont.height) }
 
     /// The card's height for `card` in `layout` (the tunable's, for the one-argument form). Card: padding, title,
     /// the detail line when present, the switch row, the button, padding. Compact: padding, title,
@@ -216,7 +216,7 @@ final class SidebarUpdateCardView: NSView {
         // The title row is as tall as Hide when the card shows it (Hide sits the padding from the top, in the corner).
         let titleHeight = ceil(titleFont.boundingRectForFont.height)
         let title = card.closeTitle != nil && card.closeAction != nil ? max(titleHeight, SidebarCardTextButton.height) : titleHeight
-        let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
+        let detail = card.detail == nil ? 0 : Metrics.cardTextGap + captionHeight
         switch layout {
         case .card:
             return ceil(padding + title + detail + rowGap
@@ -257,8 +257,8 @@ final class SidebarUpdateCardView: NSView {
         var y = max(titleLabel.frame.maxY, closeButton.isHidden ? 0 : closeButton.frame.maxY)
         let caption = Self.captionHeight
         if !detailLabel.isHidden {
-            y += Metrics.space1 / 2
-            detailLabel.font = Typography.caption
+            y += Metrics.cardTextGap
+            detailLabel.font = Typography.cardBody
             detailLabel.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
@@ -284,7 +284,7 @@ final class SidebarUpdateCardView: NSView {
         let y = max(titleLabel.frame.maxY, closeButton.isHidden ? 0 : closeButton.frame.maxY) + Self.rowGap, h = SidebarUpdateButton.height
         let buttonWidth = min(width, button.fittingWidth)
         button.frame = NSRect(x: pad + width - buttonWidth, y: y, width: buttonWidth, height: h)
-        detailLabel.font = Typography.caption
+        detailLabel.font = Typography.cardBody
         detailLabel.frame = NSRect(x: pad, y: y + (h - Self.captionHeight) / 2, width: max(0, width - buttonWidth - Metrics.space2),
                                    height: Self.captionHeight)
         presence.didLayout()
@@ -298,9 +298,9 @@ final class SidebarUpdateCardView: NSView {
         toggle.isHidden = true
         closeButton.isHidden = true
         button.frame = NSRect(x: pad, y: pad, width: width, height: SidebarUpdateButton.height)
-        detailLabel.font = Typography.caption
+        detailLabel.font = Typography.cardBody
         detailLabel.alignment = .center
-        detailLabel.frame = NSRect(x: pad, y: button.frame.maxY + Metrics.space1 / 2, width: width, height: Self.captionHeight)
+        detailLabel.frame = NSRect(x: pad, y: button.frame.maxY + Metrics.cardTextGap, width: width, height: Self.captionHeight)
         presence.didLayout()
     }
 

@@ -6,6 +6,9 @@
 //!
 //! [`TestTurn`] is a TURN server on loopback, over UDP and over TLS (a
 //! self-signed certificate the dial options trust).
+//!
+//! [`shape_by_profile`] plays a named phone link profile (cmux-fault's
+//! `link-profiles.json`) on a tunnel's received datagrams.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -18,6 +21,9 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+
+mod shaped;
+pub use shaped::{LINK_PROFILES_JSON, LinkProfile, set_link_profile, shape_by_profile, shaped_counts};
 
 #[derive(Debug, Clone, Default)]
 pub struct FakeOptions {

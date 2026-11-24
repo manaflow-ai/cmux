@@ -322,6 +322,15 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("a literal grace under the bound (QuietHold(", out)
 
+    def test_a_mac_connection_chip_is_a_gate(self):
+        """CmuxNextDesign's connectionChip / connectionLasting hold the state for NoticeTiming.connectionQuiet."""
+        view = ("struct RemotePathBadgeView: View {\n"
+                "    var body: some View { Color.clear.connectionChip(down ? \"Reconnecting\" : nil) }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{MAC}/RemotePathBadgeView.swift", view)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
     def test_ios_connecting_line(self):
         tree = Tree(self)
         tree.write(f"{IOS}/TerminalStatusLine.swift", IOS_OLD)

@@ -136,6 +136,32 @@ impl SameAccountGrant for SignedInMachinesConsent {
     }
 }
 
+/// [`SameAccountGrant`] for zero-touch sharing (cmuxterm-hq
+/// `docs/design/remote-screen-share-zero-touch.md`: "Share works from your
+/// computer with zero actions on that machine: no app open there, no switch,
+/// no approval"). The yes is the owner's own click on a device paired to this
+/// Mac's account, so it covers any asker signed in to `account`, with no
+/// consent given on this Mac first.
+///
+/// What still proves a person: [`admit`] checks this grant, then looks the
+/// asker up in [`AskerKeys`] (the device hub's devices for this account only),
+/// then checks the asker's device-key signature. The device key never leaves
+/// the device's app, which signs only after the person's tap. An agent request
+/// carries no device signature (`share.bad_signature`). A fleet or CLI token is
+/// not a device (`share.unknown_device`). And a `true` an agent writes into a
+/// settings file is not consulted at all (the review of #47312).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnerPairedDevice<'a> {
+    /// The account this Mac is joined as (device hub user id).
+    pub account: &'a str,
+}
+
+impl SameAccountGrant for OwnerPairedDevice<'_> {
+    fn covers(&self, asker: &Asker<'_>) -> bool {
+        !self.account.is_empty() && asker.account == self.account
+    }
+}
+
 /// The device keys the target trusts: the device hub's list for its own
 /// account (each device's `signingKey`, base64 X9.63 P-256).
 pub trait AskerKeys {

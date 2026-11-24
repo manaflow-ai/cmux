@@ -1292,6 +1292,35 @@ fn app_try_failed_handoff_puts_the_helper_back_too() {
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
 }
 
+/// A prior helper the store cannot keep refuses the swap before it starts, so `undo` never
+/// meets a try whose old helper is gone (review finding F1 on #47936).
+#[test]
+fn app_try_refuses_the_swap_when_the_prior_helper_cannot_be_kept() {
+    let (fixture, unpacked) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    // A file where the store keeps helpers: create_dir_all under it fails.
+    fs::create_dir_all(&fixture.store.root).unwrap();
+    fs::write(fixture.store.root.join("helpers"), b"not a folder").unwrap();
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("the Screen Sharing helper"), "{error}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(daemon.terminated.get(), 0, "the daemon is never touched");
+    let names: Vec<_> = fs::read_dir(fixture.app.join(helper::LIBRARY)).unwrap().collect();
+    assert_eq!(names.len(), 1, "no staging folder is left");
+}
+
 /// The key is checked as the binaries are: the commit's own url, a sha256, a size in range, a
 /// helper's bundle id; and a zip entry that would leave its folder is refused.
 #[test]

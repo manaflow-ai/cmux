@@ -577,14 +577,45 @@ fn request_publish(source: &Published, commit: Option<&str>) -> Option<String> {
         args.extend(["-f".to_owned(), format!("base={commit}")]);
     }
     let shown = format!("gh {}", args.join(" "));
-    let ran = cmux_process::Command::new("gh")
-        .args(&args)
+    Some(match dispatch(&args) {
+        Ok(()) => format!("asked CI to publish it ({shown})"),
+        Err(why) => format!("could not ask CI ({why}); run `{shown}`"),
+    })
+}
+
+/// How long `use` and `refresh` wait for `gh workflow run`: it only queues.
+const DISPATCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs `gh` with `args`, bounded: why it failed, in gh's own last line.
+fn dispatch(args: &[String]) -> Result<(), String> {
+    let mut child = cmux_process::Command::new("gh")
+        .args(args)
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::null())
-        .stderr(cmux_process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    Some(if ran { format!("asked CI to publish it ({shown})") } else { format!("run `{shown}`") })
+        .stderr(cmux_process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("gh: {error}"))?;
+    let status = match child.wait_timeout(DISPATCH_TIMEOUT) {
+        Ok(Some(status)) => status,
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("gh did not answer in {}s", DISPATCH_TIMEOUT.as_secs()));
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let mut said = String::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = stderr.read_to_string(&mut said);
+    }
+    Err(said
+        .lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty())
+        .map(|line| line.chars().take(200).collect())
+        .unwrap_or_else(|| format!("gh exited {status}")))
 }
 
 /// `cmux customize use SOURCE` for every source but a folder.
@@ -767,6 +798,60 @@ fn fork_update_waits(published: &Published, layer: &CodeLayer) -> Option<String>
     ))
 }
 
+/// What refresh does with an entry that has a published layer.
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    /// The branch moved past the layer: ask CI for one at this tip.
+    Ask(String),
+    /// Turn the entry off, saying why.
+    Off(String),
+    /// Leave it, saying why.
+    Wait(String),
+    /// Install the newer layer in the entry's place.
+    Take,
+    /// Up to date, but built on another commit than this app's (named).
+    Behind(String),
+    Same,
+}
+
+/// A layer whose web part this app cannot serve (another web ABI, or a head
+/// with no web change left) turns the entry off before a newer head is
+/// considered: installing it would serve nothing.
+fn refresh_step(
+    code: &CodeLayer,
+    layer: &CodeLayer,
+    published: &Published,
+    tip: Option<&str>,
+    app_commit: Option<&str>,
+) -> Step {
+    if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
+        return Step::Ask(tip.to_owned());
+    }
+    if code.has_web() && !layer.has_web() {
+        let why = layer.needs_build.first().filter(|line| line.contains("web ABI")).cloned();
+        return Step::Off(format!(
+            "no longer applies: {}",
+            why.unwrap_or_else(|| format!("{} has no web change", short(&layer.head)))
+        ));
+    }
+    let changed = !layer.same(code) || layer.base != code.base || layer.web != code.web;
+    if !changed {
+        // The newest layer is built on another commit than this app's: the
+        // web changes merged since are missing from it, so CI is asked for
+        // one on this app (a fork builds its own).
+        return match app_commit {
+            Some(app) if layer.base != app && !matches!(published, Published::Fork { .. }) => {
+                Step::Behind(app.to_owned())
+            }
+            _ => Step::Same,
+        };
+    }
+    match fork_update_waits(published, layer) {
+        Some(waits) => Step::Wait(waits),
+        None => Step::Take,
+    }
+}
+
 /// `cmux customize library refresh`: every code entry against what is
 /// published (a folder: built again) and what this app is.
 pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Result<Answer, Failure> {
@@ -816,26 +901,31 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                 Published::Ref { kind: CodeKind::Branch, name } => branch_tip(&http, name),
                 _ => None,
             };
-            let changed = !layer.same(&code) || layer.base != code.base || layer.web != code.web;
-            if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
-                let asked = request_publish(&published, app.commit.as_deref()).unwrap_or_default();
-                (format!("the branch is at {}; {asked}", short(&tip)), None)
-            } else if changed && let Some(waits) = fork_update_waits(&published, &layer) {
-                (waits, None)
-            } else if changed {
-                install(customize, &http, &layer)?;
-                customize.library_update_code(layer.clone(), origin, now_ms)?;
-                (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
-            } else if code.has_web() && !layer.has_web() {
-                (
-                    format!(
-                        "no longer applies: {}",
-                        layer.needs_build.first().cloned().unwrap_or_default()
-                    ),
-                    Some(false),
-                )
-            } else {
-                (String::new(), None)
+            match refresh_step(&code, &layer, &published, tip.as_deref(), app.commit.as_deref()) {
+                Step::Ask(tip) => {
+                    let asked =
+                        request_publish(&published, app.commit.as_deref()).unwrap_or_default();
+                    (format!("the branch is at {}; {asked}", short(&tip)), None)
+                }
+                Step::Off(note) => (note, Some(false)),
+                Step::Wait(note) => (note, None),
+                Step::Take => {
+                    install(customize, &http, &layer)?;
+                    customize.library_update_code(layer.clone(), origin, now_ms)?;
+                    (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
+                }
+                Step::Behind(app) => {
+                    let asked = request_publish(&published, Some(&app)).unwrap_or_default();
+                    (
+                        format!(
+                            "built on {}, not this app's {}: web changes since are missing; {asked}",
+                            short(&layer.base),
+                            short(&app)
+                        ),
+                        None,
+                    )
+                }
+                Step::Same => (String::new(), None),
             }
         } else {
             ("no published layer".to_owned(), None)

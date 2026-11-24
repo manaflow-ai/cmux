@@ -70,8 +70,12 @@ use std::time::{Duration, Instant};
 
 mod checkpoint;
 mod fenced;
+mod log_lsns;
 mod meta;
 mod new_folders;
+mod space;
+#[cfg(test)]
+pub(crate) use space::{RESERVE as DISK_RESERVE, set_test_free};
 pub(super) mod repair;
 #[cfg(all(test, unix))]
 mod seal_tests;
@@ -366,6 +370,8 @@ struct Inner {
     /// Held while a chat's folder is removed or its `session.json` written from the overlay
     /// (`journal_store/meta.rs`).
     folders: Mutex<()>,
+    /// The full disk's state: while full, every change is refused at once ([`space`]).
+    space: Arc<space::Space>,
 }
 
 /// Owned by the journal's durable listener, which the writer drops when it ends: a writer that
@@ -442,6 +448,9 @@ struct Order {
     /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
     /// checkpoint of its own (`Store::commit_compaction`).
     log_lsn: HashMap<String, Lsn>,
+    /// Each chat's log records not yet known durable, by seq: what `Store::sync_log_through`
+    /// waits for ([`log_lsns`]).
+    log_lsns: HashMap<String, log_lsns::LogLsns>,
     /// The shutdown's last checkpoint ran (`Inner::last_checkpoint`): the home is the next
     /// daemon's, so no checkpoint, metadata image or retirement is written from here on.
     sealed: bool,
@@ -514,6 +523,11 @@ impl JournalStore {
                 moved
             });
         });
+        let space = space::Space::open(home, Arc::clone(&ending));
+        let full = Arc::clone(&space);
+        journal.on_out_of_space(move || {
+            full.enter("the event journal's writer got no space");
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -542,6 +556,7 @@ impl JournalStore {
             syncs: checkpoint::SyncsUnderWay::default(),
             folders: Mutex::new(()),
             idle: AtomicBool::new(false),
+            space,
         });
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
@@ -743,6 +758,8 @@ impl Store for JournalStore {
         let inner = &self.inner;
         let _chat = inner.chat(id).lock_or_recover();
         let _appending = inner.appending.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A full disk: refused before anything is written ([`space`]).
+        inner.space.refuse()?;
         // The record's room in the journal's queue, held until its append: refused here, before
         // the log write, never after it unless the writer stops in between.
         let room = inner.journal.reserve(payload.len()).map_err(JournalStore::journal_error)?;
@@ -781,6 +798,11 @@ impl Store for JournalStore {
             None => {
                 order.log_lsn.insert(id.to_owned(), lsn);
             }
+        }
+        let durable = inner.journal.durable_lsn();
+        match order.log_lsns.get_mut(id) {
+            Some(held) => held.note(record.seq, lsn, durable),
+            None => order.log_lsns.entry(id.to_owned()).or_default().note(record.seq, lsn, durable),
         }
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
@@ -842,11 +864,26 @@ impl Store for JournalStore {
     }
     /// A line is durable once its journal record is: a power loss's replay writes it into the
     /// log again. So a sync through a seq waits for the journal, never syncs the log itself.
-    fn sync_log_through(&self, _id: &str, _seq: u64) -> Result<()> {
-        if self.wait_durable(Duration::from_secs(30))? {
-            Ok(())
-        } else {
-            anyhow::bail!("the event journal did not sync within 30 s")
+    /// Waits for the record that holds `id`'s line `seq`, not for the lines appended after it
+    /// ([`log_lsns`]).
+    fn sync_log_through(&self, id: &str, seq: u64) -> Result<()> {
+        let durable = self.inner.journal.durable_lsn();
+        let lsn = {
+            let mut order = self.inner.order.lock_or_recover();
+            let Some(held) = order.log_lsns.get_mut(id) else { return Ok(()) };
+            let lsn = held.through(seq, durable);
+            if held.done(durable) {
+                order.log_lsns.remove(id);
+            }
+            lsn
+        };
+        let Some(lsn) = lsn else { return Ok(()) };
+        match self.inner.journal.wait_durable(lsn, Duration::from_secs(30)) {
+            Ok(()) => Ok(()),
+            Err(cmux_journal::WaitError::Timeout) => {
+                anyhow::bail!("the event journal did not sync within 30 s")
+            }
+            Err(error) => Err(anyhow::anyhow!("the event journal: {error}")),
         }
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
@@ -967,6 +1004,21 @@ impl Store for JournalStore {
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(id, || Store::scan_heads(&self.inner.local, id, visit))
     }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(id, || Store::scan_heads_from(&self.inner.local, id, from, hint, visit))
+    }
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        Store::adoption_checkpoint(&self.inner.local, id)
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_adoption_checkpoint(&self.inner.local, id, bytes)
+    }
     /// A checkpoint: every log written so far is synced and the journal before it retired.
     fn flush(&self) -> Result<()> {
         self.inner.checkpoint()
@@ -987,14 +1039,25 @@ impl Store for JournalStore {
     }
     fn durability(&self) -> Option<Durability> {
         let inner = Arc::downgrade(&self.inner);
+        let asker = Arc::downgrade(&self.inner);
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
             kept: Arc::clone(&self.inner.kept),
             written: self.inner.written.clone(),
+            ask: Arc::new(move |lsn| {
+                if let Some(inner) = asker.upgrade() {
+                    inner.journal.ask_durable(lsn);
+                }
+            }),
             stalled: Arc::new(move |waited: Duration| {
                 let Some(inner) = inner.upgrade() else { return false };
                 let stats = inner.journal.stats();
+                // A full disk: no restart (it would find the disk as full); the reply waits
+                // for the writer's retry, which the freed reserve lets write ([`space`]).
+                if stats.out_of_space || inner.space.is_full() {
+                    return false;
+                }
                 match stats.failing {
                     Some(failing) => {
                         inner.ask_to_stop(format!(
@@ -1155,6 +1218,7 @@ impl Store for JournalStore {
             let _chat = inner.chat(id).lock_or_recover();
             let mut order = inner.order.lock_or_recover();
             drop(inner.local.writable()?);
+            inner.space.refuse()?;
             let lsn = inner
                 .journal
                 .append(KIND_FORGET, Class::Ack, id.as_bytes())

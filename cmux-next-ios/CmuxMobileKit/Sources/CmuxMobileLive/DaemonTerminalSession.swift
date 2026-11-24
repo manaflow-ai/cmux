@@ -515,6 +515,13 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// The phone projects this terminal (``TerminalProjectingSession``).
+    private var projectsLocally = false
+
+    public func setProjectsLocally(_ projects: Bool) {
+        projectsLocally = projects
+    }
+
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
     /// background). Leaving releases the phone's size on the Mac at once, so
@@ -549,6 +556,8 @@ public final class DaemonTerminalSession: TerminalSession {
     public func stop() {
         eventTask?.cancel()
         eventTask = nil
+        historyPrefetch?.cancel()
+        historyPrefetch = nil
         inbox?.close()
         inbox = nil
         outputPaused = false
@@ -756,6 +765,58 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
     static let maxRequestedHistoryRows = 5 * historyChunkRows
 
+    // MARK: History behind the screen
+
+    /// Leo, 2026-11-22: "me personally interacting from [the Mac] directly
+    /// scrolling interactivity percieved speed is actually just fine and i
+    /// don't see anything off about it. so the phone side is clearly doing
+    /// something off." The screen-first attach brought the screen alone, and
+    /// a reader scrolling up hit its top at once: the fling stopped there and
+    /// waited for a second attach over the link for every 2,000 rows. The Mac
+    /// scrolls its own scrollback. So once the screen is live, the history
+    /// follows by itself (``historyPrefetchDelay`` later, one fetch of up to
+    /// ``prefetchHistoryRows`` rows, the same replacing attach a scroll to the
+    /// top makes), and the reader scrolls through rows the phone holds.
+    /// Older rows than that still come in chunks at the top.
+    static let prefetchHistoryRows = maxTailHistoryRows
+    /// After the attach is live (the first screen drawn and typing works),
+    /// how long the history waits behind it.
+    static let defaultHistoryPrefetchDelay: Duration = .milliseconds(300)
+    /// nil: no prefetch (tests of the on-demand chunks).
+    var historyPrefetchDelay: Duration? = DaemonTerminalSession.defaultHistoryPrefetchDelay
+    /// The one prefetch of this session went out.
+    private(set) var historyPrefetched = false
+    private var historyPrefetch: Task<Void, Never>?
+
+    /// The history behind a live screen-first attach, once per session.
+    private func scheduleHistoryPrefetch() {
+        guard let delay = historyPrefetchDelay, !historyPrefetched, historyPrefetch == nil,
+              attached, tailReplay, historyRowsOmitted > 0, historyWindowStart == nil,
+              let allowance = historyAllowance, allowance < Self.prefetchHistoryRows else { return }
+        historyPrefetch = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.historyPrefetch = nil
+            self.prefetchHistoryNow()
+        }
+    }
+
+    private func prefetchHistoryNow() {
+        guard !historyPrefetched, attached, tailReplay, historyRowsOmitted > 0, historyWindowStart == nil,
+              let allowance = historyAllowance, allowance < Self.prefetchHistoryRows else { return }
+        // A key on its way (it must not be sent twice), or another fetch or
+        // attach out: look again after the same wait.
+        guard !attaching, replacing == nil, inputInFlight == 0, let client else { return scheduleHistoryPrefetch() }
+        historyPrefetched = true
+        let total = allowance + historyRowsOmitted
+        // At most the tail a scroll could grow to (``maxTailHistoryRows``): past
+        // it a scroll to the top moves the window (#43189), as before.
+        historyAllowance = total <= Self.prefetchHistoryRows ? nil : Self.prefetchHistoryRows
+        log.notice("surface \(self.surface, privacy: .public): history prefetched behind the screen (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
+        replacing = client
+        Task { await attach() }
+    }
+
     /// A tab back from the warm set will put its reader back `rows` rows above
     /// the end: the next attach asks for that much history, in whole
     /// ``historyChunkRows`` (up to ``maxRequestedHistoryRows``), so the first
@@ -765,6 +826,25 @@ public final class DaemonTerminalSession: TerminalSession {
         guard let allowance = historyAllowance, rows > allowance else { return }
         let chunks = (rows + Self.historyChunkRows - 1) / Self.historyChunkRows
         historyAllowance = max(allowance, min(Self.maxRequestedHistoryRows, chunks * Self.historyChunkRows))
+    }
+
+    /// Sends one pan's frames to the Mac (`phone-frames`); the coordinator sets it.
+    /// It returns when the line went out or could not.
+    public var scrollFramesSink: (@MainActor (TerminalPanFrames) async -> Void)?
+    /// Pan lines on their way: past ``maxScrollFramesInFlight`` a pan is dropped, never queued.
+    private var scrollFramesInFlight = 0
+    static let maxScrollFramesInFlight = 2
+
+    public func reportScrollFrames(_ pan: TerminalPanFrames) {
+        guard let sink = scrollFramesSink, scrollFramesInFlight < Self.maxScrollFramesInFlight else { return }
+        guard pan.intervalsMs.count >= TerminalPanFrames.minFrames else { return }
+        var pan = pan
+        pan.program = programName
+        scrollFramesInFlight += 1
+        Task { [weak self] in
+            await sink(pan)
+            self?.scrollFramesInFlight -= 1
+        }
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
@@ -1047,6 +1127,7 @@ public final class DaemonTerminalSession: TerminalSession {
             drainInput()
             openInputLane(for: client)
             armLiveness()
+            scheduleHistoryPrefetch()
         } catch {
             heldEvents = nil
             lastError = Self.diagnostic(error)
@@ -1169,6 +1250,7 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+            scheduleHistoryPrefetch()
         case .historyRowsSkipped(let rows):
             historyRowsSkipped = rows
             if rows == 0, historyWindowStart != nil {
@@ -1247,12 +1329,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// keeps its grid past ``reclaimWait``.
     private func show(_ event: TerminalSessionEvent) {
         let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
-        var claims = claimsSize
+        // Projected, the primary screen shows the Mac's own grid re-wrapped:
+        // nothing to hold back. A hidden full-screen app still waits for the
+        // phone's grid, so a return never shows it stretched.
+        let projectsPrimary = projectsLocally && !isAlternateScreen
+        var claims = claimsSize || projectsPrimary
         var unwanted = false
         if case .hostGrid(let columns, let rows) = event, let phoneGrid {
             if phoneGrid == TerminalReclaimHold.Grid(columns: columns, rows: rows) {
                 macKeepsGrid = false
-            } else if claimsSize, !macKeepsGrid, !reclaimHold.isHolding, client != nil {
+            } else if claimsSize, !projectsPrimary, !macKeepsGrid, !reclaimHold.isHolding, client != nil {
                 // Held as if hidden: the claim below answers it. Only with
                 // a channel (attached, or replaying an attach that then
                 // settles the hold): nothing else could end the hold.

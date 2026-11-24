@@ -96,10 +96,7 @@ on:
   workflow_dispatch:
     inputs:
       macos_runner:
-        # A branch dogfood publish only needs its commit-addressed objects; let
-        # it build the macOS targets on an idle self-hosted label instead of
-        # waiting behind the shared hosted queue.
-        description: "Optional macOS runner label override for this publish"
+        description: "Optional macOS runner label when the build profile uses a native Mac"
         required: false
         default: ""
         type: string
@@ -160,38 +157,13 @@ env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
-# Every Linux job here, the ~10-second ones included, takes the shared Linux set:
-# Blacksmith 32 vCPU, Blacksmith 16 vCPU while the overflow switch has failed over
-# (vars.CI_CLOUD_OVERFLOW_SAVED), or a non-Blacksmith pool LINUX_RUNNER names. No
-# job names a smaller size (tests/test_cmux_tui_artifacts_linux_runner_set.py).
-# On the nightly path (feat-cmux-next and nightly-next pushes, and dispatches such as
-# cmux-tui-tree-request.yml's) attempt 1 of the jobs a nightly waits for (tree-preflight,
-# tree-owner-wait, publish, publish-tree, mark-tree-commits; NIGHTLY_TREE_JOBS in
-# tests/test_cmux_tui_artifacts_linux_runner_set.py) takes our owned GCP runners first
-# (the nightly-only cmux-gcp-nightly-x64, below), so a NEXT nightly never waits for its
-# tree behind PR CI on capped Blacksmith: on 2026-11-18 tree preflights waited 11-56+ min on
-# blacksmith-2vcpu and -4vcpu, while that pool picked the preflight up in 17 s. Not the
-# ephemeral cmux-fleet-linux-x64: its VMs are booted by a reconciler that itself runs on
-# Blacksmith, so it starts nothing while Blacksmith is capped (a preflight queued there 20+
-# min on 2026-11-18). A re-run takes the Blacksmith route above, the way out of a stuck owned
-# queue. Lane and PR pushes keep that route on attempt 1, so they never crowd the owned
-# runners. The musl legs get their owned pick from linux-build-placement. The other jobs
-# (channels, sweeps, verifies, Sentry) keep Blacksmith: the lane has 4 runners, and with
-# every job of every feat-cmux-next push on it the queue reached 144 jobs (2026-11-18 23:30Z).
-# A nightly-next push and a tree request (dispatch) take the nightly-only runners
-# (cmux-gcp-nightly-x64) instead, so the nightly's own tree never queues behind lane builds: tree
-# request run 44427450458 sat 2 h behind them on cmux-gcp-lane-build-x64 (2026-11-19).
-# A feat-cmux-next push's NIGHTLY_TREE_JOBS take cmux-gcp-nightly-x64 too: its tree is the one the
-# nightly bundles, and tree preflight 136522327595 (run 44803781070) sat queued on
-# cmux-gcp-lane-build-x64 from 19:36Z behind about 365 lane builds, which failed nightly run
-# 44818589315 at "Bundle the cmux-tui client" (2026-11-20). Not cmux-gcp-nightly-jit-x64, the
-# nightly's key-holding JIT label (#48109). The daemon tests keep the build lane: no nightly-path
-# job needs them, and the publisher stops waiting for them after 20 min.
+# The publish, publish-tree and mark-tree-commits jobs use the nightly runners
+# on the first attempt of a tree request or a push to either nightly branch.
 jobs:
   reject-untrusted-pin-ref:
     name: refuse cmux-tui pin ref
     if: startsWith(github.ref, 'refs/heads/cmux-tui-pin-')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     permissions: {}
     timeout-minutes: 1
     steps:
@@ -234,7 +206,7 @@ jobs:
   push-gate:
     name: cmux-tui superseded push gate
     if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (about a minute).
     timeout-minutes: 5
     continue-on-error: true
@@ -292,14 +264,7 @@ jobs:
     # coalesce is skipped (run empty) everywhere but a feat-cmux-next push, so only a coalesced push stops here.
     needs: [push-gate, coalesce]
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.push-gate.outputs.inputs_unchanged != 'true' && needs.coalesce.outputs.run != 'false' }}
-    # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
-    # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
-    environment:
-      name: ci-routing-agent
-      deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # The feat-cmux-next election fetches each active run's commit. The musl legs' owned-Linux
-    # placement may wait up to 2 more minutes for a fleet runner (linux-build-placement).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -316,9 +281,6 @@ jobs:
       # publishing-only edit of this file does not. The build calls read it
       # with fromJSON, never a literal (scripts/cmux-next/tests/tree-key-v2.test.sh).
       build_profiles: ${{ steps.darwin-builder.outputs.build_profiles }}
-      # An owned mini idle now for both macOS targets, with no nightly job waiting on its pool, else empty
-      # (the Linux cross build on Blacksmith): the build's darwin_mac_runner.
-      darwin_mac_runner: ${{ steps.darwin-mac.outputs.mini_jobs != '' && steps.darwin-mac.outputs.mini_runner || '' }}
       key: ${{ steps.inspect.outputs.key }}
       legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
@@ -333,19 +295,6 @@ jobs:
       # skipped and the build starts one runner queue earlier.
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
-      # The live GCP Linux label for the daemon tests alone, only when the
-      # runner census shows an idle Linux member; empty leaves them on the
-      # owned GCP label on attempt 1 of the nightly path (never Blacksmith from
-      # one census reading). The build calls read gcp_runner below.
-      linux_runner: ${{ steps.linux-placement.outputs.linux_runner }}
-      linux_jobs: ${{ steps.linux-placement.outputs.linux_jobs }}
-      # Owned GCP Linux for the shipped tree's two musl legs (the tree the NEXT nightly bundles), only
-      # when both placed on it; empty keeps their Blacksmith route (tests/test_ci_tui_tree_owned_linux_first.py).
-      linux_build_runner: ${{ contains(steps.linux-build-placement.outputs.linux_jobs, ' tree-x86_64-musl ') && contains(steps.linux-build-placement.outputs.linux_jobs, ' tree-aarch64-musl ') && steps.linux-build-placement.outputs.linux_runner || '' }}
-      # The owned GCP build lane (vars.LINUX_RUNNER_DARWIN_CROSS) for a trusted push's Linux build calls, only for
-      # as many as it has idle runners now; empty keeps their Blacksmith routes.
-      gcp_runner: ${{ steps.gcp-placement.outputs.linux_runner }}
-      gcp_jobs: ${{ steps.gcp-placement.outputs.linux_jobs }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -362,10 +311,6 @@ jobs:
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
-
-      # Actions and publication status reads use this workflow's token. The
-      # routing App is reserved for runner placement and is not spent on
-      # Actions status reads.
 
       # A queued run can be superseded before it gets a runner: on 2026-10-14
       # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
@@ -386,7 +331,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
-        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        # --trunk-tip-only: a feat-cmux-next push that is no longer the tip skips its builds on its first attempt;
+        # the newer push builds the tip, and cmux-tui-tree-request.yml's re-run builds this commit on demand.
+        run: >-
+          python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
+          --trunk-tip-only --attempt "$RUN_ATTEMPT"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
       # tests (source.json daemonTests "separate", no daemon-tests marker):
@@ -459,15 +409,8 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
-          # The pool a feat-cmux-next push's daemon tests take now
-          # (cmux-next-daemon-tests): a publisher whose test job waits on
-          # another label, or too long, is not waited for
-          # (scripts/ci/cmux_tui_publisher_testing.py). It is the label of the
-          # job's runs-on, so a job still queued on the retired Mac pools is
-          # not waited for. The publisher is a feat-cmux-next push: its
-          # attempt 1 queues on the owned build-lane label, attempt 2+ on the
-          # Blacksmith pool, and both count (the 20-minute cutoff still holds).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || format('cmux-gcp-lane-build-x64,{0}', vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8) }}
+          # Only defer to a publisher queued on the current daemon-test runner.
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -847,165 +790,6 @@ jobs:
           fi
           echo "owns_key=$owns_key" >> "$GITHUB_OUTPUT"
 
-          # Whether the macOS targets may build in this run, so the mini placement below is worth its
-          # routing App reads (4 a pick). They build only with run_macos and either this run owning the
-          # key or tree-owner-wait taking it over. Only a feat-cmux-next or main push takes over from a
-          # live owner; any other run takes over only after its owner ended unpublished, and then builds
-          # on the Linux cross build, the same as with no free mini. On 2026-11-02 all 10 sampled runs
-          # placed and 9 built nothing, and the routing App's 5000/h ran out 27 minutes into the hour.
-          place_macos=false
-          if [[ "$run_macos" == true ]] && { [[ "$owns_key" == true ]] ||
-              { [[ "$EVENT_NAME" == push ]] && [[ "$REF" == refs/heads/feat-cmux-next || "$REF" == refs/heads/main ]]; }; }; then
-            place_macos=true
-          fi
-          echo "place_macos=$place_macos" >> "$GITHUB_OUTPUT"
-
-      # The macOS targets are Mac builds: a free owned mini comes first, natively, and the Linux cross build
-      # on Blacksmith 32 vCPU is the overflow (Leo, 2026-10-31: "y'know, we'll have to be more self-reliant
-      # and size the stuff better"). Both targets or neither, since the build takes one label for both.
-      - name: Mint the owned-pool routing token
-        id: route-token
-        if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
-
-      # The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
-      # base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
-      # GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
-      # kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
-      # The Actions cache is not the REST API.
-      - name: Restore the shared pool snapshot
-        continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-pool-snapshot
-          key: cmux-pool-snapshot-newest
-          restore-keys: |
-            cmux-pool-snapshot-
-      - name: Look for a free mini for the macOS targets
-        id: darwin-mac
-        if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true'
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: darwin-aarch64 darwin-x86_64
-          MAC_FIRST: darwin-aarch64 darwin-x86_64
-          MINI_ALL_OR_NONE: "1"
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-
-      # The artifact daemon is Linux-only. Emit our persistent GCP build-lane label
-      # (cmux-gcp-lane-build-x64) only when the runner census shows an idle member
-      # beyond its queue; an empty output keeps the measured Blacksmith fallback.
-      # Not cmux-fleet-linux-x64: on 2026-11-19 no runner carried it (168 jobs
-      # waited there; its VM reconciler sat queued on starved Blacksmith), so this
-      # pick never found one and every daemon test fell to blacksmith-16vcpu behind
-      # ~346 runs (Leo: "i have my doubts blacksmith 16 is gonna fre up"). The
-      # lane's runners report no OS, so the label is vouched (FLEET_LINUX_VOUCHED).
-      # The trusted runner state
-      # document answers without routing App reads; the route token is reused
-      # only when the macOS pick already minted it.
-      - name: Pick a live Linux runner for the artifact daemon
-        id: linux-placement
-        if: steps.daemon-policy.outputs.daemon_tests == 'true'
-        continue-on-error: true
-        timeout-minutes: 3
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: cmux-next-daemon-tests
-          LINUX_ONLY: cmux-next-daemon-tests
-          FLEET_LINUX: cmux-gcp-lane-build-x64
-          FLEET_LINUX_VOUCHED: "1"
-          REQUIRE_LIVE_CAPACITY: "1"
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          ROUTE_TOKEN_FALLBACK: ${{ github.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-
-      # The shipped tree's musl legs (x86_64 and aarch64), which every NEXT nightly waits for
-      # (await-tree-client.sh), go to owned GCP Linux first and to Blacksmith only as overflow. On
-      # 2026-11-18 tree 453a2f94's legs sat on blacksmith-16vcpu behind about 346 queued runs while
-      # the nightly waited (Leo: "i thought we had a priority option / hey what about setting up
-      # those linux vms finally on our end? what about teh gcp ones?"). Both legs or neither take
-      # the fleet label, and only runners idle now beyond the label's queue count, so queued
-      # nightly jobs on it keep coming first and a leg never queues on a dead pool (#45792). With
-      # an online fleet runner but none free, it waits up to 2 minutes for one; with none online
-      # (the pool cannot boot VMs) it takes Blacksmith at once. Only trees a nightly or a dev
-      # build reads: feat-cmux-next and nightly-next pushes, and dispatches (cmux-tui-tree-request).
-      - name: Pick owned Linux for the tree's musl legs
-        id: linux-build-placement
-        if: >-
-          steps.inspect.outputs.place_macos == 'true' && github.run_attempt == 1 &&
-          (github.event_name == 'workflow_dispatch' || github.event_name == 'push' &&
-           (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next'))
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: tree-x86_64-musl tree-aarch64-musl
-          LINUX_ONLY: tree-x86_64-musl tree-aarch64-musl
-          LINUX_GROUPS: tree-x86_64-musl,tree-aarch64-musl
-          FLEET_LINUX: cmux-fleet-linux-x64
-          REQUIRE_LIVE_CAPACITY: "1"
-          NIGHTLY_WAIT_FOR_FLEET: "1"
-          NIGHTLY_WAIT_SECONDS: "120"
-          FLEET_WAIT_NEEDS_MEMBER: "1"
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          ROUTE_TOKEN_FALLBACK: ${{ github.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-
-      # On 2026-11-18 Blacksmith's org vCPU cap starved the large sizes: from 13:00Z 16 vCPU started 0 to 10 jobs
-      # per 10 minutes with median waits of 80 to 114 min, and every push's `select binary targets` (linux_16) sat
-      # queued for over 90 min, so the Cloud machine channel fell hours behind. The owned GCP build lane that the
-      # macOS cross legs already use (vars.LINUX_RUNNER_DARWIN_CROSS) takes the Linux build calls while it has
-      # idle runners; the rest keep Blacksmith. A Blacksmith label in the variable places nothing
-      # (portable_job_placement.fleet_linux()).
-      - name: Pick idle GCP build-lane runners for the Linux builds
-        id: gcp-placement
-        # Nightly-path pushes only (feat-cmux-next, nightly-next): a lane push's legs placed here held
-        # the 4 runners while the nightly path's publish queued 40 min behind them (2026-11-18,
-        # run 44326602371 vs 44409109497). Lane pushes keep Blacksmith.
-        # Not nightly-next: its build calls take the nightly-only runners (cmux-gcp-nightly-x64), and a pick
-        # here would put them back on the shared lane (inputs.linux_runner comes first in the build package).
-        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
-        continue-on-error: true
-        timeout-minutes: 3
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: build
-          LINUX_ONLY: build
-          FLEET_LINUX: ${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
-          FLEET_LINUX_VOUCHED: "1"
-          REQUIRE_LIVE_CAPACITY: "1"
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          ROUTE_TOKEN_FALLBACK: ${{ github.token }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-      # Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
-      # writes the marker then); pull requests and lane branches restore the base branch's newest one.
-      - name: Check whether this job read the pool snapshot
-        id: pool-snapshot-fetched
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: if [ -f "$RUNNER_TEMP/cmux-pool-snapshot.fetched" ]; then echo "fetched=$(cat "$RUNNER_TEMP/cmux-pool-snapshot.fetched")" >> "$GITHUB_OUTPUT"; fi
-      - name: Save the shared pool snapshot
-        if: ${{ !cancelled() && steps.pool-snapshot-fetched.outputs.fetched != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-pool-snapshot
-          key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
-
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
         id: tree-source
@@ -1044,7 +828,7 @@ jobs:
     environment:
       name: ci-routing-agent
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     outputs:
       # A deferring run's re-check can still take the key over (below).
@@ -1113,15 +897,8 @@ jobs:
           GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
-          # The pool a feat-cmux-next push's daemon tests take now
-          # (cmux-next-daemon-tests): a publisher whose test job waits on
-          # another label, or too long, is not waited for
-          # (scripts/ci/cmux_tui_publisher_testing.py). It is the label of the
-          # job's runs-on, so a job still queued on the retired Mac pools is
-          # not waited for. The publisher is a feat-cmux-next push: its
-          # attempt 1 queues on the owned build-lane label, attempt 2+ on the
-          # Blacksmith pool, and both count (the 20-minute cutoff still holds).
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || format('cmux-gcp-lane-build-x64,{0}', vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8) }}
+          # Only defer to a publisher queued on the current daemon-test runner.
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. A healthy owner publishes about 20 minutes after it
           # starts; on 2026-10-28 owners hung for up to an hour in a Zig fetch
@@ -1174,7 +951,17 @@ jobs:
           poll=0
           deferred=false
           unmarked=false
-          if [[ -n "$OWNER_RUN_ID" ]]; then
+          # The CDN first (no API call): a tree already published and
+          # daemon-tested leaves nothing the owner's state could change, so
+          # the owner and builder reads below are skipped. They spend the
+          # routing App installation's budget (164690637), which ran out on
+          # 2026-11-21 with runner placement waiting on it.
+          if [[ -n "$OWNER_RUN_ID" ]] && tree_ready &&
+              curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/tree/$KEY/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
+            echo "Tree $KEY is published and daemon-tested; owner run $OWNER_RUN_ID is not read, and this run builds nothing."
+            takeover=false
+          elif [[ -n "$OWNER_RUN_ID" ]]; then
             # One look, no waiting (cx-urd.26). Polling a live owner for up to
             # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
             # 765 waits built the key anyway after a chain of failed owners.
@@ -1391,6 +1178,11 @@ jobs:
       # taken over through the claim, as in the wait step. An owner whose
       # hand-off already started may have missed the marker: wait (bounded)
       # for it to end, then decide. Any other live owner sees the marker.
+      #
+      # The CDN is read first (no API call) and before each owner read; the
+      # owner run is read at most 5 times. Until 2026-11-21 a hand-off held
+      # this step in a 15 s loop of up to 13 owner reads on the routing App
+      # installation's budget (164690637), which runner placement needs.
       - name: Re-check the owner after leaving the marker
         id: recheck
         if: steps.wait.outputs.deferred == 'true'
@@ -1418,12 +1210,19 @@ jobs:
               python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("key") == sys.argv[2] else 1)' \
                 "$RUNNER_TEMP/cmux-tui-recheck-completion.json" "$KEY" 2>/dev/null
           }
-          state="$(owner_state)"
-          if [[ "$state" != completed ]] &&
+          state=unread
+          if ! published; then
+            state="$(owner_state)"
+          fi
+          if [[ "$state" != completed && "$state" != unread ]] &&
               api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null; then
-            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting for it to end."
-            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              sleep 15
+            # The hand-off job lists the markers, re-runs one run and ends;
+            # the run ends with it. Same 3-minute bound as before, a third of
+            # the owner reads, and none once the CDN shows the tree.
+            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting (at most 4 looks, 45 s apart) for it to end."
+            for _ in 1 2 3 4; do
+              sleep 45
+              published && break
               state="$(owner_state)"
               [[ "$state" == completed ]] && break
             done
@@ -1538,18 +1337,7 @@ jobs:
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
       # cmux-rd for the files.cmux.com channel, on the Linux legs (the join line installs it).
       build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
-      # A pull request's cmux-tui-pin-<merge sha> push publishes the tree that
-      # its same-tree checks wait for, so these macOS legs are on the PR critical
-      # path and use the PR pool, never the background lane. See
-      # docs/ci-runners.md.
-      # Attempt 1 runs on the owned minis through CI_SIDE_LANE_RUNNER (the
-      # glaeda-aws pools have no runners); Blacksmith macOS queued these
-      # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
-      # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
-      # A rerun (cmux-tui-artifacts-retry re-runs a failed run) goes to
-      # Blacksmith macOS 15 through macos_retry_runner, never
-      # vars.MACOS_RUNNER_PR: that names the 12 vCPU macOS 26 label the
-      # nightly app build needs (tests/test_ci_tui_routes_avoid_nightly_label.py).
+      # These labels apply when the committed Darwin builder is mac.
       macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_15 }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
       # MACOS-CROSS-COMPILE-ON-LINUX switch: the committed file
@@ -1557,12 +1345,7 @@ jobs:
       # the published tree always says which builder made it. Fallback: commit
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
-      darwin_mac_runner: ${{ needs.tree-preflight.outputs.darwin_mac_runner }}
-      # Owned GCP Linux for the musl legs when tree-preflight placed both there, else empty
-      # (their Blacksmith route). A re-run never reuses attempt 1's pick.
-      linux_build_runner: ${{ github.run_attempt == 1 && needs.tree-preflight.outputs.linux_build_runner || '' }}
-      # The GCP build lane for the Linux legs when the preflight placed this call there.
-      linux_runner: ${{ contains(needs.tree-preflight.outputs.gcp_jobs, ' build ') && needs.tree-preflight.outputs.gcp_runner || '' }}
+      linux_runner: cmux-linux
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -1636,25 +1419,15 @@ jobs:
   # Mac (darwin_builder=mac, the real SDK) and publishes with them; a missing
   # Linux target still fails the run. A rerun would hit the same stub, so the
   # fallback runs in the same run.
-  #
-  # FALLBACK_AFTER_TIMEOUT: a leg that its job timeout cancels ends
-  # `cancelled`, not `failure`, and so does the build call. On 2026-11-13 the
-  # macOS leg of run 43346255778 was placed on an owned Mac
-  # (darwin_mac_runner), waited 49 min in that runner's job setup and was
-  # cancelled by its 60 min timeout 7 min into the build. This plan read only
-  # `failure`, so no fallback ran, the tree was never published and the
-  # nightly that waited for it gave up after 45 min (run 43347371069). The
-  # plan now runs after either result; a cancelled run still plans nothing
-  # (!cancelled()). The fallback takes the builder the first build did not
-  # use: the Linux cross build after a build on an owned Mac, a Mac after the
-  # Linux cross build.
+  # FALLBACK_AFTER_TIMEOUT: a timed-out leg ends as cancelled, so either a
+  # failure or a timeout can trigger the native build of the missing targets.
   darwin-fallback-plan:
     name: plan the macOS fallback build
     # The Linux targets come from build (fat) too, so the plan waits on build alone; it
     # checks that build's Linux artifacts are there before it plans a macOS fallback.
     if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     needs: [tree-preflight, build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read # this run's artifacts and its legs' conclusions
@@ -1663,9 +1436,6 @@ jobs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
     steps:
-      # Artifact reads use this workflow's token. The routing App is reserved
-      # for runner placement.
-
       - name: Find the macOS targets the build left without artifacts
         id: plan
         env:
@@ -1674,7 +1444,6 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           BUILD_RESULT: ${{ needs.build.result }}
-          FIRST_ON_MAC: ${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}
           # BRANCH_BUILD_SUPERSEDED (build): on a branch push a cancelled build may be one a newer
           # push's build cancelled, not a timeout. A head the branch has moved past needs no fallback.
           BRANCH_PUSH: ${{ (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && '1' || '' }}
@@ -1732,9 +1501,7 @@ jobs:
           # ones, and "Re-run failed jobs" reran this plan with the build.
           [[ -z "$set" ]] && recovered=true || recovered=false
           echo "recovered=$recovered" >> "$GITHUB_OUTPUT"
-          if [[ -n "$set" && "$FIRST_ON_MAC" == true ]]; then
-            echo "::warning title=macOS fallback build::the build of the macOS targets on an owned Mac ended $BUILD_RESULT (aarch64 $arm, x86_64 $intel); building target_set=$set with the Linux cross build in this run"
-          elif [[ -n "$set" ]]; then
+          if [[ -n "$set" ]]; then
             echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets ended $BUILD_RESULT (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. After a failed link, regenerate the stubs: scripts/ci/macos_stubs.py"
           fi
           echo "target_set=$set" >> "$GITHUB_OUTPUT"
@@ -1757,10 +1524,7 @@ jobs:
       include_windows: false
       target_set: ${{ needs.darwin-fallback-plan.outputs.target_set }}
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
-      # The builder the first build did not use (FALLBACK_AFTER_TIMEOUT). No
-      # darwin_mac_runner: after a build on an owned Mac this is the Linux
-      # cross build, the route every tree takes when no Mac is idle.
-      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_mac_runner != '' && 'linux' || 'mac' }}
+      darwin_builder: mac
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
@@ -1809,19 +1573,19 @@ jobs:
     # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
-    # Owned first, never frozen onto Blacksmith by a one-shot census (Leo: a job already headed for an owned 16 vCPU
-    # GCP runner class must not move off GCP onto Blacksmith). tree-preflight's linux-placement reads the runner census
-    # once; until then an empty answer (no fleet member idle at that instant) put this job on Blacksmith linux_16 for
-    # good, and run 44464326281's daemon tests sat there from 05:23Z while the owned GCP runners freed up, holding
-    # the tree publish the nightly waits for. Now the census only picks the fleet label when it saw one idle; with
-    # none, attempt 1 of the nightly path still queues on the owned GCP label the tree preflight uses (nightly-only
-    # for a dispatch or nightly-next, the build lane for feat-cmux-next). The spill to Blacksmith is attempt 2+,
-    # which ci-owned-first-spill.yml (on main) starts after a bounded wait on the owned label, so only the nightly
-    # path's census read is attempt 1 alone. Lane pushes keep their route: the census label on every attempt, else
-    # Blacksmith (tests/test_ci_owned_first_not_census_frozen.py). The deferral checks' DAEMON_POOL names this job's
-    # feat-cmux-next labels (tests/test_cmux_tui_publisher_testing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt == 1 || github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/feat-cmux-next') && contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 60
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
+    # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
+    # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
+    # partial cache hit (18 min of it the cmux-tui and cmux-tui-core lib test
+    # builds), the tests 15:04 (open_file_limit 293 s, cli 196 s, idle_wakeups
+    # 78 s), the cargo cache save 9:35. The next testing run, job 137459375926,
+    # restored no cargo cache (4 s) and was cut at 60 with cargo test 47:39 in,
+    # and a cut job never saves its cache, so the next run compiles cold and is
+    # cut the same way: the feat-cmux-next channel stayed at 7d439038
+    # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
+    # below, so a cut test step still leaves time to save what it compiled.
+    timeout-minutes: 90
     env:
       # Cargo's default registry retry is too small for a transient index DNS
       # outage. Keep the registry and git checkouts in the runner cache, then
@@ -1857,11 +1621,7 @@ jobs:
             git reset -q --hard HEAD
           fi
 
-      # The superseded re-check uses this workflow's token. The routing App is
-      # reserved for runner placement.
-
-      # This job can queue behind Blacksmith capacity, and the push can be
-      # superseded meanwhile: it asks again now that it has a runner (tree-
+      # A push can be superseded while this job queues. It asks again now that it has a runner (tree-
       # preflight's stale step) and skips the tests if so, unless another run
       # of the key deferred to this one (it waits for this tree). The run then
       # ends green without a tree, like any superseded push; its owner role
@@ -2012,9 +1772,14 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
           cache-all-crates: true
+          # A red or cut test step still saves the compile, so the next run is warm
+          # (job 137459375926: a cut run saved nothing and the next ones compiled cold).
+          cache-on-failure: true
 
       - name: cargo test cmux_next_
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        # Below the job's 90: setup (about 12 min) + this + the cache save (about 10 min).
+        timeout-minutes: 65
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -2078,7 +1843,7 @@ jobs:
     name: publish skipped (branch not allowed)
     if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'pull_request' && !(github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') }}
     needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     steps:
       - name: Explain how to publish this commit
@@ -2098,7 +1863,7 @@ jobs:
     name: upload cmux-tui dSYMs to Sentry
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' }}
     needs: [build, darwin-fallback-plan, build-darwin-fallback]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     continue-on-error: true
     permissions:
@@ -2151,7 +1916,7 @@ jobs:
     # is a green build-only run (publish-ref-notice says how to publish).
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success' || needs.darwin-fallback-plan.outputs.recovered == 'true') && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: [build, darwin-fallback-plan, build-darwin-fallback]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # 15 minutes of work, plus the 50 minutes the attestation retry may wait for the API budget.
     timeout-minutes: 75
     permissions:
@@ -3350,7 +3115,7 @@ jobs:
     name: verify the published commit manifests
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
     needs: publish
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -3399,7 +3164,7 @@ jobs:
       github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
       (needs.tree-preflight.outputs.run_macos != 'true' ||
       (needs.tree-preflight.outputs.owns_key != 'true' && needs.tree-owner-wait.outputs.takeover != 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # About 25 s to read the tree's 1.1 GB (29 binaries for tree 77865e8e) and
     # the same to upload it, plus one attestation back-off.
     timeout-minutes: 30
@@ -3625,7 +3390,7 @@ jobs:
     needs: [tree-preflight, publish-tree, adopt-commit-manifest]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
       (needs.publish-tree.result == 'success' || needs.adopt-commit-manifest.outputs.state == 'adopted') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
@@ -3684,7 +3449,7 @@ jobs:
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'))) &&
       !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     needs: [tree-preflight, publish, publish-tree, adopt-commit-manifest]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -3752,7 +3517,7 @@ jobs:
     name: publish the Windows daemon to R2
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # As publish: the shared steps' attestation retry may wait up to 50 minutes.
     timeout-minutes: 75
     permissions:
@@ -3788,7 +3553,7 @@ jobs:
     # It fetches the Mac-built x86_64 objects, which only main builds (CMUX_TUI_DARWIN_X86_64).
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     # 32 vCPU: the shadow builds both macOS targets of every binary.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 60
     continue-on-error: true
     permissions:
@@ -4011,7 +3776,7 @@ jobs:
     # jobs queued for the one promote runner
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, publish]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # A slow companion fetch may take its retries (fetch below).
     timeout-minutes: 30
     # Ownership is elected before expensive work; publication stays per run
@@ -4556,7 +4321,7 @@ jobs:
     name: add the Windows daemon to the tree
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
     timeout-minutes: 30
     concurrency:
@@ -4590,7 +4355,7 @@ jobs:
     # Any OS: the Linux gate's pass marks the tree (Leo, 2026-10-26), and the
     # marker names the OS it ran on.
     if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -4631,7 +4396,7 @@ jobs:
     name: request the Team-signed tree
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
@@ -4719,7 +4484,7 @@ jobs:
       cancel-in-progress: false
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -4768,7 +4533,7 @@ jobs:
     # daemon-tests marker, and a dispatch is the only run that builds Windows to point at.
     needs: [tree-preflight, publish-tree-windows, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.publish-tree-windows.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -4822,7 +4587,7 @@ jobs:
     name: mark the commits whose tree is ready
     needs: [tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.publish-tree.result == 'success' || needs.publish-tree.result == 'skipped') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -4883,7 +4648,7 @@ jobs:
     name: re-run the runs of commits whose manifest is missing
     needs: [tree-preflight, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.mark-tree-commits.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
@@ -4947,7 +4712,7 @@ jobs:
     name: start the cmux-next tree jobs a refused tree notify left
     needs: [tree-preflight, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.mark-tree-commits.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
     environment:
@@ -5052,7 +4817,7 @@ jobs:
     needs: [tree-preflight, tree-owner-wait, build]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -5129,8 +4894,8 @@ jobs:
       cancel-in-progress: false
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 70  # 15 for the Cloud machine channel, at most 15 more each for the Linux release and Mac live update files, 20 for the Screen Sharing helper
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 85  # 15 for the Cloud machine channel, at most 15 more each for the Linux release file, the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -5191,25 +4956,53 @@ jobs:
                  gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
                    --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
                  mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
+                 # sequence orders the channel (installers refuse a lower one than they installed): above
+                 # the published pointer'"'"'s, which a missing or unverifiable pointer leaves at 0.
+                 curl -sS --max-time 60 -o "$lr/current.json" \
+                   "https://files.cmux.com/cmux-tui/channels/linux-feat-cmux-next.json?sequence=$GITHUB_RUN_ID" || true
+                 current="$(python3 scripts/cmux-next/web-ota-pointer.py sequence --pointer "$lr/current.json" \
+                   --keys Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json \
+                   --channel feat-cmux-next)"
                  python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
                    --binaries-dir "$lr/built" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-                   --download-dir "$lr/binaries" --out "$lr/payload.json"
+                   --min-sequence "$((current + 1))" --download-dir "$lr/binaries" --out "$lr/payload.json"
                  rm -rf "$lr/binaries"
                  scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
 
+      # The signed apt and yum archive (cmuxterm-hq docs/design/linux-signed-packages.md phase 4): .deb
+      # and .rpm of the bytes the Linux release file above names, and repositories signed with the
+      # archive key's signing subkey (Leo, 2026-11-22, d-fce10e3659: "a certify-only primary stays out
+      # of CI. Only a signing subkey with an expiry sits in the artifacts environment."). Until the secret
+      # and the committed public keyring exist it publishes nothing, with a warning; like the release file
+      # it is delivery, not a gate, so a failure never fails the job.
+      - name: Publish the signed apt and yum archive
+        if: ${{ needs.verify-publish.result == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-archive-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-archive"
+
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file
   # as a landing push. The payload maker re-downloads and hashes every Mac binary.
+  # A PR head (every non-main, non-lane/ branch push whose commit manifest published, cx-r2is) gets its own
+  # cmux-tui/<sha>/mac-live.json too, so `cmux app try PR` goes live for a daemon-only PR; only
+  # feat-cmux-next moves cmux-tui/channels/mac-live.json (--commit-only below).
   point-mac-live-channel:
     name: publish the Mac live update
     needs: [publish, verify-publish, adopt-commit-manifest]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && !startsWith(github.ref, 'refs/heads/lane/'))) && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     environment:
       name: artifacts
-      deployment: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+      deployment: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -5251,7 +5044,10 @@ jobs:
           ml="$RUNNER_TEMP/mac-live"
           mkdir -p "$ml" && chmod 700 "$ml"
           helper=() status=0
-          record="$(timeout 1260 scripts/ci/mac-live-screen-sharing-helper.sh "$GITHUB_SHA" "$ml" 1200)" || status=$?
+          # A PR head takes the helper already signed for its key, or none: team-signed signs feat-cmux-next.
+          wait=1200 only=""
+          if [[ "$GITHUB_REF" != refs/heads/feat-cmux-next ]]; then wait=0 only=--commit-only; fi
+          record="$(timeout 1260 scripts/ci/mac-live-screen-sharing-helper.sh "$GITHUB_SHA" "$ml" "$wait")" || status=$?
           if [[ "$status" != 0 ]]; then
             echo "::warning::the Screen Sharing helper of $GITHUB_SHA was not copied (exit $status); its Mac live update file carries none"
           elif [[ -n "$record" ]]; then
@@ -5259,7 +5055,7 @@ jobs:
           else
             echo "The Mac live update file of $GITHUB_SHA carries no Screen Sharing helper."
           fi
-          export ml GITHUB_SHA GITHUB_RUN_ID
+          export ml GITHUB_SHA GITHUB_RUN_ID only
           timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
                  python3 scripts/cmux-next/hot-apply.py live-from "$GITHUB_SHA" > "$ml/live-from.json"
@@ -5267,7 +5063,7 @@ jobs:
                    --live-from "$ml/live-from.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
                    --download-dir "$ml/binaries" --out "$ml/payload.json" "$@"
                  rm -rf "$ml/binaries"
-                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"' _ ${helper[@]+"${helper[@]}"}
+                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml" ${only:+"$only"}' _ ${helper[@]+"${helper[@]}"}
 
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
@@ -5276,7 +5072,7 @@ jobs:
     name: request the Cloud VM image roll
     needs: [publish, verify-publish]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
     environment:
@@ -5342,7 +5138,7 @@ jobs:
     # After mark-tree-commits (whatever its result): the request needs the marker.
     needs: [tree-preflight, tree-owner-wait, publish-tree-tested, mark-tree-commits]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree-tested.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
     # Secrets only: no deployment. The request's spare token (below) is the cmux-bot App's.
@@ -5429,7 +5225,7 @@ jobs:
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
     if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
     environment:
@@ -5521,7 +5317,7 @@ jobs:
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-darwin-fallback.result == 'success') && needs.notify-unpublished-tree.result == 'skipped' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # A failed drop leaves the artifacts to their 1-day retention; it never turns the run red.
     continue-on-error: true

@@ -357,8 +357,19 @@ impl Hub {
                             if intentional { "stopped" } else { "exited" },
                             if hibernating {
                                 json!({"code": code, "hibernated": true})
-                            } else {
+                            } else if intentional {
                                 json!({"code": code})
+                            } else {
+                                // Its stderr was queued before its exit (`agent.rs`): the tail
+                                // holds what it said last (`exit_reason.rs`).
+                                let tail =
+                                    session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner());
+                                super::exit_reason::exited_data(
+                                    code,
+                                    super::exit_reason::last_explaining(
+                                        tail.iter().map(String::as_str),
+                                    ),
+                                )
                             },
                         );
                     }
@@ -405,7 +416,9 @@ impl Hub {
         let task_list_write = (kind == "plan" && !replayed)
             .then(|| crate::task_list::plan_items(update))
             .flatten()
-            .and_then(|items| crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms()))
+            .and_then(|items| {
+                crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms(), m.turn_count)
+            })
             .map(|list| m.task_list = list)
             .is_some();
         match kind {

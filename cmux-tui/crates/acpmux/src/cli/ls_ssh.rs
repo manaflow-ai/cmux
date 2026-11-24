@@ -3,8 +3,8 @@
 //! daemon or a link stuck redialing leaves them stale for as long as it lasts (huge-blue,
 //! 2026-11-20). ssh itself often still works, so each such peer is asked
 //! `acpmux --json ls --machine local` over a plain ssh login, all of them at once, each bounded
-//! by [`LS_DEADLINE`]; the rows it answers replace that machine's rows here, marked
-//! `via: "ssh"`. A peer that does not answer in time costs one stderr line and keeps the rows
+//! by the caller's deadline (`ls_far.rs`), [`LS_DEADLINE`] at most; the rows it answers replace
+//! that machine's rows here, marked `via: "ssh"`. A peer that does not answer in time costs one stderr line and keeps the rows
 //! the link left.
 //!
 //! The ssh destination is the peer record's own, checked (`peer::ssh_target`), and the script is
@@ -53,12 +53,16 @@ pub(crate) fn down_ssh_peers(peers: &[Value]) -> Vec<(String, String)> {
 
 /// Every down ssh peer's rows read over ssh, in parallel: (the peers that answered, their rows).
 /// A peer that failed is said on stderr unless `quiet`.
-pub(crate) async fn rows(peers: &[Value], quiet: bool) -> (Vec<String>, Vec<Value>) {
+pub(crate) async fn rows(
+    peers: &[Value],
+    quiet: bool,
+    deadline: Instant,
+) -> (Vec<String>, Vec<Value>) {
     let down = down_ssh_peers(peers);
     if down.is_empty() {
         return (Vec::new(), Vec::new());
     }
-    let deadline = Instant::now() + LS_DEADLINE;
+    let deadline = deadline.min(Instant::now() + LS_DEADLINE);
     let reads = down.into_iter().map(|(name, destination)| async move {
         let read = tokio::task::spawn_blocking({
             let destination = destination.clone();

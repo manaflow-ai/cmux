@@ -112,6 +112,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             stop_condition,
+            restricted,
             person,
             wait_start,
             throwaway,
@@ -305,6 +306,14 @@ impl Hub {
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
             meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
         }
+        // Claude Code takes a plain start effort on its command line (`--effort`), as it takes
+        // the model: set after `initialize` it cost one `apply_flag_settings` round trip
+        // (213-271 ms on a Linux lane VM) before the chat could take its first prompt. Anything
+        // else (another harness, "default", Ultracode) is still set live below.
+        meta.effort_request = effort
+            .clone()
+            .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
+            .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -312,6 +321,11 @@ impl Hub {
         // (`stop_condition.rs`); the session/new answer says whether it was kept.
         meta.stop_condition =
             stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
+        // Read-only in a folder not trusted (`restricted.rs`): only a harness that can keep it.
+        if restricted && !super::restricted::kept_by(&profile) {
+            return Err(super::restricted::unsupported(&meta.harness));
+        }
+        meta.restricted = restricted;
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -337,6 +351,7 @@ impl Hub {
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
             && meta.stop_condition.is_none()
+            && !meta.restricted
             && checked_cwd.is_none();
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
@@ -541,7 +556,17 @@ impl Hub {
                         }
                     }
                 }
-            if let Some(e) = &effort {
+            // A process spawned on this effort (`effort_request`), as it reported it, is not
+            // asked again; one that runs another (a pooled agent, which starts on the harness's
+            // own level) is switched live.
+            let spawned_on = |e: &str| {
+                let m = session.meta();
+                m.effort_request.as_deref() == Some(e) && current_effort(&m).as_deref() == Some(e)
+            };
+            if let Some(e) = effort.as_deref().filter(|e| spawned_on(e)) {
+                session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).effort =
+                    Some(e.to_owned());
+            } else if let Some(e) = &effort {
                 match self.set_config(&session, "effort", json!(e)).await {
                     Ok(_) => {}
                     Err(err) if effort_soft => {
@@ -1263,7 +1288,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
+            let effort = spawn_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
                 &meta,
@@ -1337,6 +1362,8 @@ impl Hub {
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
             plan.args.extend(super::stop_condition::claude_args(&meta));
+            // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
+            plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };

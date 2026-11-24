@@ -412,7 +412,9 @@ fn english_catalog_equals_the_swift_dump() {
     awaiting_field_repin(&mut rust, &swift);
     awaiting_bindings_repin(&mut rust, &swift);
     for action in rust["actions"].as_array_mut().into_iter().flatten() {
-        let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
+        let Some(id) = action["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
         let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
         if dumped.is_some_and(|d| shortcut_awaits_repin(&id, &d["defaultShortcut"])) {
             action["defaultShortcut"] = Value::Null;
@@ -490,7 +492,9 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
         for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
-            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            let Some(dumped) = action["id"].as_str().and_then(dump) else {
+                continue;
+            };
             for field in ["palette_family", "palette_tier"] {
                 action["computed"][field] = dumped["computed"][field].clone();
             }
@@ -532,7 +536,9 @@ fn awaiting_tier_repin(rust: &mut Value, swift: &Value) {
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
         for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
-            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            let Some(dumped) = action["id"].as_str().and_then(dump) else {
+                continue;
+            };
             action["computed"]["palette_tier"] = dumped["computed"]["palette_tier"].clone();
         }
     }
@@ -551,7 +557,10 @@ fn action_list_export_matches() {
     for (row, action) in rows.iter().zip(&rust) {
         let id = action.id;
         assert_eq!(row["id"], id);
-        assert_eq!(row["cli_name"], action.cli_name, "{id}");
+        // A CLI name awaiting the re-pin keeps the pinned app's name in this export too.
+        if !field_awaits_repin(id, "/cliName") {
+            assert_eq!(row["cli_name"], action.cli_name, "{id}");
+        }
         if field_awaits_repin(id, "/surfacePlan/palette") {
             assert_ne!(
                 row["palette"],
@@ -709,7 +718,9 @@ fn mcp_exemptions_have_a_cli_verb() {
     use cmux_action_catalog::Decision;
     for action in cmux_action_catalog::actions() {
         let plan = action.surface_plan;
-        let Some(mcp) = plan.mcp_exemption else { continue };
+        let Some(mcp) = plan.mcp_exemption else {
+            continue;
+        };
         assert!(
             !matches!(plan.cli, Some(Decision::Exempt(_))),
             "{}: an MCP exemption without a CLI verb (the CLI exemption already covers MCP)",

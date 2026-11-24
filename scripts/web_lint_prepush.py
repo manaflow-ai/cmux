@@ -2025,7 +2025,22 @@ def report(results: list[Result], seconds: float, mode: str, timings: bool = Fal
     return 1
 
 
+def add_installed_bun_to_path(environ=os.environ, home: Path | None = None) -> bool:
+    """With no bun on PATH, put the bun installer's default bin directory ($BUN_INSTALL/bin, else ~/.bun/bin) at
+    PATH's front when it holds a bun, so a shell that never sourced the installer's profile line still lints. True
+    when it added one. Every later shutil.which("bun") and every child process sees it."""
+    if shutil.which("bun", path=environ.get("PATH", "")):
+        return False
+    root = Path(environ["BUN_INSTALL"]) if environ.get("BUN_INSTALL") else (home or Path.home()) / ".bun"
+    bun = root / "bin" / "bun"
+    if not (bun.is_file() and os.access(bun, os.X_OK)):
+        return False
+    environ["PATH"] = os.pathsep.join(p for p in (str(bun.parent), environ.get("PATH", "")) if p)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
+    add_installed_bun_to_path()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, help="checkout root (default: the current one)")
     parser.add_argument("--base", help="base ref (default: the push's own range, scripts/cmux-next/push_range.py)")

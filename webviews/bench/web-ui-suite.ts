@@ -59,6 +59,17 @@ export const BENCHES: readonly Bench[] = [
   // chat-open takes about 36 s on the perf runner (2026-11-12).
   { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
+  // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
+  // part so it never pushes the suite past its cap.
+  {
+    name: "settled-page",
+    file: "settled-page.bench.ts",
+    args: ["3", "120"],
+    env: { ONLY: "chat_switch,workspace_switch" },
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   {
     name: "transcript-scroll-frame",
     file: "transcript-scroll-frame.bench.ts",

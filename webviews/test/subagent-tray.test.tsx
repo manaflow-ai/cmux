@@ -460,6 +460,31 @@ describe("the tray", () => {
     }
   });
 
+  test("the default header (`kinds`, #48542) draws each kind's mark and count, never the stack", async () => {
+    const now = Date.now();
+    const few = trayItems(
+      [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
+      [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
+      NONE,
+      true,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      const kinds = head.querySelector(".acpmux-running-tray__kinds");
+      // One part per kind, the subagents then the server, in one line of counts; the stack of the lines'
+      // marks is the other arms' header, not this one's.
+      expect(kinds?.textContent).toBe("2 subagents running · 1 server");
+      expect(head.querySelectorAll(".acpmux-running-tray__kind").length).toBe(2);
+      expect(head.querySelector("[data-tray-stack]")).toBeNull();
+    } finally {
+      await shown.done();
+    }
+  });
+
   test("several get a header and start folded to it, however few (cmux#28875)", async () => {
     pinFoldHead("counts");
     const now = Date.now();
@@ -490,9 +515,10 @@ describe("the tray", () => {
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 server");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
-      // The header's time is its own, not a fourth line's.
+      // Each line keeps its own time; a several-item header draws none, only its reserved track
+      // (trayHeadClock.experiment.ts; Leo, 2026-11-22: "what the fuck are you timing man").
       expect(shown.root.querySelectorAll(".acpmux-agent-line__time").length).toBe(3);
-      expect(head.querySelector(".acpmux-running-tray__time")?.textContent).toMatch(/^[56]s$/);
+      expect(head.querySelector(".acpmux-running-tray__time")?.textContent ?? "").toBe("");
       await act(async () => head.click());
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
     } finally {

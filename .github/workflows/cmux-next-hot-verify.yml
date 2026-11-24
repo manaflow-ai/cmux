@@ -9,9 +9,9 @@ name: cmux-next hot verify
 # version, before/after light and dark, the video and the phase timings (push_to_first_shot_s among them). A new
 # head edits that comment in place. Advisory: never a required check, never gates a merge.
 #
-# Two halves, the cmux-next-media hand-off shape. The pull request run (this file as the PR has it, no secret,
-# read-only token) runs the plan on the PR head and, for an eligible change, starts a run of this workflow on
-# feat-cmux-next (workflow_dispatch pr/head/layers). That run takes this file and every script from the
+# Two halves, the cmux-next-media hand-off shape. The pull request run (this file as the PR has it, no secret, a
+# token that reads and can only start a workflow) is one job: it runs the plan on the PR head and, for an eligible
+# change, starts a run of this workflow on feat-cmux-next (workflow_dispatch pr/head/layers). That run takes this file and every script from the
 # protected branch, never from the PR:
 #   - web: one dispatch of cmux-next-web-bundle-publish.yml (pr=N, its own credentials); nothing waits for it
 #     (the worker serves the head's web itself when latest.json does not name the head yet)
@@ -127,20 +127,29 @@ jobs:
   plan:
     name: plan the look
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # 10 minutes for the plan, 20 for the dispatch's retries.
+    timeout-minutes: 30
     permissions:
       contents: read
       # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
       issues: read
       pull-requests: read
-    outputs:
-      eligible: ${{ steps.plan.outputs.eligible }}
-      layers: ${{ steps.plan.outputs.layers }}
+      # The plan's last step starts the look on feat-cmux-next (a workflow dispatch). Nothing here can write
+      # pr-media or the PR. The hand-off was its own job until 2026-11-23: a second Linux runner, queued after
+      # the plan, for one 7-28 s dispatch.
+      actions: write
     steps:
       # The engine and this workflow's helper come from the base branch (the same rules for every PR, as the
       # fleet step's engine does); the PR head is fetched as git objects and planned as `sha:` (no worktree
       # of it). A PR that brings the engine itself, before the base has one, is planned with its own scripts/.
+      # A persistent pool runner reuses the workspace. After an earlier job's checkout of other paths, this sparse
+      # checkout stops at "Path '...' not uptodate; will not remove from working tree" and the job dies before it
+      # reads anything: run 45077133789 lost a finished look's receipt that way. Without a .git, actions/checkout
+      # empties the directory and clones fresh; an ephemeral runner has nothing to drop.
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the base branch's scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -236,26 +245,16 @@ jobs:
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
-
-  # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
-  # else from here. A dispatch that never starts ends this job red (below).
-  hand-off:
-    name: start the look on feat-cmux-next
-    needs: plan
-    if: ${{ needs.plan.outputs.eligible == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 25
-    # actions: write starts the run; nothing here can write pr-media or the PR.
-    permissions:
-      actions: write
-    steps:
+      # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
+      # else from here. A dispatch that never starts ends this job red (below).
       - name: Dispatch the look
+        if: ${{ steps.plan.outputs.eligible == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.action == 'closed' && github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
           KIND: ${{ github.event.action == 'closed' && 'merge' || 'head' }}
-          LAYERS: ${{ needs.plan.outputs.layers }}
+          LAYERS: ${{ steps.plan.outputs.layers }}
           EVENT_AT: ${{ github.event.pull_request.updated_at }}
         run: |
           set -uo pipefail
@@ -293,7 +292,7 @@ jobs:
   target:
     name: check the pull request
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -310,6 +309,10 @@ jobs:
       attempt: ${{ steps.check.outputs.attempt }}
       event_at: ${{ steps.check.outputs.event_at }}
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request check
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -343,7 +346,7 @@ jobs:
     name: web layer
     needs: target
     if: ${{ inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -364,13 +367,17 @@ jobs:
     name: rust layer
     needs: target
     if: ${{ inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request head (trees only)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -404,7 +411,7 @@ jobs:
     needs: [target, rust]
     # After the rust job: skipped when the change has no rust layer.
     if: ${{ !cancelled() && inputs.look_result == '' && needs.target.outputs.ok == 'true' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -429,7 +436,7 @@ jobs:
   publish:
     name: post the look
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
@@ -440,6 +447,10 @@ jobs:
       pull-requests: write
       actions: write
     steps:
+      # A reused pool workspace breaks this sparse checkout (see the plan job).
+      - name: Drop a reused workspace's repository
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the publisher
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

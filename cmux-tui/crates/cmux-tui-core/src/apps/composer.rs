@@ -1,6 +1,8 @@
 //! The agent chat composer's extension places (DESIGN section 3):
-//! `cmux.composer.command/1` (slash commands) and `cmux.composer.mention/1`
-//! (mention providers). Both are data in the manifest, so the daemon answers
+//! `cmux.composer.command/1` (slash commands), `cmux.composer.mention/1`
+//! (mention providers), `cmux.composer.toolbar/1` (toolbar buttons) and
+//! `cmux.composer.chip/1` (context chips the person clicks to add text to
+//! the draft). All are data in the manifest, so the daemon answers
 //! them from the catalog it already holds, with no app host: the composer's
 //! `/` menu only lists what `apps.composer.list` returns, and `@` completions
 //! are ranked here (`apps.composer.mentions`).
@@ -10,7 +12,9 @@
 //! swaps the catalog and broadcasts `apps-changed`, on which a page lists
 //! again. Only installed, enabled and visible apps contribute, none in safe
 //! mode (every extension is off). A command name an app earlier in id order
-//! already took is dropped, so one `/name` never means two things.
+//! already took is dropped, so one `/name` never means two things; a chip
+//! whose insert text an earlier app already offers is dropped too, so the
+//! row never shows two chips that do the same thing.
 
 use std::collections::HashSet;
 
@@ -21,6 +25,7 @@ use super::store::text;
 use super::supervisor::{Inner, Supervisor};
 
 const TOOLBAR: &str = "cmux.composer.toolbar/1";
+const CHIP: &str = "cmux.composer.chip/1";
 pub(super) const COMMAND: &str = "cmux.composer.command/1";
 pub(super) const MENTION: &str = "cmux.composer.mention/1";
 
@@ -29,6 +34,9 @@ const MAX_COMMANDS: usize = 256;
 /// The most items `apps.composer.mentions` answers, and its default.
 const MAX_MENTIONS: usize = 50;
 const DEFAULT_MENTIONS: usize = 20;
+/// The most chips `apps.composer.list` answers, over every app: one row
+/// above the draft, not a menu.
+const MAX_CHIPS: usize = 24;
 
 #[derive(Debug, Serialize)]
 struct Command {
@@ -55,6 +63,17 @@ struct Mention {
     app: String,
     extension: String,
     prefix: String,
+    id: String,
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    insert: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Chip {
+    app: String,
+    extension: String,
     id: String,
     label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -117,9 +136,39 @@ fn rank(query: &str, id: &str, label: &str) -> Option<u8> {
     }
 }
 
+/// The context chips, in app id and manifest order: an entry without an id,
+/// label or insert text is skipped, as is one whose insert text an earlier
+/// chip already writes; at most `MAX_CHIPS`.
+fn chips(inner: &Inner) -> Vec<Chip> {
+    let mut written = HashSet::new();
+    let mut chips = Vec::new();
+    for (app, extension, options) in places(inner, CHIP) {
+        for entry in options.get("chips").and_then(Value::as_array).into_iter().flatten() {
+            let (Some(id), Some(label), Some(insert)) =
+                (string(entry, "id"), string(entry, "label"), string(entry, "insert"))
+            else {
+                continue;
+            };
+            if chips.len() >= MAX_CHIPS || !written.insert(insert.clone()) {
+                continue;
+            }
+            chips.push(Chip {
+                app: app.to_string(),
+                extension: extension.clone(),
+                id,
+                label,
+                detail: string(entry, "detail"),
+                insert,
+            });
+        }
+    }
+    chips
+}
+
 impl Supervisor {
-    /// `apps.composer.list`: every extension slash command, and the mention
-    /// providers with their item counts.
+    /// `apps.composer.list`: every extension slash command, the mention
+    /// providers with their item counts, the toolbar buttons and the
+    /// context chips.
     pub(super) fn composer_list(&self) -> Value {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut taken = HashSet::new();
@@ -165,7 +214,21 @@ impl Supervisor {
                 }
             }
         }
-        json!({ "commands": commands, "mentions": mentions, "toolbarButtons": toolbar_buttons })
+        let chips = chips(&inner);
+        let model_picker = places(&inner, "cmux.composer.model.picker/1")
+            .into_iter()
+            .next()
+            .map(|(_, _, options)| options.clone());
+        let mut result = json!({
+            "commands": commands,
+            "mentions": mentions,
+            "toolbarButtons": toolbar_buttons,
+            "chips": chips,
+        });
+        if let (Some(picker), Some(fields)) = (model_picker, result.as_object_mut()) {
+            fields.insert("modelPicker".to_owned(), picker);
+        }
+        result
     }
 
     /// `apps.composer.mentions {query, prefix?, limit?}`: the items that

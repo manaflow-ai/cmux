@@ -23,9 +23,12 @@ type Props = {
   attachmentOnly?: "sending" | "actions";
   /// Also sends the first image inside a prompt's text (InlinePromptContent.tsx).
   inline?: boolean;
-  /// Only a prompt with every image placed in its text, as the composer sends a paste: the block
-  /// above the bubble (UserBubble.tsx `.cv-user__inline-strip`), over this text.
+  /// Only a prompt with every image placed in its text, as the composer sends a paste: the images
+  /// where they were put, at the head of the bubble, then this text.
   placedIn?: string;
+  /// A prompt sent as words, the first image, more words, then a file, each where it was put in
+  /// the text; the image's bytes arrive `lateMs` after the row draws, as acpmux's read does.
+  mixed?: { lateMs: number };
 };
 
 /// A screenshot-like image `shot.width`×`shot.height`: a title bar, a sidebar and lines of text.
@@ -95,7 +98,9 @@ function GallerySentImages({
   inline = false,
   attachmentOnly,
   placedIn,
+  mixed,
 }: Props) {
+  if (mixed) return <GalleryMixedPrompt images={images} lateMs={mixed.lateMs} />;
   if (primedLate) return <GalleryPrimedLate images={images} />;
   if (placedIn !== undefined) return <GalleryPlacedImages images={images} text={placedIn} />;
   if (attachmentOnly) return <GalleryAttachmentOnly images={images} state={attachmentOnly} />;
@@ -149,8 +154,7 @@ function GalleryAttachmentOnly({ images, state }: { images: Props["images"]; sta
   );
 }
 
-/// A prompt whose images were placed in its text: its words around them, the images in the block
-/// above its bubble.
+/// A prompt whose images were placed in its text: the images where they were put, in its bubble.
 function GalleryPlacedImages({ images, text }: { images: Props["images"]; text: string }) {
   const [actions] = useState<TurnActions>(() => {
     const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
@@ -178,18 +182,101 @@ function GalleryPlacedImages({ images, text }: { images: Props["images"]; text: 
   );
 }
 
+/// Text, an image, more text, then a file, each where the composer put it (Leo, 2026-11-22: "there
+/// should be no problem doing so for inline attachments after send"). acpmux's read of the image
+/// lands `lateMs` after the row draws; its slot already has the image's shape, so nothing moves.
+function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateMs: number }) {
+  const [actions] = useState<TurnActions>(() => {
+    const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
+    return {
+      promptImage: (id: string) =>
+        new Promise<string | undefined>((resolve) => setTimeout(() => resolve(urls.get(id)), lateMs)),
+    };
+  });
+  const image = images[0]!;
+  const parts = [
+    { kind: "text" as const, text: "The toolbar overlaps the sidebar here " },
+    { kind: "image" as const, ...image, placed: true as const },
+    { kind: "text" as const, text: " and only after a resize, see the log " },
+    {
+      kind: "file" as const,
+      name: "resize-trace.log",
+      mimeType: "text/plain",
+      size: 48_213,
+      uri: "file:///Users/sample/resize-trace.log",
+      placed: true as const,
+    },
+    { kind: "text" as const, text: " for the frames." },
+  ];
+  const row: AcpmuxRow = {
+    id: "mixed",
+    version: 1,
+    kind: "user",
+    at: 1,
+    text: parts.map((part) => (part.kind === "text" ? part.text : "")).join(""),
+    inlineParts: parts,
+  };
+  return (
+    <ImageViewerContext.Provider value={() => {}}>
+      <TurnActionsContext.Provider value={actions}>
+        <div className="cv-user" style={{ padding: 16 }}>
+          <UserBubble row={row} text={row.text!} />
+        </div>
+      </TurnActionsContext.Provider>
+    </ImageViewerContext.Provider>
+  );
+}
+
+/// The mixed prompt's check: each attachment sits in the bubble's text in the order it was sent,
+/// and from the first frame to the image's arrival no box in the row moves or resizes, the image's
+/// slot, the words after it, the file's chip and the bubble included.
+const placedInOrderNoShift: Play = async ({ waitFor, document }) => {
+  const watched = () => {
+    const bubble = document.querySelector<HTMLElement>(".cv-user__bubble");
+    const content = bubble?.querySelector<HTMLElement>("[data-inline-content]");
+    if (!bubble || !content) return undefined;
+    return [bubble, ...content.children].map((node) => {
+      const box = (node as HTMLElement).getBoundingClientRect();
+      return { node: node as HTMLElement, box: [box.x, box.y, box.width, box.height] };
+    });
+  };
+  await waitFor(() => watched() !== undefined);
+  const before = watched()!;
+  if (document.querySelector("[data-inline-attachment-strip]"))
+    throw new Error("the attachments draw in a block above the text, not where they were put");
+  const kinds = before
+    .slice(1)
+    .map(({ node }) =>
+      node.classList.contains("cv-user__inline-image")
+        ? "image"
+        : node.classList.contains("cv-user__inline-file")
+          ? "file"
+          : "text",
+    );
+  if (kinds.join(",") !== "text,image,text,file,text")
+    throw new Error(`the bubble draws ${kinds.join(",")}, not text,image,text,file,text`);
+  await waitFor(() => {
+    const image = document.querySelector<HTMLImageElement>("img.cv-user__image");
+    return image !== null && image.complete && image.naturalWidth > 0;
+  });
+  const after = watched()!;
+  let moved = 0;
+  before.forEach(({ box }, index) => {
+    const now = after[index]?.box ?? [];
+    moved = Math.max(moved, ...box.map((value, axis) => Math.abs(value - (now[axis] ?? Infinity))));
+  });
+  if (moved > 0.5) throw new Error(`a box in the row moved ${moved}px when the image loaded`);
+};
+
 /// Every sent image draws whole and belongs to its message (Leo, 2026-11-21: "if you sent it
 /// iinline you prob shouldn't have such odd stuff"): its drawn box has the image's own shape (within
-/// 2%, so nothing is cropped), it sits in the bubble's column, the block's right edge is the
-/// bubble's, and the block stands the same small gap above the bubble.
+/// 2%, so nothing is cropped) and it sits inside its bubble, never past its edges.
 const wholeAndAttached: Play = async ({ waitFor, document }) => {
   const drawn = () => [...document.querySelectorAll<HTMLImageElement>("img.cv-user__image")];
   await waitFor(() => drawn().length > 0 && drawn().every((image) => image.complete && image.naturalWidth > 0));
   const bubble = document.querySelector(".cv-user__bubble")?.getBoundingClientRect();
   const column = document.querySelector(".cv-user")?.getBoundingClientRect();
   if (!bubble || !column) throw new Error("no bubble to attach the images to");
-  let right = -Infinity;
-  let bottom = -Infinity;
   for (const image of drawn()) {
     const box = image.getBoundingClientRect();
     const natural = image.naturalWidth / image.naturalHeight;
@@ -198,13 +285,9 @@ const wholeAndAttached: Play = async ({ waitFor, document }) => {
       throw new Error(`a ${image.naturalWidth}x${image.naturalHeight} image draws ${box.width}x${box.height}: cropped`);
     if (box.width > 0.7 * (column.width - 32) + 1)
       throw new Error(`an image ${box.width}px wide runs past the bubble's column`);
-    right = Math.max(right, box.right);
-    bottom = Math.max(bottom, box.bottom);
+    if (box.left < bubble.left - 0.5 || box.right > bubble.right + 0.5 || box.top < bubble.top - 0.5)
+      throw new Error(`an image at ${box.left},${box.top} sits outside its bubble`);
   }
-  if (Math.abs(right - bubble.right) > 1.5)
-    throw new Error(`the images' right edge ${right} is not the bubble's ${bubble.right}`);
-  const gap = bubble.top - bottom;
-  if (gap < 4 || gap > 8) throw new Error(`the images stand ${gap}px above their bubble, not 6`);
 };
 
 function GalleryShownImages({ images, pending = false, inline = false }: Props) {
@@ -282,7 +365,7 @@ export default componentEntry<Props>({
       },
     },
     narrow: {
-      note: "The wide strip in a narrow chat, above a legacy prompt and placed mid-text in another: each in the block above its bubble, scaled down whole, never past its edge.",
+      note: "The wide strip in a narrow chat, above a prompt and inside one: each scales down to the bubble, whole, never past its edge.",
       props: {
         images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
         inline: true,
@@ -303,12 +386,12 @@ export default componentEntry<Props>({
       },
     },
     "placed-wide": {
-      note: "Leo's case (2026-11-21): a wide, short screenshot (1550×300) pasted into the text. Whole, 480px wide, in the bubble's column, its right edge on the bubble's and 6px above it; was a 320px strip of unreadable text 4px in from the bubble's edge under a bright frame.",
+      note: "Leo's case (2026-11-21): a wide, short screenshot (1550×300) pasted into the text. Whole, at most 480px wide, where it was put inside its bubble; was a 320px strip of unreadable text under a bright frame.",
       props: { images: leoWide, placedIn: leoText },
       play: wholeAndAttached,
     },
     "placed-tall": {
-      note: "A tall phone screenshot (780×1688) pasted into the text: whole at 160px tall, never cropped to a square, attached to its bubble.",
+      note: "A tall phone screenshot (780×1688) pasted into the text: whole at 160px tall, never cropped to a square, inside its bubble.",
       height: 320,
       props: {
         images: [{ id: "tall", mimeType: "image/png", name: "image.png", shot: { width: 780, height: 1688, hue: 30 } }],
@@ -317,13 +400,31 @@ export default componentEntry<Props>({
       play: wholeAndAttached,
     },
     "placed-several": {
-      note: "Three pasted screenshots (square, wide, tall) in one prompt: each whole in its own shape, wrapping inside the bubble's column, the block's right edge on the bubble's.",
+      note: "Three pasted screenshots (square, wide, tall) in one prompt: each whole in its own shape, wrapping inside its bubble.",
       height: 480,
       props: {
         images: pasted.map((image) => ({ ...image, id: `placed-${image.id}` })),
         placedIn: "These three screens disagree about the toolbar.",
       },
       play: wholeAndAttached,
+    },
+    "placed-mixed-loading": {
+      note: 'Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send." Words, a screenshot, more words, then a log file, each where it was put; the screenshot\'s bytes land 600 ms after the row draws into a slot already at its shape, so nothing in the row moves.',
+      height: 360,
+      props: {
+        images: [
+          {
+            id: "mixed-shot",
+            mimeType: "image/png",
+            name: "image.png",
+            width: 1440,
+            height: 900,
+            shot: { width: 1440, height: 900, hue: 200 },
+          },
+        ],
+        mixed: { lateMs: 600 },
+      },
+      play: placedInOrderNoShift,
     },
     failed: {
       note: "An image acpmux answers but the engine cannot draw: its slot says Couldn't load image.",

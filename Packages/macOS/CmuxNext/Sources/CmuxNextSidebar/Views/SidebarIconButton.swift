@@ -48,8 +48,8 @@ final class SidebarIconButton: ClickableButton {
     private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                                                .otherMouseDown, .otherMouseUp]
     private lazy var keyRepaint = KeyWindowRepaint(self)
-    /// The label point size the icon sits beside, read at layout time so density changes apply live.
-    private let pointSize: () -> CGFloat
+    /// The icon's side, read at layout time so density changes apply live.
+    private let glyphSide: () -> CGFloat
     private var renderedSize: CGFloat = 0
     /// The window's standard + (``PlusButtonLook``, the tab bar's New Tab +): set by ``init(plus:)`` for every
     /// sidebar + (New Workspace, a group's, a machine's, an empty group's). It draws the + and its hover fill; the
@@ -67,10 +67,16 @@ final class SidebarIconButton: ClickableButton {
         renderIcon()
     }
 
-    init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+    /// `pointSize` is the label point size the icon sits beside (the icon takes that row's icon size).
+    convenience init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+        self.init(icon: icon, side: { .iconRowSize(forLabelPointSize: pointSize()) }, label: label)
+    }
+
+    /// An icon drawn at `side` itself (a row's trailing control, `SidebarStyle.rowSymbolSide`).
+    init(icon: IconName, side: @escaping () -> CGFloat, label: String) {
         self.icon = icon
         self.label = label
-        self.pointSize = pointSize
+        self.glyphSide = side
         super.init(frame: .zero)
         // The image comes when the button first shows (``renderIcon()``): a row's hover controls stay hidden.
         imagePosition = .imageOnly
@@ -161,10 +167,9 @@ final class SidebarIconButton: ClickableButton {
     /// window's first frame, about 4 ms of it). Showing, joining a window, a layout and a size read make it.
     private func renderIcon() {
         guard !isHiddenOrHasHiddenAncestor else { return }
-        let size = pointSize()
-        guard size != renderedSize else { return }
-        renderedSize = size
-        let side = CGFloat.iconRowSize(forLabelPointSize: size)
+        let side = glyphSide()
+        guard side != renderedSize else { return }
+        renderedSize = side
         // The + look draws the +: the button keeps a clear image of the icon's side, so it sizes as every icon button.
         let image = plusLook != nil ? NSImage(size: NSSize(width: side, height: side))
             : symbol.map { NSImage.icon(symbol: $0, size: side, style: iconStyle) } ?? NSImage.icon(icon, size: side, style: iconStyle)

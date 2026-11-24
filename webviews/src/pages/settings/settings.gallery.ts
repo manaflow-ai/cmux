@@ -17,6 +17,7 @@ import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import { mockDevicesState } from "./mockProvider";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -342,7 +343,7 @@ const variants: Record<string, SettingsPageVariant> = {
   }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
-    note: "The onboarding step's question kept in Settings: cmux Tools for Agents in cmux, each coding agent on this Mac with Turn On, and the manual lines for agents started elsewhere.",
+    note: "cmux Tools for Agents in cmux (on by default), each coding agent on this Mac, and the manual lines for agents started elsewhere.",
   }),
 };
 for (const category of categories) {
@@ -531,6 +532,25 @@ Object.assign(variants, {
       ),
       harnesses: codexHarness,
     },
+  }),
+  // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): on a host that signs
+  // in in place, the harness row's Sign In shows the code under the row, not a terminal tab.
+  "agents-harnesses-sign-in-in-place": variant("agents", {
+    note: "Codex's Sign In on a host that signs in in place: the code under the row, waiting for the approval.",
+    accounts: accounts({}, { signInAccounts: ACCOUNT_LISTS.signedOut }),
+    signInHold: true,
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: providerAccounts.map((account) =>
+        account.id === "codex-login" ? { ...account, signedIn: false, email: null, plan: null } : account,
+      ),
+      harnesses: codexHarness,
+    },
+    steps: [
+      click('[data-harness="codex"] [data-harness-action="signIn"]'),
+      wait('[data-harness-sign-in="codex"] .signin[data-state="waiting"]'),
+    ],
   }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
@@ -1506,6 +1526,10 @@ Object.assign(variants, {
   }),
   "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], cmux: cmuxSignedOut }) }),
+  "accounts-sign-in-in-place": variant("accounts", {
+    accounts: accounts({}, { signInAccounts: ACCOUNT_LISTS.signedOut }),
+    note: "A host that signs in in place: GitHub, ChatGPT and Claude accounts; Add account or Sign in shows the code in the row (variant A).",
+  }),
   "accounts-cmux-signing-in": variant("accounts", {
     accounts: accounts({}, { cmux: cmuxSigningIn }),
     note: "Sign In to cmux in progress: open it in the browser, or cancel.",
@@ -1860,6 +1884,7 @@ export default settingsPageEntry({
     "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AccountSignInSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",

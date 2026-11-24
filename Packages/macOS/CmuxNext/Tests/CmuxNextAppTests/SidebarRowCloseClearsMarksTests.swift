@@ -35,11 +35,13 @@ struct SidebarRowCloseClearsMarksTests {
         var pullRequests: Bool { rawValue.hasPrefix("pullRequest") || self == .everything }
     }
 
-    static func sidebar(_ marks: Marks, style: SidebarRowBadgeStyle) -> (SidebarView, NSWindow) {
+    static func sidebar(_ marks: Marks, style: SidebarRowBadgeStyle, warned: Bool = false) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
+        var row = marks.workspace
+        if warned { row.usageWarnings = ["90 subagents started in the last hour, above 40"] }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
-            .workspace(SidebarWorkspace(id: other, title: "Release notes")), .workspace(marks.workspace),
+            .workspace(SidebarWorkspace(id: other, title: "Release notes")), .workspace(row),
         ])], activeWorkspaceID: other)
         model.rowBadgeStyle = style
         let design = DesignSettings()
@@ -92,6 +94,9 @@ struct SidebarRowCloseClearsMarksTests {
                 if marks.pullRequests { try #require(!row.pullRequests.isHidden, "the row draws no pull request badge") }
                 row.isHovered = true
                 row.layoutSubtreeIfNeeded()
+                // The hover repaints the row's fill: the display pass (`updateLayer`) runs after the layout, as in the
+                // app. It had put the unread dot and the error mark back under the ✕ (the needs-you glow's mark reset).
+                row.updateLayer()
                 let close = row.closeButton
                 try #require(!close.isHidden && close.alphaValue > 0, "\(spot): no ✕ on the hovered row")
                 let more = row.moreButton
@@ -111,8 +116,17 @@ struct SidebarRowCloseClearsMarksTests {
                 }
                 row.isHovered = false
                 row.layoutSubtreeIfNeeded()
+                row.updateLayer()
                 if marks.pullRequests {
                     #expect(!row.pullRequests.isHidden && row.pullRequests.alphaValue > 0, "\(spot): the badge stayed hidden after the hover")
+                }
+                // The unread dot or the error mark comes back when the hover ends (the layout restores it; the
+                // display pass no longer does).
+                if marks.workspace.unread != .none || marks.workspace.activity == .error {
+                    let back = ([row.badge, row.rowBadge, row.activity] as [NSView]).contains {
+                        !$0.isHidden && $0.frame.width > 0 && SidebarTrailingColumnTests.drawnAlpha($0, below: row) > 0.01
+                    }
+                    #expect(back, "\(spot), \(style), \(marks): no unread or error mark after the hover")
                 }
             }
         }

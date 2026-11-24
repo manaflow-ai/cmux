@@ -183,7 +183,7 @@ env:
 jobs:
   billing:
     name: billing
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -275,7 +275,7 @@ jobs:
 
       - name: Cache Bun package cache
         if: ${{ steps.route.outputs.web == 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -494,7 +494,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/storekit-tests.log"
           common=(-destination "id=$udid,arch=arm64" -enableCodeCoverage NO
-                  -derivedDataPath "$RUNNER_TEMP/dd-storekit"
+                  -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-storekit}"
                   -resultBundlePath "$RUNNER_TEMP/storekit.xcresult")
           cd "$STOREKIT_PATH"
           case "$STOREKIT_KIND" in

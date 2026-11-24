@@ -135,6 +135,8 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
+        // Titlebar space (the gaps between pills too, #48653): the window moved or ran its double-click action.
+        if pressIsTitlebar(at: point) { return }
         if isInNewTabMenuButton(point) {
             showNewTabMenu(anchor: newTabMenuButton)
             return

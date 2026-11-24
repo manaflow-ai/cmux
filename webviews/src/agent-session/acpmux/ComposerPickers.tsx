@@ -19,6 +19,8 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
+import { useComposerContribution } from "./composer/extensionCommands";
+import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { useComposerLook } from "./composerLook";
 import { pendingSpeed } from "./pendingSpeed";
@@ -28,6 +30,7 @@ import { ModelPicker } from "./ModelPicker";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
+import { listedNoDefault } from "./newtab/chipDefaults";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
 import type { QuickSetup } from "./quickModelMenuModel";
@@ -218,6 +221,7 @@ export function ComposerPickers({
   startsChat = false,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
+  const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
@@ -418,6 +422,7 @@ export function ComposerPickers({
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
           values: fastOption.options.map((option) => option.value),
+          choices: fastOption.options,
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
@@ -436,6 +441,7 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
+  const onNewTab = useContext(OnNewTab);
   // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
   // reports (`confirmedModel`, set while a pick is unconfirmed).
   const shown = summary?.model;
@@ -1268,8 +1274,12 @@ export function ComposerPickers({
         ...(quickDetail ? { detail: quickDetail } : {}),
         ...(quickShort ? { detailShort: quickShort } : {}),
       });
+  // A New Tab on a Mac whose acpmux names no default (only the built-in Chief and UniiChat) starts
+  // on no agent (newTabStart): its chip is Add harness, as with none installed.
+  const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
   const picksModel =
-    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
+    !unpickedNewTab &&
+    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
   const chips = (
     <div className="acpmux-chips">
       {claudeConnect.dialog}
@@ -1312,7 +1322,9 @@ export function ComposerPickers({
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
-          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
+          {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
+            : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1320,7 +1332,8 @@ export function ComposerPickers({
               : undefined
           }
           usage={usageNote}
-          quick={quick}
+          quick={reasoningMenu && (held || switching) ? { ...quick, effort: undefined } : quick}
+          reasoningMenu={reasoningMenu}
           {...(held
             ? heldDetail
               ? { detail: heldDetail }

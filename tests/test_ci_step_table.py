@@ -540,13 +540,13 @@ class PipelineTest(unittest.TestCase):
         # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
         self.assertEqual(wf["jobs"]["sdk"]["if"],
-                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+                         "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}")
         self.assertNotIn("if", wf["jobs"]["rust"])
         self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
         # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
-                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+                         "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}")
         self.assertEqual(steps["submodule-forward-only"].job, "linux")
         gitlinks = re.findall(r"^\s*path = (\S+)$", (ROOT / ".gitmodules").read_text(), re.M)
         self.assertTrue(gitlinks)

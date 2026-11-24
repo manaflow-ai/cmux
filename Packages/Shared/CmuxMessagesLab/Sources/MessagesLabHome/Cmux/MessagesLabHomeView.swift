@@ -415,6 +415,20 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: how far the rows are scrolled from the top of their range, in this view's points; 0 at the oldest row.
+    public var scrolledFromTop: CGFloat {
+        controller.demo.map { max(0, $0.collection.contentOffset.y - $0.minOffset) * zoom } ?? 0
+    }
+
+    /// cmux: runs when the rows' scroll position changes (what scrolls with them, Home's Set Up cmux card).
+    public var onScrolled: (() -> Void)? {
+        get { controller.onScrolled }
+        set { controller.onScrolled = newValue }
+    }
+
+    /// cmux: a wheel event over something that scrolls with the rows scrolls the rows.
+    public func scrollRows(with event: NSEvent) { controller.host.scrollView.scrollWheel(with: event) }
+
     /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
     /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
     /// it; scrolled up, the rows stay where they are and only the scroll range grows. 0: none.
@@ -694,8 +708,8 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
-    /// The content hashes of the field's attachments, in order, each time they change: a chip
-    /// added or removed, or the draft sent.
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
+    /// chip added or removed, or the draft sent.
     public var onDraftAttachmentsChange: ([String]) -> Void {
         get { projection.onDraftAttachmentsChange }
         set { projection.onDraftAttachmentsChange = newValue }
@@ -723,9 +737,13 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
+    /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
+    public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
     public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
-    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+    /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
+    public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }

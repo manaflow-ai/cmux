@@ -872,6 +872,9 @@ mod bitrate_tests {
 pub struct OpenH264Decoder {
     api: OpenH264Api,
     dec: *mut ISVCDecoder,
+    /// Refuses a High-profile stream, which OpenH264 decodes to wrong pictures with no error
+    /// (cmux#50591).
+    gate: crate::h264_profile::ProfileGate,
 }
 
 // SAFETY: the decoder instance is used from one thread at a time (owned by the viewer's loop).
@@ -885,7 +888,7 @@ impl OpenH264Decoder {
         if dec.is_null() {
             return Err("openh264 WelsCreateDecoder returned no decoder".into());
         }
-        let this = Self { api, dec };
+        let this = Self { api, dec, gate: Default::default() };
         // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
         let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
         param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
@@ -931,6 +934,7 @@ impl Drop for OpenH264Decoder {
 
 impl crate::VideoDecoder for OpenH264Decoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
+        self.gate.check(au)?;
         let decode =
             self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
         let mut planes = [std::ptr::null_mut::<u8>(); 3];

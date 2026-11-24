@@ -62,8 +62,9 @@ import Testing
         try HomePinnedRowAlignmentTests.at(c, preset: preset) {
             let (list, window) = SidebarLeadingEdgeTests.list(width: c.width)
             defer { window.close() }
-            let size = SidebarStyle.rowGlyphOpticalSide
             for g in try Self.glyphs(list) {
+                // A favicon takes its tab's size, a pack glyph the glyphs' (#49583: "the same size as the horizontal tabs").
+                let size = g.name.contains("favicon") ? SidebarStyle.rowFaviconOpticalSide : SidebarStyle.rowGlyphOpticalSide
                 let longest = SidebarOpticalGlyph.fittedExtent(g.ink.size)
                 #expect(abs(longest - size) <= Self.tolerance,
                         "\(c.testDescription): \(g.name)'s ink is \(g.ink.width) x \(g.ink.height), the rows' optical size is \(size)")

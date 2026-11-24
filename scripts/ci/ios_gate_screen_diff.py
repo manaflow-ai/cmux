@@ -3,7 +3,8 @@
 
 The gate's reviewer-path legs export every screenshot the walk attaches
 (`xcresulttool export attachments`) into screens/<family>/ and upload them in
-review-gate-path-<lane>-<family>. This script pairs this run's stills with the
+ios-gate-stills-<lane>-<family> (runs before that kept them in
+review-gate-path-<lane>-<family>, which the report's verdict downloads). This script pairs this run's stills with the
 same family's stills from the newest feat-cmux-next push run, by attachment
 name, and writes one markdown section: changed, new and removed screens, each
 with the pull request's `Visual-change: <screen or *>: <why>` justification or
@@ -457,6 +458,12 @@ def _extract_family(archive_path: Path, family: str, dest: Path) -> Path | None:
     return out if wrote else None
 
 
+def stills_artifact_names(lane: str, family: str) -> list[str]:
+    """A run's stills artifact, newest name first: ios-gate-stills-* since the stills
+    left review-gate-path-*, which runs before that still hold."""
+    return [f"ios-gate-stills-{lane}-{family}", f"review-gate-path-{lane}-{family}"]
+
+
 def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token: str,
                     exclude_run: str, api: str = "https://api.github.com") -> dict[str, Baseline]:
     """Each family's stills from the newest feat-cmux-next push run of this workflow that kept them.
@@ -485,7 +492,7 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
             continue
         names = {a.get("name"): a for a in listing.get("artifacts") or [] if not a.get("expired")}
         for family in families:
-            artifact = names.get(f"review-gate-path-{lane}-{family}")
+            artifact = next((names[n] for n in stills_artifact_names(lane, family) if n in names), None)
             if artifact:
                 candidates[family].append((run, artifact))
         if all(any(r.get("conclusion") == "success" for r, _ in candidates[f]) for f in families):
@@ -495,7 +502,7 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
         options = candidates[family]
         if not options:
             result[family].problem = (f"no {BASE_BRANCH} push run of {WORKFLOW_FILE} among the newest "
-                                      f"{RUNS_TO_SCAN} kept review-gate-path-{lane}-{family} (artifacts keep 3 days)")
+                                      f"{RUNS_TO_SCAN} kept {stills_artifact_names(lane, family)[0]} (artifacts keep 3 days)")
             continue
         run, artifact = next(((r, a) for r, a in options if r.get("conclusion") == "success"), options[0])
         baseline = result[family]
@@ -540,7 +547,13 @@ def render(rows: list[Row], unchanged: dict[str, int], largest_same: float, base
                f"{CHANNEL_TOLERANCE}/255 in a channel; the largest unchanged screen moved {_pct(largest_same)}.")
     out.append("")
     unjustified = [row for row in rows if row.why is None]
-    if not rows:
+    # A family is compared exactly when main measured it, which records its unchanged count.
+    skipped = [family for family in baselines if family not in unchanged]
+    if not rows and not unchanged:
+        out.append("Nothing was compared (no baseline for any family).")
+    elif not rows and skipped:
+        out.append(f"No compared screen differs from feat-cmux-next (not compared: {', '.join(skipped)}).")
+    elif not rows:
         out.append("No screen differs from feat-cmux-next.")
     elif pull_request and unjustified:
         out.append(f"**{len(unjustified)} iOS screens differ from feat-cmux-next with no Visual-change line: "
@@ -578,7 +591,7 @@ def pr_body(event_path: str | None) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--head-root", type=Path, required=True, help="this run's downloaded review-gate-* artifacts")
+    parser.add_argument("--head-root", type=Path, required=True, help="this run's downloaded ios-gate-stills-* artifacts")
     parser.add_argument("--family", action="append", required=True)
     parser.add_argument("--baseline-root", type=Path, help="screens/<family> of the baseline, already on disk")
     parser.add_argument("--fetch-baseline", action="store_true", help="download the newest feat-cmux-next push run's")

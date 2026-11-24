@@ -154,6 +154,53 @@ impl Hub {
         Ok(json!({"sessionId":session.id,"hits":hits,"next":next}))
     }
 
+    /// `_acpmux/inbox_thread` whole: [`Self::inbox_thread`], plus the thread's surge-held
+    /// messages that left memory (`trim` lets them go first) read back from the log. The surge
+    /// notice links to `acpmux session inbox ID --thread T`; without this, a busy chat's link
+    /// answered "no messages" while only `--search` found them (2026-11-23).
+    pub(crate) fn inbox_thread_whole(
+        &self,
+        session: &Session,
+        thread: &str,
+        mark_read: bool,
+    ) -> Result<Value, RpcError> {
+        let mut reply = self.inbox_thread(session, thread, mark_read);
+        if !session.inbox().held_evicted.contains(thread) {
+            return Ok(reply);
+        }
+        let mut messages = match reply.get_mut("messages").map(Value::take) {
+            Some(Value::Array(list)) => list,
+            _ => Vec::new(),
+        };
+        let shown: std::collections::HashSet<String> =
+            messages.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect();
+        self.scan_for_rebuild(session, &["inbox"], &mut |record| {
+            let msg = &record.msg;
+            let id = msg["promptId"].as_str().unwrap_or_default();
+            if msg["surgeHeld"].as_bool() == Some(true)
+                && msg["threadId"].as_str() == Some(thread)
+                && !shown.contains(id)
+            {
+                let from = msg["from"].as_str().unwrap_or_default();
+                let sender = &msg["sender"];
+                messages.push(json!({
+                    "promptId": id, "from": display_sender(sender, from),
+                    "fromName": shown_sender(sender, from), "fromSession": msg["fromSession"],
+                    "sender": sender, "class": msg["class"], "kind": msg["kind"],
+                    "at": record.at, "text": msg["text"], "read": false,
+                    "details": msg.pointer("/_meta/provenance/details").cloned(),
+                    "notice": Value::Null, "surgeHeld": true,
+                }));
+            }
+            true
+        })
+        .map_err(|e| RpcError::internal(format!("read held inbox: {e}")))?;
+        // Newest first, as the thread reads in memory.
+        messages.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or(0)));
+        reply["messages"] = Value::Array(messages);
+        Ok(reply)
+    }
+
     /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
     /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
     /// applies to the next one. Off, every message takes the path it took before the surge inbox.
@@ -232,6 +279,8 @@ impl Hub {
             sender,
             class,
             report: is_report(provenance),
+            // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
+            waited: false,
             at: now,
             text,
             details: provenance.and_then(|p| p.get("details")).cloned(),

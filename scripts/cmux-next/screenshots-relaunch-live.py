@@ -16,10 +16,11 @@
 Writes report.json with the app's remembered-click default after each phase. Removes that default
 before and after. GUI host only. Exits 1 when the app does not answer its socket.
 """
-import argparse, json, os, plistlib, pwd, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, plistlib, pwd, shutil, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -88,6 +89,22 @@ def shot(name):
     return path if os.path.exists(path) else None
 
 
+def screen_settled(what):
+    """Until two screen captures in a row are the same picture (the page drew). Best effort: logged."""
+    probe = os.path.join(opts.out, ".settle-probe.png")
+
+    def capture():
+        subprocess.run(["screencapture", "-x", probe], capture_output=True, timeout=20)
+        with open(probe, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()
+    if wait_stable(capture, what, timeout=20, interval=0.3, reads=2, raise_on_timeout=False) is None:
+        print(f"note: {what} never settled in 20 s", flush=True)
+    try:
+        os.unlink(probe)
+    except OSError:
+        pass
+
+
 def launch():
     env = {"HOME": FAKE_HOME, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,820"}
     args = ["open", "-n", "-a", APP]
@@ -102,7 +119,7 @@ def open_page():
     """Opens the page; its tab id when this run made it."""
     reply = rpc("action.run", {"action": "screenshots.open", "focus": True})
     print("screenshots.open", json.dumps(reply)[:300], flush=True)
-    time.sleep(4)  # the page draws and, when it lists, reads the three samples
+    screen_settled("the screenshots page")  # it draws and, when it lists, reads the three samples
     return ((reply or {}).get("created") or [None])[0]
 
 
@@ -138,7 +155,7 @@ try:
     wait_until(lambda: remembered() != "unset", 10)  # the click reaches the button
     if remembered() == "unset":
         print("key", json.dumps(rpc("debug.key", {"key": "space"}))[:200], flush=True)
-    time.sleep(3)  # the grid replaces the card and lists the samples
+    screen_settled("the grid after the click")  # it replaces the card and lists the samples
     report["phases"]["click"] = {"shot": shot("grid-after-click.png"), "remembered": remembered()}
     quit_app()
     teardown.end()

@@ -89,29 +89,38 @@
   margin-top: var(--ds-space-1);
 }
 /* B over the next turn's "Worked for" line (turnFoldStyle puts the line right above it, Leo
-   2026-11-10): the mark lies on that line's row, "New" at its end where the label leaves room and
-   the rule under it (.cv-worked.has-divider) lit in the accent, so the line is the Worked for line's
-   own and nothing is drawn between the two. */
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__menu {
+   2026-11-10): the mark draws no rule of its own. The Worked for line's own divider
+   (conversation.css .cv-worked.has-divider::after) is lit in the accent, and "New" sits at the end
+   of that line's words, so the divider stays exactly where it always is and nothing is drawn
+   between the two. A rule of the mark's own, placed to match the divider, drifted off it whenever
+   the line's box changed: its toggle grew a foot gap under its words (.cv-worked.has-divider.is-toggle)
+   and the New rule then drew a second line above the divider (manaflow-ai/cmux#51002; Leo,
+   2026-11-22: "just put the new stuff where the divider should be in the first place").
+   The running turn's "Working for" line (WorkingFor.tsx, row .acpmux-working) has the same divider
+   and takes the same mark; one under its work (.is-below) has no divider and keeps B's plain rule.
+   With a recap the recap sits between the mark and the line, so the mark keeps its place over the
+   gap above the recap (.cv-since[data-recap] .cv-since__menu) and the divider stays plain. */
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__menu {
   top: var(--cv-since-gap);
   translate: none;
   height: var(--grid-row);
 }
-.acpmux-row:has(+ .acpmux-worked .cv-worked.is-toggle) .cv-since[data-look="worked"] .cv-since__menu {
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider.is-toggle) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__menu {
   height: var(--cv-tool-row-height);
 }
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__line {
-  position: relative;
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__line {
   align-items: center;
   height: 100%;
 }
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__rule {
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__rule {
+  display: none;
 }
-.acpmux-row:has(+ .acpmux-worked) .cv-since[data-look="worked"] .cv-since__tag {
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__tag {
   margin-top: 0;
+}
+/* The divider is outside .cv-since, so it reads the accent token itself (as --unread-accent does). */
+.acpmux-row:has(.cv-since[data-look="worked"][data-shown]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
+  background: var(--cmux-app-accent, var(--agent-text));
 }
 /* C: a small New pill at the end of the gap, no rule. */
 .cv-since[data-look="pill"] .cv-since__tag {
@@ -129,9 +138,19 @@
       opacity var(--agent-motion-calm) var(--agent-ease-out),
       scale var(--agent-motion-calm) var(--agent-ease-out);
   }
+  /* B's lit Worked for divider fades to the accent and back to the plain rule on the same step. */
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
+    transition: background-color var(--agent-motion-calm) var(--agent-ease-out);
+  }
 }
 /* The app's motion gate: with motion off or reduced the line comes and goes in one step. */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.cv-since__line, .cv-since__rule) {
+  transition: none;
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap]))
+  + :is(.acpmux-worked, .acpmux-working)
+  .cv-worked.has-divider::after {
   transition: none;
 }
 
