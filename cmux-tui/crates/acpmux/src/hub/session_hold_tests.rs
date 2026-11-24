@@ -150,3 +150,19 @@ async fn released_under_a_fleet_hold_stays_released() {
     hub.set_session_hold(&s, true).await.unwrap();
     assert!(hub.session_held(&s));
 }
+
+#[test]
+fn allow_adds_and_set_allow_replaces() {
+    let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<String>>();
+    let was = s(&["api-overload-survive", "*cloud*"]);
+    // `--allow NAME` keeps what was allowed (cosmic-gray 09:04Z: it used to replace the list).
+    assert_eq!(
+        next_allow(&was, None, &s(&["realtime-sync-rfd", "*cloud*"])),
+        s(&["api-overload-survive", "*cloud*", "realtime-sync-rfd"])
+    );
+    // A bare `hold --fleet` keeps the list.
+    assert_eq!(next_allow(&was, None, &[]), was);
+    // `--set-allow` replaces, `--allow` adds to it, `--set-allow ''` empties it.
+    assert_eq!(next_allow(&was, Some(&s(&["coord*"])), &s(&["x"])), s(&["coord*", "x"]));
+    assert_eq!(next_allow(&was, Some(&s(&[""])), &[]), Vec::<String>::new());
+}

@@ -2203,6 +2203,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func transport()  -> Transport
     
     /**
+     * The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+     * answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+     * them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+     */
+    func tunnelKeys()  -> [String]
+    
+    /**
      * The shown workspace has browser tabs: open the WebRTC media session
      * beside this WireGuard link ahead of the first tab (no-op without one).
      */
@@ -2621,6 +2628,19 @@ open func trafficAgoMs() -> UInt64  {
 open func transport() -> Transport  {
     return try!  FfiConverterTypeTransport_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_transport(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+     * answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+     * them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+     */
+open func tunnelKeys() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_tunnel_keys(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -3710,8 +3730,11 @@ public protocol TabsMirrorProtocol: AnyObject, Sendable {
     func setNear(tabIds: [String])  -> [Data]
     
     /**
-     * Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+     * Of `on_disk`, the blob names no row shows any more: the ones the phone deletes.
      * Before a first manifest nothing is known to be unused, so nothing is returned.
+     * The mirror stops holding them: the mirror lives across reconnects, and a `have` that
+     * still named a deleted blob would keep the Mac from sending it when a row names it again
+     * (a page reopened shows its old favicon hash).
      */
     func unreferenced(onDisk: [String])  -> [String]
     
@@ -3854,8 +3877,11 @@ open func setNear(tabIds: [String]) -> [Data]  {
 }
     
     /**
-     * Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+     * Of `on_disk`, the blob names no row shows any more: the ones the phone deletes.
      * Before a first manifest nothing is known to be unused, so nothing is returned.
+     * The mirror stops holding them: the mirror lives across reconnects, and a `have` that
+     * still named a deleted blob would keep the Mac from sending it when a row names it again
+     * (a page reopened shows its old favicon hash).
      */
 open func unreferenced(onDisk: [String]) -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
@@ -8728,6 +8754,27 @@ public func prewarm(baseUrl: String, token: String, teamId: String, deviceId: St
         )
 }
 /**
+ * The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
+ * (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
+ */
+public func recordKeyAck(ackMs: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_record_key_ack(
+        FfiConverterUInt32.lower(ackMs),$0
+    )
+}
+}
+/**
+ * The first terminal output after a typed batch came `echo_ms` after its first
+ * key's tap; `ack_ms` when the Mac's answer to that batch had already come.
+ */
+public func recordKeyEcho(echoMs: UInt32, ackMs: UInt32?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_record_key_echo(
+        FfiConverterUInt32.lower(echoMs),
+        FfiConverterOptionUInt32.lower(ackMs),$0
+    )
+}
+}
+/**
  * Forget every warm socket and cached ICE server (sign-out, account switch).
  */
 public func resetWarmState()async   {
@@ -8993,6 +9040,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_prewarm() != 1330) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_ack() != 65508) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_echo() != 59925) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9126,6 +9179,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_transport() != 62295) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_tunnel_keys() != 29112) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 33318) {
@@ -9305,7 +9361,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_set_near() != 32850) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_unreferenced() != 34539) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_unreferenced() != 27006) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_want_frame() != 2782) {
