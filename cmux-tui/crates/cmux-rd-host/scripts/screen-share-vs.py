@@ -83,10 +83,13 @@ ends at the presented frame like cmux's. Observe reads the screen, not the strea
 both viewers the same way. Apple's other stages stay null: it exposes no stage times.
 `--apple-viewer` does the finding itself, as --app-viewer does for cmux: on the viewing Mac it opens
 Screen Sharing.app to --host-ip (`open vnc://USER:PASS@HOST`, the password read there from
---vnc-password-file and never printed or logged), finds its window (CGWindowList through a small
+--vnc-password-file and never printed or logged; it does sit in `open`'s argv for the moment
+`open` runs, where a local `ps` on that Mac could read it, which is acceptable on the fleet's
+bench Macs only, never on a shared or personal one), finds its window (CGWindowList through a small
 `swift` script: owner Screen Sharing, title naming the host), locates the marker in it
 (`screencapture -D 1` + screen-eval-marker-locate from --tools), observes it, and quits the
-Screen Sharing process if this run started it. A failure costs Apple's presented Total only: the
+Screen Sharing process if this run started it (also when no window or marker turns up: the
+processes it started are told apart by a process list before and after `open`). A failure costs Apple's presented Total only: the
 Total falls back to the RFB update with `presented_null` saying why.
 
 `--app-viewer APP` finds that pane itself, with no pointer move and no Computer Use: on the
@@ -1444,14 +1447,22 @@ def redact_vnc(text):
 def screen_sharing_window(windows, host, exclude=()):
     """The Screen Sharing.app window showing HOST in WINDOWS (SS_WINDOWS_SWIFT's list, front to
     back): its {pid, window, title}, the frontmost normal-layer window owned by Screen Sharing
-    whose title names HOST (else any such window), skipping ids in EXCLUDE (there before). None
-    when it has none."""
+    whose title names HOST, skipping ids in EXCLUDE (there before). None when none names HOST:
+    an unnamed window could be another host's, so it is never picked."""
     ours = [w for w in windows or [] if isinstance(w, dict) and w.get("owner") == SCREEN_SHARING_OWNER
             and w.get("layer") == 0 and w.get("window") and w["window"] not in exclude
             and (w.get("w") or 0) >= 200 and (w.get("h") or 0) >= 200]
     named = [w for w in ours if host and host in (w.get("title") or "")]
-    pick = (named or ours or [None])[0]
+    pick = (named or [None])[0]
     return {k: pick[k] for k in ("pid", "window", "title")} if pick else None
+
+
+def screen_sharing_pids():
+    """The pids of every Screen Sharing.app process on this Mac (`pgrep -x`)."""
+    p = subprocess.run(["pgrep", "-x", SCREEN_SHARING_OWNER], capture_output=True, text=True, timeout=30)
+    if p.returncode not in (0, 1):  # 1: none runs
+        raise RuntimeError(f"pgrep: exit {p.returncode}: {p.stderr.strip()[-200:]}")
+    return {int(x) for x in p.stdout.split() if x.strip().isdigit()}
 
 
 def list_windows(state):
@@ -1496,7 +1507,7 @@ def cmd_apple(args):
     (read here from --password-file) is never printed."""
     state = os.path.expanduser(args.state)
     os.makedirs(state, mode=0o700, exist_ok=True)
-    out = {}
+    out, opened, ran = {}, False, set()
     try:
         if args.action == "close":
             if args.launched and args.pid:
@@ -1510,21 +1521,29 @@ def cmd_apple(args):
             with open(os.path.expanduser(args.password_file)) as f:
                 password = f.read().strip()
             before = list_windows(state)
-            ran = {w["pid"] for w in before if w.get("owner") == SCREEN_SHARING_OWNER}
             old = {w["window"] for w in before if w.get("owner") == SCREEN_SHARING_OWNER}
+            ran = screen_sharing_pids()
+            opened = True
             # Foreground: observe refuses an obscured window, so no `open -g`.
             p = subprocess.run(["open", vnc_url(args.user, password, args.host)],
                                capture_output=True, text=True, timeout=60)
             del password
             if p.returncode != 0:
                 raise RuntimeError(f"open vnc://: exit {p.returncode}: {redact_vnc(p.stderr.strip())[-300:]}")
-            deadline, win = time.time() + args.wait, None
+            deadline, win, windows = time.time() + args.wait, None, []
             while True:
-                win = screen_sharing_window(list_windows(state), args.host, exclude=old)
+                windows = list_windows(state)
+                win = screen_sharing_window(windows, args.host, exclude=old)
                 if win or time.time() >= deadline:
                     break
                 time.sleep(1)  # bounded wait (--wait) for the window to connect
             if not win:
+                unnamed = [w.get("title") or "" for w in windows
+                           if w.get("owner") == SCREEN_SHARING_OWNER and w.get("layer") == 0
+                           and w.get("window") not in old]
+                if unnamed:
+                    raise RuntimeError(f"no Screen Sharing window names {args.host} in {args.wait:g} s "
+                                       f"(new ones: {unnamed[:3]})")
                 raise RuntimeError(f"no Screen Sharing window to {args.host} in {args.wait:g} s "
                                    "(an approval or login prompt on the viewer?)")
             out.update(win, launched=win["pid"] not in ran)
@@ -1532,6 +1551,18 @@ def cmd_apple(args):
             out.update(loc)
     except Exception as e:  # noqa: BLE001 - one JSON line either way
         out["error"] = redact_vnc(repr(e))[-400:]
+        if opened:
+            # Quit what this run started (by process list, not the window it never found); the
+            # caller then has nothing left to close.
+            try:
+                started = sorted(screen_sharing_pids() - ran)
+                for pid in started:
+                    os.kill(pid, signal.SIGTERM)
+                out["killed"] = started
+            except Exception as e2:  # noqa: BLE001
+                out["close_error"] = repr(e2)[-200:]
+            out.pop("pid", None)
+            out.pop("launched", None)
     print(json.dumps(out), flush=True)
 
 
@@ -2777,8 +2808,11 @@ class Orchestrator:
         self.apple_presented_source = presented_source(
             "presented-flags", pid=a.apple_presented_pid, window=a.apple_presented_window,
             origin=a.apple_presented_origin, cell=a.apple_presented_cell, at=a.apple_presented_at)
-        return self.observe("apple", a.apple_presented_pid, a.apple_presented_window,
-                            a.apple_presented_origin, a.apple_presented_cell, a.apple_presented_at)
+        got = self.observe("apple", a.apple_presented_pid, a.apple_presented_window,
+                           a.apple_presented_origin, a.apple_presented_cell, a.apple_presented_at)
+        if got is None:
+            self.apple_presented_source = {**self.apple_presented_source, "null": "observe incomplete"}
+        return got
 
     def apple_cmd(self, action, *extra):
         """`screen-share-vs.py apple ACTION` on the viewing Mac: its JSON reply."""

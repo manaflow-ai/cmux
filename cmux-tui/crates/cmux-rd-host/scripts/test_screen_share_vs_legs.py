@@ -312,10 +312,73 @@ class AppleViewer(unittest.TestCase):
                                                     locate_wait=1, pid=None, launched=False))
             finally:
                 vs.subprocess.run, vs.list_windows = old_run, old_list
-            self.assertEqual(calls[0], ["open", "vnc://bench:hunter2secret@10.0.0.5"])
+            self.assertIn(["open", "vnc://bench:hunter2secret@10.0.0.5"], calls)
             text = out.getvalue()
             self.assertNotIn("hunter2secret", text)
             self.assertIn("***@10.0.0.5", json.loads(text)["error"])
+
+    def open_with(self, windows_after, pids_before, pids_after, wait=0):
+        """cmd_apple open with `open` succeeding, WINDOWS_AFTER listed once it ran, and pgrep
+        answering PIDS_BEFORE then PIDS_AFTER: its JSON line and the pids it SIGTERMed."""
+        pgreps, killed = [set(pids_before), set(pids_after)], []
+
+        def fake_run(argv, **kw):
+            if argv[0] == "pgrep":
+                pids = pgreps.pop(0) if len(pgreps) > 1 else pgreps[0]
+                return types.SimpleNamespace(returncode=0 if pids else 1, stderr="",
+                                             stdout="".join(f"{x}\n" for x in sorted(pids)))
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        lists = [[], windows_after]
+        saved = (vs.subprocess.run, vs.list_windows, vs.os.kill)
+        vs.subprocess.run = fake_run
+        vs.list_windows = lambda state: lists.pop(0) if len(lists) > 1 else lists[0]
+        vs.os.kill = lambda pid, sig: killed.append(pid)
+        out = io.StringIO()
+        try:
+            with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(out):
+                pw = os.path.join(d, "pw")
+                with open(pw, "w") as f:
+                    f.write("pw\n")
+                vs.cmd_apple(argparse.Namespace(action="open", host="10.0.0.5", user="bench",
+                                                password_file=pw, state=d, locate="x", wait=wait,
+                                                locate_wait=1, pid=None, launched=False))
+        finally:
+            vs.subprocess.run, vs.list_windows, vs.os.kill = saved
+        return json.loads(out.getvalue()), killed
+
+    def test_no_window_quits_only_the_screen_sharing_this_run_started(self):
+        out, killed = self.open_with([], pids_before={500}, pids_after={500, 900})
+        self.assertIn("no Screen Sharing window to 10.0.0.5", out["error"])
+        self.assertEqual((killed, out["killed"]), ([900], [900]))
+        self.assertNotIn("pid", out)  # nothing left for the caller to close
+        # One that ran before is never touched.
+        out, killed = self.open_with([], pids_before={500}, pids_after={500})
+        self.assertEqual((killed, out["killed"]), ([], []))
+
+    def test_an_unnamed_window_is_never_picked_and_says_so(self):
+        unnamed = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "other-mac",
+                    "layer": 0, "w": 1600, "h": 1000}]
+        self.assertIsNone(vs.screen_sharing_window(unnamed, "10.0.0.5"))
+        out, killed = self.open_with(unnamed, pids_before=set(), pids_after={900})
+        self.assertIn("no Screen Sharing window names 10.0.0.5", out["error"])
+        self.assertEqual(killed, [900])
+
+    def test_the_presented_flags_path_says_why_when_observe_is_incomplete(self):
+        o = orchestrator(shape=None, timeout=30, samples=3, apple_presented_pid=900,
+                         apple_presented_window=77, apple_presented_origin="100,200",
+                         apple_presented_cell=32, apple_presented_at="90,190")
+        o.a.apple_viewer = False
+        o.viewer = types.SimpleNamespace(run=lambda cmd, timeout=120, stdin=None:
+                                         json.dumps({"complete": False, "error": "obscured"}) + "\n")
+        o.rig = lambda msg: {}
+        o.log = lambda rec: None
+        self.assertIsNone(o.run_apple_presented())
+        self.assertEqual(o.apple_presented_source["kind"], "presented-flags")
+        self.assertEqual(o.apple_presented_source["null"], "observe incomplete")
+        b = vs.build_budget(None, {"g2g": [20.0], "presented": None,
+                                   "presented_source": o.apple_presented_source})
+        total = rows_named(b)["Total"]["apple"]
+        self.assertEqual((total["to"], total["presented_null"]), ("RFB update", "observe incomplete"))
 
     def test_setup_refuses_apple_viewer_without_the_locate_tool(self):
         with self.assertRaises(SystemExit) as e:
