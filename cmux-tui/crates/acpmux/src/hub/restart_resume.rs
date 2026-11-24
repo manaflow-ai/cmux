@@ -562,10 +562,10 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
-                "auto_resume_scheduled" => {
-                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) {
-                        moved.extend(field("promptId"));
-                    }
+                "auto_resume_scheduled"
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) =>
+                {
+                    moved.extend(field("promptId"));
                 }
                 "turn_started" if is_turn => {
                     started = true;
