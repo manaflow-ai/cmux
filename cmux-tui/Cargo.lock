@@ -2352,6 +2352,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
