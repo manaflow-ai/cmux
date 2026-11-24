@@ -8,13 +8,17 @@
    (Lucas, 2026-11-23: "they should be aligned with Context"): a swatch at the icon column's start, its
    label still on the label column, and a chevron centred on the swatch. */
 .acpmux-session-info {
-  --acpmux-context-swatch-start: var(--grid-gap);
-  --acpmux-context-swatch-trail: calc(var(--grid-icon-box) - 10px);
-  --acpmux-context-chevron-lead: calc((10px - var(--grid-icon-box) + var(--grid-base)) / 2);
+  /* The title's first letter starts half a pixel in from its box (its side bearing at the body size,
+     measured on the panel at 2x: "Context" and "3% used" ink one device pixel right of a box edge), so
+     the swatches and the bar start there too, on the ink. */
+  --acpmux-context-ink: 0.5px;
+  --acpmux-context-swatch-start: calc(var(--grid-gap) + var(--acpmux-context-ink));
+  --acpmux-context-swatch-trail: calc(var(--grid-icon-box) - 10px - var(--acpmux-context-ink));
+  --acpmux-context-chevron-lead: calc((10px - var(--grid-icon-box) + var(--grid-base)) / 2 + var(--acpmux-context-ink));
   --acpmux-context-chevron-trail: calc(var(--grid-base) - var(--acpmux-context-chevron-lead));
 }
 .acpmux-session-info .acpmux-session-info-context .acpmux-session-info-context__swatch {
-  margin-inline: 0 var(--acpmux-context-swatch-trail);
+  margin-inline: var(--acpmux-context-ink) var(--acpmux-context-swatch-trail);
 }
 .acpmux-session-info-context {
   --acpmux-context-used: var(--agent-accent);
@@ -155,7 +159,7 @@
 }
 /* A fold's chevron: one glyph for every fold, turned a quarter when open; in Session Info the size of
    its other fold chevrons (Lucas, 2026-11-23: "they should be the same size as the others"):
-   sessionInfo.css `.acpmux-session-info-fold > svg`, a 12px box at 0.72 with a 1.1px line, centred on
+   sessionInfo.css `.acpmux-session-info-fold > svg`, a 12px box at --acpmux-session-info-chevron-scale with a 1.1px line, centred on
    the swatches, in the 16px icon column's room, so its label starts where a swatch row's does. */
 .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg {
   color: inherit;
@@ -165,7 +169,7 @@
   width: calc(var(--grid-icon-box) - var(--grid-base));
   height: calc(var(--grid-icon-box) - var(--grid-base));
   margin-inline: var(--acpmux-context-chevron-lead) var(--acpmux-context-chevron-trail);
-  scale: 0.72;
+  scale: var(--acpmux-session-info-chevron-scale);
 }
 .acpmux-session-info .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg path {
   vector-effect: non-scaling-stroke;
@@ -217,7 +221,7 @@
 }
 .acpmux-session-info .acpmux-session-info-context__total {
   gap: var(--grid-gap);
-  padding: 0 var(--grid-gap) 0 var(--acpmux-context-swatch-start);
+  padding: 0 var(--grid-gap);
 }
 .acpmux-session-info .acpmux-session-info-context__bar,
 .acpmux-session-info .acpmux-context-breakdown > .acpmux-session-info-context__bar {
