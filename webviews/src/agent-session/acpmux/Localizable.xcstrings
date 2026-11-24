@@ -336946,138 +336946,530 @@
         }
       }
     },
-    "unavailable.refused.title": {"comment":"Agent pane: This chat couldn't be opened","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر فتح هذه الدردشة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj razgovor nije moguće otvoriti"}},"da":{"stringUnit":{"state":"needs_review","value":"Chatten kunne ikke åbnes"}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat konnte nicht geöffnet werden"}},"en":{"stringUnit":{"state":"translated","value":"This chat couldn't be opened"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo abrir este chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible d’ouvrir cette discussion"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile aprire questa chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットを開けませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចបើកការជជែកនេះបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅을 열 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatten kunne ikke åpnes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się otworzyć tego czatu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível abrir esta conversa"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось открыть этот чат"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเปิดแชทนี้ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbet açılamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося відкрити цей чат"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể mở cuộc trò chuyện này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法打开此聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法開啟此對話"}}}},
-    "unavailable.refused.required": {"comment":"Agent pane: Enroll this browser to read this chat.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجّل هذا المتصفح لقراءة هذه الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Registrujte ovaj preglednik da biste pročitali razgovor."}},"da":{"stringUnit":{"state":"needs_review","value":"Registrer denne browser for at læse chatten."}},"de":{"stringUnit":{"state":"needs_review","value":"Registriere diesen Browser, um den Chat zu lesen."}},"en":{"stringUnit":{"state":"translated","value":"Enroll this browser to read this chat."}},"es":{"stringUnit":{"state":"needs_review","value":"Registra este navegador para leer el chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Enregistrez ce navigateur pour lire cette discussion."}},"it":{"stringUnit":{"state":"needs_review","value":"Registra questo browser per leggere la chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットを読むには、このブラウザを登録してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ចុះឈ្មោះកម្មវិធីរុករកនេះ ដើម្បីអានការជជែកនេះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅을 읽으려면 이 브라우저를 등록하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Registrer denne nettleseren for å lese chatten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zarejestruj tę przeglądarkę, aby przeczytać czat."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Registre este navegador para ler a conversa."}},"ru":{"stringUnit":{"state":"needs_review","value":"Зарегистрируйте этот браузер, чтобы прочитать чат."}},"th":{"stringUnit":{"state":"needs_review","value":"ลงทะเบียนเบราว์เซอร์นี้เพื่ออ่านแชท"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbeti okumak için bu tarayıcıyı kaydedin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Зареєструйте цей браузер, щоб прочитати чат."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng ký trình duyệt này để đọc cuộc trò chuyện."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请注册此浏览器以阅读此聊天。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請註冊此瀏覽器以閱讀此對話。"}}}},
-    "unavailable.refused.revoked": {"comment":"Agent pane: Access for this device was revoked.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُلغي وصول هذا الجهاز."}},"bs":{"stringUnit":{"state":"needs_review","value":"Pristup ovom uređaju je opozvan."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne enheds adgang er blevet tilbagekaldt."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Zugriff für dieses Gerät wurde widerrufen."}},"en":{"stringUnit":{"state":"translated","value":"Access for this device was revoked."}},"es":{"stringUnit":{"state":"needs_review","value":"Se revocó el acceso de este dispositivo."}},"fr":{"stringUnit":{"state":"needs_review","value":"L’accès de cet appareil a été révoqué."}},"it":{"stringUnit":{"state":"needs_review","value":"L’accesso di questo dispositivo è stato revocato."}},"ja":{"stringUnit":{"state":"needs_review","value":"このデバイスのアクセス権は取り消されました。"}},"km":{"stringUnit":{"state":"needs_review","value":"សិទ្ធិចូលប្រើរបស់ឧបករណ៍នេះត្រូវបានដកហូត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 기기의 접근 권한이 취소되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilgangen til denne enheten er trukket tilbake."}},"pl":{"stringUnit":{"state":"needs_review","value":"Cofnięto dostęp temu urządzeniu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O acesso deste dispositivo foi revogado."}},"ru":{"stringUnit":{"state":"needs_review","value":"Доступ для этого устройства отозван."}},"th":{"stringUnit":{"state":"needs_review","value":"สิทธิ์เข้าถึงของอุปกรณ์นี้ถูกเพิกถอนแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu cihazın erişimi iptal edildi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Доступ для цього пристрою відкликано."}},"vi":{"stringUnit":{"state":"needs_review","value":"Quyền truy cập của thiết bị này đã bị thu hồi."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此设备的访问权限已被撤销。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此裝置的存取權已被撤銷。"}}}},
-    "unavailable.refused.unauthorized": {"comment":"Agent pane: This device isn't authorized to read this chat.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"هذا الجهاز غير مخوّل بقراءة هذه الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj uređaj nema dozvolu za čitanje razgovora."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne enhed har ikke tilladelse til at læse chatten."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieses Gerät ist nicht berechtigt, den Chat zu lesen."}},"en":{"stringUnit":{"state":"translated","value":"This device isn't authorized to read this chat."}},"es":{"stringUnit":{"state":"needs_review","value":"Este dispositivo no tiene permiso para leer el chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Cet appareil n’est pas autorisé à lire cette discussion."}},"it":{"stringUnit":{"state":"needs_review","value":"Questo dispositivo non è autorizzato a leggere la chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"このデバイスには、このチャットを読む権限がありません。"}},"km":{"stringUnit":{"state":"needs_review","value":"ឧបករណ៍នេះគ្មានសិទ្ធិអានការជជែកនេះទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 기기에는 이 채팅을 읽을 권한이 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne enheten har ikke tillatelse til å lese chatten."}},"pl":{"stringUnit":{"state":"needs_review","value":"To urządzenie nie ma uprawnień do odczytu czatu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este dispositivo não tem permissão para ler a conversa."}},"ru":{"stringUnit":{"state":"needs_review","value":"У этого устройства нет разрешения на чтение чата."}},"th":{"stringUnit":{"state":"needs_review","value":"อุปกรณ์นี้ไม่ได้รับอนุญาตให้อ่านแชทนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu cihazın bu sohbeti okuma izni yok."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей пристрій не має дозволу на читання чату."}},"vi":{"stringUnit":{"state":"needs_review","value":"Thiết bị này không có quyền đọc cuộc trò chuyện."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此设备无权阅读此聊天。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此裝置無權閱讀此對話。"}}}},
-    "unavailable.notFound.title": {
-      "comment": "Agent pane: title in place of a tab's chat that this machine's acpmux does not list and that it never saw (it may be deleted, or in another acpmux)",
+    "unavailable.refused.title": {
+      "comment": "Agent pane: This chat couldn't be opened",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر العثور على هذه الدردشة"
+            "value": "تعذّر فتح هذه الدردشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj razgovor nije pronađen"
+            "value": "Ovaj razgovor nije moguće otvoriti"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kan ikke finde denne chat"
+            "value": "Chatten kunne ikke åbnes"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Chat wurde nicht gefunden"
+            "value": "Dieser Chat konnte nicht geöffnet werden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't find this chat"
+            "value": "This chat couldn't be opened"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se encuentra este chat"
+            "value": "No se pudo abrir este chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossible de trouver ce chat"
+            "value": "Impossible d’ouvrir cette discussion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossibile trovare questa chat"
+            "value": "Impossibile aprire questa chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このチャットが見つかりません"
+            "value": "このチャットを開けませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រកមិនឃើញការជជែកនេះទេ"
+            "value": "មិនអាចបើកការជជែកនេះបានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅을 찾을 수 없습니다"
+            "value": "이 채팅을 열 수 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Finner ikke denne chatten"
+            "value": "Chatten kunne ikke åpnes"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie można znaleźć tego czatu"
+            "value": "Nie udało się otworzyć tego czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível encontrar este chat"
+            "value": "Não foi possível abrir esta conversa"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удаётся найти этот чат"
+            "value": "Не удалось открыть этот чат"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่พบแชทนี้"
+            "value": "ไม่สามารถเปิดแชทนี้ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbet bulunamıyor"
+            "value": "Bu sohbet açılamadı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдається знайти цей чат"
+            "value": "Не вдалося відкрити цей чат"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không tìm thấy cuộc trò chuyện này"
+            "value": "Không thể mở cuộc trò chuyện này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "找不到此聊天"
+            "value": "无法打开此聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "找不到此聊天"
+            "value": "無法開啟此對話"
+          }
+        }
+      }
+    },
+    "unavailable.refused.required": {
+      "comment": "Agent pane: Enroll this browser to read this chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل هذا المتصفح لقراءة هذه الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrujte ovaj preglednik da biste pročitali razgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrer denne browser for at læse chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registriere diesen Browser, um den Chat zu lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enroll this browser to read this chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registra este navegador para leer el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrez ce navigateur pour lire cette discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registra questo browser per leggere la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットを読むには、このブラウザを登録してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចុះឈ្មោះកម្មវិធីរុករកនេះ ដើម្បីអានការជជែកនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅을 읽으려면 이 브라우저를 등록하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrer denne nettleseren for å lese chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zarejestruj tę przeglądarkę, aby przeczytać czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registre este navegador para ler a conversa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зарегистрируйте этот браузер, чтобы прочитать чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงทะเบียนเบราว์เซอร์นี้เพื่ออ่านแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbeti okumak için bu tarayıcıyı kaydedin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зареєструйте цей браузер, щоб прочитати чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng ký trình duyệt này để đọc cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请注册此浏览器以阅读此聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請註冊此瀏覽器以閱讀此對話。"
+          }
+        }
+      }
+    },
+    "unavailable.refused.revoked": {
+      "comment": "Agent pane: Access for this device was revoked.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أُلغي وصول هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pristup ovom uređaju je opozvan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne enheds adgang er blevet tilbagekaldt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Zugriff für dieses Gerät wurde widerrufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access for this device was revoked."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se revocó el acceso de este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’accès de cet appareil a été révoqué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’accesso di questo dispositivo è stato revocato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このデバイスのアクセス権は取り消されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សិទ្ធិចូលប្រើរបស់ឧបករណ៍នេះត្រូវបានដកហូត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 기기의 접근 권한이 취소되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilgangen til denne enheten er trukket tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cofnięto dostęp temu urządzeniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acesso deste dispositivo foi revogado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступ для этого устройства отозван."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิทธิ์เข้าถึงของอุปกรณ์นี้ถูกเพิกถอนแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu cihazın erişimi iptal edildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступ для цього пристрою відкликано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quyền truy cập của thiết bị này đã bị thu hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此设备的访问权限已被撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此裝置的存取權已被撤銷。"
+          }
+        }
+      }
+    },
+    "unavailable.refused.unauthorized": {
+      "comment": "Agent pane: This device isn't authorized to read this chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الجهاز غير مخوّل بقراءة هذه الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj uređaj nema dozvolu za čitanje razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne enhed har ikke tilladelse til at læse chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Gerät ist nicht berechtigt, den Chat zu lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device isn't authorized to read this chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este dispositivo no tiene permiso para leer el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet appareil n’est pas autorisé à lire cette discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo dispositivo non è autorizzato a leggere la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このデバイスには、このチャットを読む権限がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍នេះគ្មានសិទ្ធិអានការជជែកនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 기기에는 이 채팅을 읽을 권한이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne enheten har ikke tillatelse til å lese chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To urządzenie nie ma uprawnień do odczytu czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este dispositivo não tem permissão para ler a conversa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У этого устройства нет разрешения на чтение чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์นี้ไม่ได้รับอนุญาตให้อ่านแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu cihazın bu sohbeti okuma izni yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей пристрій не має дозволу на читання чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiết bị này không có quyền đọc cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此设备无权阅读此聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此裝置無權閱讀此對話。"
           }
         }
       }
