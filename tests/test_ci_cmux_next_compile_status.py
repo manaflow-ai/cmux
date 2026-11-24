@@ -644,7 +644,7 @@ class ResultsServer(http.server.ThreadingHTTPServer):
 
     def __init__(self, code: int):
         # probe_code: what the first two reads (the probes) answer, else `code`; stall: a later read never answers.
-        self.code, self.probe_code, self.stall, self.posts, self.reads = code, None, False, [], []
+        self.code, self.probe_code, self.stall, self.posts, self.reads, self.tip_reads = code, None, False, [], [], []
         self.release = threading.Event()
         server = self
 
@@ -653,6 +653,11 @@ class ResultsServer(http.server.ThreadingHTTPServer):
                 pass
 
             def do_GET(self):
+                if self.path.endswith("&phase=tip"):  # a PR head's tip read comes before the probes: kept apart
+                    server.tip_reads.append(self.path)
+                    self.send_response(server.code)
+                    self.end_headers()
+                    return
                 server.reads.append(self.path)
                 probe = len(server.reads) <= 2  # the step's two probes come first
                 if server.stall and not probe:
@@ -714,6 +719,7 @@ class ResultsServiceDown(unittest.TestCase):
         self.assertEqual(output.strip(), "handoff=HTTP 530")
         self.assertEqual(len(self.server.reads), 2)
         self.assertTrue(all(read.endswith("&pr=40600&wait=1") for read in self.server.reads), self.server.reads)
+        self.assertEqual(self.server.tip_reads, [f"/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=40600&phase=tip"])
         self.assertEqual([p["state"] for p in self.server.posts], ["pending", "pending"])
         down = output.strip().split("=", 1)[1]
         # A fallback's red is a red (exit 1); with no fallback run it is the needs_verdict rule's no verdict (exit 3),
