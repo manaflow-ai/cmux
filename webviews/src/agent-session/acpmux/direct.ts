@@ -158,7 +158,7 @@ import {
   type IncomingContext,
   type IncomingMessage,
 } from "./conversation/incomingMessage";
-import { noticeRowText } from "./conversation/agentNotice";
+import { automatedNotice, noticeRowText, shownNoticeBody } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { newerSurge, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -10096,6 +10096,36 @@ export class AcpmuxDirectClient {
         if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]);
       }
       this.rows.delete("typing");
+    } else if (event.kind === "stop_hook_feedback") {
+      // A Stop hook blocked the agent's stop and sent it back with its reason (acpmux claude_stdio):
+      // one quiet notice line from "hook" in the running turn, the reason behind its chevron, so what
+      // the agent writes next reads as the hook's doing, not the agent saying it again. Leo,
+      // 2026-11-22: "i assume you got re-prompted here. i thought we removed those. you also
+      // basically said the same thing, so there didnt seem to be a point to that. if you did get
+      // hooked, i think it should get displayed better."
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      const reason = typeof update?.text === "string" ? update.text : "";
+      const raw = `Stop hook feedback:\n${reason}`;
+      const read = automatedNotice(raw);
+      if (!read) return;
+      const message = {
+        name: read.notice.sender,
+        notice: read.notice,
+        text: shownNoticeBody(read.notice, read.body),
+        raw,
+      };
+      const id = `stop-hook-${event.seq}`;
+      this.rows.set(id, {
+        id,
+        version: 1,
+        at: event.at,
+        kind: "user",
+        text: noticeRowText(read.notice, message.text),
+        incoming: { kind: "message", message },
+        untyped: true,
+        continues: true,
+      });
     } else if (event.kind === "agent_thought_chunk" && text) {
       const steers = this.waitingSteers.length;
       this.landSteer();
