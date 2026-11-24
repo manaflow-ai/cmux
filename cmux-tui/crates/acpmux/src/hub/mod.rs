@@ -145,6 +145,7 @@ pub(crate) mod evict;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_replay;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
@@ -179,6 +180,7 @@ pub(crate) mod list_tee;
 mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
+pub(crate) mod hub_health;
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -193,6 +195,7 @@ mod peer_row;
 pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+mod native_history_chain;
 pub(crate) mod page_replies;
 pub(crate) mod row_log;
 pub(crate) mod subagent_list;
@@ -262,6 +265,7 @@ mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 #[cfg(test)]
 mod fork_retarget_tests;
+pub(crate) mod image_size;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -1108,6 +1112,8 @@ pub struct Hub {
     pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
+    pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
     pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Hub-routed session reads shared by callers while the same network read is in flight.
@@ -1237,6 +1243,11 @@ pub struct Hub {
     /// (`cold_segments.rs`).
     pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_sealed_wake: Arc<Notify>,
+    /// Chats whose log grew past another 4 MiB since the pack worker last looked, its wake, and
+    /// the log stamp each chat's pack was last checked against (`pack_as_it_grows.rs`).
+    pub(super) pack_grown: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) pack_grown_wake: Arc<Notify>,
+    pub(super) pack_checked: StdMutex<HashMap<String, u64>>,
     /// Tests: the level the cold segments' worker moves at, in place of the settings file's.
     #[cfg(test)]
     pub(super) cold_segments_level: StdMutex<Option<Option<i32>>>,
@@ -1686,6 +1697,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
+            hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
             child_tags: Default::default(),
@@ -1743,6 +1755,9 @@ impl Hub {
             cold_wake: Arc::new(Notify::new()),
             cold_sealed: Default::default(),
             cold_sealed_wake: Arc::new(Notify::new()),
+            pack_grown: Default::default(),
+            pack_grown_wake: Arc::new(Notify::new()),
+            pack_checked: Default::default(),
             #[cfg(test)]
             cold_segments_level: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
@@ -2466,6 +2481,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),
