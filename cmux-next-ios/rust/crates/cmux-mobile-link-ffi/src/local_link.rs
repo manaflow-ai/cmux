@@ -270,6 +270,7 @@ pub async fn connect_local(
         transport,
         include_loopback: false,
         relay_only: false,
+        force_relay: false,
         block_udp: false,
         video_lane: true,
         webrtc_media: false,
