@@ -138,6 +138,8 @@ await requireBrowserLane("newtab-chip-icon-sizes.test.ts", async () => {
           const weight = footprint(mac!.glyph!) / footprint(folder!.glyph!);
           expect(weight, where).toBeGreaterThanOrEqual(0.9);
           expect(weight, where).toBeLessThanOrEqual(1.1);
+          // Both location chips draw a glyph and a chevron, so the checks below run on each.
+          expect(chips.filter((chip) => chip.glyph && chip.chevron).length, where).toBeGreaterThanOrEqual(2);
           for (const chip of chips) {
             if (!chip.glyph || !chip.chevron) continue;
             // A project's picture drops 0.08 of its name's size (newtab/screen.css --acpmux-location-mark-drop).
@@ -194,6 +196,18 @@ await requireBrowserLane("newtab-chip-icon-sizes.test.ts", async () => {
           }),
         );
         expect(sizes[1], where).toBe(sizes[0]);
+        // The line keeps its height: the chevron overhangs it evenly at a larger density.
+        const line = await page.evaluate(() => {
+          const notice = document.querySelector(".acpmux-start-failure")!;
+          const summary = document.querySelector(".acpmux-start-failure summary")!.getBoundingClientRect();
+          return { line: Number.parseFloat(getComputedStyle(notice).lineHeight), summary: summary.height };
+        });
+        expect(line.summary, `${where}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(line.line + 0.01);
+        // Opened, Details keeps its size.
+        await page.click(".acpmux-start-failure summary");
+        await page.waitForSelector(".acpmux-start-failure details[open]");
+        const opened = await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-start-failure summary")!).fontSize);
+        expect(opened, where).toBe(sizes[0] ?? "");
       } finally {
         await page.close();
       }
