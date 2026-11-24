@@ -1736,6 +1736,108 @@ pub fn simulate_turn_loss(session_id: Option<&str>, dialer: bool) -> usize {
 mod tests {
     use super::*;
 
+    /// An answer-side session with `endpoints`, no tunnel (`net` none), and
+    /// its announcements collected.
+    async fn offering(
+        signaling: &crate::testing::FakeSignaling,
+        endpoints: &[&str],
+    ) -> (Arc<Session>, mpsc::UnboundedReceiver<Announcement>) {
+        let client = SignalingClient::connect(&signaling.base_url, "user:alice", "team", "mac")
+            .await
+            .expect("signaling");
+        let session = Session::register(SessionParts {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            peer: "phone".into(),
+            dialer: false,
+            peer_ip: Ipv4Addr::new(10, 64, 0, 2),
+            signaling: Arc::new(Mutex::new(client)),
+            net: Arc::new(Mutex::new(None)),
+            control: mpsc::unbounded_channel().0,
+            reach: mpsc::unbounded_channel().1,
+            options: DialOptions::default(),
+            stun: Vec::new(),
+            endpoints: endpoints.iter().map(|e| (*e).to_owned()).collect(),
+            relayed: (Vec::new(), Vec::new()),
+            keeps_turn: false,
+            turn_dead: None,
+            route_to: Arc::new(watch::channel(None).0),
+            relay: None,
+            relay_shared: Arc::new(RelayShared::default()),
+        });
+        let (tx, rx) = mpsc::unbounded_channel();
+        *lock(&session.announce) = Some(tx);
+        (session, rx)
+    }
+
+    fn sent(rx: &mut mpsc::UnboundedReceiver<Announcement>) -> (Vec<String>, Vec<String>, Option<String>) {
+        let a = rx.try_recv().expect("an announcement");
+        (a.endpoints, a.mapped, a.mapped_by)
+    }
+
+    fn strings(all: &[&str]) -> Vec<String> {
+        all.iter().map(|e| (*e).to_owned()).collect()
+    }
+
+    /// The mapped endpoint's lifecycle on the answer side: offered labeled,
+    /// replaced when the router's address changes, withdrawn when the
+    /// mapping lapses, kept when STUN found it too, and dropped by a roam,
+    /// after which the old socket's mapping can no longer offer anything.
+    #[tokio::test]
+    async fn the_mapped_endpoint_is_offered_replaced_withdrawn_and_dropped_on_roam() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let lan = "192.168.1.20:51000";
+        let (session, mut rx) = offering(&signaling, &[lan]).await;
+        let mapped: SocketAddr = "203.0.113.7:40000".parse().unwrap();
+        let moved: SocketAddr = "203.0.113.7:40001".parse().unwrap();
+
+        assert!(session.offer_mapped(0, Some((mapped, "pcp"))).await);
+        assert_eq!(
+            sent(&mut rx),
+            (strings(&[lan, "203.0.113.7:40000"]), strings(&["203.0.113.7:40000"]), Some("pcp".into()))
+        );
+        // The same address again: nothing new to say.
+        assert!(session.offer_mapped(0, Some((mapped, "pcp"))).await);
+        assert!(rx.try_recv().is_err());
+        // The router renewed it on another port: the old one goes.
+        assert!(session.offer_mapped(0, Some((moved, "pcp"))).await);
+        assert_eq!(
+            sent(&mut rx),
+            (strings(&[lan, "203.0.113.7:40001"]), strings(&["203.0.113.7:40001"]), Some("pcp".into()))
+        );
+        // It lapsed: withdrawn, unlabeled.
+        assert!(session.offer_mapped(0, None).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan]), Vec::new(), None));
+
+        // STUN found the same address: labeled while mapped, kept after.
+        let stun = "203.0.113.9:51000";
+        lock(&session.endpoints).push(stun.to_owned());
+        assert!(session.offer_mapped(0, Some((stun.parse().unwrap(), "nat-pmp"))).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan, stun]), strings(&[stun]), Some("nat-pmp".into())));
+        assert!(session.offer_mapped(0, None).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan, stun]), Vec::new(), None));
+
+        // A roam drops a mapping-only endpoint (and keeps a STUN one), and
+        // the old socket's mapping, from before the roam, offers nothing.
+        assert!(session.offer_mapped(0, Some((mapped, "upnp"))).await);
+        let _ = sent(&mut rx);
+        let _ = session.roam().await;
+        assert_eq!(*lock(&session.endpoints), strings(&[lan, stun]));
+        assert!(lock(&session.own_mapped).is_none());
+        assert!(!*lock(&session.mapped_was_offered));
+        assert!(!session.offer_mapped(0, Some((moved, "upnp"))).await, "a stale mapping is not offered");
+        assert!(rx.try_recv().is_err());
+        // The new socket's mapping (after the roam) is.
+        assert!(session.offer_mapped(1, Some((moved, "upnp"))).await);
+        assert_eq!(sent(&mut rx).1, strings(&["203.0.113.7:40001"]));
+        // A roam while the mapped endpoint is the one STUN found keeps it.
+        assert!(session.offer_mapped(1, Some((stun.parse().unwrap(), "pcp"))).await);
+        let _ = sent(&mut rx);
+        let _ = session.roam().await;
+        assert!(lock(&session.endpoints).contains(&stun.to_owned()), "the STUN endpoint stays");
+        assert!(!lock(&session.endpoints).contains(&"203.0.113.7:40001".to_owned()));
+        session.close();
+    }
+
     #[test]
     fn roam_messages_are_small_json() {
         let message = RoamMessage::Endpoints {
