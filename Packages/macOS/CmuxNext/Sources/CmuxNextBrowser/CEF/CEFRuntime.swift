@@ -435,10 +435,13 @@ final class CEFRuntime {
         try finishStart(loaded, prep: read, environment: environment, trigger: trigger)
     }
 
-    /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
+    /// Returns once `gate` is open (at once when it is nil or already open); true when it waited. Resumed ahead of the
+    /// gate's other launch work (``FirstFrameGate/openedFirst()``): the framework map and the launch prep, which wait
+    /// here off the main actor, start as the first frame commits, not after the updater, the feeds and the later tabs'
+    /// warm-ups that launch added to the gate earlier have run on main (a restored chat waits on Chromium).
     static func waitForInitializeGate(_ gate: FirstFrameGate?) async -> Bool {
         guard let gate, !gate.isOpen else { return false }
-        await gate.opened()
+        await gate.openedFirst()
         return true
     }
 

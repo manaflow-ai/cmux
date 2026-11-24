@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
+import class CmuxNextPages.PageWebView
 import Darwin
 import os
 import CmuxNextCompat
@@ -65,6 +66,7 @@ enum DebugTimings {
     static func install() {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0, at: $1) }
+        PageWebView.launchMark = { markLaunch($0) } // chat_page.*: the front chat page's setup, commit and paint
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = BenchSpans.ms(duration)
             if surfaces.count < capacity { surfaces.append(ms) }

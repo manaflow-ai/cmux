@@ -247,6 +247,7 @@ extension PageWebView {
             session.end()
             return
         }
+        chatLaunchMark("setup_done")
         #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.setupDone)
         #endif

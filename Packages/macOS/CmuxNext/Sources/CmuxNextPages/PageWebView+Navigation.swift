@@ -29,6 +29,7 @@ extension PageWebView {
 
     /// A new main-frame document committed (either engine).
     func documentCommitted() {
+        chatLaunchMark("committed")
         #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.committed)
         #endif

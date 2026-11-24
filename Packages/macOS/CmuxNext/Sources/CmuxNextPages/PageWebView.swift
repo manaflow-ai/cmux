@@ -520,6 +520,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
+        chatLaunchMark("painted")
         #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.pagePainted)
         #endif
