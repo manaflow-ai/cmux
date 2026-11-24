@@ -33,7 +33,8 @@ public struct AgentChatMute {
 }
 
 /// The mute rows' strings (Localizable.xcstrings).
-public enum AgentChatMuteStrings {
+public struct AgentChatMuteStrings {
+    public init() {}
     public static var mute: String {
         String(localized: "agentChat.muteNotifications", defaultValue: "Mute Chat Notifications", bundle: .localizedModule)
     }
