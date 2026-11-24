@@ -2549,13 +2549,13 @@ impl Hub {
         let (mut found, mut removed, mut noticed) = (false, false, false);
         let mut surge_thread = None;
         let mut answer: Option<super::queue::Answer> = None;
-        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
+        let kinds = INBOX_ANSWER_KINDS;
         // Only the records naming it are read whole: by `promptId`, or in a list of prompts
         // (`promptIds`, which the head holds: a coordinator's every resend read all its notices).
         let keep = &mut |h: &crate::store::KindHead<'_>| -> bool {
             h.unread || h.prompt_id == Some(prompt_id) || h.names(|p| p == prompt_id)
         };
-        let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
+        let _ = self.scan_for_rebuild_keyed(session, kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
                 "inbox" if own => {
@@ -2823,3 +2823,8 @@ mod team_page;
 #[cfg(test)]
 #[path = "inbox_tests.rs"]
 mod tests;
+
+/// The kinds a resent inbox message's answer is read from (`Hub::logged_inbox_answer`): each is in
+/// `store` `KEYED_KINDS`, so the read takes the chat's held heads (a test keeps them there).
+pub(crate) const INBOX_ANSWER_KINDS: &[&str] =
+    &["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
