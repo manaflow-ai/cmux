@@ -48,7 +48,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // touch, no saved password filled), as its adopted pages are.
             openers.inheritsFromOpener = { [weak self] child, opener, foreground in
                 guard let services = self?.services, let tab = services.locateTab(surface: opener) else { return }
-                if let made = services.locateTab(surface: child), let pane = services.locateTab(model: made)?.1, services.locateTab(model: tab)?.1.id == pane.id { services.paneController(for: pane)?.state?.selection.closeRule.made(made.id, from: tab.id, in: pane.id, foreground: foreground) } // a link's tab in its opener's pane: a task opener
+                if foreground, let made = services.locateTab(surface: child), let pane = services.locateTab(model: made)?.1 { services.paneController(for: pane)?.state?.selection.closeRule.linkOpened(in: pane.id) } // no close opener (TabCloseSelection.linkOpened)
                 guard services.cache.agentDrivenTabs.contains(tab.id) else { return }
                 services.cache.markAgentDriven(surface: child)
                 if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {

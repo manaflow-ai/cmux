@@ -49,7 +49,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", "Capture", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -498,6 +498,11 @@ class BudgetInputTests(unittest.TestCase):
     def test_budget_input_defaults_to_key(self):
         self.assertEqual(vs.build_budget({"rows": [breakdown_row()]}, None)["input"], "key")
 
+    def test_budget_names_the_encode_profile(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, encode_profile="ultra")
+        self.assertEqual(b["encode_profile"], "ultra")
+        self.assertIsNone(vs.build_budget({"rows": [breakdown_row()]}, None)["encode_profile"])
+
 
 class FakeRelay(vs.SpoolRemote):
     """A SpoolRemote whose relay is a local shell: each run is one `reach` call's command,
@@ -920,6 +925,25 @@ class RemoteRunStdin(unittest.TestCase):
 
     def test_input_is_still_passed(self):
         self.assertEqual(vs.Remote("here", "local").run("cat", timeout=10, stdin="hi"), "hi")
+
+
+class LocalMac(unittest.TestCase):
+    """--local-mac NAME: that end runs here, the other end over --via (a job on one Mac of the pair)."""
+
+    def orchestrator(self, *extra):
+        a = vs.build_parser().parse_args(["run", "--host", "cmux20", "--viewer", "cmux17", "--host-ip", "10.0.0.2",
+                                          "--via", "ssh", *extra])
+        return vs.Orchestrator(a)
+
+    def test_host_local_viewer_over_ssh(self):
+        o = self.orchestrator("--local-mac", "cmux20")
+        self.assertEqual(o.host.argv("true"), ["/bin/bash", "-c", "true"])
+        self.assertEqual(o.viewer.argv("true"), ["ssh", "-o", "BatchMode=yes", "cmux17", "true"])
+
+    def test_without_it_both_over_via(self):
+        o = self.orchestrator()
+        self.assertEqual(o.host.argv("true")[0], "ssh")
+        self.assertEqual(o.viewer.argv("true")[0], "ssh")
 
 
 class ClockProbeDeadline(unittest.TestCase):

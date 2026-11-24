@@ -3,7 +3,7 @@
 
 extension AgentBrandID {
     /// Every brand with a mark, in manifest order.
-    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio]
+    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .github, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio]
     public static let claude = AgentBrandID(rawValue: "claude")
     public static let anthropic = AgentBrandID(rawValue: "anthropic")
     public static let openai = AgentBrandID(rawValue: "openai")
@@ -16,6 +16,7 @@ extension AgentBrandID {
     public static let cursor = AgentBrandID(rawValue: "cursor")
     public static let amp = AgentBrandID(rawValue: "amp")
     public static let copilot = AgentBrandID(rawValue: "copilot")
+    public static let github = AgentBrandID(rawValue: "github")
     public static let grok = AgentBrandID(rawValue: "grok")
     public static let kiro = AgentBrandID(rawValue: "kiro")
     public static let antigravity = AgentBrandID(rawValue: "antigravity")
@@ -186,6 +187,18 @@ extension AgentBrandCatalog {
             tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000),
             paths: [
                 AgentBrandPathSpec(d: "M23.92 17C23.06 18.5 18.06 22.02 12 22.02C5.94 22.02 0.94 18.49 0.08 17L0 16.74L0 13.87L0.05 13.65C0.43 12.72 1.4 11.36 2.65 11C2.83 10.57 3.07 9.94 3.3 9.48C3.264 9.118 3.247 8.754 3.25 8.39C3.25 7.06 3.53 5.89 4.38 5.02C4.78 4.62 5.273 4.303 5.86 4.07C7.593 2.679 9.758 1.94 11.98 1.98C14.71 1.98 16.74 2.94 18.14 4.08C18.727 4.307 19.22 4.623 19.62 5.03C20.47 5.89 20.75 7.06 20.75 8.39C20.75 8.763 20.733 9.127 20.7 9.48C20.93 9.94 21.18 10.57 21.34 11C22.6 11.36 23.57 12.72 23.94 13.65L24 13.87L24 16.74ZM12.17 11L11.83 11C11.723 11.179 11.603 11.35 11.47 11.51C10.7 12.46 9.56 13.01 7.97 13.01C6.24 13.01 4.97 12.65 4.18 11.75L4.1 11.65L4 11.75L4 18.33C5.44 19.11 8.51 20.51 12 20.51C15.49 20.51 18.57 19.11 20 18.33L20 11.75L19.9 11.65L19.82 11.75C19.02 12.65 17.76 13 16.04 13C14.44 13 13.3 12.46 12.53 11.51C12.397 11.353 12.277 11.186 12.17 11.01M14.5 14.26C15.052 14.26 15.5 14.708 15.5 15.26L15.5 17.26C15.5 17.812 15.052 18.26 14.5 18.26C13.948 18.26 13.5 17.812 13.5 17.26L13.5 15.26C13.5 14.708 13.948 14.26 14.5 14.26M9.5 14.26C10.052 14.26 10.5 14.708 10.5 15.26L10.5 17.26C10.5 17.812 10.052 18.26 9.5 18.26C8.948 18.26 8.5 17.812 8.5 17.26L8.5 15.26C8.5 14.708 8.948 14.26 9.5 14.26M12.81 8.08C12.95 9.14 13.21 9.99 13.69 10.58C14.13 11.12 14.83 11.51 16.04 11.51C17.61 11.51 18.33 11.18 18.69 10.76C19.08 10.33 19.25 9.61 19.25 8.4C19.25 7.26 19.01 6.56 18.55 6.08C18.07 5.6 17.23 5.22 15.72 5.06C14.23 4.9 13.52 5.2 13.19 5.59C12.91 5.877 12.763 6.403 12.75 7.17L12.75 7.19C12.75 7.457 12.77 7.753 12.81 8.08M11.19 8.08C11.23 7.747 11.25 7.447 11.25 7.18L11.25 7.17C11.25 6.4 11.08 5.9 10.81 5.59C10.47 5.19 9.77 4.89 8.28 5.06C6.78 5.22 5.93 5.6 5.46 6.08C4.99 6.56 4.75 7.26 4.75 8.4C4.75 9.61 4.93 10.33 5.31 10.76C5.67 11.18 6.39 11.52 7.97 11.52C9.17 11.52 9.87 11.12 10.31 10.58C10.77 9.98 11.063 9.147 11.19 8.08"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .github: AgentBrandSpec(
+            name: "GitHub",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 16, height: 16),
+            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000),
+            paths: [
+                AgentBrandPathSpec(d: "M6.77 11.33C4.7 11.08 3.25 9.59 3.25 7.67C3.25 6.89 3.53 6.05 4 5.48C3.8 4.805 3.821 4.083 4.06 3.42C4.69 3.34 5.53 3.67 6.03 4.12C6.63 3.94 7.25 3.84 8.02 3.84C8.773 3.84 9.423 3.93 9.97 4.11C10.513 3.635 11.219 3.387 11.94 3.42C12.16 3.84 12.19 4.94 11.98 5.47C12.48 6.07 12.75 6.86 12.75 7.67C12.75 9.59 11.3 11.05 9.2 11.31C9.73 11.66 10.1 12.41 10.1 13.27L10.1 14.89C10.1 15.36 10.48 15.62 10.95 15.44C14.008 14.257 16.017 11.309 16 8.03C16 3.612 12.418 0.03 8 0.03C3.582 0.03 0 3.612 0 8.03C-0.003 11.343 2.061 14.305 5.17 15.45C5.59 15.61 6 15.33 6 14.91L6 13.66C5.762 13.758 5.507 13.809 5.25 13.81C4.22 13.81 3.61 13.25 3.17 12.21C3 11.78 2.81 11.53 2.45 11.48C2.277 11.46 2.193 11.4 2.2 11.3C2.2 11.1 2.52 10.97 2.83 10.97C3.28 10.97 3.67 11.25 4.08 11.83C4.38 12.27 4.723 12.487 5.11 12.48C5.69 12.48 5.75 12.34 6.11 11.98C6.363 11.713 6.583 11.497 6.77 11.33"),
             ],
             small: nil,
             tile: nil,
@@ -427,6 +440,7 @@ extension AgentBrandCatalog {
         "factory": .factory,
         "gemini": .gemini,
         "gemini-cli": .gemini,
+        "github": .github,
         "github-copilot": .copilot,
         "github-copilot-cli": .copilot,
         "goose": .goose,

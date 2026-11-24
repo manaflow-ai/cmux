@@ -12,9 +12,11 @@ use cmux_process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
+use crate::frame::{FRAME_HEIGHT, FRAME_WIDTH};
 use crate::infer::Inferred;
 use crate::io::{
-    Answered, AppsTransport, Clock, Fs, Git, Listeners, Probe, Procs, Start, Started, Unanswered,
+    Answered, AppsTransport, Capture, Clock, Fs, Git, Listeners, Probe, Procs, Start, Started,
+    Unanswered,
 };
 
 pub struct RealFs;
@@ -237,6 +239,111 @@ impl Probe for LoopbackProbe {
             .and_then(|code| code.parse().ok())
             .filter(|_| line.starts_with("HTTP/"))
             .ok_or_else(|| "not an HTTP answer".to_owned())
+    }
+}
+
+/// The browsers a first frame is rendered with, in order: the one the Cloud image names
+/// (`AGENT_BROWSER_EXECUTABLE_PATH`, web/services/vms/images/devbox/Dockerfile), then the usual
+/// names on `PATH`.
+const BROWSERS: [&str; 5] = [
+    "google-chrome-stable",
+    "google-chrome",
+    "chromium",
+    "chromium-browser",
+    "chrome-headless-shell",
+];
+pub const BROWSER_ENV: &str = "AGENT_BROWSER_EXECUTABLE_PATH";
+/// The whole render's bound; past it the browser's process group is ended.
+const CAPTURE_BOUND: Duration = Duration::from_secs(30);
+/// Time the page gets to run its scripts before the screenshot (virtual time: it ends early
+/// when the page goes idle).
+const SETTLE_MS: u32 = 5000;
+
+/// Headless Chrome's own `--screenshot` of `http://127.0.0.1:<port>/`, in a fresh profile
+/// directory that is removed after, so no cookie or sign-in is ever in it.
+pub struct HeadlessCapture {
+    /// The browser binary; `None` finds one ([`find_browser`]).
+    pub browser: Option<PathBuf>,
+}
+
+/// The first browser of [`BROWSER_ENV`] and [`BROWSERS`] that exists.
+pub fn find_browser(env_path: Option<&str>, path_var: Option<&str>) -> Option<PathBuf> {
+    if let Some(named) = env_path.filter(|p| !p.is_empty()).map(PathBuf::from)
+        && named.is_file()
+    {
+        return Some(named);
+    }
+    let dirs: Vec<PathBuf> =
+        path_var.map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
+    BROWSERS.iter().find_map(|name| dirs.iter().map(|d| d.join(name)).find(|p| p.is_file()))
+}
+
+/// The browser's arguments for one screenshot of `port` into `out`, with `profile` as its
+/// fresh user data directory.
+pub fn capture_args(port: u16, profile: &Path, out: &Path, root: bool) -> Vec<String> {
+    let mut args = vec![
+        "--headless=new".to_owned(),
+        "--disable-gpu".to_owned(),
+        "--hide-scrollbars".to_owned(),
+        "--mute-audio".to_owned(),
+        "--no-first-run".to_owned(),
+        "--no-default-browser-check".to_owned(),
+        "--disable-extensions".to_owned(),
+        "--disable-sync".to_owned(),
+        "--force-device-scale-factor=1".to_owned(),
+        format!("--window-size={FRAME_WIDTH},{FRAME_HEIGHT}"),
+        format!("--virtual-time-budget={SETTLE_MS}"),
+        format!("--user-data-dir={}", profile.display()),
+        format!("--screenshot={}", out.display()),
+    ];
+    if root {
+        // Chrome refuses to start as root with its sandbox on.
+        args.push("--no-sandbox".to_owned());
+    }
+    args.push(format!("http://127.0.0.1:{port}/"));
+    args
+}
+
+impl Capture for HeadlessCapture {
+    fn png(&self, port: u16) -> Result<Vec<u8>, String> {
+        let browser = match &self.browser {
+            Some(browser) => browser.clone(),
+            None => find_browser(
+                std::env::var(BROWSER_ENV).ok().as_deref(),
+                std::env::var("PATH").ok().as_deref(),
+            )
+            .ok_or("no headless browser on this machine (google-chrome or chromium)")?,
+        };
+        // Unique per capture: two in one process in the same millisecond get their own.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let stamp = SystemClock.now_ms();
+        let name = format!("cmux-app-frame-{}-{stamp}-{seq}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        fs::create_dir(&dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
+        let result = (|| {
+            let out = dir.join("frame.png");
+            // SAFETY: geteuid has no preconditions.
+            let root = unsafe { libc::geteuid() } == 0;
+            let mut child = Command::new(&browser)
+                .args(capture_args(port, &dir.join("profile"), &out, root))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn_owned()
+                .map_err(|e| format!("cannot run {}: {e}", browser.display()))?;
+            let status = child.wait_timeout(CAPTURE_BOUND).map_err(|e| e.to_string())?;
+            let Some(status) = status else {
+                return Err(format!("no screenshot within {} s", CAPTURE_BOUND.as_secs()));
+            };
+            if !status.success() {
+                return Err(format!("{} exited with {status}", browser.display()));
+            }
+            fs::read(&out).map_err(|e| format!("the browser wrote no screenshot: {e}"))
+        })();
+        // The profile is this capture's own; nothing of it outlives the render.
+        let _ = fs::remove_dir_all(&dir);
+        result
     }
 }
 
