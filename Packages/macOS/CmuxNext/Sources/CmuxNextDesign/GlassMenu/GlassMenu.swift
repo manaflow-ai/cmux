@@ -26,7 +26,8 @@ public final class GlassMenu {
     let list = GlassMenuListView()
     private let surface: OverlaySurfaceView
     private weak var parentMenu: GlassMenu?
-    private var child: GlassMenu?
+    /// The submenu open beside this menu, else nil.
+    private(set) var child: GlassMenu?
     private var scope: ThemeScope?
     /// The control the menu opened from: a click on it is the control's (it closes the menu
     /// itself, a toggle), not a click outside that closes and then reopens it.
@@ -254,9 +255,12 @@ public final class GlassMenu {
     func runKeyEquivalent(_ event: NSEvent) -> Bool {
         let root = root
         // A stepper's shortcut (⌘- ⌘= ⌘0 on the zoom row) steps it in place: the menu stays open.
+        // It runs after the key, as the row's arrow keys do (``GlassMenuStepperRowView/handleKey(_:)``).
         if let (stepper, part) = root.stepperPart(matching: event) {
-            stepper.run(part)
-            root.refreshControls()
+            MainRunLoopBlock.perform { [weak root] in
+                stepper.run(part)
+                root?.refreshControls()
+            }
             return true
         }
         guard let item = GlassMenuRow.item(matching: event, in: root.menu) else { return false }

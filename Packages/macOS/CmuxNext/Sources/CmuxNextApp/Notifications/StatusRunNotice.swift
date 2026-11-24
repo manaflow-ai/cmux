@@ -23,7 +23,7 @@ struct StatusRunNotice: Hashable {
     /// The notice for `run`, worded in `localizations` (the first is the duration's locale).
     init(_ run: FinishedStatusRun, surface: SurfaceID?, localizations: [String]) {
         func text(_ key: String, _ english: String) -> String {
-            Bundle.module.localizedString(forKey: key, value: english, table: "NotificationsPanel",
+            Bundle.module.inAppLanguage.localizedString(forKey: key, value: english, table: "NotificationsPanel",
                                           preferredLocalizations: localizations)
         }
         let locale = Locale(identifier: localizations.first ?? "en")

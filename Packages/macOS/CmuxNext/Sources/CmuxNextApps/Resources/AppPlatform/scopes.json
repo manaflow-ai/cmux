@@ -249,6 +249,14 @@
       "scope": "chat:write",
       "class": "mutation"
     },
+    "chief.automation.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.continue": {
       "scope": "chief:write",
       "class": "mutation"
@@ -421,6 +429,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.pause_all": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.rename": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -470,6 +482,10 @@
       "class": "mutation"
     },
     "cloud.snapshot.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.surge.preview": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -785,6 +801,18 @@
       "scope": "git:external",
       "class": "mutation"
     },
+    "git.review.comment": {
+      "scope": "git:write",
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "scope": "git:external",
+      "class": "mutation"
+    },
+    "git.review.start": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "git.status": {
       "scope": "git:read",
       "class": "read"
@@ -804,6 +832,10 @@
     "git.worktree.setup": {
       "scope": "git:read",
       "class": "read"
+    },
+    "git.worktree.setup.run": {
+      "scope": "git:execute",
+      "class": "mutation"
     },
     "github.issue.comment": {
       "scope": "github:external",
@@ -987,6 +1019,14 @@
     },
     "mail.threads.peek": {
       "scope": "mail:read",
+      "class": "read"
+    },
+    "media.control": {
+      "scope": "media:control",
+      "class": "mutation"
+    },
+    "media.get": {
+      "scope": "media:read",
       "class": "read"
     },
     "memory_app.cycle_variant": {
@@ -1196,6 +1236,10 @@
     "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
+    },
+    "project.actions.list": {
+      "scope": "project:read",
+      "class": "read"
     },
     "project.add": {
       "scope": "project:write",
@@ -1616,6 +1660,18 @@
     "sidebar.unpin": {
       "scope": "sidebar:write",
       "class": "mutation"
+    },
+    "signal.publish": {
+      "scope": "none",
+      "class": "mutation"
+    },
+    "signal.read": {
+      "scope": "none",
+      "class": "read"
+    },
+    "signal.sources.list": {
+      "scope": "none",
+      "class": "read"
     },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
@@ -2141,6 +2197,8 @@
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_resize",
+    "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",
@@ -2173,6 +2231,7 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "cloud.surge.create",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
@@ -2242,6 +2301,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
