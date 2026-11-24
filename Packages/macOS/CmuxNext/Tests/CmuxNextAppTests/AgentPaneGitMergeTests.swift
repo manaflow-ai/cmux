@@ -4,32 +4,71 @@ import Foundation
 import Testing
 
 /// Merge from the PR chip (cx-ncc.77.4, Codex desktop's): `git.pullRequest {action: "merge",
-/// number}` merges the branch's pull request with the GitHub CLI, only after a real click, only
-/// the pull request the page showed, and only when GitHub says it is ready (clean merge state,
-/// every check passed) and its head is what this Mac has. It merges that head exactly
-/// (`--match-head-commit`) with the user's default method. A script stands in for `gh`.
+/// number}` merges the branch's pull request through acpmux (the cmux GitHub App, or the person's
+/// gh there), only after a real click, only the pull request the page showed, and only when GitHub
+/// says it is ready (clean merge state, every check passed) and its head is what this Mac has. It
+/// merges that head exactly (the REST merge's `sha`) with the user's default method. A closure
+/// stands in for acpmux's GitHub op; no `gh` is needed here.
 @MainActor
 struct AgentPaneGitMergeTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private struct Rig {
-        let folder: String, gh: String, head: String
-
-        var calls: [String] {
-            ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    /// The fake GitHub: the pull request it answers, and what it was asked.
+    // Called from the @Sendable GitHub closure off the main actor; the lock guards every field.
+    nonisolated final class GitHub: @unchecked Sendable {
+        private let lock = NSLock()
+        private var shown = ""
+        private var asked: [String] = []
+        /// The state a read after the merge answers (a merge queue keeps it OPEN).
+        var after: String {
+            get { lock.withLock { afterState } }
+            set { lock.withLock { afterState = newValue } }
         }
+        private var afterState = "MERGED"
+        private var merged = false
 
-        /// gh's `pr view` answer, with `head` unless another is given.
+        var calls: [String] { lock.withLock { asked } }
+
+        func show(_ json: String) { lock.withLock { shown = json } }
+
+        func call(_ params: [String: any Sendable]) -> AgentPaneGitHubREST.Answer {
+            let op = params["op"] as? String ?? ""
+            return lock.withLock {
+                switch op {
+                case "graphql":
+                    let variables = params["variables"] as? [String: any Sendable] ?? [:]
+                    asked.append("graphql \(params["repo"] as? String ?? "") \(variables["number"] as? Int ?? 0)")
+                    let pull = merged ? #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"\#(afterState)"}"# : shown
+                    let body = #"{"data":{"repository":{"viewerDefaultMergeMethod":"REBASE","pullRequest":\#(pull)}}}"#
+                    return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(body.utf8), source: "app")
+                case "pr.merge":
+                    asked.append("pr.merge \(params["repo"] as? String ?? "") \(params["number"] as? Int ?? 0) \(params["method"] as? String ?? "") \(params["head"] as? String ?? "")")
+                    merged = true
+                    return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(#"{"merged":true}"#.utf8), source: "app")
+                default:
+                    asked.append(op)
+                    return AgentPaneGitHubREST.Answer(ok: false, status: 404, message: "Not Found")
+                }
+            }
+        }
+    }
+
+    private struct Rig {
+        let folder: String, github: GitHub, head: String
+
+        var calls: [String] { github.calls }
+
+        /// GitHub's pull request, with `head` unless another is given.
         func view(state: String = "OPEN", draft: Bool = false, mergeState: String = "CLEAN", check: String = "SUCCESS",
-                  head: String? = nil) throws {
-            let json = """
+                  head: String? = nil) {
+            github.show("""
                 {"url":"https://github.com/o/r/pull/7","number":7,"state":"\(state)","isDraft":\(draft),
                  "mergeStateStatus":"\(mergeState)","headRefOid":"\(head ?? self.head)",
-                 "statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"\(check)"}]}
-                """
-            try json.write(toFile: (gh as NSString).deletingLastPathComponent + "/view.json", atomically: true, encoding: .utf8)
+                 "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+                  {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"\(check)"}]}}}}]}}
+                """)
         }
     }
 
@@ -52,30 +91,16 @@ struct AgentPaneGitMergeTests {
     /// The template's folder, for the exit handler (a C function pointer captures nothing).
     private nonisolated static let templatePath = Mutex<String?>(nil)
 
-    /// A copy of the one-commit repository (a file copy, no git process) and a fake `gh`: `pr view`
-    /// prints view.json, `repo view` the user's default method, and `pr merge` succeeds.
+    /// A copy of the one-commit repository (a file copy, no git process) and a fake GitHub that
+    /// answers a clean, green pull request at its head.
     private static func rig() throws -> Rig {
         let template = try Self.template.get()
         let base = FileManager.default.temporaryDirectory.appending(path: "git-pr-merge-\(UUID().uuidString)").path
-        let folder = base + "/repo", gh = base + "/gh"
+        let folder = base + "/repo"
         try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
         try FileManager.default.copyItem(atPath: template.folder, toPath: folder)
-        let script = """
-            #!/bin/sh
-            echo "$*" >> "$0.calls"
-            [ "$(pwd -P)" = "$(cd '\(folder)' && pwd -P)" ] || exit 3
-            case "$1 $2" in
-            "pr view") if [ "$3" = "--json" ]; then cat "$(dirname "$0")/view.json"
-                else echo "{\\"state\\":\\"$(cat "$0.after" 2>/dev/null || echo MERGED)\\"}"; fi ;;
-            "repo view") echo '{"viewerDefaultMergeMethod":"REBASE"}' ;;
-            "pr merge") exit 0 ;;
-            *) exit 2 ;;
-            esac
-            """
-        try script.write(toFile: gh, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
-        let rig = Rig(folder: folder, gh: gh, head: template.head)
-        try rig.view()
+        let rig = Rig(folder: folder, github: GitHub(), head: template.head)
+        rig.view()
         return rig
     }
 
@@ -106,7 +131,8 @@ struct AgentPaneGitMergeTests {
         let request = try #require(AgentPaneGitPullRequest(params: [
             "cwd": rig.folder, "action": "merge", "number": number, "url": url,
         ]))
-        return await AgentPaneGitPullRequest.reply(to: request, in: model, gh: rig.gh)
+        let github = rig.github
+        return await AgentPaneGitPullRequest.reply(to: request, in: model, gh: nil, github: { github.call($0) })
     }
 
     /// A green pull request whose head this Mac has merges, at exactly that head, with the user's
@@ -117,11 +143,10 @@ struct AgentPaneGitMergeTests {
         #expect(reply["ok"] as? Bool == true, "\(reply)")
         #expect((reply["value"] as? [String: Any])?["number"] as? Int == 7)
         #expect((reply["value"] as? [String: Any])?["merged"] as? Bool == true)
-        let url = "https://github.com/o/r/pull/7"
-        #expect(rig.calls.suffix(3) == [
-            "repo view github.com/o/r --json viewerDefaultMergeMethod",
-            "pr merge \(url) --rebase --match-head-commit \(rig.head)",
-            "pr view \(url) --json state",
+        #expect(rig.calls == [
+            "graphql o/r 7",
+            "pr.merge o/r 7 rebase \(rig.head)",
+            "graphql o/r 7",
         ], "\(rig.calls)")
     }
 
@@ -129,7 +154,7 @@ struct AgentPaneGitMergeTests {
     /// is queued, not merged.
     @Test func aMergeQueueSaysQueued() async throws {
         let rig = try Self.rig()
-        try "OPEN".write(toFile: rig.gh + ".after", atomically: true, encoding: .utf8)
+        rig.github.after = "OPEN"
         let reply = try await Self.merge(rig)
         #expect((reply["value"] as? [String: Any])?["merged"] as? Bool == false, "\(reply)")
         #expect((reply["value"] as? [String: Any])?["queued"] as? Bool == true)
@@ -160,12 +185,12 @@ struct AgentPaneGitMergeTests {
             ("OPEN", false, "CLEAN", "SUCCESS", String(repeating: "a", count: 40)),
         ]
         for refused in cases {
-            try rig.view(state: refused.state, draft: refused.draft, mergeState: refused.mergeState, check: refused.check,
+            rig.view(state: refused.state, draft: refused.draft, mergeState: refused.mergeState, check: refused.check,
                          head: refused.head)
             let reply = try await Self.merge(rig)
             #expect(reply["ok"] as? Bool == false, "\(refused) \(reply)")
             #expect(((reply["error"] as? [String: Any])?["userMessage"] as? String)?.isEmpty == false)
         }
-        #expect(!rig.calls.contains { $0.hasPrefix("pr merge") }, "\(rig.calls)")
+        #expect(!rig.calls.contains { $0.hasPrefix("pr.merge") }, "\(rig.calls)")
     }
 }

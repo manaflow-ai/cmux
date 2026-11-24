@@ -154,7 +154,6 @@ fn request(
         permissions: None,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
-        permissions: None,
     })
 }
 
