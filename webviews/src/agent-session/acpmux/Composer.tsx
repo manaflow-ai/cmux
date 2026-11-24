@@ -2227,10 +2227,7 @@ function ComposerFrame({
       }
     }
     // A file still being read for what goes in the prompt (an image's preview): the prompt waits for its chip.
-    if (
-      !wentAhead &&
-      holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept)
-    )
+    if (!wentAhead && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
       return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
