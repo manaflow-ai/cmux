@@ -5,7 +5,7 @@
 // stand-in acpmux and the pane's dev entry, real Chromium) to rest, starts the painted-frame recorder
 // (support/firstFrameRects.ts, its anchors), runs one animation, lets its frames pass and reads how far
 // each anchor that should hold still moved from its first frame: the composer's bottom edge, the Send
-// slot, the caret's line, the picker rail, the header's tools. Under 1 px holds still.
+// slot, the caret's line, the model chip, the header's tools. Under 1 px holds still.
 //
 // A case that drifts today is in DRIFTS with the px it measured: it runs as `test.failing`, so it
 // reads red here if it stops drifting (then drop its entry) and is never a skip. No animation is fixed
@@ -32,7 +32,9 @@ const ANCHORS = {
   "composer box": `${MAIN_DOCK} .acpmux-composer-box`,
   "send slot": `${MAIN_DOCK} .acpmux-composer-actions`,
   "caret line": CARET_ANCHOR,
-  "picker rail": ".acpmux-composer-box .acpmux-chips",
+  /// The rail of chips is `display: contents` (composerLocation.css), so it has no box: its model chip
+  /// stands for it.
+  "model chip": `${MAIN_DOCK} ${MODEL_PICKER}`,
   "header tools": ".acpmux-header-tools",
   /// Movers, not anchors: proof the case's animation ran (the box's top grows or shrinks, a menu shows).
   "composer top edge": `${MAIN_DOCK} .acpmux-composer-box`,
@@ -94,7 +96,7 @@ const CASES: Case[] = [
   {
     name: "composer grow (a new line)",
     proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "caret line", "picker rail", "header tools"],
+    anchors: ["composer bottom edge", "send slot", "caret line", "model chip", "header tools"],
     rest: async (page) => {
       await focusField(page);
       await page.keyboard.type(DRAFT);
@@ -104,7 +106,7 @@ const CASES: Case[] = [
   {
     name: "composer grow (typing wraps onto a second line)",
     proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "picker rail", "header tools"],
+    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
     rest: async (page) => {
       await focusField(page);
       await page.keyboard.type(DRAFT);
@@ -114,7 +116,7 @@ const CASES: Case[] = [
   {
     name: "composer shrink (the new line deleted)",
     proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "caret line", "picker rail", "header tools"],
+    anchors: ["composer bottom edge", "send slot", "caret line", "model chip", "header tools"],
     rest: async (page) => {
       await focusField(page);
       await page.keyboard.type(DRAFT);
@@ -125,7 +127,7 @@ const CASES: Case[] = [
   {
     name: "send (Return on a two-line draft)",
     proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "picker rail", "header tools"],
+    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
     rest: async (page) => {
       await focusField(page);
       await page.keyboard.type(DRAFT);
@@ -137,14 +139,14 @@ const CASES: Case[] = [
   {
     name: "attachment add (a long paste lands as a chip)",
     proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "picker rail", "header tools"],
+    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
     rest: focusField,
     act: (page) => paste(page, LONG_PASTE),
   },
   {
     name: "attachment remove (the chip's ×)",
     proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "picker rail", "header tools"],
+    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
     rest: async (page) => {
       await focusField(page);
       await paste(page, LONG_PASTE);
@@ -163,27 +165,26 @@ const CASES: Case[] = [
   {
     name: "model menu opening",
     proof: { shows: "menu" },
-    anchors: ["composer box", "send slot", "picker rail", "header tools"],
+    anchors: ["composer box", "send slot", "model chip", "header tools"],
     act: (page) => page.locator(`${MAIN_DOCK} ${MODEL_PICKER}`).first().click({ timeout: TRIGGER_MS }),
-  },
-  {
-    name: "mode menu opening",
-    proof: { shows: "menu" },
-    anchors: ["composer box", "send slot", "picker rail", "header tools"],
-    act: (page) =>
-      page.locator(`${MAIN_DOCK} .acpmux-picker-button:has(.acpmux-mode-text)`).first().click({ timeout: TRIGGER_MS }),
   },
   {
     name: "+ menu opening",
     proof: { shows: "menu" },
-    anchors: ["composer box", "send slot", "picker rail", "header tools"],
+    anchors: ["composer box", "send slot", "model chip", "header tools"],
     act: (page) => page.locator(`${MAIN_DOCK} ${PLUS_PICKER}`).first().click({ timeout: TRIGGER_MS }),
   },
 ];
 
-/// The cases that drift today, with the most px measured (the run of 2026-11-24 on a lane VM's
-/// Chromium) and the anchor. Each runs as test.failing until the animation is fixed.
-const DRIFTS: Record<string, string> = {};
+/// The cases that drift today, with the most px measured (CI run 45329703880 on
+/// fast-checks' Chromium, 2026-11-24) and the anchor. Each runs as test.failing until the animation is fixed.
+/// The mode menu is not a case: the stand-in pane draws no mode chip (CI run 45329703880 waited 10 s
+/// for one).
+const DRIFTS: Record<string, string> = {
+  /// Backspace lifts the caret to the line above a frame before the box shrinks, then the shrink
+  /// carries it back (rest 0.3 px off): the caret's line jumps a line height mid-animation.
+  "composer shrink (the new line deleted)": "caret line 22.7 px (bottom)",
+};
 
 await requireBrowserLane("tab-composer-anchor-drift.test.ts", async () => {
   setDefaultTimeout(300_000);
