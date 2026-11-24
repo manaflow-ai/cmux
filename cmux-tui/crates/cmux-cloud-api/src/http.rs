@@ -172,8 +172,10 @@ impl Http {
         let space = cmux_build_space::headers().map_err(|e| Failure::Transport(e.to_string()))?;
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
         // try connects with no connect timeout. Both clients carry the space.
+        // The API base is the person's (or the build's) setting, so the gate lets its host through.
+        cmux_egress::allow_named(base.as_str());
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_cloud_api::http")
                 .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
