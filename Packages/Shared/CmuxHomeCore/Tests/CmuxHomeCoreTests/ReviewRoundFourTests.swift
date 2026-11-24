@@ -1,13 +1,17 @@
-import CoreGraphics
 import Foundation
-import ImageIO
 import Testing
 import CmuxHomeCoreTestSupport
-import UniformTypeIdentifiers
 @testable import CmuxHomeCore
+#if canImport(ImageIO)
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
+#endif
 
 // Regression tests for the fourth attachment review (minor findings 1, 2, 3 and 6).
 
+// WebP and image metadata: Apple media only, not on the Linux package lane.
+#if canImport(ImageIO)
 private func le32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
 
 private func webPChunk(_ tag: String, _ payload: [UInt8]) -> [UInt8] {
@@ -170,6 +174,8 @@ private func frameCount(_ data: Data) -> Int {
         }
     }
 }
+
+#endif
 
 @MainActor
 @Suite(.timeLimit(.minutes(3))) struct UnansweredOpTests {

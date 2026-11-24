@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(ImageIO)
 import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 // Leo, 2026-10-26: "why the FUCK SHOULD THERE BE A FUCKING SIZE CAP ANYWAYS ... I ALREADY SAID WE NEED
@@ -23,6 +25,8 @@ import UniformTypeIdentifiers
     }
 }
 
+// Prepares real attachments: Apple media only, not on the Linux package lane.
+#if canImport(ImageIO)
 @Suite(.timeLimit(.minutes(3))) struct AttachmentAnyCountSendTests {
     let conversation = ConversationID("conv_austin")
 
@@ -224,3 +228,4 @@ import UniformTypeIdentifiers
         #expect(texts == ["all of them"])
     }
 }
+#endif

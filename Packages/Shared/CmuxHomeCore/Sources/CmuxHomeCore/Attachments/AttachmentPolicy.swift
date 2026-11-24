@@ -1,6 +1,8 @@
 public import Foundation
+#if canImport(ImageIO)
 import ImageIO
 import UniformTypeIdentifiers
+#endif
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
@@ -187,6 +189,7 @@ public struct HomeAttachmentPolicy {
         case sniff
     }
 
+    #if canImport(ImageIO) // UTType and ImageIO's readable types: Apple only
     /// The decision for in-memory input of `type`
     /// (`prepareAttachment(data:typeIdentifier:)`): the type's own mime
     /// type when it is one of the owner's (an M4A type may prefer the .mp4
@@ -235,6 +238,8 @@ public struct HomeAttachmentPolicy {
         }
         return identifiers
     }()
+
+    #endif
 
     /// True when `prepareAttachment(data:typeIdentifier:)` takes input of
     /// this type: every type does (unlisted ones go as text or a generic

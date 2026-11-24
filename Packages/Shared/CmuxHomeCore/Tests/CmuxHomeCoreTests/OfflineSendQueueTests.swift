@@ -85,6 +85,8 @@ import CmuxHomeCoreTestSupport
         store.stop()
     }
 
+    // Preparing an attachment needs Apple media: not on the Linux package lane.
+    #if canImport(ImageIO)
     func attachment(_ store: HomeStore, _ text: String) async throws -> LocalAttachment {
         try await store.prepareAttachment(data: Data(text.utf8), typeIdentifier: "public.plain-text")
     }
@@ -152,6 +154,8 @@ import CmuxHomeCoreTestSupport
         await waitUntil { self.row(store, key)?.delivery == .committed }
         store.stop()
     }
+
+    #endif
 
     @Test func otherOpsAreStillRefusedWhileTheOwnerIsGone() async throws {
         let (store, source) = try await started()

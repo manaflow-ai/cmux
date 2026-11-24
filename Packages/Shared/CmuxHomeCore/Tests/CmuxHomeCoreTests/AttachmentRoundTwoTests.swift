@@ -1,8 +1,13 @@
+// Apple media (AVFoundation, ImageIO, CryptoKit, UniformTypeIdentifiers): these tests run on
+// macOS and iOS only, not on the Linux package lane (scripts/ci/swift-linux-packages.txt).
+#if canImport(ImageIO)
 import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
+#if canImport(os)
 import os
+#endif
 import Testing
 import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
@@ -634,3 +639,4 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(store.transcript(for: conversation).last?.delivery == .notDelivered(.invalid("attachment_upload_failed")))
     }
 }
+#endif

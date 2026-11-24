@@ -1,3 +1,6 @@
+// Apple media (AVFoundation, ImageIO, CryptoKit, UniformTypeIdentifiers): these tests run on
+// macOS and iOS only, not on the Linux package lane (scripts/ci/swift-linux-packages.txt).
+#if canImport(ImageIO)
 import AVFoundation
 import CoreGraphics
 import CoreVideo
@@ -8,12 +11,6 @@ import Testing
 import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
-
-func temporaryDirectory() throws -> URL {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-attach-tests-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-    return url
-}
 
 func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -1251,3 +1248,4 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         }
     }
 }
+#endif
