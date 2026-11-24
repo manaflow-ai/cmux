@@ -413,7 +413,9 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           const page = await open(engine, block);
           try {
             await page.evaluate(() => document.documentElement.setAttribute("data-cmux-scroller-fade", ""));
-            // The thumb fades out over the fade's length (3e0de67aedb), not in one frame.
+            // The thumb fades out over the fade's length (3e0de67aedb), not in one frame. The fade
+            // starts a frame after the attribute: paint first, or `faded` can pass before it begins.
+            await painted(page);
             await faded(page, block);
             await painted(page);
             const box = await measure(page, block);
