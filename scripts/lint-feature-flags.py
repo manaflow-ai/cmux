@@ -139,12 +139,13 @@ def grep_keys_files(keys: set[str]) -> dict[str, set[str]]:
         return hits
     # One search for every key: -e per key, -l reports each matching file once.
     # The matched key is recovered per line by re-checking the file content.
-    args = ["git", "grep", "-l", "--untracked", "--fixed-strings"]
+    # -z: without it git quotes a non-ASCII path, which then cannot be opened.
+    args = ["git", "grep", "-z", "-l", "--untracked", "--fixed-strings"]
     for key in keys:
         args += ["-e", key]
     args += ["--", "web", "Sources", "Packages", "ios", "CLI", ":!*node_modules*"]
     out = subprocess.run(args, cwd=REPO, capture_output=True, text=True)
-    files = {line.strip() for line in out.stdout.splitlines() if line.strip()}
+    files = {rel for rel in out.stdout.split("\0") if rel}
     for rel in files:
         text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
         for key in keys:
