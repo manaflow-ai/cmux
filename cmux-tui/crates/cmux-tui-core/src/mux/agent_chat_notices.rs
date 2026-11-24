@@ -1380,11 +1380,11 @@ impl Chat {
         let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
         let lost_was_notified =
             before.is_some_and(|chat| chat.indicator == "lost" && chat.notified_lost);
+        let mut failed_turn_was_notified = false;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
-            && !lost_was_notified
         {
             self.notified_turn = Some(turn.clone());
             match status.as_str() {
@@ -1401,16 +1401,19 @@ impl Chat {
                 "failed" => {
                     let text = self.last_error.as_ref().unwrap_or(&self.last_message);
                     let code = failure_code(text);
-                    notices.push(Notice {
-                        event: None,
-                        key: format!("failed-{turn}"),
-                        title: format!("{name} {}", code.headline()),
-                        subtitle: (code != FailureCode::Other).then(|| code.code().to_owned()),
-                        body: short(text, MAX_BODY_CHARS),
-                        level: NotificationLevel::Error,
-                        restated: false,
-                        failure: Some(code),
-                    });
+                    if !lost_was_notified {
+                        failed_turn_was_notified = true;
+                        notices.push(Notice {
+                            event: None,
+                            key: format!("failed-{turn}"),
+                            title: format!("{name} {}", code.headline()),
+                            subtitle: (code != FailureCode::Other).then(|| code.code().to_owned()),
+                            body: short(text, MAX_BODY_CHARS),
+                            level: NotificationLevel::Error,
+                            restated: false,
+                            failure: Some(code),
+                        });
+                    }
                 }
                 _ => {}
             }
@@ -1418,9 +1421,6 @@ impl Chat {
         // A dead agent can report both a failed turn and a lost indicator in one
         // summary. The failed-turn notice is the durable event for that turn, so
         // keep the secondary lost transition from posting a duplicate.
-        let failed_turn_was_notified = self.last_turn.as_ref().is_some_and(|(turn, status)| {
-            status == "failed" && self.notified_turn.as_ref() == Some(turn)
-        });
         let was = before.map_or("", |chat| chat.indicator.as_str());
         if self.indicator == "input" && was != "input" {
             notices.push(Notice {

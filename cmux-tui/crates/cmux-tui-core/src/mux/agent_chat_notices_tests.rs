@@ -744,6 +744,20 @@ fn a_lost_notice_suppresses_the_later_failed_summary() {
 }
 
 #[test]
+fn a_later_lost_transition_is_not_suppressed_by_an_older_failed_turn() {
+    let mut before = Chat::of(&summary("done", 10, false, Some(("t1", "failed")), false))
+        .expect("a failed chat");
+    assert_eq!(before.notices(None).len(), 1);
+    let mut lost =
+        Chat::of(&summary("lost", 12, false, Some(("t1", "failed")), false)).expect("a lost chat");
+    lost.notified_turn = before.notified_turn.clone();
+    lost.notified_lost = before.notified_lost;
+    let notices = lost.notices(Some(&before));
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].title.ends_with("stopped responding"));
+}
+
+#[test]
 fn an_unclassified_failure_keeps_the_plain_title_and_never_folds() {
     let mut failed = ended("t1", true, false);
     failed.last_turn = Some(("t1".into(), "failed".into()));
