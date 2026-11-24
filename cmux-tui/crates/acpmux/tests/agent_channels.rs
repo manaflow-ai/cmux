@@ -300,7 +300,11 @@ async fn a_loopback_channel_and_a_listener_that_leaves() {
     assert_eq!(opener.hear(method::MUX_CHANNEL_DATA).await["text"], "b");
     // Frames keep their order, raw bytes and text alike.
     for i in 0..20 {
-        let frame = if i % 2 == 0 { json!({"channelId": id, "data": "AAEC/w=="}) } else { json!({"channelId": id, "text": format!("{i}")}) };
+        let frame = if i % 2 == 0 {
+            json!({"channelId": id, "data": "AAEC/w=="})
+        } else {
+            json!({"channelId": id, "text": format!("{i}")})
+        };
         opener.notify(method::MUX_CHANNEL_SEND, frame).await;
     }
     for i in 0..20 {
