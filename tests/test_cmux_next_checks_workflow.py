@@ -1970,7 +1970,8 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         self.evaluate = evaluate
         self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
-    def runs(self, job: str, event: str, macos: str | None, fast_tier: str | None = None) -> bool:
+    def runs(self, job: str, event: str, macos: str | None, fast_tier: str | None = None,
+             cargo: str = "success") -> bool:
         expression = self.jobs[job]["if"].replace("!cancelled()", "true")
         pull = event == "pull_request"
         context = {
@@ -1984,6 +1985,7 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
             "vars": {"CI_PR_POOL_OWNED": "1"},
             "needs": {
                 "push-head-preflight": {"outputs": {"current": "true"}},
+                "fast-tier-cargo": {"result": cargo},
                 "path_route": {"outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
                                            if value is not None}},
             },
@@ -2008,6 +2010,21 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         self.assertEqual(macos, "true")
         self.assertTrue(self.runs("fast-tier", "pull_request", macos))
         self.assertTrue(self.runs("macos-placement", "pull_request", macos))
+
+    def test_a_red_linux_cargo_tier_holds_the_pr_mac_jobs(self):
+        """About 17.6k Mac min/day ran on PR heads whose Linux cargo fast tier was already red
+        (2026-11-24). A PR head starts its Mac placement only once that tier passed or was skipped;
+        the base push never waits on it."""
+        macos = self.route_macos(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift"])
+        for job in ("macos-placement",):
+            with self.subTest(job=job):
+                self.assertIn("fast-tier-cargo", self.jobs[job]["needs"])
+                self.assertTrue(self.runs(job, "pull_request", macos, cargo="skipped"))
+                self.assertFalse(self.runs(job, "pull_request", macos, cargo="failure"))
+                self.assertFalse(self.runs(job, "pull_request", macos, cargo="cancelled"))
+                self.assertTrue(self.runs(job, "push", macos, cargo="failure"))
+        self.assertIn("fast-tier-cargo", self.jobs["app-compile-placement"]["needs"])
+        self.assertIn("needs.fast-tier-cargo.result == 'success'", self.jobs["app-compile-placement"]["if"])
 
     def test_no_route_answer_and_the_base_push_still_run_it(self):
         self.assertTrue(self.runs("fast-tier", "pull_request", None))
@@ -3346,6 +3363,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
+            "needs.fast-tier-cargo.result": "success",
             # The router ran: web-bundles checks its result.
             "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
@@ -3758,6 +3776,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.event_name": event, "github.repository": "manaflow-ai/cmux",
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+            "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
         }
