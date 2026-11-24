@@ -117,7 +117,7 @@ fn a_stale_pr_layer_and_a_broken_file_are_both_said_in_one_line() {
     assert_eq!(
         report.line.as_deref(),
         Some(
-            "2 things change your customization: pr-45206 is still on; themes/night.json does not load"
+            "2 customization problems to review"
         )
     );
 }
@@ -255,7 +255,7 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
     home.write("themes/night.json", "{ \"appearance\": }\n");
     let customize = home.customize();
     let first = customize.doctor_announce(&at(NOW)).unwrap();
-    assert_eq!(first.announce.as_deref(), Some("Customization: themes/night.json does not load"));
+    assert_eq!(first.announce.as_deref(), Some("themes/night.json does not load"));
     let again = customize.doctor_announce(&at(NOW)).unwrap();
     assert_eq!(again.announce, None, "nothing new");
     assert!(again.line.is_some(), "still listed");

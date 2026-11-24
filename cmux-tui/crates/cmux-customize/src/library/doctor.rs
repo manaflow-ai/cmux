@@ -889,24 +889,26 @@ pub fn fix_kind(word: &str) -> Option<FixKind> {
     }
 }
 
-/// `2 customization problems: a; b`, or one: `Customization: a`.
+/// The one line a toast or a card header shows: short, plain, and never a list of keys
+/// (Lawrence 2026-11-23, on "4 things change your customization: contextMenus.layouts is not a
+/// setting; home.chiefPanel.seesScreen is a retired setting and 2 more": "horrible message").
+/// One finding: its title. Several: what they are, counted; Review shows each one.
 fn line_of<'a>(findings: impl Iterator<Item = &'a Finding>) -> Option<String> {
     let findings: Vec<&Finding> = findings.collect();
-    let warnings: Vec<&&Finding> = findings.iter().filter(|f| f.level == Level::Warning).collect();
-    let shown: Vec<&str> = if warnings.is_empty() {
-        findings.iter().take(2).map(|f| f.title.as_str()).collect()
-    } else {
-        warnings.iter().take(2).map(|f| f.title.as_str()).collect()
-    };
-    let first = *shown.first()?;
-    let rest = findings.len() - shown.len();
-    let mut line = if findings.len() == 1 {
-        format!("Customization: {first}")
-    } else {
-        format!("{} things change your customization: {}", findings.len(), shown.join("; "))
-    };
-    if rest > 0 {
-        line.push_str(&format!(" and {rest} more"));
+    let first = findings.first()?;
+    if findings.len() == 1 {
+        return Some(first.title.clone());
     }
-    Some(line)
+    let warnings = findings.iter().filter(|f| f.level == Level::Warning).count();
+    let n = findings.len();
+    Some(if warnings == 1 {
+        let warning = findings.iter().find(|f| f.level == Level::Warning).unwrap();
+        format!("{}, and {} more to review", warning.title, n - 1)
+    } else if warnings > 1 {
+        format!("{warnings} customization problems to review")
+    } else if findings.iter().all(|f| f.kind == FindingKind::UnknownKey) {
+        format!("settings.json has {n} settings cmux ignores")
+    } else {
+        format!("{n} customization notes to review")
+    })
 }
