@@ -638,7 +638,7 @@ if (import.meta.main) {
       const ctx: Ctx = {
         browser,
         url: (sessionId) =>
-          `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${encodeURIComponent(sessionId)}`,
+          `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${encodeURIComponent(sessionId)}`,
         ...(TRACE_DIR && browserCdp && fixture.name === "god"
           ? {
               trace: async (name: string) => {
