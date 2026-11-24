@@ -1,0 +1,131 @@
+diff --git a/webviews/src/agent-session/acpmux/conversation/backgroundRuns.ts b/webviews/src/agent-session/acpmux/conversation/backgroundRuns.ts
+index 5fa6f3c9f663..d3faf8fbbf1e 100644
+--- a/webviews/src/agent-session/acpmux/conversation/backgroundRuns.ts
++++ b/webviews/src/agent-session/acpmux/conversation/backgroundRuns.ts
+@@ -30,6 +30,7 @@ import type { Translate } from "../i18n";
+ import { experimentArm } from "../../../experiments/experiment";
+ import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
+ import { BACKGROUND_TURN, backgroundWeight } from "./backgroundTurns";
++import { SUBAGENT_DONE } from "../subagents/subagentRows";
+ import type { Folds } from "./viewFolds";
+ import { isVisiblyEmptyMessage } from "./visibleMessage";
+ 
+@@ -49,6 +50,14 @@ function memberKind(row: AcpmuxRow, inline: boolean): MemberKind | undefined {
+     if (turn.trigger === "task_notification") return "finished";
+     return turn.trigger === "scheduled" ? "scheduled" : "other";
+   }
++  if (row.kind === SUBAGENT_DONE) {
++    // A subagent's end, whatever the harness wrote (acpmux's own lifecycle record, not the text of
++    // a notification): it counts as a run's member like a shell's end.
++    const state = row.subagents?.[0]?.state;
++    if (state === "completed") return "finished";
++    if (state === "failed") return "failed";
++    return state === "cancelled" || state === "disconnected" ? "stopped" : undefined;
++  }
+   if (row.kind === "backgroundTask") {
+     const state = row.backgroundTask?.state;
+     if (state === "completed") return "finished";
+@@ -58,6 +67,16 @@ function memberKind(row: AcpmuxRow, inline: boolean): MemberKind | undefined {
+   return undefined;
+ }
+ 
++type SubagentEnd = NonNullable<AcpmuxBackgroundRun["subagentEnd"]>;
++
++/// How a subagent's end row says it ended.
++function subagentEnd(row: AcpmuxRow): SubagentEnd {
++  const state = row.subagents?.[0]?.state;
++  if (state === "failed") return "failed";
++  if (state === "disconnected") return "disconnected";
++  return state === "cancelled" ? "stopped" : "finished";
++}
++
+ /// A row of a member line the reader opened (`lines` holds the members' background turn ids): it
+ /// goes with the run, also after its last member, so closing the run hides it with its line.
+ const ownedBy = (row: AcpmuxRow, lines: ReadonlySet<string>) =>
+@@ -86,6 +105,8 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
+     }
+     const counts = { finished: 0, stopped: 0, failed: 0, scheduled: 0, other: 0 };
+     let commands = 0;
++    let subagents = 0;
++    const ends = new Set<SubagentEnd>();
+     const lines = new Set<string>();
+     let end = index;
+     let last = index;
+@@ -95,6 +116,10 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
+       if (kind) {
+         counts[kind] += 1;
+         if (row.kind === "backgroundTask") commands += 1;
++        if (row.kind === SUBAGENT_DONE) {
++          subagents += 1;
++          ends.add(subagentEnd(row));
++        }
+         if (row.background) lines.add(row.background.id);
+         last = end;
+       } else if (ownedBy(row, lines)) last = end;
+@@ -116,7 +141,12 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
+     const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
+     const id = backgroundRunRowId((opened ?? first).id);
+     const open = opened !== undefined || outerOpen;
+-    const run: AcpmuxBackgroundRun = { ...counts, commands, rows: folded.map((row) => row.id) };
++    const run: AcpmuxBackgroundRun = {
++      ...counts,
++      commands,
++      ...(subagents > 0 && { subagents, ...(ends.size === 1 && { subagentEnd: [...ends][0] }) }),
++      rows: folded.map((row) => row.id),
++    };
+     out.push({
+       id,
+       // Moves with every member's version and the open state: the memoized line and the height
+@@ -163,6 +193,14 @@ export function backgroundRunLabel(t: Translate, run: AcpmuxBackgroundRun): stri
+   const failed = run.failed;
+   const n = run.finished + run.stopped + failed + run.scheduled + run.other;
+   const ended = n - failed;
++  // Subagents' ends alone: "12 subagents stopped", the one way they all ended, else "12 subagents ended".
++  if (run.subagents === n) {
++    if (run.subagentEnd === "stopped") return t("backgroundRun.subagentsStopped", { n });
++    if (run.subagentEnd === "disconnected") return t("backgroundRun.subagentsDisconnected", { n });
++    if (run.subagentEnd === "failed") return t("backgroundRun.subagentsFailed", { n });
++    if (run.subagentEnd === "finished") return t("backgroundRun.subagentsFinished", { n });
++    return t("backgroundRun.subagentsEnded", { n });
++  }
+   if (run.commands === n) {
+     if (ended === 0) return t("backgroundRun.commandsAllFailed", { n: failed });
+     if (run.stopped === 0) {
+diff --git a/webviews/src/agent-session/acpmux/conversation/turns.ts b/webviews/src/agent-session/acpmux/conversation/turns.ts
+index bacc7e6d2787..aa65d8c5f2e0 100644
+--- a/webviews/src/agent-session/acpmux/conversation/turns.ts
++++ b/webviews/src/agent-session/acpmux/conversation/turns.ts
+@@ -2729,11 +2729,16 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
+ 
+ /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
+ /// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
+-/// below. Subagent lifecycle lines stay readable; their calls and compactions remain folded work.
++/// below. Subagent starts stay readable; their calls and compactions remain folded work.
++/// A subagent's end is not here: it is a harness event the agent did not write, work of the turn it
++/// came in like a tool call's end, so a burst of them after a steer folds under that stretch's
++/// "Worked for" and groups as "12 subagents stopped" (backgroundRuns.ts; Leo, 2026-11-24: "we can
++/// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
++/// One that failed stays in sight, as a failed shell does: it waits on a Retry.
+ const staysOut = (row: AcpmuxRow) =>
+   isSubagentGroup(row) ||
+   row.kind === SUBAGENT_STARTED ||
+-  row.kind === SUBAGENT_DONE ||
++  (row.kind === SUBAGENT_DONE && row.subagents?.[0]?.state === "failed") ||
+   (row.kind === "plan" && row.plan !== undefined) ||
+   // A background command that finished or was stopped is the turn's work, and folds with it as its
+   // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing
+diff --git a/webviews/src/agent-session/acpmux/model.ts b/webviews/src/agent-session/acpmux/model.ts
+index f1175bd36b0c..04280d1d96e6 100644
+--- a/webviews/src/agent-session/acpmux/model.ts
++++ b/webviews/src/agent-session/acpmux/model.ts
+@@ -275,6 +275,10 @@ export type AcpmuxBackgroundRun = {
+   other: number;
+   /// How many members are background shells' ends: a run of only those reads "N background commands".
+   commands: number;
++  /// How many members are subagents' ends (a harness event, folded as a tool call is), and how they
++  /// ended when they all ended alike: a run of only those reads "N subagents stopped".
++  subagents?: number;
++  subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
+   rows: string[];
+ };
+ 
