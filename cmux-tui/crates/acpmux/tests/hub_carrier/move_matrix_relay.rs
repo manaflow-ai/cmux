@@ -24,6 +24,9 @@ const PNG_B64: &str =
 /// only in one of them (`web_modes.rs`). Claude Code's `default` and `plan`, the picker
 /// harness's two.
 const ASKING_MODES: [&str; 4] = ["default", "plan", "normal", "strict"];
+/// The Claude rows' mode: one the receiving machine lists as asking. A guarded receive refuses
+/// `acceptEdits`, which edits without asking (`transfer_guard.rs` `web_guard_modes`).
+const CLAUDE_MODE: &str = "plan";
 
 #[derive(Clone, Copy, PartialEq)]
 enum Direction {
@@ -475,7 +478,7 @@ fn codex_style() -> Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_matrix_cloud_to_local_a_claude_style_chat_moves_with_every_payload() {
-    relay_matrix(Direction::CloudToLocal, "claude", claude_style(), "acceptEdits", false).await;
+    relay_matrix(Direction::CloudToLocal, "claude", claude_style(), CLAUDE_MODE, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -485,12 +488,12 @@ async fn relay_matrix_cloud_to_local_a_codex_style_chat_moves_with_every_payload
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_matrix_cloud_to_local_a_hibernated_chat_moves_and_resumes() {
-    relay_matrix(Direction::CloudToLocal, "claude", claude_style(), "acceptEdits", true).await;
+    relay_matrix(Direction::CloudToLocal, "claude", claude_style(), CLAUDE_MODE, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_matrix_cloud_to_cloud_a_claude_style_chat_moves_with_every_payload() {
-    relay_matrix(Direction::CloudToCloud, "claude", claude_style(), "acceptEdits", false).await;
+    relay_matrix(Direction::CloudToCloud, "claude", claude_style(), CLAUDE_MODE, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -500,5 +503,5 @@ async fn relay_matrix_cloud_to_cloud_a_codex_style_chat_moves_with_every_payload
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_matrix_cloud_to_cloud_a_hibernated_chat_moves_and_resumes() {
-    relay_matrix(Direction::CloudToCloud, "claude", claude_style(), "acceptEdits", true).await;
+    relay_matrix(Direction::CloudToCloud, "claude", claude_style(), CLAUDE_MODE, true).await;
 }
