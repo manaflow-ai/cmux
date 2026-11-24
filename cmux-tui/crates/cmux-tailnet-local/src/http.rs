@@ -91,8 +91,8 @@ impl ResponseReader {
     pub fn feed(&mut self, bytes: &[u8], eof: bool) -> Result<Progress, Error> {
         self.buf.extend_from_slice(bytes);
         if self.head.is_none() {
-            match find(&self.buf, b"\r\n\r\n") {
-                Some(end) => self.head = Some(parse_head(&self.buf[..end + 4])?),
+            match split_after(&self.buf, b"\r\n\r\n") {
+                Some((head, _)) => self.head = Some(parse_head(head)?),
                 None if self.buf.len() > MAX_HEAD => {
                     return Err(Error::Http("response head too large".into()));
                 }
@@ -101,10 +101,11 @@ impl ResponseReader {
             }
         }
         let Some(head) = self.head.as_ref() else { return Ok(Progress::More) };
-        let body = &self.buf[head.body_start..];
+        let body = self.buf.get(head.body_start..).unwrap_or_default();
         // Raw bytes past the cap (with room for chunk framing) are refused
         // before reading on, whatever the framing says.
-        if body.len() > self.max_body.saturating_add(self.max_body / 8 + 1024) {
+        let slack = (self.max_body / 8).saturating_add(1024);
+        if body.len() > self.max_body.saturating_add(slack) {
             return Err(Error::TooLarge);
         }
         match head.framing {
@@ -112,8 +113,8 @@ impl ResponseReader {
                 if n > self.max_body {
                     return Err(Error::TooLarge);
                 }
-                if body.len() >= n {
-                    return Ok(Progress::Done { status: head.status, body: body[..n].to_vec() });
+                if let Some(whole) = body.get(..n) {
+                    return Ok(Progress::Done { status: head.status, body: whole.to_vec() });
                 }
                 if eof {
                     return Err(Error::Http("connection closed mid-body".into()));
@@ -138,8 +139,10 @@ impl ResponseReader {
     }
 }
 
-fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).position(|w| w == needle)
+/// `hay` split just past the first `needle`: (up to and including it, the rest).
+fn split_after<'a>(hay: &'a [u8], needle: &[u8]) -> Option<(&'a [u8], &'a [u8])> {
+    let at = hay.windows(needle.len()).position(|w| w == needle)?;
+    hay.split_at_checked(at.checked_add(needle.len())?)
 }
 
 fn parse_head(head: &[u8]) -> Result<Head, Error> {
@@ -178,25 +181,30 @@ fn parse_head(head: &[u8]) -> Result<Head, Error> {
 fn dechunk(mut raw: &[u8], max_body: usize) -> Result<Option<Vec<u8>>, Error> {
     let mut out = Vec::new();
     loop {
-        let Some(eol) = find(raw, b"\r\n") else { return Ok(None) };
+        let Some((size_line, rest)) = split_after(raw, b"\r\n") else { return Ok(None) };
         let size_text =
-            std::str::from_utf8(&raw[..eol]).map_err(|_| Error::Http("bad chunk size".into()))?;
+            std::str::from_utf8(size_line).map_err(|_| Error::Http("bad chunk size".into()))?;
         let size_text = size_text.split(';').next().unwrap_or("").trim();
         let size = usize::from_str_radix(size_text, 16)
             .map_err(|_| Error::Http("bad chunk size".into()))?;
         if out.len().saturating_add(size) > max_body {
             return Err(Error::TooLarge);
         }
-        raw = &raw[eol + 2..];
+        raw = rest;
         if size == 0 {
             // Trailers end with an empty line; tailscaled sends none.
-            return Ok(find(raw, b"\r\n").map(|_| out));
+            return Ok(split_after(raw, b"\r\n").map(|_| out));
         }
-        if raw.len() < size + 2 {
-            return Ok(None);
-        }
-        out.extend_from_slice(&raw[..size]);
-        raw = &raw[size + 2..];
+        let Some((data, rest)) = raw.split_at_checked(size) else { return Ok(None) };
+        let Some(rest) = rest.strip_prefix(b"\r\n") else {
+            return if rest.len() < 2 {
+                Ok(None)
+            } else {
+                Err(Error::Http("bad chunk end".into()))
+            };
+        };
+        out.extend_from_slice(data);
+        raw = rest;
     }
 }
 

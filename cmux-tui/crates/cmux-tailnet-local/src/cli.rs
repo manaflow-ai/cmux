@@ -60,7 +60,7 @@ pub(crate) fn run_bounded(
         .spawn()
         .map_err(|e| Error::Io(format!("spawn tailscale: {e}")))?;
     let mut stdout = child.stdout.take().ok_or_else(|| Error::Io("no stdout".into()))?;
-    let cap = limits.max_body as u64 + 1;
+    let cap = u64::try_from(limits.max_body).unwrap_or(u64::MAX).saturating_add(1);
     // Drains stdout while the child runs (a full pipe would stall it); ends
     // when the child exits or is killed and the pipe closes.
     let reader = std::thread::Builder::new()

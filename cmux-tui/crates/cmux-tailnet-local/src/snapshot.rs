@@ -121,9 +121,10 @@ impl TailnetLocal {
     /// Refreshes and waits up to `wait` for the result: for CLI commands and
     /// tests, never for a race.
     pub fn refresh_blocking(&self, wait: Duration) -> Result<Arc<TailnetView>, Error> {
-        let deadline = Instant::now() + wait;
+        let now = Instant::now();
+        let deadline = now.checked_add(wait).unwrap_or(now);
         let mut st = self.lock();
-        let target = st.generation + if st.in_flight { 2 } else { 1 };
+        let target = st.generation.saturating_add(if st.in_flight { 2 } else { 1 });
         self.request(&mut st);
         while st.generation < target {
             let left = deadline.checked_duration_since(Instant::now()).ok_or(Error::Timeout)?;
@@ -198,7 +199,7 @@ fn worker(shared: Arc<Shared>) {
             Err(e) => st.last_error = Some(e),
         }
         st.in_flight = false;
-        st.generation += 1;
+        st.generation = st.generation.saturating_add(1);
         shared.done.notify_all();
     }
 }

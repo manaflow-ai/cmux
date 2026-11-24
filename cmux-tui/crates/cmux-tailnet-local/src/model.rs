@@ -211,7 +211,7 @@ impl TailnetView {
 
     /// The peer that owns `ip` (one of its Tailscale addresses).
     pub fn peer(&self, ip: IpAddr) -> Option<&Peer> {
-        self.by_ip.get(&ip).map(|&i| &self.peers[i])
+        self.by_ip.get(&ip).and_then(|&i| self.peers.get(i))
     }
 
     /// How a connection to `ip` would travel now. `None` when `ip` is not a
@@ -249,12 +249,11 @@ impl TailnetView {
 pub fn is_tailnet_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
-            let o = v4.octets();
-            o[0] == 100 && (o[1] & 0xc0) == 64
+            let [a, b, _, _] = v4.octets();
+            a == 100 && (b & 0xc0) == 64
         }
         IpAddr::V6(v6) => {
-            let s = v6.segments();
-            s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0
+            matches!(v6.segments(), [0xfd7a, 0x115c, 0xa1e0, ..])
         }
     }
 }

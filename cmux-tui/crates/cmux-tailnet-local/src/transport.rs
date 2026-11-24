@@ -167,7 +167,8 @@ pub fn macsys_target(dir: &Path) -> Option<Target> {
 /// One bounded GET. Non-2xx answers are errors carrying only the status:
 /// error bodies are not read into messages.
 pub fn get(target: &Target, endpoint: &Endpoint, limits: &Limits) -> Result<Vec<u8>, Error> {
-    let deadline = Instant::now() + limits.timeout;
+    let now = Instant::now();
+    let deadline = now.checked_add(limits.timeout).unwrap_or(now);
     let (status, body) = match target {
         #[cfg(unix)]
         Target::Unix(path) => {
@@ -236,7 +237,9 @@ pub(crate) fn exchange<S: Timed>(
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(io(e)),
         };
-        if let Progress::Done { status, body } = reader.feed(&buf[..n], n == 0)? {
+        if let Progress::Done { status, body } =
+            reader.feed(buf.get(..n).unwrap_or_default(), n == 0)?
+        {
             return Ok((status, body));
         }
     }
@@ -277,7 +280,9 @@ fn pipe_get(
                 let mut buf = vec![0u8; 64 * 1024];
                 loop {
                     let n = pipe.read(&mut buf).map_err(io)?;
-                    if let Progress::Done { status, body } = reader.feed(&buf[..n], n == 0)? {
+                    if let Progress::Done { status, body } =
+                        reader.feed(buf.get(..n).unwrap_or_default(), n == 0)?
+                    {
                         return Ok((status, body));
                     }
                 }
