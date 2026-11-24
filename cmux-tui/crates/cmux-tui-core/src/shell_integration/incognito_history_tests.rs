@@ -633,3 +633,25 @@ fn every_terminal_child_drops_the_inherited_incognito_markers() {
         assert!(unset.contains(&key), "{key} must be removed: {unset:?}");
     }
 }
+
+/// A daemon started by a bounded command (its environment holds
+/// `CMUX_DEADLINE`) launches terminals with no bound: the fleet's orphan reaper
+/// would end their shells and agents once it passed, even across a relaunch
+/// that kept them. A launch that names a bound itself loses it too.
+#[test]
+fn every_terminal_child_drops_a_tool_calls_deadline() {
+    let inherited = |key: &str| match key {
+        "CMUX_DEADLINE" => Some("1795500000".to_string()),
+        "CMUX_DEADLINE_OWNER" => Some("timer_run".to_string()),
+        _ => None,
+    };
+    let normal = vec![("HOME".to_string(), "/home/user".to_string())];
+    let named = vec![("CMUX_DEADLINE".to_string(), "1795500000".to_string())];
+    for env in [&normal, &named] {
+        let unset = keys_to_unset_in_child_from(env, &inherited);
+        for key in ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"] {
+            assert!(unset.contains(&key), "{key} must be removed: {unset:?}");
+        }
+    }
+    assert!(keys_to_unset_in_child_from(&normal, &|_: &str| None).contains(&"CMUX_DEADLINE"));
+}

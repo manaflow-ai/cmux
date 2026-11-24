@@ -1,7 +1,7 @@
 """coord-sim: several synthetic coordinator chats at once against a release acpmux on Linux, one report per run.
 
 Wraps scripts/measure/coord-sim-linux.sh (crate cmux-tui/crates/coord-sim): it builds coord-sim and acpmux, generates
-N coordinator chats shaped like the heaviest real ones from histograms only (shapes/default.json, no transcript),
+N coordinator chats shaped like the heaviest real ones from histograms only (shapes/leo-peak.json, no transcript),
 drives them at once at a rate multiplier with readers attached (`coord-sim drive`), then `coord-sim report RUN_DIR
 --rows`, which prints the report (schema coord-sim-run.v1) on one line and its rows as {"rows": [...]} on the last
 line. `ingest` reads that last line (or a report.json / run dir: the rows come from the report itself then).
