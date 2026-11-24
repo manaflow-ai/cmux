@@ -56,6 +56,14 @@ const RATE = Number(flag("--rate") ?? 4);
 /// arm and the default the arm before it.
 const HIDDEN_RATE = Number(flag("--hidden-rate") ?? RATE);
 const PAD = Number(flag("--pad") ?? 17_000);
+/// The share of changes that list a new chat (a sub-agent or a peer's chat started; `session_changed` `created`), as a
+/// fleet's daemon tells: the list's length moves, which a row's in-place change never does.
+const CHURN = Number(flag("--churn") ?? 0);
+/// `fleet`: listed rows shaped like a fleet daemon's (mockFixture.ts `fleetListedSession`), else the plain ones.
+const SHAPE = flag("--shape") ?? "plain";
+/// No wheel input: the frames and the profile are what the pages cost with nobody scrolling, so what is left is the
+/// work of what nobody looks at.
+const IDLE = argv.includes("--idle");
 /// The scrolled chat: a short one, a few screens tall.
 const TURNS = Number(flag("--turns") ?? 30);
 /// The hidden chat's turns (two rows each): a long coordinator chat.
@@ -132,7 +140,7 @@ function probe() {
 
 /// In the page: every `1000 / rate` ms one listed session changes (its status flips, and it carries `pad`
 /// characters of detail), the way the daemon tells a watcher: one `session_changed` with its summary.
-async function installDriver({ size, rate, pad }: { size: number; rate: number; pad: number }) {
+async function installDriver({ size, rate, pad, churn }: { size: number; rate: number; pad: number; churn: number }) {
   type MockModule = typeof import("../src/agent-session/acpmux/mock");
   const mockUrl = "/mock.ts";
   const { MockAcpmuxSocket } = (await import(/* @vite-ignore */ mockUrl)) as MockModule;
@@ -151,6 +159,28 @@ async function installDriver({ size, rate, pad }: { size: number; rate: number; 
       if (rate <= 0 || size <= 0 || timer) return;
       timer = setInterval(() => {
         round += 1;
+        if (churn > 0 && Math.random() < churn) {
+          const raw = daemon as unknown as { sessions: Record<string, unknown>[]; deliver(message: unknown): void };
+          const index = raw.sessions.length;
+          const created = {
+            sessionId: `churn-${index}-${round}`,
+            name: `peer-${index % 30}/spawned-${round}`,
+            peer: `peer-${index % 30}`,
+            harness: "claude",
+            cwd: `/home/agent/work/spawned-${round}`,
+            status: "running",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            title: `spawned ${round}`,
+          };
+          raw.sessions.push(created);
+          raw.deliver({
+            jsonrpc: "2.0",
+            method: "_acpmux/session_changed",
+            params: { kind: "created", session: created },
+          });
+          return;
+        }
         daemon.changeSession(`listed-${Math.floor(Math.random() * size)}`, (current: Record<string, any>) => ({
           status: current.status === "running" ? "idle" : "running",
           updatedAt: Date.now(),
@@ -298,13 +328,18 @@ async function openPage(
   rate: number,
 ) {
   await page.addInitScript(
-    ({ count, newTab }) => {
-      const mock = globalThis as { cmuxAcpmuxMockListSize?: number; __cmuxNewTabContext?: unknown };
+    ({ count, newTab, shape }) => {
+      const mock = globalThis as {
+        cmuxAcpmuxMockListSize?: number;
+        cmuxAcpmuxMockListShape?: string;
+        __cmuxNewTabContext?: unknown;
+      };
       mock.cmuxAcpmuxMockListSize = count;
+      mock.cmuxAcpmuxMockListShape = shape;
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};
     },
-    { count: size, newTab: kind === "newtab" },
+    { count: size, newTab: kind === "newtab", shape: SHAPE },
   );
   await page.addInitScript(visibility);
   await page.addInitScript(probe);
@@ -324,7 +359,7 @@ async function openPage(
     if (kind === "stream")
       await page.evaluate(installStream, { session: String(seeded.session), rate: STREAM, chunk: CHUNK, shed: SHED });
   }
-  await page.evaluate(installDriver, { size, rate, pad: PAD });
+  await page.evaluate(installDriver, { size, rate, pad: PAD, churn: CHURN });
 }
 
 const taskMs = async (cdp: CDPSession) => {
@@ -356,6 +391,29 @@ function printProfile(profile: Profile, label: string, wallMs: number) {
     .map(([key, ms]) => `  ${((ms * 1000) / wallMs).toFixed(1).padStart(7)} ms/s  ${key}`)
     .join("\n");
   console.log(`PROFILE ${label} self:\n${top}`);
+  // Inclusive time of the pane's own functions (a frame counted once per sample however deep it recurses): what each
+  // path costs with its callees, so a store's rebuild reads as one number.
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const inclusive = new Map<string, number>();
+  (profile.samples ?? []).forEach((id, index) => {
+    const ms = (profile.timeDeltas?.[index + 1] ?? 0) / 1000;
+    const seen = new Set<string>();
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const frame = byId.get(at)?.callFrame;
+      if (!frame || !frame.url || frame.url.includes("/deps/") || frame.url.includes("node_modules")) continue;
+      const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-2).join("/").split("?")[0]}:${frame.lineNumber + 1}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
+    }
+  });
+  const totals = [...inclusive]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 40)
+    .map(([key, ms]) => `  ${((ms * 1000) / wallMs).toFixed(1).padStart(7)} ms/s  ${key}`)
+    .join("\n");
+  console.log(`PROFILE ${label} inclusive (pane source):\n${totals}`);
 }
 
 process.env.NODE_ENV = "production";
@@ -374,7 +432,17 @@ try {
   for (const size of SIZES)
     for (const mode of MODES) {
       // One renderer for every page, as the app's agent pages share one.
-      const browser = await chromium.launch({ headless: true, args: ["--renderer-process-limit=1"] });
+      // Background pages keep their timers' pace: the stand-in daemon runs in each page, and the real one is not
+      // a page's timer, so Chromium's background throttling would slow what a hidden page is told, not what it does.
+      const browser = await chromium.launch({
+        headless: true,
+        args: [
+          "--renderer-process-limit=1",
+          "--disable-background-timer-throttling",
+          "--disable-renderer-backgrounding",
+          "--disable-backgrounding-occluded-windows",
+        ],
+      });
       try {
         const context = await browser.newContext({ viewport: { width: 1100, height: 820 } });
         const pages: Page[] = [];
@@ -426,7 +494,7 @@ try {
         let notch = 0;
         while (performance.now() - wallBefore < SECONDS * 1000) {
           const up = Math.floor(notch / TURN_EVERY) % 2 === 0;
-          await scrolled.mouse.wheel(0, up ? -WHEEL_PX : WHEEL_PX);
+          if (!IDLE) await scrolled.mouse.wheel(0, up ? -WHEEL_PX : WHEEL_PX);
           notch += 1;
           await scrolled.waitForTimeout(WHEEL_MS);
         }
@@ -526,6 +594,9 @@ try {
           hidden_pane_renders: renders.slice(1).map((counts) => counts.pane ?? 0),
           changes: changes.reduce((sum, value) => sum + value, 0),
           hidden_chats: HIDDEN_CHATS,
+          churn: CHURN,
+          shape: SHAPE,
+          idle: IDLE,
           stream: STREAM,
           shed: SHED,
           busy_ms_per_s: round1((busy * 1000) / wall),

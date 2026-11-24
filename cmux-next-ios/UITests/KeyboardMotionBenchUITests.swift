@@ -197,8 +197,36 @@ final class KeyboardMotionBenchUITests: XCTestCase {
                 hide(surface, app, method: "reset")
             }
         }
+        // The floor: the same inputs with no keyboard move, so the harness's own
+        // delay between two inputs is measured apart from the keyboard.
+        if keyboardUp(app) { hide(surface, app, method: "reset") }
+        settle()
+        for round in 0..<10 {
+            // Hide floor: the scroll that follows a hide, twice, keyboard down.
+            surface.ready(app)
+            mark(surface, "floor.hide.\(round)")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+                .press(forDuration: 0.01, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.46)))
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+                .press(forDuration: 0.01, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.46)))
+            settle()
+        }
+        if surface.types {
+            showByTap(surface, app, round: 0, method: "floorsetup")
+            for round in 0..<10 {
+                // Show floor: the field tap and key, keyboard already up.
+                mark(surface, "floor.show.\(round)")
+                surface.field(app).tap()
+                app.typeText("a")
+                settle()
+                app.typeText(XCUIKeyboardKey.delete.rawValue)
+                settle()
+            }
+            if keyboardUp(app) { hide(surface, app, method: "reset") }
+            settle()
+        }
         // Time to interactive: the next input right behind each move.
-        for round in 0..<3 {
+        for round in 0..<10 {
             surface.ready(app)
             mark(surface, "tti.show.\(round)")
             surface.field(app).tap()
