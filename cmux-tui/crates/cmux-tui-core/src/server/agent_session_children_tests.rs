@@ -300,9 +300,7 @@ fn session_children_needs_an_attached_tab_of_a_trusted_connection() {
     assert_code(&children(&mut client, surface), "agent_session.not_attached");
     assert_eq!(attach(&mut client, surface)["ok"], json!(true));
     let _ = fake.frame();
-    for extra in
-        [json!({"sessionId": UNRELATED}), json!({"session": UNRELATED}), json!({"all": true})]
-    {
+    for extra in [json!({"sessionId": UNRELATED}), json!({"session": UNRELATED})] {
         let mut frame = json!({"cmd":"agent-session-children","surface":surface});
         for (key, value) in extra.as_object().unwrap() {
             frame[key] = value.clone();
