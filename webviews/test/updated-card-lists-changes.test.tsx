@@ -75,7 +75,6 @@ async function renderCard(d: UpdateHighlights) {
         strings={createStrings(table)}
         actions={{ openChangelog: noop, dismiss: noop }}
         previewMode="above"
-        shape="two-line"
       />,
     ),
   );

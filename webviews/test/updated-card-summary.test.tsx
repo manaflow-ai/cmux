@@ -92,13 +92,7 @@ async function renderCard(d: UpdateHighlights, s?: ReleaseNotes[]) {
   const noop = () => undefined;
   await act(async () =>
     root!.render(
-      <UpdatedCard
-        data={d}
-        span={s}
-        shape="two-line"
-        strings={createStrings(table)}
-        actions={{ openChangelog: noop, dismiss: noop }}
-      />,
+      <UpdatedCard data={d} span={s} strings={createStrings(table)} actions={{ openChangelog: noop, dismiss: noop }} />,
     ),
   );
 }

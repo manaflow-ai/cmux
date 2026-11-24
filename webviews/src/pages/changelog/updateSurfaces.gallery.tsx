@@ -699,7 +699,7 @@ export default componentEntry<Props>({
       },
     },
     card: {
-      note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
+      note: "Shipped (Lawrence 2026-11-23, back to the original two-line card; Leo 2026-11-23 on the one-line card: the title cut to an ellipsis, a gap at the end, a useless arrow, an oddly proportioned x, not useful info): \"Updated to Nightly\" whole on the first line, the update's top change in full under it, in the composer's material and corner. No What's New link or arrow on the card: What's New is in the changes it shows beside the sidebar on hover. The x shows on hover, centred on the title line, the app's one card x (ui/DismissButton.tsx proportions); a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },
     },
     "card-light": {
@@ -707,7 +707,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "light" },
     },
     "card-long-change": {
-      note: 'u51892 (2026-11-23: "the stuff in this message box is now just cut off ... we need to show everything"): the change line of the two-line card, longer than the card, wraps and the card grows to hold every line, in a narrow sidebar. The x stays on the title line; on the shipped one-line card (#51908) it is centred on that one line.',
+      note: 'u51892 (2026-11-23: "the stuff in this message box is now just cut off ... we need to show everything"): the change line of the two-line card, longer than the card, wraps and the card grows to hold every line, in a narrow sidebar. The x stays centred on the title line.',
       props: {
         surface: "card",
         data: {
@@ -723,7 +723,6 @@ export default componentEntry<Props>({
         },
         theme: "dark",
         width: 196,
-        shape: "two-line",
       },
     },
     "card-loading-dots": {
@@ -771,7 +770,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "dark", photo: "bright-clouds" },
     },
     "card-whats-new-top-right": {
-      note: "Variant: What's New ↗ at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
+      note: "Variant: What's New at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
       props: { surface: "card", data: base, theme: "dark", placement: "top-right" },
     },
     "card-whats-new-button": {

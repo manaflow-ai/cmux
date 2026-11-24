@@ -115,8 +115,15 @@
 @media (prefers-reduced-motion: reduce) {
   .wn-card-close { transition: none; }
 }
-.wn-card-close svg { width: 8px; height: 8px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+.wn-card-close svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; }
 .wn-card-close:hover { background: var(--page-hover); color: var(--page-text); }
+/* On the plain card the x sits on the title line, as the sidebar's native x does (u51892): its middle
+   on the middle of the title's capitals (about 0.36em of the title's size below the trimmed top). */
+@supports (text-box: trim-both cap alphabetic) {
+  .wn-updated:not([data-placement="button"]) .wn-card-close {
+    top: calc(var(--wn-side) + var(--wn-title) * 0.36 - var(--wn-close-half));
+  }
+}
 /* The update's top change: the area semibold in the text color, the change after it in the
    secondary color. It wraps instead of being cut with an ellipsis, so it reads and selects whole
    (u4466); a long one stops at two lines. */
@@ -399,6 +406,10 @@
   .wn-updated:not([data-placement="button"]) .wn-card-rest {
     justify-content: space-between;
     padding-block: var(--wn-side);
+    /* At least the room the one-line note gets in the composer's 48 (about 6px at Compact): with the
+       lines trimmed to cap and baseline, a change line that wraps and grows the card kept only the 2px
+       gap, so the title's descenders touched its first line. A short note still fills the 48 as before. */
+    gap: calc(var(--wn-gap) * 3);
   }
   .wn-updated:not([data-placement="button"]) :is(.wn-card-head > *, .wn-card-rest > p) {
     text-box: trim-both cap alphabetic;
@@ -425,7 +436,7 @@
   white-space: nowrap;
 }
 .wn-updated .wn-card-title {
-  /* The title keeps its words (Leo 2026-11-23: "updated to ellipsis"): never cut to an ellipsis. */
+  /* The title keeps its words (Leo 2026-11-23): never cut short to fit the line. */
   flex: none;
   padding-right: 0;
 }

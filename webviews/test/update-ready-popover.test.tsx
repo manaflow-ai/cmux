@@ -116,7 +116,6 @@ test("the Updated card says what it updated to, What's new in this build and has
           moreCount: 0,
           changelog: { from: "1.0.0-nightly.3801702344901", to: "1.0.0-nightly.3845050428001" },
         }}
-        shape="two-line"
         strings={createStrings(table)}
         actions={{ openChangelog: noop, dismiss: noop, share: noop } as never}
       />,
@@ -183,12 +182,7 @@ test("the popup and the card read notes published before the readable rules as t
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <UpdatedCard
-        data={data}
-        shape="two-line"
-        strings={createStrings(table)}
-        actions={{ openChangelog: () => undefined }}
-      />,
+      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
     ),
   );
   // The card summarizes by area (#22810): one row, made only of the readable change.
@@ -264,12 +258,7 @@ test("every change after the first three reads as the first three do, on the pop
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <UpdatedCard
-        data={data}
-        shape="two-line"
-        strings={createStrings(table)}
-        actions={{ openChangelog: () => undefined }}
-      />,
+      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
     ),
   );
   const card = host.textContent ?? "";
