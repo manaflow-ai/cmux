@@ -188,3 +188,98 @@ fn the_waiter_prints_nothing_and_exits_zero_like_sleep() {
     assert!(start.elapsed() >= std::time::Duration::from_millis(1_000));
     assert!(main(&["--seconds".to_owned(), "x".to_owned()]).is_err());
 }
+
+/// A shared fake, so the test still reads its log after `Parked` owns the forwarder.
+struct Shared(Arc<FakePlatform>);
+
+impl PlatformWaits for Shared {
+    fn park(&self, wait: ParkedWait) {
+        self.0.park(wait);
+    }
+    fn unpark(&self, session: &str, call: &str) {
+        self.0.unpark(session, call);
+    }
+}
+
+#[test]
+fn a_parked_wait_also_goes_to_the_platform_with_a_timer_ahead_of_its_end() {
+    let wait = ParkedWait {
+        session: "s1".into(),
+        call: "toolu_1".into(),
+        wake: Wake::Timer { at_ms: 601_000 },
+    };
+    // The platform's timer fires the resume lead before the end, under a delivery id that is the
+    // same each time the same call is parked.
+    assert_eq!(
+        timer_request(&wait),
+        json!({"delivery": "parked-wait:s1:toolu_1", "fireAt": 599_000})
+    );
+    assert_eq!(timer_request(&wait), timer_request(&wait.clone()));
+    let early = ParkedWait { wake: Wake::Timer { at_ms: 500 }, ..wait.clone() };
+    assert_eq!(timer_request(&early)["fireAt"], 0);
+
+    let fake = Arc::new(FakePlatform::default());
+    let parked = Parked::default();
+    parked.forward_to(Box::new(Shared(fake.clone())));
+    parked.park(wait);
+    assert_eq!(parked.snapshot()["s1"]["toolu_1"], Wake::Timer { at_ms: 601_000 });
+    parked.unpark("s1", "toolu_1");
+    assert!(parked.snapshot().is_empty());
+    assert_eq!(*fake.log.lock().unwrap(), ["park s1 toolu_1 601000", "unpark s1 toolu_1"]);
+}
+
+#[tokio::test]
+async fn the_trigger_timer_posts_the_wake_to_the_platform() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    const ID: &str = "3f1c2a9e-8b7d-4c6e-9a5b-1d2e3f4a5b6c";
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut chunk = [0; 4096];
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0);
+            request.extend_from_slice(&chunk[..count]);
+            let text = String::from_utf8_lossy(&request).to_string();
+            if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                let length: usize = head
+                    .to_ascii_lowercase()
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: ").map(|v| v.parse().unwrap()))
+                    .unwrap_or(0);
+                if body.len() >= length {
+                    break;
+                }
+            }
+        }
+        let reply = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        socket.write_all(reply.as_bytes()).await.unwrap();
+        let _ = tx.send(String::from_utf8(request).unwrap());
+    });
+    let client = crate::cli::trigger::TriggerClient::new(
+        origin,
+        zeroize::Zeroizing::new("cmx_owner".into()),
+    )
+    .unwrap();
+    let timers = TriggerTimers {
+        trigger: ID.into(),
+        client: Arc::new(client),
+        rt: tokio::runtime::Handle::current(),
+    };
+    timers.park(ParkedWait {
+        session: "s1".into(),
+        call: "toolu_1".into(),
+        wake: Wake::Timer { at_ms: 601_000 },
+    });
+    let seen = tokio::time::timeout(std::time::Duration::from_secs(10), rx).await.unwrap().unwrap();
+    assert!(seen.starts_with(&format!("POST /v1/triggers/{ID}/timers HTTP/1.1")), "{seen}");
+    assert!(seen.to_ascii_lowercase().contains("authorization: bearer cmx_owner"));
+    let (_, body) = seen.split_once("\r\n\r\n").unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(body).unwrap(),
+        json!({"delivery": "parked-wait:s1:toolu_1", "fireAt": 599_000})
+    );
+}

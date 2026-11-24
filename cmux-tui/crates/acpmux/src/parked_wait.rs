@@ -23,7 +23,9 @@
 //!    awake, so a platform without the wake-source side keeps the machine up as before.
 //!
 //! The guest-to-platform seam is [`PlatformWaits`]: the daemon's [`Parked`] reports through the
-//! activity line, and tests use a fake. CI waits (`gh run watch`, `glaeda-gh wait`) become the
+//! activity line and, when the machine names a wake trigger ([`TRIGGER_ENV`]), hands each timer
+//! to cmux-platform's trigger timers ([`TriggerTimers`], `POST /v1/triggers/:id/timers`); tests
+//! use a fake. CI waits (`gh run watch`, `glaeda-gh wait`) become the
 //! next [`Wake`] kind.
 
 use serde_json::{Value, json};
@@ -71,21 +73,79 @@ pub trait PlatformWaits: Send + Sync {
 /// Each session's parked calls: `session -> call -> wake`.
 pub type ParkedMap = BTreeMap<String, BTreeMap<String, Wake>>;
 
+/// The Cloud trigger (an id) whose timers wake this machine's parked waits. Unset: the waits go
+/// out on the activity line only.
+pub const TRIGGER_ENV: &str = "CMUX_WAKE_TRIGGER";
+/// How long before a parked wait's end the platform's timer fires, so the resumed machine is up
+/// when the wait ends (RFD 0063, "Resume budget").
+pub const RESUME_LEAD_MS: u64 = 2_000;
+
+/// The timer a parked wait asks of the platform: `{delivery, fireAt}`. The delivery id is the
+/// same for the same call, so a repeated park (a daemon restart, a retry) adds no second wake.
+pub fn timer_request(wait: &ParkedWait) -> Value {
+    let Wake::Timer { at_ms } = wait.wake;
+    json!({
+        "delivery": format!("parked-wait:{}:{}", wait.session, wait.call),
+        "fireAt": at_ms.saturating_sub(RESUME_LEAD_MS),
+    })
+}
+
+/// [`PlatformWaits`] on cmux-platform's trigger timers: `park` asks trigger `trigger` for a
+/// timer ([`timer_request`]), best effort on `rt`. `unpark` sends nothing: the platform has no
+/// cancel yet, and a stale timer only wakes the machine early, which a parked wait survives
+/// (it sleeps again until its own end).
+pub struct TriggerTimers {
+    pub trigger: String,
+    pub client: std::sync::Arc<crate::cli::trigger::TriggerClient>,
+    pub rt: tokio::runtime::Handle,
+}
+
+impl PlatformWaits for TriggerTimers {
+    fn park(&self, wait: ParkedWait) {
+        let body = timer_request(&wait);
+        let (client, trigger) = (self.client.clone(), self.trigger.clone());
+        self.rt.spawn(async move {
+            if let Err(e) = client.add_timer(&trigger, &body).await {
+                tracing::warn!("parked wait: the platform took no timer: {e}");
+            }
+        });
+    }
+
+    fn unpark(&self, _session: &str, _call: &str) {}
+}
+
 /// The daemon's parked calls, in memory: a restarted daemon has none, and its tracker reports
 /// every session at work `unknown` until it settles anyway.
 #[derive(Debug)]
 pub struct Parked {
     calls: StdMutex<ParkedMap>,
     changes: tokio::sync::watch::Sender<u64>,
+    /// Where each park and unpark also goes ([`Self::forward_to`]).
+    platform: std::sync::OnceLock<Box<dyn PlatformWaits>>,
+}
+
+impl std::fmt::Debug for dyn PlatformWaits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PlatformWaits")
+    }
 }
 
 impl Default for Parked {
     fn default() -> Self {
-        Parked { calls: StdMutex::new(BTreeMap::new()), changes: tokio::sync::watch::channel(0).0 }
+        Parked {
+            calls: StdMutex::new(BTreeMap::new()),
+            changes: tokio::sync::watch::channel(0).0,
+            platform: std::sync::OnceLock::new(),
+        }
     }
 }
 
 impl Parked {
+    /// Sends each later park and unpark to `platform` too (once; a second call is ignored).
+    pub fn forward_to(&self, platform: Box<dyn PlatformWaits>) {
+        let _ = self.platform.set(platform);
+    }
+
     /// Every session's parked calls now.
     pub fn snapshot(&self) -> ParkedMap {
         self.calls.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -111,6 +171,9 @@ impl Parked {
 
 impl PlatformWaits for Parked {
     fn park(&self, wait: ParkedWait) {
+        if let Some(platform) = self.platform.get() {
+            platform.park(wait.clone());
+        }
         let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
         calls.entry(wait.session).or_default().insert(wait.call, wait.wake);
         drop(calls);
@@ -118,6 +181,9 @@ impl PlatformWaits for Parked {
     }
 
     fn unpark(&self, session: &str, call: &str) {
+        if let Some(platform) = self.platform.get() {
+            platform.unpark(session, call);
+        }
         let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
         let Some(set) = calls.get_mut(session) else { return };
         if set.remove(call).is_none() {
@@ -128,6 +194,27 @@ impl PlatformWaits for Parked {
         }
         drop(calls);
         self.changes.send_modify(|n| *n += 1);
+    }
+}
+
+/// The wake trigger's client, when the machine names one ([`TRIGGER_ENV`]) under the aggressive
+/// policy and has a cmux sign-in; else None (the waits go out on the activity line only).
+pub async fn trigger_timers() -> Option<TriggerTimers> {
+    let trigger = std::env::var(TRIGGER_ENV).ok().filter(|t| !t.is_empty())?;
+    if !aggressive(std::path::Path::new("/")) {
+        return None;
+    }
+    crate::cli::trigger::valid_id(&trigger).ok()?;
+    match crate::cli::trigger::client(None).await {
+        Ok(client) => Some(TriggerTimers {
+            trigger,
+            client: std::sync::Arc::new(client),
+            rt: tokio::runtime::Handle::current(),
+        }),
+        Err(e) => {
+            tracing::warn!("parked wait: no wake trigger client: {e}");
+            None
+        }
     }
 }
 
