@@ -101,6 +101,11 @@ public actor DaemonClient {
         start()
         let id = "r\(nextID)"
         nextID += 1
+        let line = try resourceLine(id: id, operation: operation, params: params, idempotencyKey: idempotencyKey)
+        return try await perform(id: id, line: line, deadline: deadline ?? Self.defaultDeadline, clock: clock).data
+    }
+
+    private func resourceLine(id: String, operation: String, params: [String: Any], idempotencyKey: String? = nil) throws -> Data {
         var fields = params
         fields["machine"] = fields["machine"] ?? "current"
         fields["session"] = fields["session"] ?? "current"
@@ -108,7 +113,7 @@ public actor DaemonClient {
         if let idempotencyKey { object["idempotency_key"] = idempotencyKey }
         var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
         line.append(0x0A)
-        return try await perform(id: id, line: line, deadline: deadline ?? Self.defaultDeadline, clock: clock).data
+        return line
     }
 
     private func perform(id: String, line: Data, deadline: Duration, clock: any Clock<Duration>) async throws -> ReceivedLine {
@@ -128,7 +133,7 @@ public actor DaemonClient {
     private func expire(_ id: String, after deadline: Duration, clock: any Clock<Duration>) async {
         do { try await clock.sleep(for: deadline) } catch { return }
         guard !Task.isCancelled else { return }
-        fail(id: id, error: LinkError(code: Self.replyTimeout, message: "The Mac didn't answer. Retry."))
+        fail(id: id, error: LinkError(code: Self.replyTimeout, message: "reply timed out"))
     }
 
     /// Sends every request in one write, in order, and returns their replies
@@ -140,15 +145,27 @@ public actor DaemonClient {
         await requestsOrdered(batch, deadline: deadline).map { $0.map(\.data) }
     }
 
+    /// `resources` are `cmux.protocol/2` operations (``resourceRequest``) written after `batch`
+    /// in the same write; their replies follow `batch`'s in the result, in order.
     public func requestsOrdered(_ batch: [(cmd: String, params: [String: Any])],
+                                resources: [(operation: String, params: [String: Any])] = [],
                                 deadline: Duration = DaemonClient.defaultDeadline) async -> [Result<ReceivedLine, any Error>] {
         start()
         var ids: [String] = []
         var bytes = Data()
+        let count = batch.count + resources.count
         for item in batch {
             let id = nextRequestID()
             do { bytes.append(try line(id: id, cmd: item.cmd, params: item.params)) } catch {
-                return batch.map { _ in .failure(error) }
+                return (0..<count).map { _ in .failure(error) }
+            }
+            ids.append(id)
+        }
+        for item in resources {
+            let id = "r\(nextID)"
+            nextID += 1
+            do { bytes.append(try resourceLine(id: id, operation: item.operation, params: item.params)) } catch {
+                return (0..<count).map { _ in .failure(error) }
             }
             ids.append(id)
         }
@@ -185,7 +202,7 @@ public actor DaemonClient {
         do {
             let channel = self.channel
             try await LinkDeadline.run(timeout: deadline,
-                                       timeoutError: LinkError(code: "write_timeout", message: "The Mac didn't answer. Retry."),
+                                       timeoutError: LinkError(code: "write_timeout", message: "write timed out"),
                                        operation: { try await channel.send(line) },
                                        onCancel: {
                                            if closeChannelOnCancel {

@@ -24,6 +24,9 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case latencyCheck
     /// A quiet reconnect's notice bound came due (``RemotePaneState/reconnectNoticeDelay``).
     case reconnectNoticeCheck
+    /// A first connect's notice bound came due (``RemotePaneState/connectNoticeDelay``); the pane also sends it
+    /// once at its start, which stamps when the connect began.
+    case connectNoticeCheck
 }
 
 /// The pane's single writer. Pure: `reduce` maps a state, an event and the time it
@@ -43,6 +46,15 @@ public struct RemotePaneReducer {
         } else {
             next.reconnectingSince = nil
             next.reconnectNoticeDue = false
+        }
+        // A first connect is silent for the short coming-up time; its card has Cancel once it shows.
+        if next.comingUp {
+            let since = next.connectingSince ?? now
+            next.connectingSince = since
+            next.connectNoticeDue = now - since >= RemotePaneState.connectNoticeDelay
+        } else {
+            next.connectingSince = nil
+            next.connectNoticeDue = false
         }
         return next
     }
@@ -102,7 +114,7 @@ public struct RemotePaneReducer {
         case .stopAllUpstreams:
             next.status?.upstream.active = []
             next.status?.upstream.requested = []
-        case .latencyCheck, .reconnectNoticeCheck:
+        case .latencyCheck, .reconnectNoticeCheck, .connectNoticeCheck:
             break
         }
         return next

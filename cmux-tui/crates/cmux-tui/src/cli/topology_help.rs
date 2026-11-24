@@ -3,7 +3,7 @@
 
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
-  cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+  cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
   cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
@@ -82,7 +82,11 @@ its id or exact name. list --name <name> keeps the workspaces named exactly
 inside it (relative to the current folder; links resolved too). Both together
 keep rows that match both; no match is an empty list and exit 0, so
 `list --name api --json` finds every workspace a `name:api` selector calls
-ambiguous. list --order session gives the session's workspace
+ambiguous. list --id <id>[,<id>...] keeps the workspaces with those ids (an
+id prefix matches too). list --tree gives each workspace its panes, each
+pane its tabs (name, kind, terminal folder), and created_by: the person,
+agent session or script that made it; `list --id ws_a,ws_b --tree --json`
+reads two workspaces whole in one call. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar

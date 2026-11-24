@@ -872,7 +872,7 @@ class CompileTrailerTests(unittest.TestCase):
 
         class Slow(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                time.sleep(2.5)  # slower than the old 2 s bound, inside the lead's 5 s
+                time.sleep(2.5)  # sleep-ok: a slow controller, slower than the old 2 s bound, inside the lead's 5 s
                 body = json.dumps({"id": "c" * 24}).encode()
                 self.send_response(200)
                 self.end_headers()

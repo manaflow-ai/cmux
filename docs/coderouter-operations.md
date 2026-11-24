@@ -260,7 +260,8 @@ claude -p 'Reply with exactly pong.'            # Node trusts NODE_EXTRA_CA_CERT
 What to check: `--no-inject` (or a raw request with the placeholder) returns 401, a token
 bound to another `cloud_vms.id` returns 403 `vm_mismatch`, a forged `x-cmux-vm-id` from the
 client is overwritten and logged by the edge, `usage_events` rows in ClickHouse carry the
-`vm_id`, `agent`, `upstream_kind`, and cost, and `vm-usage/self` reflects them. For the real
-edge against local code, expose the dev server through a quick tunnel, set
-`CMUX_CODEROUTER_EDGE_ORIGIN` to it, and run `scripts/cloud-vm/smoke-vm-api.mjs --create
---paid --edge-check`, which creates a Freestyle VM whose inline rule points at the tunnel.
+`vm_id`, `agent`, `upstream_kind`, and cost, and `vm-usage/self` reflects them.
+The old classic Cloud smoke command is retired. New internal Cloud development
+coverage runs on `feat-cmux-next`: from `web/`, use
+`bun scripts/cmux-vm-image/dev-e2e.ts --out-dir <dir>` against the NEXT development
+API instead of allocating classic machines through this runbook.

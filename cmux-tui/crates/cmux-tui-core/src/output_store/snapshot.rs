@@ -141,6 +141,20 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             digests.push((log, None));
             continue;
         }
+        // A flood the next snapshot covers, and that snapshot is not due: no
+        // capture (it reads the screen under the parser lock), no tail write.
+        if tail && !quitting && plan.flooded && !plan.compaction_spaced && plan.retry_wait.is_none()
+        {
+            let wait = {
+                let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                state.pending = Vec::new();
+                state.pending_start = state.next_offset();
+                state.compaction_wait().max(super::TAIL_FLUSH_INTERVAL)
+            };
+            store.mark_log_dirty_after(&log, wait);
+            digests.push((log, None));
+            continue;
+        }
         let mut attempt = 0;
         let captured = loop {
             attempt += 1;
@@ -362,7 +376,12 @@ struct Plan {
     tail_bytes: u64,
     /// A tail-cap compaction may be written now (its spacing has passed).
     compaction_spaced: bool,
+    /// A flood the next snapshot covers (`LogState::flooded`).
+    flooded: bool,
     pending: usize,
+    /// The digest of the last stored byte (`LogState::tail_digest`): pending
+    /// bytes under a screen of this digest are held redraws.
+    tail_digest: Option<u64>,
     /// The tail file continues the stored snapshot up to the unwritten bytes.
     tail_continues: bool,
     /// Snapshot mode: the time left in a write backoff.
@@ -381,7 +400,9 @@ impl Plan {
             force: state.force_snapshot,
             tail_bytes: state.tail_bytes,
             compaction_spaced: state.compaction_wait().is_zero(),
+            flooded: state.flooded,
             pending: state.pending.len(),
+            tail_digest: state.tail_digest,
             tail_continues: state.snapshot_generation.as_deref() == Some(&*state.generation)
                 && state.tail_end == Some(state.pending_start),
             retry_wait: state.retry_wait(),
@@ -427,6 +448,7 @@ impl Plan {
             // there without the primary screen and its scrollback; this
             // build's snapshot keeps both, and that build replays it as is.
             let carries = self.tail_continues
+                && !self.flooded
                 && !new_generation
                 && !alternate
                 && self.snapshot_size == Some(size)
@@ -447,8 +469,11 @@ impl Plan {
             || resized
             || (changed && self.interval_due)
             || (self.tail_bytes >= super::TAIL_MAX_BYTES && self.compaction_spaced)
-            || self.tail_bytes >= super::TAIL_FLOOD_MAX_BYTES
-            || self.pending >= super::TAIL_IDLE_BYTES
+            || (self.flooded && self.compaction_spaced)
+            // Held redraws past the idle cap only: a flood's pending bytes
+            // change the screen and go to the tail (then to the flood hold),
+            // not to a snapshot at every pass.
+            || (self.pending >= super::TAIL_IDLE_BYTES && self.tail_digest == Some(digest))
     }
 }
 
@@ -514,7 +539,12 @@ fn snapshot_written(
     // written are in neither file: the next pass writes another snapshot.
     // So are a stream gap's (a host reconnect replaced the screen after the
     // capture; the offset does not move for it).
-    state.force_snapshot = tail && (state.pending_start > stream_end || state.gaps != gaps);
+    // A flood hold keeps no bytes: the stream moves on past every snapshot's
+    // end, and the next snapshot (after its spacing) covers them.
+    let held = tail && state.flooded && state.pending_start > stream_end;
+    state.flooded = held;
+    state.force_snapshot =
+        tail && ((state.pending_start > stream_end && !held) || state.gaps != gaps);
     if !tail {
         drop(state);
         // The snapshot covers a tail file left from snapshot mode. Off the
@@ -605,6 +635,20 @@ fn flush_tail(
                 store.count_tail_sync();
                 super::tail::sync(directory, &log.terminal_id);
             }
+            return;
+        }
+        // A flood past the tail's flood cap inside one compaction spacing:
+        // writing it (gzip of every byte) only to compact it away a moment
+        // later is the cost of the flood. The snapshot, once its spacing has
+        // passed, covers it.
+        if !quitting
+            && state.tail_bytes + state.pending.len() as u64 >= super::TAIL_FLOOD_MAX_BYTES
+            && !state.compaction_wait().is_zero()
+        {
+            state.start_flood_hold();
+            let wait = state.compaction_wait().max(super::TAIL_FLUSH_INTERVAL);
+            drop(state);
+            store.mark_log_dirty_after(log, wait);
             return;
         }
         // The tail continues a snapshot of this generation and size only (a
@@ -890,6 +934,18 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     );
 }
 
+/// Removes the saved shell states (`crate::shell_state`) of terminals no
+/// longer in the session: a closed tab's, and any a crash left behind.
+fn remove_unowned_shell_states(mux: &Mux, live: &HashSet<TerminalPublicId>) {
+    let Some(dir) = mux.shell_state_dir() else { return };
+    let removed = dir.remove_unowned(live);
+    if removed > 0 {
+        eprintln!(
+            "cmux-tui: removed {removed} shell-state file(s) of terminals that left the session"
+        );
+    }
+}
+
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
 /// Returns the parked terminals of the session, for the parked trim; `None`
@@ -917,6 +973,15 @@ pub(super) fn remove_unowned(
                  terminal.persistence.mode is memory"
             );
         }
+        // Shell state is not screen output: memory mode keeps a parked tab's.
+        if let Ok(live) = mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live_terminal_public_ids()
+        {
+            remove_unowned_shell_states(mux, &live);
+        }
         return None;
     }
     let live = mux
@@ -925,6 +990,7 @@ pub(super) fn remove_unowned(
         .unwrap_or_else(PoisonError::into_inner)
         .live_terminal_public_ids()
         .ok()?;
+    remove_unowned_shell_states(mux, &live);
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };

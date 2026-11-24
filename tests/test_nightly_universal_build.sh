@@ -418,10 +418,12 @@ if ! awk '
   job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
-  job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.published-build.outputs.resolve_build_sha }}\"") { saw_build_sha=1 }
+  # The step script compares against RESOLVE_BUILD_SHA, which the step env: sets from published-build.
+  job == "republish" && index($0, "\"$current_sha\" != \"$RESOLVE_BUILD_SHA\"") { saw_build_cmp=1 }
+  job == "republish" && index($0, "RESOLVE_BUILD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}") { saw_build_env=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_cmp && saw_build_env && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
   exit 1
@@ -939,8 +941,6 @@ BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && 
 # A run whose build a newer published build is above spends no notarization (#33109): the macOS
 # signer adds it as one more top-level conjunct, after the build gate.
 NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
-# The build can prepare the variant itself; only an unprepared app needs this job (#42179).
-NOT_PREPARED="needs.build-nightly-app.outputs.prepared != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
@@ -952,7 +952,7 @@ HELPER_NEEDS_OK="$APP_NEEDS_OK && needs.resolve-nightly-ghostty-cli-helper.resul
 PREPARE_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE && $NOT_PREPARED\"" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE\"" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" != "$(job_if build-nightly-app)" ] \

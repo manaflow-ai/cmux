@@ -11,7 +11,14 @@
 //!   Use stopped, its cursor spotlit). Raising (sharing on, a viewer to Ask
 //!   from None, View or Full, an agent's Computer Use resumed) needs the
 //!   verified app: an agent in a terminal never grants a device access to
-//!   this Mac, nor lets a stopped agent act again.
+//!   this Mac, nor lets a stopped agent act again. Four methods are the
+//!   daemon's own, never the host's (`remote_host/agent_share.rs`):
+//!   `agent.ticket` (an agent asks for a single-use ticket for one share or
+//!   unshare), `agent.redeem`, `agent.applied` and `agent.person` (the verified
+//!   app only): with
+//!   the account's "My agents can turn screen sharing and control on my
+//!   machines" on, the app makes the agent's change with no dialog; the
+//!   permission itself is never a ticket.
 //! - `remote-host-config {computer_use, screen_sharing, headless,
 //!   app_permissions}`: the person's switches, and the app's own Screen
 //!   Recording and Accessibility (memory only, shown as status `app`), from
@@ -22,6 +29,7 @@
 use serde_json::{Value, json};
 
 use super::{ClientTransport, Mux};
+use crate::remote_host::agent_share;
 use crate::request_origin::{HelloRole, RequestOrigin};
 
 const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
@@ -52,19 +60,41 @@ pub(super) struct Caller {
     peer_token: Option<cmux_link::app_caller::PeerToken>,
 }
 
+impl Caller {
+    /// The agent-share module's view: the verified app, or an agent of this OS user on this Mac.
+    fn agent_kind(&self) -> agent_share::Caller {
+        if self.verified_app {
+            agent_share::Caller::App
+        } else {
+            agent_share::Caller::LocalAgent { pid: self.peer_pid }
+        }
+    }
+}
+
+/// Whether a connection may use cmux Remote at all, and whether it is the verified app: a local
+/// Unix connection (this OS user on this Mac) that is not a page. A remote link or a WebSocket
+/// (another device, a browser) and a page never are, whatever they claim.
+fn admit(unix: bool, origin: RequestOrigin, verified_app: bool) -> Result<bool, RemoteRefused> {
+    if !unix {
+        return Err(forbidden("needs a local Unix socket connection"));
+    }
+    if origin == RequestOrigin::Page {
+        return Err(forbidden("is not available to pages"));
+    }
+    Ok(verified_app)
+}
+
 pub(super) fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let record = state
         .clients
         .get(&client)
         .ok_or_else(|| forbidden("needs a registered local connection"))?;
-    if !matches!(record.transport, ClientTransport::Unix) {
-        return Err(forbidden("needs a local Unix socket connection"));
-    }
-    if record.origin.derive() == RequestOrigin::Page {
-        return Err(forbidden("is not available to pages"));
-    }
-    let verified_app = record.origin.role == HelloRole::Main && record.origin.verified_app;
+    let verified_app = admit(
+        matches!(record.transport, ClientTransport::Unix),
+        record.origin.derive(),
+        record.origin.role == HelloRole::Main && record.origin.verified_app,
+    )?;
     // `token:<pid>.<pidversion>`
     let peer_pid = record
         .origin
@@ -87,10 +117,27 @@ fn unavailable(message: String) -> anyhow::Error {
 pub(super) fn status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     let caller = caller(mux, client)?;
     let mut status = mux.control_clients.remote_host.status();
+    // Settings reads the on-demand supervisor without starting its worker or requesting its secret.
+    let computer_use = &mux.control_clients.computer_use;
+    if caller.verified_app
+        && computer_use.configured()
+        && let Some(fields) = status.as_object_mut()
+    {
+        fields.insert("computer_use".into(), computer_use.status());
+    }
     if !caller.verified_app
         && let Some(screen) = status.pointer_mut("/host/screen").and_then(Value::as_object_mut)
     {
         strip_private(screen);
+    }
+    // Whether an agent's share is armed to turn itself off; who and the notices are the app's.
+    let mut agents = mux.control_clients.remote_agents.status();
+    if !caller.verified_app {
+        let field = |name: &str| agents.get(name).cloned().unwrap_or(Value::Null);
+        agents = json!({"active": field("active"), "off_in_s": field("off_in_s")});
+    }
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("agent_share".into(), agents);
     }
     Ok(status)
 }
@@ -109,8 +156,31 @@ fn rank(scope: &str) -> Option<u8> {
 }
 
 pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyhow::Result<Value> {
-    let caller = caller(mux, client)?;
+    let agents = &mux.control_clients.remote_agents;
+    let caller = match caller(mux, client) {
+        Ok(caller) => caller,
+        Err(refusal) => {
+            if method.starts_with("agent.") {
+                agents.refuse_caller(method, &params, refusal.code, &refusal.message);
+            }
+            return Err(refusal.into());
+        }
+    };
     let host = &mux.control_clients.remote_host;
+    // The account's standing permission for the owner's agents (remote_host/agent_share.rs):
+    // never forwarded to the host, and never a way to turn the permission itself on.
+    let agent_answer = match method {
+        "agent.ticket" => Some(agents.ticket(caller.agent_kind(), &params)),
+        "agent.redeem" => Some(agents.redeem(caller.agent_kind(), &params)),
+        "agent.applied" => Some(agents.applied(caller.agent_kind(), &params)),
+        "agent.person" => Some(agents.person(caller.agent_kind())),
+        _ => None,
+    };
+    if let Some(answer) = agent_answer {
+        return answer.map_err(|refused| {
+            RemoteRefused { code: refused.code, message: refused.message }.into()
+        });
+    }
     match method {
         "capture.prepare" | "capture.resume" | "capture.cleanup" => {
             if !caller.verified_app || !super::origin_gate::app_process(mux, client) {
@@ -133,6 +203,10 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
                     "Share This Mac on needs the cmux app (palette or Settings)",
                 )
                 .into());
+            }
+            if !on {
+                // Sharing goes off: nothing is left for an agent's share to turn off later.
+                agents.sharing_off();
             }
         }
         "screen.access" => {
@@ -257,6 +331,28 @@ fn app_stamp(pid: u32) -> Option<Value> {
 #[cfg(not(target_os = "macos"))]
 fn app_stamp(_pid: u32) -> Option<Value> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RequestOrigin, admit};
+
+    #[test]
+    fn only_a_local_connection_that_is_not_a_page_reaches_cmux_remote() {
+        // The owner's agent: a local Unix connection of this OS user, not the app.
+        assert_eq!(admit(true, RequestOrigin::Agent, false).ok(), Some(false));
+        // The verified app.
+        assert_eq!(admit(true, RequestOrigin::User, true).ok(), Some(true));
+        // A page, even one that relays as the app, is refused.
+        let page = admit(true, RequestOrigin::Page, true).unwrap_err();
+        assert_eq!(page.code, super::ORIGIN_FORBIDDEN);
+        // Another device (a remote link) or a browser socket: refused whatever it claims, so no
+        // agent of another person or another account's device reaches the ticket path.
+        for origin in [RequestOrigin::Agent, RequestOrigin::User] {
+            let remote = admit(false, origin, true).unwrap_err();
+            assert_eq!(remote.code, super::ORIGIN_FORBIDDEN);
+        }
+    }
 }
 
 #[cfg(test)]
