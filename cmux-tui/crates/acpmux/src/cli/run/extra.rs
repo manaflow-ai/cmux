@@ -547,10 +547,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Allow { session, option } => {
-            answer_permission(&session, option, true, json_out).await
+        Command::Allow { session, option, standing_grant } => {
+            let how = if standing_grant { Answer::StandingGrant } else { Answer::Allow };
+            answer_permission(&session, option, how, json_out).await
         }
-        Command::Deny { session } => answer_permission(&session, None, false, json_out).await,
+        Command::Deny { session } => {
+            answer_permission(&session, None, Answer::Deny, json_out).await
+        }
         Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
@@ -993,8 +996,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if status {
                 return crate::cli::cloud_join::status(hub, json_out).await;
             }
-            // A process-wide file lock protects the check, redeem and commit as one
-            // transaction. A second installer never redeems behind the first one.
+            // A symlinked home is refused by name; then a process-wide file lock protects the check, redeem
+            // and commit as one transaction. A second installer never redeems behind the first one.
+            crate::cli::join_input::refuse_symlinked_home()?;
             let _lock = crate::cli::cloud_join::join_lock().map_err(|e| {
                 crate::cli::errors::AppError::new(
                     crate::cli::errors::Code::Runtime,
