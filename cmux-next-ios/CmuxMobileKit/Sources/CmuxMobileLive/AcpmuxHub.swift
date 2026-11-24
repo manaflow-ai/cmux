@@ -580,7 +580,7 @@ public final class AcpmuxHub {
 /// `AgentSessionSource` over acpmux: attach with the event stream, page
 /// history back, then stream live records; intents become acpmux calls.
 @MainActor
-public final class AcpmuxSessionSource: AgentSessionSource {
+public final class AcpmuxSessionSource: AgentSessionHeldEvents {
     public private(set) var summary: AgentSessionSummary
     let sessionID: String
     private weak var hub: AcpmuxHub?
@@ -781,7 +781,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         cache.save(key, sessionID: sessionID, earlier: keptEarlier, records: kept)
     }
 
-    public func events() -> AsyncStream<AgentSessionEvent> {
+    public func events() -> AsyncStream<AgentSessionEvent> { open(holdingHead: false).rest }
+
+    /// ``events()`` with the kept batch returned apart: ``AgentChatStore`` applies it in its
+    /// init, so a kept chat's first frame draws its turns (#53107).
+    public func eventsHoldingHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        open(holdingHead: true)
+    }
+
+    private func open(holdingHead: Bool) -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // Flushing can exhaust the cache: decide whether to resync afterwards.
         flushOpenChunk()
@@ -789,23 +797,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let hub else {
                 continuation.yield(.clientError("Reconnect to load this chat."))
                 continuation.finish()
-                return stream
+                return ([], stream)
             }
             let source = hub.source(sessionID: sessionID, summary: summary)
-            let upstream = source.events()
+            let (head, upstream) = source.open(holdingHead: holdingHead)
             let task = Task {
                 defer { withExtendedLifetime(source) {} }
                 for await event in upstream { continuation.yield(event) }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
-            return stream
+            return (head, stream)
         }
         // A reader made after the attach caught up starts current in the same batch.
+        var head: [AgentSessionEvent] = []
         if !replay.events.isEmpty {
-            continuation.yield(.batch(attached ? replay.events + [.historyLoading(false)] : replay.events))
+            head = [.batch(attached ? replay.events + [.historyLoading(false)] : replay.events)]
         } else if attached {
-            continuation.yield(.historyLoading(false))
+            head = [.historyLoading(false)]
+        }
+        if !holdingHead {
+            for event in head { continuation.yield(event) }
+            head = []
         }
         let id = UUID()
         continuations[id] = continuation
@@ -816,7 +829,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 self?.readerLeft()
             }
         }
-        return stream
+        return (head, stream)
     }
 
     /// A reader's stream ended (its chat closed, or ``dropKept()`` ended it): with no reader left,

@@ -187,6 +187,14 @@ public struct QueuedPrompt: Hashable, Sendable, Identifiable {
 }
 
 /// The chat's state, built from the source's event stream. Views read it; intents go back to the source.
+/// A source that already holds its first events when a reader opens (a kept chat's cached
+/// turns): ``AgentChatStore`` applies them in its init, before the first frame.
+@MainActor
+public protocol AgentSessionHeldEvents: AgentSessionSource {
+    /// ``AgentSessionSource/events()``, with the events it would yield at once returned apart.
+    func eventsHoldingHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>)
+}
+
 @MainActor
 @Observable
 public final class AgentChatStore {
@@ -402,13 +410,16 @@ public final class AgentChatStore {
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
-        let stream = source.events()
+        // What the source already holds (a kept chat's cached turns) is applied here, on the
+        // open's own pass, so the first frame draws it rather than "Loading chat…" (#53107).
+        let (head, stream) = (source as? any AgentSessionHeldEvents)?.eventsHoldingHead() ?? ([], source.events())
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
                 self.receive(event)
             }
         }
+        for event in head { receive(event) }
     }
 
     isolated deinit {
