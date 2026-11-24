@@ -127,6 +127,15 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += Self.base + surface.arguments + (injected.map { ["-cmux-mobile-kbd-inject", $0] } ?? [])
+        if injected == nil {
+            // Settle runs also carry the input latency trace: every main-thread
+            // iteration of 4 ms and more with its stacks, sampled every 4 ms to
+            // 200 ms, so a show's busy ticks from tap to first keyboard frame
+            // come with what ran in them (Documents/input-latency.jsonl).
+            app.launchArguments.append("-cmux-mobile-input-latency")
+            app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY_MAX_STACKS"] = "50"
+            app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY_MAX_FRAMES"] = "128"
+        }
         app.launch()
         let probe = app.staticTexts["debug.kbd-pin"]
         XCTAssertTrue(probe.waitForExistence(timeout: 30), "\(surface.name): the keyboard pin probe")
@@ -251,5 +260,13 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         attachment.name = "kbm-trace-\(name).txt"
         attachment.lifetime = .keepAlways
         add(attachment)
+        // The input latency trace sits beside the pin trace (settle runs only).
+        let latency = (path as NSString).deletingLastPathComponent + "/input-latency.jsonl"
+        if let lines = try? String(contentsOfFile: latency, encoding: .utf8) {
+            let hitches = XCTAttachment(string: lines)
+            hitches.name = "kbm-inputlat-\(name).txt"
+            hitches.lifetime = .keepAlways
+            add(hitches)
+        }
     }
 }

@@ -261,8 +261,10 @@ final class MainThreadWatch: @unchecked Sendable {
 
     /// Sample every this long while an iteration runs (s).
     static let interval = 0.004
-    static let maxStacks = 16
-    static let maxFrames = 64
+    /// `CMUX_MOBILE_INPUT_LATENCY_MAX_STACKS` / `_MAX_FRAMES` raise these for a
+    /// bench that needs a long iteration sampled to its end and whole stacks.
+    static let maxStacks = ProcessInfo.processInfo.environment["CMUX_MOBILE_INPUT_LATENCY_MAX_STACKS"].flatMap(Int.init) ?? 16
+    static let maxFrames = ProcessInfo.processInfo.environment["CMUX_MOBILE_INPUT_LATENCY_MAX_FRAMES"].flatMap(Int.init) ?? 64
 
     private let lock: UnsafeMutablePointer<os_unfair_lock>
     /// Written only while main is suspended: no allocation may happen then
