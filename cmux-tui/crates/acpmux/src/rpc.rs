@@ -1104,6 +1104,11 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// Sent to the prompting connection when a `session/prompt` that asked to wait for its
+    /// chat's link (`_meta.acpmux.waitForLink`) is held because the peer it lives on is down:
+    /// `{sessionId, promptId, peer}`. The prompt goes once the link is back, on the same
+    /// connection (`server/peer_forward.rs` `hold_for_link`).
+    pub const MUX_PROMPT_HELD: &str = "_acpmux/prompt_held";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
     /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
     /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.

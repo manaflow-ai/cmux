@@ -397,6 +397,9 @@ async fn gated(
     let Some((peer, id, _, _)) = remote else {
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
+    if let Err(e) = hold_for_link(conn, &peer, &id, params).await {
+        return Some(Err(e));
+    }
     let mut tries = 0;
     loop {
         tries += 1;
@@ -415,6 +418,73 @@ async fn gated(
         }
         return reply;
     }
+}
+
+/// The longest a prompt that asked to wait for its chat's link is held (`hold_for_link`) before
+/// it is refused as unreachable, as before. A paused Cloud machine resumes in seconds and a
+/// sleeping Mac's peer reconnects within a minute or two; past this the client's own journal
+/// (the app's unsent prompts) holds it, and its next send goes under the same prompt id.
+pub(super) const PROMPT_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// How often a held prompt looks at its link again when no connect attempt settled.
+const PROMPT_LINK_RECHECK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Whether a prompt asked to wait for its chat's link instead of being refused while it is down
+/// (`capabilities::PROMPT_LINK_WAIT`).
+pub(super) fn waits_for_peer_link(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/waitForLink").and_then(Value::as_bool) == Some(true)
+}
+
+/// A send never blocks on the link (autocloud proof plan, Transport): a client's prompt for a
+/// chat on `peer` that asked to wait (`waitForLink`) and finds the link down is held on its own
+/// connection, not refused. The connection hears `_acpmux/prompt_held` at once, so the pane keeps
+/// the row "sending when ready" instead of failing it, the peer is asked to wake (a paused
+/// machine resumes), and the prompt goes the moment the link is ready, through every check a
+/// direct send runs, on the connection that sent it: a person's prompt stays the person's, and
+/// nothing about it is written here. It ends early when the client closes the connection (the
+/// app's unsent-prompt journal sends it again under the same prompt id, which runs once), the
+/// peer is removed, or after [`PROMPT_LINK_WAIT`]; then it is refused as unreachable, as before.
+/// A peer daemon's forward never waits: the daemon that took the client's prompt holds it.
+async fn hold_for_link(
+    conn: &Arc<Conn>,
+    peer: &Arc<crate::peer::Peer>,
+    session: &str,
+    params: &Value,
+) -> Result<(), RpcError> {
+    if peer.ready() || conn.origin == Origin::Peer || !waits_for_peer_link(params) {
+        return Ok(());
+    }
+    // A prompt that would be refused by its own shape is refused now, not after the wait.
+    crate::author::of_prompt(params)?;
+    crate::prompt_provenance::notice_checked(params)?;
+    let prompt_id = params.pointer("/_meta/acpmux/promptId").cloned().unwrap_or(Value::Null);
+    conn.send(&Message::notification(
+        method::MUX_PROMPT_HELD,
+        json!({"sessionId": session, "promptId": prompt_id, "peer": peer.name}),
+    ));
+    peer.wake();
+    tokio::select! {
+        _ = await_peer_link(peer, PROMPT_LINK_WAIT) => Ok(()),
+        () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+    }
+}
+
+/// Waits up to `within` for `peer`'s link to be ready, or for the peer to be removed; whether it
+/// is ready. Each settled connect attempt is checked, and the link every [`PROMPT_LINK_RECHECK`]
+/// besides, so a link that came back without a settled attempt is not missed.
+async fn await_peer_link(peer: &crate::peer::Peer, within: std::time::Duration) -> bool {
+    let mut stopped = peer.stopped();
+    let mut settled = peer.settled();
+    let deadline = tokio::time::Instant::now() + within;
+    while !peer.ready() && !*stopped.borrow() {
+        tokio::select! {
+            changed = settled.changed() => if changed.is_err() { break },
+            changed = stopped.changed() => if changed.is_err() { break },
+            () = tokio::time::sleep(PROMPT_LINK_RECHECK) => {}
+            () = tokio::time::sleep_until(deadline) => break,
+        }
+    }
+    peer.ready() && !*stopped.borrow()
 }
 
 /// What a request refused because `peer`'s link is down asks of the peer: a message (from any
@@ -1578,3 +1648,7 @@ mod message_identity_tests {
 #[cfg(test)]
 #[path = "row_read_tests.rs"]
 mod row_read_tests;
+
+#[cfg(test)]
+#[path = "prompt_link_wait_tests.rs"]
+mod prompt_link_wait_tests;
