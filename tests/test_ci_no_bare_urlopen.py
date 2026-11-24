@@ -49,7 +49,6 @@ LEGACY = {
     "fast_linux_gate.py": 1,
     "finalize-release.py": 1,
     "guard_attribution.py": 1,
-    "hosted_light_rescue.py": 1,
     "hosted_queue_wait.py": 1,
     "ios_internal_builder.py": 1,
     "ios_internal_notes.py": 1,
@@ -226,6 +225,28 @@ class Transport(unittest.TestCase):
         self.assertEqual(raised.exception.code, 429)
         self.assertEqual(raised.exception.headers.get("Retry-After"), "7")
         self.assertEqual(raised.exception.read(), b"slow")
+
+    SHORT = b"HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n" + b"x" * 10
+
+    def test_a_short_body_is_read_again_once(self):
+        answers = iter([self.SHORT, self.OK])
+        server = self.serve(lambda _request: next(answers))
+        status, body, _ = deadline_http.request(server.url, 2)
+        self.assertEqual((status, body, len(server.requests)), (200, b'{"ok": true}', 2))
+
+    def test_a_short_body_twice_is_a_url_error_not_a_traceback(self):
+        server = self.serve(self.SHORT)
+        with self.assertRaises(deadline_http.BrokenAnswer) as raised:
+            deadline_http.request(server.url, 2)
+        self.assertIsInstance(raised.exception, urllib.error.URLError)
+        self.assertIsInstance(raised.exception, OSError)
+        self.assertEqual(len(server.requests), 2)
+
+    def test_a_write_broken_off_is_not_sent_again(self):
+        server = self.serve(self.SHORT)
+        with self.assertRaises(deadline_http.BrokenAnswer):
+            deadline_http.request(urllib.request.Request(server.url, data=b"{}", method="POST"), 2)
+        self.assertEqual(len(server.requests), 1)
 
     def test_trickled_headers_end_at_the_deadline(self):
         slow = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 40 + b"\r\nContent-Length: 0\r\n\r\n"

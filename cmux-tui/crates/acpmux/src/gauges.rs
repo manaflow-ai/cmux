@@ -141,8 +141,8 @@ impl RecordWrites {
 
 /// The hub's one notice loop (`hub/peer_grace.rs`): how many notices it applied, the time it
 /// spent applying them, the longest one, and the deepest its queue was when it took one. A link
-/// blocks on a full queue, so a loop slower than the notices coming in holds back every peer's
-/// chat updates behind them.
+/// holds its notices back on a full queue (`peer_notice_outbox.rs`), so a loop slower than the
+/// notices coming in holds back every peer's chat updates behind them.
 pub fn peer_notices() -> &'static PeerNotices {
     static NOTICES: OnceLock<PeerNotices> = OnceLock::new();
     NOTICES.get_or_init(PeerNotices::default)
@@ -154,6 +154,12 @@ pub struct PeerNotices {
     busy_us: AtomicU64,
     max_us: AtomicU64,
     peak_queued: AtomicU64,
+    /// Links' own backlogs while the hub's queue was full (`peer_notice_outbox.rs`): the deepest
+    /// one, the changed rows a later change of the same row replaced there, and the times a link
+    /// waited because its backlog was full.
+    link_peak: AtomicU64,
+    link_merged: AtomicU64,
+    link_waits: AtomicU64,
     /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels: how many, and the µs they took.
     kinds: Mutex<std::collections::BTreeMap<String, (u64, u64)>>,
     /// Peer snapshot copies read back from disk (`peer_snapshot::Store::read_in`).
@@ -183,6 +189,19 @@ impl PeerNotices {
         self.peak_queued.fetch_max(queued, Ordering::Relaxed);
     }
 
+    /// A link held a notice back, `depth` deep, `merged` when it replaced an earlier change.
+    pub fn link_held(&self, depth: u64, merged: bool) {
+        self.link_peak.fetch_max(depth, Ordering::Relaxed);
+        if merged {
+            self.link_merged.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// A link waited for room in its full backlog.
+    pub fn link_waited(&self) {
+        self.link_waits.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn status(&self) -> Value {
         let kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone();
         json!({
@@ -190,6 +209,9 @@ impl PeerNotices {
             "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
             "maxUs": self.max_us.load(Ordering::Relaxed),
             "peakQueued": self.peak_queued.load(Ordering::Relaxed),
+            "linkPeak": self.link_peak.load(Ordering::Relaxed),
+            "linkMerged": self.link_merged.load(Ordering::Relaxed),
+            "linkWaits": self.link_waits.load(Ordering::Relaxed),
             "kinds": kinds.iter().map(|(k, (n, _))| (k.clone(), *n)).collect::<std::collections::BTreeMap<_, _>>(),
             "kindsMs": kinds.iter().map(|(k, (_, us))| (k.clone(), us / 1000)).collect::<std::collections::BTreeMap<_, _>>(),
             "snapshotReads": self.snapshot_reads.load(Ordering::Relaxed),
@@ -315,6 +337,8 @@ impl Links {
             "hubPlainDials": n(&self.hub_plain_dials),
             "hubKeptDials": n(&self.hub_kept_dials),
             "keptStreamOpens": n(&self.kept_stream_opens),
+            "dialGateInFlight": crate::peer_dial_gate::global().in_flight(),
+            "dialGateWaited": crate::peer_dial_gate::global().waited(),
         })
     }
 }

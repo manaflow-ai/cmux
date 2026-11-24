@@ -841,9 +841,12 @@ impl Ensure {
         }
         let project_key = match optional("--project-key")? {
             Some(key) => Some(project::normalize_key(&key)?),
-            // Without a project key the ensure needs the repository.
+            // Without a project key the ensure needs the repository, or the cloud environment it boots in
+            // (`cloud new-machine --environment`: the platform injects its variables and runs its setup).
             None => {
-                repo.as_ref()?;
+                if repo.is_none() {
+                    environment.as_ref()?;
+                }
                 None
             }
         };

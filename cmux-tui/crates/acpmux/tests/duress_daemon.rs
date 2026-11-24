@@ -99,6 +99,15 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS_N",
     "ACPMUX_DURESS_PEERS",
     "ACPMUX_DURESS_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CORES",
+    "ACPMUX_DURESS_STARVE_X",
+    "ACPMUX_DURESS_STARVE_IDLE",
+    "ACPMUX_DURESS_STARVE_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CPU_MAX",
+    "ACPMUX_DURESS_STARVE_DELAY_MS",
+    "ACPMUX_DURESS_STARVE_JITTER_MS",
+    "ACPMUX_DURESS_STARVE_STALL_MS",
+    "ACPMUX_DURESS_STARVE_STALL_EVERY_S",
     // The commit under test, when the runner names it (else `git rev-parse HEAD`).
     "GITHUB_SHA",
     // The fleet's output directory, not a credential.
@@ -270,6 +279,8 @@ impl Stress {
             "host150" => s.host150 = true,
             // peerscaleN: the baseline at N peers (`host150::peers_for`).
             l if l.starts_with("peerscale") => {}
+            // starved: the daemon pinned with its load, capped and far (`host150::starved`).
+            "starved" => {}
             _ => unreachable!(),
         }
         s
@@ -1671,7 +1682,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         w
     };
     let mut extras =
-        host150::Extras::start(name, daemon.pid(), &wire_now(), k.cap + host150::extra_cap(name));
+        host150::Extras::start(name, daemon.pid(), &wire_now, k.cap + host150::extra_cap(name));
     notes.append(&mut extras.notes);
     stress_json.extend(extras.stress.clone());
 
