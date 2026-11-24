@@ -131,10 +131,28 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
       return { height, top, bottom };
     });
 
-  /// Two frames, so a layout the strip causes has painted.
+  /// Until the card's height has held for 20 frames (the prompt lays a long draft out over several),
+  /// so a measurement never reads a layout still on its way.
   const settle = (page: Page) =>
     page.evaluate(
-      () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      () =>
+        new Promise<void>((resolve) => {
+          const card = document.querySelector(".acpmux-composer-box")!;
+          let last = -1;
+          let still = 0;
+          let frames = 0;
+          const step = () => {
+            const height = card.getBoundingClientRect().height;
+            still = Math.abs(height - last) < 0.01 ? still + 1 : 0;
+            last = height;
+            frames += 1;
+            if (still >= 20 || frames > 600) resolve();
+            // raf-read: the card's height each frame until it holds.
+            else requestAnimationFrame(step);
+          };
+          // raf-read: the same wait, from the next frame.
+          requestAnimationFrame(step);
+        }),
     );
 
   async function makeImages(page: Page, count: number) {
@@ -195,8 +213,13 @@ await requireBrowserLane("composer-attachments-inside-cap.test.ts", async () => 
       const md = document.querySelector(".acpmux-md-field")!;
       return { scroll: md.scrollHeight, client: md.clientHeight };
     });
-    // A draft past the cap: the prompt scrolls inside itself.
+    // A draft past the cap: the prompt scrolls inside itself and stands at its max height.
     expect(field.scroll).toBeGreaterThan(field.client + 40);
+    const capped = await page.evaluate(() => {
+      const md = document.querySelector(".acpmux-md-field")!;
+      return { height: md.getBoundingClientRect().height, max: parseFloat(getComputedStyle(md).maxHeight) };
+    });
+    expect(Math.abs(capped.height - capped.max)).toBeLessThanOrEqual(1);
   }
 
   for (const arm of [undefined, "tiles", "compact", "chips"] as const) {
