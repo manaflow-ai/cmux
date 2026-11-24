@@ -168,8 +168,9 @@ struct SubagentsScreen: View {
             ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
                     // Plain values only: SwiftUI compares them and skips the rows that did not change.
+                    // MUTANT (do not merge): a closure SwiftUI cannot compare: every row on every change.
                     SubagentRow(name: entry.agent.name, subtitle: subtitle(entry.agent), state: entry.agent.state,
-                                startedAt: entry.agent.startedAt, endedAt: entry.agent.endedAt, depth: entry.depth)
+                                startedAt: entry.agent.startedAt, endedAt: entry.agent.endedAt, depth: entry.depth, noCompare: { })
                 }
                 .buttonStyle(.cmuxPressFill)
             }
@@ -237,6 +238,7 @@ struct SubagentRow: View {
     let startedAt: Date
     let endedAt: Date?
     let depth: Int
+    var noCompare: () -> Void = {}
     #if DEBUG
     /// Body evaluations (tests: per change, the changed rows only).
     @Environment(\.renderProbe) private var probe
