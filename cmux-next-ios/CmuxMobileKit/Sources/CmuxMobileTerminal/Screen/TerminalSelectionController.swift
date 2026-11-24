@@ -42,10 +42,17 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     private(set) var selection: TerminalTextSelection? {
         didSet {
             guard selection != oldValue else { return }
+            if followsRows { selectedRows = selection.map { (($0.start.row)...($0.end.row)).map { rowText($0) ?? "" } } ?? [] }
             redraw()
             selectionChanged(selection)
         }
     }
+
+    /// The selection's rows are viewport rows of a screen the app redraws (a full-screen
+    /// app): ``followRows()`` keeps it on its text when the app moves it.
+    var followsRows = false
+    /// The selected rows' text as it read when the selection was made (``followsRows``).
+    private var selectedRows: [String] = []
 
     /// Every change of the selection (a handle drag, a tap that ends it): Copy Mode follows it.
     var selectionChanged: (TerminalTextSelection?) -> Void = { _ in }
@@ -125,6 +132,20 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         current.anchor.row += delta
         current.head.row += delta
         selection = current
+    }
+
+    /// The app redrew its screen (``followsRows``): the selection moves with its text to the
+    /// rows it is on now, or ends when that text left the screen, never staying behind over
+    /// other text (Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont
+    /// move when i scroll?"). Select All covers the whole screen, whatever it shows.
+    func followRows() {
+        guard followsRows, let current = selection, !selectedRows.isEmpty else { return }
+        let rows = documentRows()
+        guard !rows.isEmpty, current.start.row > rows.lowerBound || current.end.row < rows.upperBound - 1 else { return }
+        let screen = rows.map { rowText($0) ?? "" }
+        guard let delta = TerminalRowFollow.delta(selected: selectedRows, firstRow: current.start.row - rows.lowerBound,
+                                                  screen: screen) else { return clear() }
+        shiftRows(by: delta)
     }
 
     /// Re-lays the highlight (the document or the cell size changed).
