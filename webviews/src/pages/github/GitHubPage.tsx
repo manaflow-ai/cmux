@@ -136,10 +136,13 @@ export function GitHubPage({
   conversationFilter = "all",
   reviewDraft,
   replyOpen,
+  onIssues,
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
+  /** Opens the repository's issues in this page (its Issues button); no button without it. */
+  onIssues?: (repo: string) => void;
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
   width?: PageWidth;
@@ -216,7 +219,14 @@ export function GitHubPage({
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
     <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
-      <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+      <Header
+        snapshot={snapshot}
+        store={store}
+        strings={strings}
+        now={now}
+        waitingFirst={waitingFirst}
+        onIssues={onIssues}
+      />
       {pr && (
         <ReadinessBlock
           pr={pr}
@@ -254,12 +264,14 @@ function Header({
   strings,
   now,
   waitingFirst,
+  onIssues,
 }: {
   snapshot: GitHubSnapshot;
   store: GitHubStore;
   strings: Strings;
   now: () => number;
   waitingFirst: boolean;
+  onIssues?: (repo: string) => void;
 }) {
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
@@ -282,6 +294,11 @@ function Header({
           <button type="button" className="gh-button" disabled={!pr} onClick={() => void store.openDiff()}>
             {t("github.viewAllChanges")}
           </button>
+          {onIssues && (
+            <button type="button" className="gh-button" onClick={() => onIssues(target!.repo)}>
+              {t("github.issues")}
+            </button>
+          )}
           <button type="button" className="gh-button" onClick={() => store.openOnGitHub()}>
             {t("github.openOnGitHub")}
           </button>
