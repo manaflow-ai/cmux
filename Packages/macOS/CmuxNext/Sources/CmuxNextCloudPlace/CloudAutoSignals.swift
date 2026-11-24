@@ -1,24 +1,25 @@
 import AppKit
 import CmuxNextCloud
 import CoreGraphics
+import CmuxNextDaemon
 import Dispatch
 import CmuxNextCompat
 import Foundation
 import IOKit.ps
 
-/// What this computer says about itself, for Auto (the reducer's `Signals`): sleep, battery, memory pressure, free
-/// disk and the person's idle time, and the callbacks that say one changed. It reads and reports; whether any of it
-/// moves a chat is Rust's rule (`cloud_move_place_auto`, asked through ``decide(_:signals:)``).
+/// What this computer says about itself that the daemon's host budget verdict does not, for Auto: a sleep the app is
+/// told of, free disk and the person's idle time, and the callbacks that say something changed. Memory pressure and
+/// battery are read once, by the daemon (`host_pressure`, with its `power`): here a memory or power event only wakes
+/// Auto to ask again (RFD 0072). Whether any of it moves a chat is Rust's rule (`cloud_move_place_auto`, asked through
+/// ``decide(_:session:nowMs:own:verdict:)``).
 @MainActor
 public final class CloudAutoSignals {
     /// What the system callbacks report, delivered in order to the one loop that owns them.
-    public enum Event: Sendable { case asleep(Bool), memory(String), power, turnEnded(String) }
+    public enum Event: Sendable { case asleep(Bool), memory, power, turnEnded(String) }
 
-    public struct Signals: Encodable, Sendable {
+    /// What only the app reads (the rule's `verdict::Own`).
+    public struct Own: Encodable, Sendable {
         public var sleeping: Bool
-        public var onBattery: Bool
-        public var batteryPercent: Int?
-        public var memory: String
         public var diskFreeBytes: UInt64?
         public var idleMs: UInt64?
     }
@@ -32,14 +33,14 @@ public final class CloudAutoSignals {
         }
     }
 
-    /// Rust's answer: `stay`, `toCloud` (with the reason) or `back`.
+    /// Rust's answer: `stay`, `toCloud` (with the reason) or `back`, and the `auto-shadow.jsonl` line when the verdict
+    /// alone would move the chat.
     public struct Answer: Decodable, Sendable {
-        public var action: String, reason: String?
-        enum CodingKeys: String, CodingKey { case action = "do", reason }
+        public var action: String, reason: String?, shadowLine: String?
+        enum CodingKeys: String, CodingKey { case action = "do", reason, shadowLine }
     }
 
     public private(set) var sleeping = false
-    public private(set) var memory = "normal"
     nonisolated private let events: AsyncStream<Event>.Continuation
     private let stream: AsyncStream<Event>
     private var loop: Task<Void, Never>?
@@ -51,7 +52,7 @@ public final class CloudAutoSignals {
     private var diskRead = false
     private let handler: @MainActor (Event) -> Void
 
-    /// `handler` runs on the main actor for each event, after `sleeping` and `memory` hold the new value.
+    /// `handler` runs on the main actor for each event, after `sleeping` holds the new value.
     public init(handler: @escaping @MainActor (Event) -> Void) {
         self.handler = handler
         (stream, events) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(64))
@@ -73,18 +74,15 @@ public final class CloudAutoSignals {
                 guard let self else { return }
                 switch event {
                 case .asleep(let asleep): sleeping = asleep
-                case .memory(let level): memory = level
-                case .power, .turnEnded: break
+                case .memory, .power, .turnEnded: break
                 }
                 handler(event)
             }
         }
         let events = events
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
-        source.setEventHandler { [weak source] in
-            guard let event = source?.data else { return }
-            events.yield(.memory(event.contains(.critical) ? "critical" : event.contains(.warning) ? "warn" : "normal"))
-        }
+        // A wake only: the level itself is the daemon's verdict's.
+        source.setEventHandler { events.yield(.memory) }
         source.resume()
         pressure = source
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -97,10 +95,21 @@ public final class CloudAutoSignals {
         }
     }
 
-    /// Asks Rust what Auto does with one chat now.
-    public func decide(_ chat: Chat, signals: Signals) -> Answer? {
-        struct Request: Encodable { var mode: String, chat: Chat, signals: Signals }
-        return CloudMoveCore().call("place_auto", Request(mode: "auto", chat: chat, signals: signals), as: Answer.self)
+    /// Asks Rust what Auto does with one chat now, on the daemon's `host_pressure` verdict (raw JSON; nil when no
+    /// daemon answered, which moves nothing for memory or battery).
+    public func decide(_ chat: Chat, session: String, nowMs: UInt64, own: Own, verdict: Data?) -> Answer? {
+        struct Request: Encodable { var mode: String, chat: Chat, session: String, nowMs: UInt64, own: Own, verdict: RawJSON? }
+        let request = Request(mode: "auto", chat: chat, session: session, nowMs: nowMs, own: own, verdict: verdict.map(RawJSON.init))
+        return CloudMoveCore().call("place_auto", request, as: Answer.self)
+    }
+
+    /// A JSON value passed through as it came.
+    struct RawJSON: Encodable {
+        let data: Data
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode((try? JSONDecoder().decode(JSONValue.self, from: data)) ?? .null)
+        }
     }
 
     private func refreshDisk() {
@@ -114,23 +123,11 @@ public final class CloudAutoSignals {
         }
     }
 
-    /// This computer now.
-    public func signals() -> Signals {
-        var onBattery = false, percent: Int?
-        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(), let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] {
-            for source in list {
-                guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
-                      description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { continue }
-                onBattery = description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue
-                if let current = description[kIOPSCurrentCapacityKey] as? Int, let maximum = description[kIOPSMaxCapacityKey] as? Int, maximum > 0 {
-                    percent = min(100, current * 100 / maximum)
-                }
-            }
-        }
+    /// What the app reads of this computer now.
+    public func own() -> Own {
         refreshDisk()
         // kCGAnyInputEventType: every kind of input.
         let idle = CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) } ?? .nan
-        return Signals(sleeping: sleeping, onBattery: onBattery, batteryPercent: percent, memory: memory, diskFreeBytes: diskFree,
-                       idleMs: idle.isFinite && idle >= 0 ? UInt64(idle * 1000) : nil)
+        return Own(sleeping: sleeping, diskFreeBytes: diskFree, idleMs: idle.isFinite && idle >= 0 ? UInt64(idle * 1000) : nil)
     }
 }
