@@ -179,6 +179,7 @@ dependencies = [
  "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
+ "cmux-layout-cache",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
@@ -270,6 +271,7 @@ dependencies = [
  "base64",
  "cmux-embed",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-theme-tokens",
  "core-foundation",
  "core-foundation-sys",
@@ -329,6 +331,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-focus-core"
 version = "0.1.0"
 dependencies = [
@@ -377,6 +386,15 @@ version = "0.1.0"
 dependencies = [
  "cmux-launch-record",
  "cmux-window-rules",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-layout-cache"
+version = "0.1.0"
+dependencies = [
  "proptest",
  "serde",
  "serde_json",
@@ -526,6 +544,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-theme-tokens"
