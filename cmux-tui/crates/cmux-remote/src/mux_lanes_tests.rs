@@ -94,6 +94,78 @@ fn agent_session_attach_lines_use_the_bulk_lane_in_both_directions() {
     assert_eq!(tracker.classify_server_line(br#"{"id":1,"ok":true}"#), Some(Lane::Bulk));
 }
 
+#[test]
+fn keystrokes_resize_focus_and_layout_use_the_interactive_lane() {
+    for command in [
+        "send",
+        "send-key",
+        "terminal-clipboard-reply",
+        "browser-key",
+        "browser-mouse",
+        "browser-wheel",
+        "resize-surface",
+        "resize-attached-view",
+        "set-client-sizing",
+        "scroll-surface",
+        "client-focus",
+        "focus-pane",
+        "focus-direction",
+        "select-tab",
+        "select-workspace",
+        "zoom-pane",
+        "split",
+        "set-split-ratio",
+        "close-surface",
+        "close-pane",
+    ] {
+        let request = format!(r#"{{"id":1,"cmd":"{command}","surface":3}}"#);
+        assert_eq!(classify_client_line(request.as_bytes()), Lane::Interactive, "{command}");
+    }
+    assert_eq!(
+        classify_client_line(br#"{"id":1,"cmd":"paste-image","op":"commit"}"#),
+        Lane::Interactive
+    );
+}
+
+#[test]
+fn unknown_and_large_commands_wait_behind_keystrokes_on_control() {
+    for command in [
+        "a-command-added-next-year",
+        "put-blob",
+        "put-session",
+        "put-frontend-projection",
+        "conversation-import",
+        "rename-surface",
+        "create-workspace",
+        "reload-config",
+        "notify",
+    ] {
+        let request = format!(r#"{{"id":1,"cmd":"{command}"}}"#);
+        assert_eq!(classify_client_line(request.as_bytes()), Lane::Control, "{command}");
+    }
+    let tracker = MuxLaneTracker::default();
+    let request = br#"{"id":9,"cmd":"put-blob","data":"eA=="}"#;
+    tracker.observe_request(request, classify_client_line(request));
+    assert_eq!(tracker.classify_server_line(br#"{"id":9,"ok":true}"#), Some(Lane::Control));
+}
+
+#[test]
+fn resize_ack_follows_its_request_and_the_resized_replay_stays_with_output() {
+    let tracker = MuxLaneTracker::default();
+    let request = br#"{"id":4,"cmd":"resize-surface","surface":3,"cols":80,"rows":24}"#;
+    tracker.observe_request(request, classify_client_line(request));
+    assert_eq!(tracker.classify_server_line(br#"{"id":4,"ok":true}"#), Some(Lane::Interactive));
+    // `resized` carries a replay cut of the output stream, and `detached`
+    // ends it: both keep output's lane so neither overtakes its bytes.
+    for line in [
+        &br#"{"event":"resized","surface":3,"cols":80,"rows":24,"replay":""}"#[..],
+        br#"{"event":"output","surface":3,"data":"eA=="}"#,
+        br#"{"event":"detached","surface":3,"reason":"kicked"}"#,
+    ] {
+        assert_eq!(tracker.classify_server_line(line), Some(Lane::Bulk));
+    }
+}
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

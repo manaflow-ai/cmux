@@ -153,6 +153,7 @@ members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-felt",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -297,6 +298,7 @@ default-members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-felt",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -428,6 +430,7 @@ cmux-hub-host = { path = "crates/cmux-hub-host" }
 cmux-signed-bundle = { path = "crates/cmux-signed-bundle" }
 cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
+cmux-felt = { path = "crates/cmux-felt" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
