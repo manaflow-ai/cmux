@@ -1,0 +1,79 @@
+Leo, 2026-11-22:
+
+> "i think we can hill climb user-facing decisions. what are controversial things/divisive things, and what are
+> cool things they can try, and what are ways we can bundle them, if we think about delineating and a/b testing
+> across all manner of folk... what would people split on? what would people care to have opinions on from the
+> get-go? we need a lot of fable dictators on this"
+
+> "that is somebody's front f\*\*\*ing door. what do they absolutely need to be able to decide with clicks ... and i
+> guess they can maybe replay it to return to the walk of the settings."
+
+> "fix forward, do not block"
+
+**Draft: this waits on the decision status for d-5a86d12523, d-0e672192e1 and d-ba8654ee64.** A 02:27Z
+correction says items that change look and feel or a default may still be Leo's. Until that is answered,
+everything new here sits behind `experiments.introWalk`, which is **off by default**. With the switch off,
+today's first-run Make cmux Yours screen and every shipped default are unchanged (`makeItYours.test.tsx` is
+back to its base form and passes as-is).
+
+## What it does (with Settings > Advanced > Experiments > Intro Walk on)
+
+The decided intro-walk design from decide-by-debate (hq RFD 0057, cmuxterm-hq#19829), for ask-b9fd9d4f9c:
+
+- **d-5a86d12523** (four screens, look bundles first): Make cmux Yours becomes four screens.
+  - Look: five whole-look tiles (House, Glasshouse, Two-Tone Studio, Quiet Solid, Dense Operator).
+  - Work: how you work.
+  - Trust and notifications.
+  - Tune: density and background.
+  - Return walks the screens, Back stays inside the walk, and Escape still skips.
+- **d-0e672192e1** (trust screen): three agent permissions, each explained. Full Access, the shipped value, is
+  preselected on a new Mac. Notifications are one row: Quiet, Banners, or Banners and Sound.
+- **d-8a84ba72ac** (Tidy off): Tidy is a switch on the look screen. It is off unless the person already has
+  those settings, and it is never on by default.
+- **d-ba8654ee64** (no theme key, follow macOS): no new theme setting. Every look tile shows a light face and a
+  dark face.
+- **d-33fa58f8bb** (ask density once): density is asked only on Tune.
+- **d-9309f99c9d** (both offered as bundles, defaults kept): bundles only write what differs. House is what the
+  person has. No row flips a default by itself.
+- **d-d351b0f3ec**: Agent tools and Computer Use stay as shipped. This PR does not touch them.
+
+**Writes.**
+- Each click (a tile, a trust row, a notifications row, Tidy) is one `cmux.onboarding.makeItYours.walk` op, and
+  the host writes it in one publish.
+- `FirstRunChoicesSettingsSource` captures the walk's paths alongside the picks, so Skip puts all of them back in
+  one publish (the #50975 semantics).
+- Paths outside the walk's list are refused.
+- New logic is in web (`walk.ts`). Swift only wires it: the source, the model, page state and the op.
+
+**Carries forward** #50537's gallery arms (its commit is the first one here, unchanged apart from moving `Faces`
+into `walkLook.tsx` so the shipped step can draw it). It builds on #50975.
+
+**Gallery.** Four new variants with the switch on: `intro-walk-look`, `intro-walk-work`, `intro-walk-trust`
+and `intro-walk-tune`. The shipped `make-it-yours-*` variants are unchanged.
+
+**Not in this PR.**
+- The Undo/Redo footer, exit-to-chat, chat-feel bundles, density 3 + More, finishSound, `computerUse.mode`.
+- d-eedbe6969c ("Replay the intro"), which belongs to another lane.
+- `settings-schema.json` exports: they regenerate on a Mac or from the CI artifact, and base is already stale
+  for other keys.
+
+## Tests
+
+- `bun test src/pages/onboarding`: 87 pass, 1 fail. The failure is `Onboarding.test.tsx > cmux tools > asks
+  before giving anything`, which fails on base too.
+- New tests:
+  - `walk.test.tsx`: switch off is today's screen; screen navigation; Back; Escape; the ops; pure write diffs.
+  - `walkScreens.test.tsx`: the four screens with the switch on.
+  - Swift `walkWritesAreOnePublishAndSkipPutsThemBack`: a 5-write bundle is 1 publish, a foreign path is
+    refused, and Skip is 1 publish that leaves the file byte-identical.
+- `bun x tsc --noEmit`: no onboarding errors. The 4 errors it reports are pre-existing generated-module errors.
+- `cmux-ci compile-check --app`: see the comment below.
+
+## Changelog
+
+- Experiments: Intro Walk (off by default) turns the first run's Make cmux Yours into four short screens: a
+  whole look, how you work, trust and notifications, then density and background.
+
+Agent session: [agent session](https://cmux.com/deeplink/agent?id=aid-0288b20f5c7018244f17&model=claude-opus-5-5)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
