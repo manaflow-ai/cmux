@@ -115,6 +115,7 @@ pub mod github_broker;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
@@ -159,6 +160,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
 pub mod hub;
