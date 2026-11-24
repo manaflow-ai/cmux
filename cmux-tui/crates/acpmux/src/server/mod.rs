@@ -922,8 +922,10 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     // the limit, never as a bare bind error.
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
-        // Owner-only when created here, like the /tmp fallback directory.
+        // Owner-only when created here, like the /tmp fallback directory; acpmux's own directory
+        // that already exists wider is narrowed to it too ([`tighten_socket_dir`]).
         crate::home_fs::create_dir_all(parent, 0o700)?;
+        tighten_socket_dir(parent)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.
@@ -942,7 +944,16 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
-    let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
+    // Made owner-only by bind itself (umask 0177 for the one call), never wider until the chmod
+    // below: a socket file carries its mode from the umask, and connect needs its write bit.
+    let listener = {
+        // SAFETY: umask has no preconditions and cannot fail; the old mask is put back at once.
+        let old = unsafe { libc::umask(0o177) };
+        let bound = UnixListener::bind(path);
+        // SAFETY: as above.
+        unsafe { libc::umask(old) };
+        bound.with_context(|| format!("bind {}", path.display()))?
+    };
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -950,6 +961,38 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     }
     tracing::info!("listening on {}", path.display());
     Ok(listener)
+}
+
+/// Narrows `dir`, the daemon socket's directory, to 0700 when it is acpmux's own (its home, or a
+/// directory named `acpmux...` such as the `/tmp/acpmux-UID` fallback) and this user owns it:
+/// `create_dir_all` leaves a directory that already exists as it was. A directory the person named
+/// with `ACPMUX_SOCKET` (their home, a project) is never changed; the socket's own mode and the
+/// peer check at accept ([`peer_uid_allowed`]) hold there.
+#[cfg(unix)]
+fn tighten_socket_dir(dir: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let ours = dir == crate::config::home().as_path()
+        || dir.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("acpmux"));
+    if !ours {
+        return Ok(());
+    }
+    let Ok(meta) = std::fs::symlink_metadata(dir) else { return Ok(()) };
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let own = unsafe { libc::geteuid() };
+    if meta.is_dir() && meta.uid() == own && meta.mode() & 0o077 != 0 {
+        let mode = meta.mode() & 0o700;
+        crate::home_fs::set_permissions(dir, std::fs::Permissions::from_mode(mode))
+            .with_context(|| format!("narrow {} to owner-only", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Whether a unix socket peer with `uid` may talk to the daemon running as `own`: this user, or
+/// root (the Cloud machine's provisioner, `daemon/provision.rs`; root opens a 0600 socket anyway).
+/// A peer whose uid cannot be read is refused.
+#[cfg(unix)]
+pub(crate) fn peer_uid_allowed(uid: Option<u32>, own: u32) -> bool {
+    uid.is_some_and(|uid| uid == own || uid == 0)
 }
 
 #[cfg_attr(not(any(feature = "tailnet", feature = "hub-carrier")), allow(unused_imports))]
@@ -976,6 +1019,18 @@ pub async fn serve_unix_with_v2(
                 continue;
             }
         };
+        // The socket's mode admits this user only; the peer's uid says so again (one
+        // getsockopt, its pid read from the same answer below).
+        let cred = stream.peer_cred().ok();
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let own = unsafe { libc::geteuid() };
+        if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
+            tracing::warn!(
+                uid = ?cred.map(|c| c.uid()),
+                "refused a socket peer that is not this user"
+            );
+            continue;
+        }
         let hub = hub.clone();
         let v2 = v2.clone();
         tokio::spawn(async move {
@@ -986,9 +1041,7 @@ pub async fn serve_unix_with_v2(
             };
             // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
             let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            let socket_peer = stream
-                .peer_cred()
-                .ok()
+            let socket_peer = cred
                 .and_then(|c| c.pid())
                 .and_then(|p| u32::try_from(p).ok())
                 .map_or(SocketPeer::Unknown, SocketPeer::Pid);
@@ -2733,6 +2786,10 @@ pub(crate) mod shutdown_drain;
 mod shutdown_drain_tests;
 #[cfg(test)]
 #[cfg(unix)]
+#[path = "socket_access_tests.rs"]
+mod socket_access_tests;
+#[cfg(test)]
+#[cfg(unix)]
 #[path = "wake_held_tests.rs"]
 mod wake_held_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
@@ -2740,6 +2797,7 @@ pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
 mod chunk_deltas;
+mod felt;
 pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
@@ -2803,6 +2861,7 @@ mod sign_in_follow;
 mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
+mod chat_place;
 pub(crate) mod host_power;
 pub(crate) mod interest;
 mod move_targets;
