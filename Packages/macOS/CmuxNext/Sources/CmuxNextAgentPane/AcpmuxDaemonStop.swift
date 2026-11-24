@@ -3,10 +3,10 @@ import Darwin
 import Foundation
 import os
 
-/// The person's "Restart agent service" (the pane's waiting line, ``AcpmuxHost/restartStuckAcpmux(sessionId:)``):
-/// asks this app's own acpmux daemon to stop (SIGTERM) so the pane's next handshake starts a new
-/// one, which adopts the agent hosts and loads every session from disk. A person decides it, never
-/// a timer (rule R5): a daemon that answers late is not stopped by the app on its own.
+/// Stops this app's own acpmux daemon (SIGTERM) for a decided stop: an outdated daemon's restart
+/// (``AcpmuxHost/restartOutdatedAcpmux(sessionId:)``) or a version handoff whose ask went unanswered
+/// (``finishHandOff(_:pid:)``). The next lookup starts a new daemon, which adopts the agent hosts and
+/// loads every session from disk. A daemon that only answers late is never stopped (rule R5).
 ///
 /// SIGTERM only, never SIGKILL. acpmux appends each session's event records with a plain write
 /// (store.rs `append`) and repairs no torn last line when it reopens the log (`open_writer`), so a
@@ -45,19 +45,6 @@ nonisolated final class AcpmuxDaemonStop: Sendable {
 
     init(process: @escaping @Sendable (Int32) -> Daemon? = AcpmuxDaemonStop.kernelProcess(pid:)) {
         self.process = process
-    }
-
-    /// Asks `environment`'s own daemon to stop for a person who asked. True when SIGTERM went to it
-    /// (the waiting lookup ends at its exit, and the next handshake starts a new one); false when no
-    /// daemon of this home runs or it is not this home's by every check above.
-    @concurrent func restart(_ environment: AcpmuxEnvironment) async -> Bool {
-        guard let daemon = await daemon(environment) else { return false }
-        let pid = daemon.pid
-        let home = environment.home.standardizedFileURL.path
-        // The cause first, then its effect: the lookup that the exit ends writes its own line.
-        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public): a person asked to restart it; sending SIGTERM")
-        AcpmuxFailureLog(logPath: environment.logPath).record(.personRestart, detail: "pid \(pid)")
-        return terminate(daemon)
     }
 
     /// Finishes a stop a version handoff already asked for (``AcpmuxVersionHandoff/handOffShutdown(_:pid:reason:deadline:shutdown:finish:)``):
