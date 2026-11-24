@@ -29,7 +29,12 @@ const SELECT_CLASS =
   "box-border h-7 rounded-md border border-solid border-edge bg-transparent px-2 font-[inherit] text-control text-fg outline-none focus:border-accent-soft";
 
 /** A run's tone as the status dot Settings > Devices draws. */
-const TONE = { good: "success", warn: "attention", bad: "attention", plain: "neutral" } as const;
+const TONE = {
+  good: "success",
+  warn: "attention",
+  bad: "attention",
+  plain: "neutral",
+} as const;
 
 type Act = (action: Exclude<AutocloudAction, { action: "refresh" }>) => Promise<AutocloudAnswer>;
 
@@ -39,8 +44,20 @@ function blankSpec(): AutocloudSpec {
     name: "",
     trigger: { type: "github", events: ["ci_failure"], repository: "" },
     conditions: [],
-    action: { type: "start_agent", repo: "", ref: "", harness: "claude", prompt: "", postBack: "comment" },
-    guardrails: { cooldownSeconds: 600, maxRunsPerDay: 20, maxConcurrent: 1, maxMinutesPerRun: 30 },
+    action: {
+      type: "start_agent",
+      repo: "",
+      ref: "",
+      harness: "claude",
+      prompt: "",
+      postBack: "comment",
+    },
+    guardrails: {
+      cooldownSeconds: 600,
+      maxRunsPerDay: 20,
+      maxConcurrent: 1,
+      maxMinutesPerRun: 30,
+    },
   };
 }
 
@@ -269,6 +286,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** The operators that take no value (the platform's `exists` and `missing`). */
+const VALUELESS_OPS = new Set(["exists", "missing"]);
+
 function ConditionRow({
   condition,
   catalog,
@@ -305,7 +325,7 @@ function ConditionRow({
           </option>
         ))}
       </select>
-      {condition.op !== "exists" && (
+      {!VALUELESS_OPS.has(condition.op) && (
         <Input
           className="field"
           spellCheck={false}
@@ -397,14 +417,27 @@ function AutomationForm({
     setSpec({ ...spec, action: { ...spec.action, ...patch } });
   const setGuard = (key: keyof AutocloudSpec["guardrails"], raw: string) => {
     const n = Number.parseInt(raw, 10);
-    setSpec({ ...spec, guardrails: { ...spec.guardrails, [key]: Number.isFinite(n) ? n : undefined } });
+    setSpec({
+      ...spec,
+      guardrails: {
+        ...spec.guardrails,
+        [key]: Number.isFinite(n) ? n : undefined,
+      },
+    });
   };
   const setConditions = (conditions: AutocloudCondition[]) => setSpec({ ...spec, conditions });
   const changeType = (type: string) => {
     if (type === trigger.type) return;
     if (type === "github")
-      setSpec({ ...spec, trigger: { type, events: ["ci_failure"], repository: spec.action.repo } });
-    else if (type === "schedule") setSpec({ ...spec, trigger: { type, cron: "0 9 * * 1-5", timeZone: "UTC" } });
+      setSpec({
+        ...spec,
+        trigger: { type, events: ["ci_failure"], repository: spec.action.repo },
+      });
+    else if (type === "schedule")
+      setSpec({
+        ...spec,
+        trigger: { type, cron: "0 9 * * 1-5", timeZone: "UTC" },
+      });
     else setSpec({ ...spec, trigger: { type } });
   };
   const submit = async (event: FormEvent) => {
@@ -472,7 +505,10 @@ function AutomationForm({
                 value={github.events[0] ?? "ci_failure"}
                 data-autocloud-event=""
                 onChange={(event) => {
-                  setSpec({ ...spec, trigger: { ...github, events: [event.target.value] } });
+                  setSpec({
+                    ...spec,
+                    trigger: { ...github, events: [event.target.value] },
+                  });
                   setSample(event.target.value);
                 }}
               >
@@ -494,7 +530,11 @@ function AutomationForm({
                   const repository = event.target.value;
                   // The agent works in the repository the event came from until the person names another.
                   const repo = spec.action.repo === github.repository ? repository : spec.action.repo;
-                  setSpec({ ...spec, trigger: { ...github, repository }, action: { ...spec.action, repo } });
+                  setSpec({
+                    ...spec,
+                    trigger: { ...github, repository },
+                    action: { ...spec.action, repo },
+                  });
                 }}
               />
             </Field>
@@ -508,7 +548,12 @@ function AutomationForm({
                 spellCheck={false}
                 value={schedule.cron}
                 data-autocloud-cron=""
-                onChange={(event) => setSpec({ ...spec, trigger: { ...schedule, cron: event.target.value } })}
+                onChange={(event) =>
+                  setSpec({
+                    ...spec,
+                    trigger: { ...schedule, cron: event.target.value },
+                  })
+                }
               />
             </Field>
             <Field label={t("settingsWindow.autocloud.form.timeZone")}>
@@ -517,7 +562,12 @@ function AutomationForm({
                 spellCheck={false}
                 value={schedule.timeZone ?? "UTC"}
                 data-autocloud-timezone=""
-                onChange={(event) => setSpec({ ...spec, trigger: { ...schedule, timeZone: event.target.value } })}
+                onChange={(event) =>
+                  setSpec({
+                    ...spec,
+                    trigger: { ...schedule, timeZone: event.target.value },
+                  })
+                }
               />
             </Field>
           </>
@@ -689,7 +739,12 @@ function TemplateRow({ template, onUse }: { template: AutocloudTemplate; onUse: 
   );
 }
 
-type FormOpen = { editing: string | null; start: AutocloudSpec; webhookUrl: string | null; key: number };
+type FormOpen = {
+  editing: string | null;
+  start: AutocloudSpec;
+  webhookUrl: string | null;
+  key: number;
+};
 type Created = { url: string | null; secret: string; text?: string };
 
 export function AutomationsCard() {
@@ -697,7 +752,11 @@ export function AutomationsCard() {
   const [state, setState] = useState<AutocloudState | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<FormOpen | null>(null);
-  const [runLog, setRunLog] = useState<{ id: string; name: string; runs: AutocloudRun[] | null } | null>(null);
+  const [runLog, setRunLog] = useState<{
+    id: string;
+    name: string;
+    runs: AutocloudRun[] | null;
+  } | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
   const refresh = useCallback(async () => {
     setState((await store.runAutocloud({ action: "refresh" })).state);
@@ -724,7 +783,12 @@ export function AutomationsCard() {
   const open = (editing: string | null, start: AutocloudSpec, webhookUrl: string | null = null) => {
     setRunLog(null);
     setCreated(null);
-    setForm({ editing, start: structuredClone(start), webhookUrl, key: Date.now() });
+    setForm({
+      editing,
+      start: structuredClone(start),
+      webhookUrl,
+      key: Date.now(),
+    });
   };
   const showRuns = async (row: AutocloudAutomation) => {
     setRunLog({ id: row.id, name: row.name, runs: null });

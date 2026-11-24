@@ -44,7 +44,7 @@ Usage:
 A spec: {name, trigger, conditions, action, guardrails}
   trigger     {type: github, events: [ci_failure], repository: owner/name} | {type: webhook}
               | {type: schedule, cron: \"0 9 * * 1-5\", timeZone: America/Los_Angeles}
-  conditions  [{path: workflow_run.head_branch, op: equals|not_equals|contains|matches|in|exists, value}]
+  conditions  [{path: workflow_run.head_branch, op: equals|not_equals|in|not_in|contains|prefix|exists|missing|gt|gte|lt|lte, value}]
   action      {type: start_agent, repo, ref, harness: claude|codex, model?, prompt, postBack?: comment|none, openPr?}
               (ref and prompt read {{event.*}}, {{trigger.*}} and {{run.url}})
   guardrails  {cooldownSeconds, maxRunsPerDay, maxConcurrent, maxMinutesPerRun}
@@ -68,11 +68,24 @@ pub(super) const GITHUB_EVENTS: &[(&str, &str)] = &[
 pub(super) const OPS: &[(&str, &str)] = &[
     ("equals", "equals"),
     ("not_equals", "does not equal"),
-    ("contains", "contains"),
-    ("matches", "matches"),
     ("in", "is one of"),
+    ("not_in", "is none of"),
+    ("contains", "contains"),
+    ("prefix", "starts with"),
     ("exists", "exists"),
+    ("missing", "is missing"),
+    ("gt", "is more than"),
+    ("gte", "is at least"),
+    ("lt", "is less than"),
+    ("lte", "is at most"),
 ];
+
+/// The operators that take no value.
+pub(super) const VALUELESS_OPS: &[&str] = &["exists", "missing"];
+/// The operators whose value is a list.
+pub(super) const LIST_OPS: &[&str] = &["in", "not_in"];
+/// The operators whose value is a number.
+pub(super) const NUMBER_OPS: &[&str] = &["gt", "gte", "lt", "lte"];
 
 pub(super) const HARNESSES: &[(&str, &str)] = &[("claude", "Claude Code"), ("codex", "Codex")];
 
@@ -326,29 +339,32 @@ fn check_condition(c: &Value) -> Result<Value, String> {
         return Err(format!("{op:?} is not a condition operator"));
     }
     let value = match (op, c.get("value")) {
-        ("exists", _) => Value::Null,
-        ("in", Some(Value::Array(items))) => {
+        (op, _) if VALUELESS_OPS.contains(&op) => Value::Null,
+        (op, Some(Value::Array(items))) if LIST_OPS.contains(&op) => {
             let items: Vec<String> =
                 items.iter().filter_map(Value::as_str).map(str::to_owned).collect();
             if items.is_empty() {
-                return Err(format!("{path} is one of: name at least one value"));
+                return Err(format!("{path} {}: name at least one value", op_label(op)));
             }
             json!(items)
         }
-        ("in", Some(Value::String(s))) => {
+        (op, Some(Value::String(s))) if LIST_OPS.contains(&op) => {
             let items: Vec<String> =
                 s.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
             if items.is_empty() {
-                return Err(format!("{path} is one of: name at least one value"));
+                return Err(format!("{path} {}: name at least one value", op_label(op)));
             }
             json!(items)
+        }
+        (op, Some(v)) if NUMBER_OPS.contains(&op) => {
+            match scalar_text(v).and_then(|t| t.trim().parse::<f64>().ok().map(|_| t)) {
+                Some(t) => json!(t.trim()),
+                None => return Err(format!("{path} {}: name a number", op_label(op))),
+            }
         }
         (_, Some(Value::String(s))) => {
             if s.len() > 1000 {
                 return Err(format!("the value for {path} is at most 1000 characters"));
-            }
-            if op == "matches" && regex::Regex::new(s).is_err() {
-                return Err(format!("{s:?} is not a pattern"));
             }
             json!(s)
         }
@@ -509,8 +525,17 @@ pub(super) fn holds(condition: &Value, event: &Value) -> (bool, Option<String>) 
         found.and_then(|v| scalar_text(v).or_else(|| (!v.is_null()).then(|| v.to_string())));
     let want = condition.get("value");
     let want_text = want.and_then(scalar_text).unwrap_or_default();
+    let list: Vec<String> = match want {
+        Some(Value::Array(a)) => a.iter().filter_map(scalar_text).collect(),
+        _ => want_text.split(',').map(str::trim).map(str::to_owned).collect(),
+    };
+    let number = |t: &str| t.trim().parse::<f64>().ok();
+    let compare = |f: fn(f64, f64) -> bool| {
+        actual.as_deref().and_then(number).zip(number(&want_text)).is_some_and(|(a, w)| f(a, w))
+    };
     let ok = match op {
         "exists" => found.is_some_and(|v| !v.is_null()),
+        "missing" => !found.is_some_and(|v| !v.is_null()),
         "equals" => actual.as_deref() == Some(want_text.as_str()),
         "not_equals" => actual.as_deref() != Some(want_text.as_str()),
         "contains" => match found {
@@ -519,17 +544,13 @@ pub(super) fn holds(condition: &Value, event: &Value) -> (bool, Option<String>) 
             }
             _ => actual.as_deref().is_some_and(|a| a.contains(&want_text)),
         },
-        "matches" => regex::Regex::new(&want_text)
-            .ok()
-            .zip(actual.as_deref())
-            .is_some_and(|(re, a)| re.is_match(a)),
-        "in" => {
-            let list: Vec<String> = want
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(scalar_text).collect())
-                .unwrap_or_default();
-            actual.as_deref().is_some_and(|a| list.iter().any(|w| w == a))
-        }
+        "prefix" => actual.as_deref().is_some_and(|a| a.starts_with(&want_text)),
+        "in" => actual.as_deref().is_some_and(|a| list.iter().any(|w| w == a)),
+        "not_in" => !actual.as_deref().is_some_and(|a| list.iter().any(|w| w == a)),
+        "gt" => compare(|a, w| a > w),
+        "gte" => compare(|a, w| a >= w),
+        "lt" => compare(|a, w| a < w),
+        "lte" => compare(|a, w| a <= w),
         _ => false,
     };
     (ok, actual.map(|a| clip(&a, 120)))
@@ -827,11 +848,15 @@ pub(super) fn trigger_text(trigger: &Value) -> String {
     }
 }
 
-/// One condition in words: "workflow_run.head_branch matches ^main$".
+fn op_label(op: &str) -> &str {
+    OPS.iter().find(|(v, _)| *v == op).map_or(op, |(_, l)| l)
+}
+
+/// One condition in words: "workflow_run.head_branch starts with fix-".
 pub(super) fn condition_text(c: &Value) -> String {
     let path = c.get("path").and_then(Value::as_str).unwrap_or_default();
     let op = c.get("op").and_then(Value::as_str).unwrap_or_default();
-    let label = OPS.iter().find(|(v, _)| *v == op).map_or(op, |(_, l)| l);
+    let label = op_label(op);
     let value = match c.get("value") {
         Some(Value::Array(items)) => {
             items.iter().filter_map(scalar_text).collect::<Vec<_>>().join(", ")

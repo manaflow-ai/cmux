@@ -109,7 +109,13 @@ fn autocloud_checks_a_spec() {
         "event path",
     );
     bad(&|s| s["conditions"] = json!([{"path": "a", "op": "like", "value": "x"}]), "operator");
-    bad(&|s| s["conditions"] = json!([{"path": "a", "op": "matches", "value": "("}]), "pattern");
+    // `matches` (regex) left the contract: Workers has no RE2.
+    bad(&|s| s["conditions"] = json!([{"path": "a", "op": "matches", "value": "x"}]), "operator");
+    bad(&|s| s["conditions"] = json!([{"path": "a", "op": "gt", "value": "many"}]), "a number");
+    bad(
+        &|s| s["conditions"] = json!([{"path": "a", "op": "not_in", "value": " , "}]),
+        "at least one",
+    );
     bad(&|s| s["conditions"] = json!([{"path": "a", "op": "equals"}]), "name a value");
     bad(&|s| s["action"]["harness"] = json!("gpt"), "claude or codex");
     bad(&|s| s["action"]["prompt"] = json!("  "), "prompt");
@@ -121,6 +127,13 @@ fn autocloud_checks_a_spec() {
     let checked = check_spec(&spec).unwrap();
     assert_eq!(checked["trigger"]["timeZone"], "UTC");
     assert_eq!(checked["conditions"][0]["value"], json!(["autofix", "agent"]));
+    spec["conditions"] = json!([
+        {"path": "pr.changed_files", "op": "lte", "value": 20},
+        {"path": "pr.draft", "op": "missing", "value": "ignored"},
+    ]);
+    let checked = check_spec(&spec).unwrap();
+    assert_eq!(checked["conditions"][0]["value"], "20");
+    assert_eq!(checked["conditions"][1], json!({"path": "pr.draft", "op": "missing"}));
 }
 
 #[test]
@@ -145,8 +158,20 @@ fn autocloud_conditions_hold() {
     assert!(holds(&c("b", "contains", json!("login")), &event).0);
     assert!(holds(&c("labels", "contains", json!("autofix")), &event).0);
     assert!(!holds(&c("labels", "contains", json!("auto")), &event).0);
-    assert!(holds(&c("b", "matches", json!("^fix-")), &event).0);
+    assert!(holds(&c("b", "prefix", json!("fix-")), &event).0);
+    assert!(!holds(&c("b", "prefix", json!("login")), &event).0);
     assert!(holds(&c("b", "in", json!(["main", "fix-login"])), &event).0);
+    assert!(holds(&c("b", "not_in", json!(["main", "release"])), &event).0);
+    assert!(!holds(&c("b", "not_in", json!(["fix-login"])), &event).0);
+    assert!(holds(&c("n", "gt", json!("2")), &event).0);
+    assert!(!holds(&c("n", "gt", json!("3")), &event).0);
+    assert!(holds(&c("n", "gte", json!(3)), &event).0);
+    assert!(holds(&c("n", "lt", json!("10")), &event).0);
+    assert!(holds(&c("n", "lte", json!("3")), &event).0);
+    assert!(!holds(&c("b", "lt", json!("10")), &event).0);
+    assert!(holds(&json!({"path": "gone", "op": "missing"}), &event).0);
+    assert!(holds(&json!({"path": "none", "op": "missing"}), &event).0);
+    assert!(!holds(&json!({"path": "b", "op": "missing"}), &event).0);
     assert!(holds(&json!({"path": "b", "op": "exists"}), &event).0);
     assert!(!holds(&json!({"path": "none", "op": "exists"}), &event).0);
     assert!(!holds(&json!({"path": "gone", "op": "exists"}), &event).0);
