@@ -1928,7 +1928,12 @@ const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
 /// Interface Size (conversation.css `:root`), so the row is too: scaled with the grid, a closed group's line was
 /// placed 22 × (scale − 1) px too tall at a larger Interface Size.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
-const toolRowHeight = () => lineRowPt;
+const toolRowHeight = () => (editsEstimateOn() ? lineRowPt : lineRowPt * chromeScale);
+/// Settings > Advanced > Experiments > Expanded Edits Estimate (`experiments.expandedEditsEstimate`, default off;
+/// Leo, 2026-11-24, ask-82b08b7ed7: UI changes wait behind a switch). On: an opened edits group is estimated at
+/// its files' diff cards (`openEditsBody`) and a tool row at its drawn 22 px line at every Interface Size. Off:
+/// the estimates as they were, an edits group at its closed line and a tool row scaled with the grid.
+const editsEstimateOn = () => experimentSwitchOn("expandedEditsEstimate");
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -2335,7 +2340,7 @@ function foldedGroupHeight(
   thoughts = 0,
   live = false,
 ): number {
-  if (group.type === "group" && !closed)
+  if (group.type === "group" && !closed && (group.kind !== "edits" || editsEstimateOn()))
     return (
       toolRowHeight() +
       (group.kind === "edits"
@@ -2890,7 +2895,7 @@ function fallbackRowHeight(
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
       // reader opened draws them too. An edits group draws as its group even alone (a lone edit with a
       // diff, toolGroups.ts), its line opening to its files' diffs (`openEditsBody`).
-      const editsGroup = groups.some((group) => group.type === "group" && group.kind === "edits");
+      const editsGroup = editsEstimateOn() && groups.some((group) => group.type === "group" && group.kind === "edits");
       if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items) || editsGroup)
         return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
@@ -4633,6 +4638,7 @@ import {
   transcriptGapScale,
 } from "./chatDisplay";
 import { EDIT_DIFF_LANE, editDiffBox } from "./conversation/editDiffBox";
+import { experimentSwitchOn } from "../../experiments/switches";
 import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
 import { rowOpenState } from "./conversation/rowOpenState";

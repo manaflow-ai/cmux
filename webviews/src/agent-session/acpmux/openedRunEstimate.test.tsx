@@ -23,6 +23,7 @@ import {
 import { groupDisclosureKey, runDisclosureKey } from "./conversation/turnRowsModel";
 import { runStretches, toolGroups } from "./conversation/toolGroups";
 import { settleReact } from "../../../test/support/domTeardown";
+import { setExperimentSwitches } from "../../experiments/switches";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -30,6 +31,7 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 afterEach(async () => {
+  setExperimentSwitches({});
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
@@ -137,6 +139,9 @@ test("an opened edits group is estimated at its files' diff cards, not its close
   ]);
   expect(estimate(row, "opened-edits")).toBe(LINE);
   await setLine("opened-edits", keyOf(row), true);
+  // Settings > Advanced > Experiments > Expanded Edits Estimate off (the default): the old estimate, its line.
+  expect(estimate(row, "opened-edits")).toBe(LINE);
+  setExperimentSwitches({ expandedEditsEstimate: true });
   // "Edited 2 files" opened: its line, the fold's 4px, and per file its card's 4px and 8px margins, 32px
   // head and 18px rows (3, then 2) over the 6px scrollbar lane WebKit keeps (no CSS here: WebKit's).
   // Before, its closed line alone: the rows under it were placed 194px too high (drawn 216 in WebKit).

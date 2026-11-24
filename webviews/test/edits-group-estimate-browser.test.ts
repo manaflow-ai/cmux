@@ -233,6 +233,13 @@ await requireBrowserLane("edits-group-estimate-browser.test.ts", async () => {
         const { port } = vite!.httpServer!.address() as { port: number };
         await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
         await page.waitForFunction(() => "__showSession" in window);
+        // The estimate this checks is behind Settings > Advanced > Experiments > Expanded Edits Estimate.
+        await page.evaluate(async () => {
+          const { setExperimentSwitches } = (await import(
+            /* @vite-ignore */ `${location.origin}/src/experiments/switches.ts`
+          )) as typeof import("../src/experiments/switches");
+          setExperimentSwitches({ expandedEditsEstimate: true });
+        });
         await size.apply(page);
         await painted(page, 2);
         const misses: string[] = [];

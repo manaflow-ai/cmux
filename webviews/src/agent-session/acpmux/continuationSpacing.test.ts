@@ -1,5 +1,6 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { SUBAGENT_DONE } from "./subagents/subagentRows";
 import {
@@ -198,6 +199,7 @@ test("estimated grid rows follow the Interface Size; tool rows keep their drawn 
         ],
       },
     ] as unknown as AcpmuxRow[];
+    setExperimentSwitches({ expandedEditsEstimate: true });
     for (const [rows, factor] of [
       [received, 1.25],
       [run, 1],
@@ -209,9 +211,14 @@ test("estimated grid rows follow the Interface Size; tool rows keep their drawn 
       expect(atOne).toBeGreaterThan(0);
       expect(atLarger).toBeCloseTo(atOne * factor, 5);
     }
+    setExperimentSwitches({});
     scale = "1.25";
+    // Expanded Edits Estimate off (the default): tool rows scale with the grid, as before.
+    expect(layoutConversation(run, 720).heights[0]).toBeCloseTo(2 * TRANSCRIPT_LINE_ROW * 1.25, 5);
+    setExperimentSwitches({ expandedEditsEstimate: true });
     expect(layoutConversation(run, 720).heights[0]).toBe(2 * TRANSCRIPT_LINE_ROW);
   } finally {
+    setExperimentSwitches({});
     if (saved.document === undefined) delete g.document;
     else g.document = saved.document;
     if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
