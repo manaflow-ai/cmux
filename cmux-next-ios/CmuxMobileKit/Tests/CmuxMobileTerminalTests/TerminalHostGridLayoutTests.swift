@@ -38,7 +38,7 @@ import Testing
         #expect(wide.isWide)
         #expect(wide.columns == 200)
         #expect(wide.followsHost)
-        #expect(wide.surfaceWidth == 200.5 * 7.8)
+        #expect(abs(wide.surfaceWidth - 200.5 * 7.8) < 0.001)
         #expect(abs(wide.maxPanX - (200 * 7.8 - 390)) < 0.001)
         // The pan shows column 199 (the last) at the right edge.
         #expect(abs(wide.pan(toShowColumn: 199, from: 0) - wide.maxPanX) < 0.001)
