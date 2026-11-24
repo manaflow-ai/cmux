@@ -125,8 +125,21 @@ size, so any peer works. cmux-wg turns it on; its detector is
 `cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
 1400 byte IPv6 path that drops longer packets.
 
-The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
-each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
+The patch adds a BBR-style controller, `CongestionControl::Bbr`, behind the
+`socket-tcp-bbr` feature (RFD 0142 O1), and cmux-wg makes it the tunnel default
+(`CMUX_WG_ULTRA_CC=cubic` goes back). Its window is twice the bandwidth-delay
+product: the highest delivery rate of the last 10 rounds that were not
+app-limited, times the minimum RTT of the last 10 s. Startup grows the window
+by every acknowledged byte until the rate grows under 25 % for 3 rounds. Loss
+does not shrink the window; only two RTOs in a row, with nothing acknowledged
+between them, drop it to 4 segments and restart the model. cmux-wg paces its
+datagrams itself, so the controller has no pacing gain cycle and no PROBE_RTT.
+`RttEstimator` keeps its latest raw sample for the controller's minimum. Its
+tests are in `congestion/bbr.rs`.
+
+The changes are in `src/socket/tcp/congestion/cubic.rs`,
+`src/socket/tcp/congestion/bbr.rs` and `src/socket/tcp.rs`, each marked
+`cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
 
 ## Taken from upstream main

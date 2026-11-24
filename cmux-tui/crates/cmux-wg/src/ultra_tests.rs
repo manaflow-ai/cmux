@@ -655,3 +655,13 @@ fn a_liveness_datagram_goes_alone_and_unrepaired() {
     let parity = wire.lock().unwrap().iter().filter(|d| d[0] == TAG).count();
     assert!(parity >= 1, "the data datagram keeps its repair");
 }
+
+#[test]
+fn the_congestion_controller_defaults_to_bbr_and_cubic_goes_back() {
+    use smoltcp::socket::tcp::CongestionControl;
+    assert_eq!(congestion_from(None), CongestionControl::Bbr);
+    assert_eq!(congestion_from(Some("bbr")), CongestionControl::Bbr);
+    assert_eq!(congestion_from(Some(" Cubic ")), CongestionControl::Cubic);
+    assert_eq!(congestion_from(Some("none")), CongestionControl::None);
+    assert_eq!(congestion_from(Some("bogus")), CongestionControl::Bbr);
+}
