@@ -307,7 +307,8 @@ impl Link {
                 "_acpmux/attach",
                 json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": Self::every_kind(),
                        "eventStream": true, "maxBytes": OPEN_BYTES,
-                       "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES}),
+                       "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES,
+                       "omitTimeBreakdown": true}),
             )
             .await?;
         let (_, init) = link.answer(init, deadline).await?;
