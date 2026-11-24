@@ -151,7 +151,9 @@ import Testing
 
     /// Waits, bounded, for real-time work (a write's 100 ms bound, the held prompts' 500 ms flush).
     func eventually(_ condition: () -> Bool) async {
-        for _ in 0..<300 where !condition() {
+        // By deadline, not by count: on a loaded runner a 10 ms sleep takes far longer.
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !condition(), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -228,7 +230,12 @@ import Testing
         for _ in 0..<12 where store.returnedDraft == nil {
             let before = channel.promptWrites
             clock.advance(by: .seconds(1))
-            await eventually { channel.promptWrites > before || store.returnedDraft != nil }
+            // Held again before the clock moves: an advance that lands between the write's
+            // failure and the hold reads as time the write took, which the wait is moved on by,
+            // and on a loaded runner that happened every second, so the window never ran out.
+            await eventually {
+                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
+            }
         }
         await eventually { store.returnedDraft != nil }
         #expect(store.returnedDraft?.text == "run the tests")
