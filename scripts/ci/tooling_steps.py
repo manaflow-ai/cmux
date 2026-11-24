@@ -245,6 +245,19 @@ def load_declared(root: Path, workflow: str, job: str) -> dict[str, list[str]]:
         return {}
 
 
+def load_traced(root: Path, workflow: str, job: str) -> set[str]:
+    """Step ids whose DECLARED entry says `"traced": true`: its globs and the inputs the walker resolved are every path
+    a traced run of it read (`verify` checks that), so they alone decide it. The walker's guesses past them (a folder
+    a script names, a whole-tree list, a file name spelled out) are what the trace settled, and are not consulted.
+    Only steps load_declared accepts count; anything malformed traces nothing (fails open)."""
+    declared = load_declared(root, workflow, job)
+    try:
+        steps = json.loads((Path(root) / DECLARED).read_text(encoding="utf-8"))[workflow][job]
+        return {str(k) for k, e in steps.items() if str(k) in declared and e.get("traced") is True}
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
 def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | None:
     """(changed path, glob) for the first changed path a declared input glob matches."""
     regexes = [(g, glob_regex(g)) for g in declared]
@@ -257,7 +270,7 @@ def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | No
 
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
                changed: set[str], declared: list[str] | None = None,
-               added_deleted: set[str] | None = None) -> tuple[bool, str]:
+               added_deleted: set[str] | None = None, traced: bool = False) -> tuple[bool, str]:
     """(run, reason) for one selectable step. DECLARED (its tooling-step-inputs.json globs) stands in for what the
     walker cannot resolve: with it, a step whose run text names no test or whose closure runs a file from a variable
     runs when a changed path matches a declared glob or any input the walker did resolve, and is skipped otherwise.
@@ -302,6 +315,9 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     hit = sorted(changed & inputs)
     if hit:
         return True, f"reads {hit[0]}" + (f" and {len(hit) - 1} more" if len(hit) > 1 else "")
+    if traced and declared:
+        return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
+                       f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
     for path, reach in reaches.items():
         for pattern in reach.globs:
             regex = glob_regex(pattern)
@@ -364,6 +380,7 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
                   or mapping(mapping(document.get("defaults")).get("run")).get("working-directory") or "")
     walker = Walker(repo)
     declared = load_declared(repo.root, workflow, job_name)
+    traced = load_traced(repo.root, workflow, job_name)
     verdicts = []
     for key, step in zip(keys, steps):
         name = str(step.get("name") or key)
@@ -371,7 +388,7 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
             verdicts.append(StepVerdict(key, name, True, "no id: it carries no selection and always runs"))
             continue
         run, reason = judge_step(repo, walker, step, env, workdir, changed_set, declared.get(key),
-                                 None if added_deleted is None else set(added_deleted))
+                                 None if added_deleted is None else set(added_deleted), key in traced)
         verdicts.append(StepVerdict(key, name, run, reason))
     return Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
 
@@ -527,6 +544,7 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
     declared = load_declared(repo.root, workflow, job_name)
+    traced = load_traced(repo.root, workflow, job_name)
     env = {**literal_env(document.get("env")), **literal_env(job.get("env"))}
     env.pop("BASH_ENV", None)
     walker = Walker(repo)
@@ -546,7 +564,7 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
         for path in sorted(trace.files):
             if declared_hit(globs, {path}):
                 continue
-            ran, _ = judge_step(repo, walker, step, env, "", {path}, globs)
+            ran, _ = judge_step(repo, walker, step, env, "", {path}, globs, traced=key in traced)
             if not ran:
                 problems.append(f"{key}: read {path}, outside its declared inputs and its resolved inputs")
         for folder in sorted(trace.dirs):
@@ -554,14 +572,14 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
                 continue  # Python lists a folder on sys.path when it imports a module from it: the module's read counts
             probe = folder + "/__tooling_steps_probe__"
             if not declared_hit(globs, {probe}):
-                ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs)
+                ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs, traced=key in traced)
                 if not ran:
                     problems.append(f"{key}: listed folder {folder}/, which its declared inputs do not cover")
         ignored = set(subprocess.run(["git", "-C", str(repo.root), "check-ignore", "--stdin"], input="\n".join(
             sorted(trace.probes)), capture_output=True, text=True).stdout.split()) if trace.probes else set()
         for path in sorted(trace.probes - ignored):  # a git-ignored path (.build/) is no pull request's change
             if not declared_hit(globs, {path}) and not any(path.startswith(d + "/") for d in trace.dirs) \
-                    and not judge_step(repo, walker, step, env, "", {path}, globs)[0]:
+                    and not judge_step(repo, walker, step, env, "", {path}, globs, traced=key in traced)[0]:
                 problems.append(f"{key}: looked for {path} (not there), outside its declared inputs")
         for read in sorted(set(trace.git)):
             if read.startswith("ls-files ") and "(in " not in read:
