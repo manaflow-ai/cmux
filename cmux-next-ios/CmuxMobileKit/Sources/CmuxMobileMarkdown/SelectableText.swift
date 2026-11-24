@@ -53,13 +53,29 @@ public struct SelectableText: View {
         }
     }
 
+    @Environment(\.selectableTextStill) private var still
+
     public var body: some View {
         let text = attributedText
         let firstFont = text.length > 0 ? text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont : nil
         let baseline = firstFont?.ascender ?? 0
-        SelectableLabel(text: text)
-            .alignmentGuide(.firstTextBaseline) { _ in baseline }
+        if still {
+            // A still (`ImageRenderer`) draws only SwiftUI's own views: the UIKit label came out
+            // as SwiftUI's yellow "can't render" placeholder in an agent tab's card picture.
+            Text((try? AttributedString(text, including: \.uiKit)) ?? AttributedString(text.string))
+                .fixedSize(horizontal: false, vertical: true)
+                .alignmentGuide(.firstTextBaseline) { _ in baseline }
+        } else {
+            SelectableLabel(text: text)
+                .alignmentGuide(.firstTextBaseline) { _ in baseline }
+        }
     }
+}
+
+extension EnvironmentValues {
+    /// `SelectableText` is drawn into a still (a tab card's picture): it draws SwiftUI `Text`
+    /// instead of its selectable UIKit label, which a still cannot draw.
+    @Entry public var selectableTextStill = false
 }
 
 private struct SelectableLabel: UIViewRepresentable {

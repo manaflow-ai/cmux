@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -86,6 +87,7 @@ public struct AgentChatPreview: View {
             // Its rows draw their UIKit controls' stand-ins (`chatStill`): a tab card's picture
             // is an `ImageRenderer` still of this view.
             .environment(\.chatStill, true)
+            .environment(\.selectableTextStill, true)
     }
 
     private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
