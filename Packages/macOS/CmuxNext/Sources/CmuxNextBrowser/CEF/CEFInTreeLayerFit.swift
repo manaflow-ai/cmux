@@ -18,11 +18,12 @@ import QuartzCore
 final class CEFInTreeLayerFit: NSObject, CALayoutManager {
     static let shared = CEFInTreeLayerFit()
 
-    /// Fits `view`'s drawing layer from now on (its layer gets this layout manager); a no-op when it has it.
+    /// Fits `view`'s drawing layer from now on (its layer gets this layout manager), and marks the layer for layout, so
+    /// the fit runs in this commit even when Core Animation did not mark it for the bounds change AppKit just made.
     func fit(_ view: NSView?) { // perf-hot: 0.05ms cef-geometry (each in-tree page resize)
-        guard let layer = view?.layer, layer.layoutManager !== self else { return }
+        guard let layer = view?.layer else { return }
+        guard layer.layoutManager !== self else { return layer.setNeedsLayout() }
         layer.layoutManager = self
-        layer.setNeedsLayout()
         layoutSublayers(of: layer)
     }
 
