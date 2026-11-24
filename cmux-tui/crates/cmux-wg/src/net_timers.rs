@@ -60,6 +60,7 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
             self.schedule.on_activity(Instant::now());
         }
     }
@@ -84,6 +85,7 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
             self.schedule.on_activity(Instant::now());
         }
     }
@@ -99,6 +101,7 @@ impl Driver {
         let result = if fresh {
             self.tunn.encapsulate(&[], &mut self.scratch)
         } else {
+            self.initiated_at = Some(Instant::now());
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         };
         if let TunnResult::WriteToNetwork(packet) = result {
