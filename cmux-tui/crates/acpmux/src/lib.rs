@@ -60,6 +60,7 @@ pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
+pub mod close_why;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
