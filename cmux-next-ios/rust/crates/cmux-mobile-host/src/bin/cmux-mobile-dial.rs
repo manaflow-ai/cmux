@@ -4,7 +4,7 @@
 //!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
-//!            [--no-turn-prewarm] [--remember-udp]
+//!            [--no-turn-prewarm] [--remember-udp] [--dial-twice]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
@@ -28,8 +28,9 @@
 //! starts beside the rest of the open (`EarlyTurn`, as a redial's does beside
 //! its reconnect). `--no-turn-prewarm` leaves the allocation to the dial.
 //! `--remember-udp` dials as the app does, remembering per network whether
-//! UDP answered (`DialOptions::remember_udp`): one untimed dial first teaches
-//! the network, and the line printed is the second dial's.
+//! UDP answered (`DialOptions::remember_udp`). `--dial-twice` dials once
+//! untimed first (with `--remember-udp`, the dial that teaches the network)
+//! and prints the second dial's line.
 //! `ice_fetch_ms` is `/v1/ice`'s time and `connect_ms` the time from its
 //! answer to link up, so `ice_fetch_ms + connect_ms` stays the link up time
 //! (now with ICE and signaling overlapped); `timings` count from the start of
@@ -63,6 +64,7 @@ struct Args {
     stock_ice_waits: bool,
     no_turn_prewarm: bool,
     remember_udp: bool,
+    dial_twice: bool,
 }
 
 fn parse() -> Result<Args> {
@@ -74,6 +76,7 @@ fn parse() -> Result<Args> {
     let (mut drop_wireguard, mut proxy_only) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let (mut no_input_lane, mut no_turn_prewarm, mut remember_udp) = (false, false, false);
+    let mut dial_twice = false;
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -97,6 +100,7 @@ fn parse() -> Result<Args> {
             "--no-input-lane" => no_input_lane = true,
             "--no-turn-prewarm" => no_turn_prewarm = true,
             "--remember-udp" => remember_udp = true,
+            "--dial-twice" => dial_twice = true,
             "--daemon" => daemon = true,
             "--stock-ice-waits" => stock_ice_waits = true,
             other => bail!("unknown argument {other}"),
@@ -126,6 +130,7 @@ fn parse() -> Result<Args> {
         stock_ice_waits,
         no_turn_prewarm,
         remember_udp,
+        dial_twice,
     })
 }
 
@@ -318,8 +323,8 @@ async fn main() -> Result<()> {
     let args = parse()?;
     let mut failed = false;
     for kind in args.transports.clone() {
-        if args.remember_udp {
-            // The dial that teaches this network; its numbers are not the run's.
+        if args.dial_twice {
+            // Untimed; with --remember-udp, the dial that teaches this network.
             if let Err(error) = run(&args, kind).await {
                 eprintln!("learning dial: {error:#}");
             }
