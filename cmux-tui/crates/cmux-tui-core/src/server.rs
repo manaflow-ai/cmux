@@ -2445,6 +2445,8 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// Release every user-owned workspace name to the automatic namer.
+    ReleaseWorkspaceNames {},
     RenameProviderManagedWorkspace {
         workspace: WorkspaceId,
         key: String,
