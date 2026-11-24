@@ -93,3 +93,45 @@ import Testing
         #expect(find.isComplete)
     }
 }
+
+#if os(iOS)
+import CmuxMobileLinkFFI
+
+@Suite struct TerminalFindProjectionTests {
+    private func page(_ hits: [TerminalFindPage.Hit]) -> TerminalFindPage {
+        TerminalFindPage(hits: hits, nextBefore: nil, complete: true, epoch: 1, restarted: false, bottom: 3, invalidPattern: nil)
+    }
+
+    @Test func hitsMoveOntoTheRewrappedRows() {
+        // The Mac's `abcdefghij`(wrapped) / `klmno` / `xyz` at 4 phone columns: j is the 3rd row
+        // from the bottom at column 1; m the 2nd at column 0 (`locate_follows_a_host_cell_through_the_rewrap`).
+        let projection = TerminalProjection(hostCols: 10, hostRows: 3)
+        _ = projection.setViewport(cols: 4, rows: 3)
+        _ = projection.feed(bytes: Data("abcdefghijklmno\r\nxyz".utf8), paint: true)
+        let hit = TerminalFindPage.Hit(
+            start: .init(marker: 10, column: 9), end: .init(marker: 10, column: 9), rowsFromBottom: 3, snippet: "j")
+        let moved = TerminalProjectingSession.relocated(page([hit])) { rows, column in
+            projection.locate(hostFromBottom: UInt64(rows), hostColumn: UInt32(column))
+                .map { (Int($0.fromBottom), Int($0.column)) }
+        }
+        #expect(moved.hits.count == 1)
+        #expect(moved.hits.first?.rowsFromBottom == 3)
+        #expect(moved.hits.first?.start.column == 1)
+        #expect(moved.hits.first?.end.marker == 0)
+    }
+
+    @Test func aMatchAcrossHostRowsKeepsItsPhoneSpanAndUnheldHitsGo() {
+        let across = TerminalFindPage.Hit(
+            start: .init(marker: 5, column: 8), end: .init(marker: 6, column: 1), rowsFromBottom: 4, snippet: "ab")
+        let old = TerminalFindPage.Hit(
+            start: .init(marker: 1, column: 0), end: .init(marker: 1, column: 0), rowsFromBottom: 900, snippet: "z")
+        let moved = TerminalProjectingSession.relocated(page([across, old])) { rows, column in
+            rows > 100 ? nil : (rows * 2, column)
+        }
+        #expect(moved.hits.count == 1)
+        #expect(moved.hits.first?.rowsFromBottom == 8)
+        #expect(moved.hits.first?.end.marker == 2)
+        #expect(moved.hits.first?.start.column == 8 && moved.hits.first?.end.column == 1)
+    }
+}
+#endif
