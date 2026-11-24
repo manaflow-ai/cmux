@@ -150,6 +150,111 @@ fn classic_import_plan_without_a_classic_session_has_no_plan() {
 }
 
 #[test]
+fn settings_presence_is_probeable_without_decoding_a_classic_session() {
+    let mux = Mux::new_for_test("classic-import-settings-probe", SurfaceOptions::default());
+    let home = home(false);
+    let mut places = home.places();
+    places.config_home = home.0.join("classic-xdg");
+    places.settings_directory = home.0.join("next-settings/cmux");
+    places.harness_destination = home.0.join("next-settings/harnesses");
+    let classic = places.config_home.join("cmux");
+    std::fs::create_dir_all(&classic).unwrap();
+    // This is intentionally not valid session JSON. The metadata-only probe must
+    // still offer the settings import, while the consented workspace plan reports
+    // that there is no session to decode.
+    std::fs::write(classic.join("cmux.json"), b"{not a session").unwrap();
+
+    let probe = mux.classic_import_probe(Some(&places), BUNDLE, Mode::Manual).unwrap();
+    assert_eq!(probe["available"], true, "{probe}");
+    assert!(probe["source"].is_null() && probe["observed"].is_string(), "{probe}");
+
+    let plan = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
+    assert_eq!(plan["settings_only"], true, "{plan}");
+    assert!(plan["source"].is_null() && plan["plan"].is_null(), "{plan}");
+}
+
+#[test]
+fn consented_settings_record_imports_sidecars_once_then_finish_marks_observed() {
+    let mux = Mux::new_for_test("classic-import-settings-record", SurfaceOptions::default());
+    let home = home(false);
+    let mut places = home.places();
+    places.config_home = home.0.join("classic-xdg");
+    places.settings_directory = home.0.join("next-settings/cmux");
+    places.harness_destination = home.0.join("next-settings/harnesses");
+
+    // Ghostty's source is in Classic Application Support. The ledger directory
+    // is present because a real import would have loaded it before recording.
+    std::fs::create_dir_all(home.ledger().parent().unwrap()).unwrap();
+    let ghostty = places.support.join(BUNDLE).join("config.ghostty");
+    std::fs::create_dir_all(ghostty.parent().unwrap()).unwrap();
+    std::fs::write(&ghostty, b"font-size = 17\n").unwrap();
+
+    let classic = places.config_home.join("cmux");
+    let harnesses = classic.join("harnesses");
+    std::fs::create_dir_all(&harnesses).unwrap();
+    std::fs::write(harnesses.join("mine.toml"), "command = 'run'\n").unwrap();
+    std::fs::write(
+        classic.join("cmux.json"),
+        br#"{"agents":{"harnesses":{"inline":{"command":"launch"}}}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(&places.harness_destination).unwrap();
+    std::fs::write(places.harness_destination.join("edited.toml"), "command = 'next'\n").unwrap();
+
+    let probe = mux.classic_import_probe(Some(&places), BUNDLE, Mode::Manual).unwrap();
+    assert_eq!(probe["available"], true, "{probe}");
+    let plan = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
+    assert_eq!(plan["settings_only"], true, "{plan}");
+    let observed = probe["observed"].as_str().unwrap();
+
+    let first = record_at(&mux, &places, json!({"event": "settings"}), "settings");
+    assert_eq!(first["replayed"], false);
+    assert_eq!(first["value"]["changed"], false);
+    assert_eq!(
+        std::fs::read_to_string(places.settings_directory.join("classic-ghostty/config.ghostty"))
+            .unwrap(),
+        "font-size = 17\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(places.harness_destination.join("mine.toml")).unwrap(),
+        "command = 'run'\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(places.harness_destination.join("edited.toml")).unwrap(),
+        "command = 'next'\n"
+    );
+    assert!(places.settings_directory.join("classic-harnesses/profiles.json").is_file());
+
+    // A retry returns the first result and cannot overwrite an edit made after
+    // the accepted import.
+    std::fs::write(
+        places.settings_directory.join("classic-ghostty/config.ghostty"),
+        "font-size = 19\n",
+    )
+    .unwrap();
+    let replay = record_at(&mux, &places, json!({"event": "settings"}), "settings");
+    assert_eq!(replay["replayed"], true);
+    assert_eq!(
+        std::fs::read_to_string(places.settings_directory.join("classic-ghostty/config.ghostty"))
+            .unwrap(),
+        "font-size = 19\n"
+    );
+
+    let finish = record_at(
+        &mux,
+        &places,
+        json!({"event": "finish", "observed": observed}),
+        "settings-finish",
+    );
+    assert_eq!(finish["value"]["state"], "completed");
+    assert_eq!(home.ledger_json()["observedClassicFiles"], observed);
+    assert_eq!(
+        mux.classic_import_probe(Some(&places), BUNDLE, Mode::Manual).unwrap()["already_imported"],
+        true
+    );
+}
+
+#[test]
 fn a_first_launch_plans_records_and_a_relaunch_makes_nothing() {
     let mux = Mux::new_for_test("classic-import-flow", SurfaceOptions::default());
     let home = home(true);
@@ -212,6 +317,10 @@ fn first_contact_while_cmux_next_was_in_use_records_classic_as_seen() {
     assert_eq!(reply["value"]["state"], "completed");
     assert_eq!(reply["value"]["workspaces"], 0);
     assert_eq!(probe()["decision"], json!({"decision": "skip", "reason": "unchanged"}));
+    assert_ne!(
+        mux.classic_import_probe(Some(&home.places()), BUNDLE, Mode::Manual).unwrap()["already_imported"],
+        true
+    );
     assert_eq!(keys(&plan(&mux, &home, Mode::Manual)).len(), 4);
     std::fs::write(home.session(), b"broken save").unwrap();
     let changed = probe();
@@ -221,6 +330,10 @@ fn first_contact_while_cmux_next_was_in_use_records_classic_as_seen() {
     assert!(plan(&mux, &home, Mode::Manual)["error"].is_string());
     record(&mux, &home, json!({"event": "decline"}), "decline");
     assert_eq!(probe()["decision"], json!({"decision": "skip", "reason": "declined"}));
+    assert_ne!(
+        mux.classic_import_probe(Some(&home.places()), BUNDLE, Mode::Manual).unwrap()["already_imported"],
+        true
+    );
     // A second first contact (a later launch) changes nothing.
     let before = std::fs::read(home.ledger()).unwrap();
     record(&mux, &home, json!({"event": "seen"}), "seen");
@@ -301,6 +414,10 @@ fn a_resumed_run_plans_from_the_save_it_started_with() {
     record(&mux, &home, begin(&first), "cut-begin");
     let done = json!({"event": "workspace", "key": started[0], "stage": "done", "next_workspace": "next-0"});
     record(&mux, &home, done, "cut-d0");
+
+    let checkpoint = std::fs::read(home.ledger()).unwrap();
+    record(&mux, &home, json!({"event": "settings"}), "resume-settings");
+    assert_eq!(std::fs::read(home.ledger()).unwrap(), checkpoint);
 
     // Classic saves again without the last workspace.
     let mut later: Value = serde_json::from_slice(&std::fs::read(home.session()).unwrap()).unwrap();
@@ -833,13 +950,21 @@ fn dev_build_own_classic_import_never_reads_the_persons_classic() {
     let mux = Mux::new_for_test("classic-import-dev-build", SurfaceOptions::default());
     let home = home(true);
     let own = home.0.join("dev-build/classic-import");
+    let settings = home.0.join("dev-build/settings/cmux-next.json");
     let (home_path, own_path) = (home.0.clone(), own.clone());
     let places = Places::from_vars(|name| match name {
+        "CMUX_NEXT_CONFIG_FILE" => Some(settings.clone().into_os_string()),
         "HOME" => Some(home_path.clone().into_os_string()),
         "CMUX_NEXT_CLASSIC_IMPORT_DIR" => Some(own_path.clone().into_os_string()),
         _ => None,
     })
     .expect("places");
+    assert_eq!(places.config_home, own.join(".config"));
+    assert_eq!(places.settings_directory, settings.parent().unwrap());
+    assert_eq!(
+        places.harness_destination,
+        settings.parent().unwrap().join("classic-harness-files")
+    );
     let empty = mux.classic_import_plan(Some(&places), BUNDLE, Mode::Manual, false).unwrap();
     assert_eq!(
         empty["source"],
