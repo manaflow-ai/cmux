@@ -69,7 +69,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let lookPrefixes = ["appearance.", "agentPane.display.font.", "ui.animation", "ui.calm", "ui.paneAnimations",
                                "ui.reducedBackgrounds", "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal font and the chat code font; the sidebar's shape, edges,
-    /// text, group headers and buttons, and the sidebar look (`SidebarLookPreset`); the tab strip's and titlebar's
+    /// text, group headers and buttons, whether its menus are drawn (so the menu look styles them), and the sidebar look (`SidebarLookPreset`); the tab strip's and titlebar's
     /// buttons and inactive tabs; pane corners; the agent chat's text sizes, sender marks and Session Info
     /// (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
     /// session info and the top right buttons as well"); and the transcript look and its tokens
@@ -77,6 +77,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let lookKeys: Set<String> = [
         "terminal.fontFamily", "agentPane.display.code.family", "terminal.fontSize",
         "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.look",
+        "sidebar.drawnMenus",
         "sidebar.density",
         "sidebar.textSize", "sidebar.groupHeader.background", "sidebar.groupPalette", "sidebar.groupGradient",
         "sidebar.showSearchButton", "sidebar.showProfileControl", "sidebar.showNewWorkspaceChooser",
