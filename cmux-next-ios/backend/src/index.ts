@@ -623,11 +623,14 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
       // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
       const failures = notifyFailures(results)
+      // Not sent: APNs refused the key or topic for another send to the same environment and topic.
+      const skipped = results.filter((r) => r.outcome === "skipped").length
       return json({
         configured: true,
         sent: results.filter((r) => r.outcome === "sent").length,
         failed: failed.length,
         dropped: drop.length,
+        ...(skipped ? { skipped } : {}),
         wants,
         batches: true,
         ...(failures.length ? { failures } : {})
