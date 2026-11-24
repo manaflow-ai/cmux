@@ -498,10 +498,20 @@ impl Pacer {
         let end = segment.seq.wrapping_add(segment.len);
         if !fresh && segment.len > 0 && connection.snd_una.is_some_and(|una| after(end, una)) {
             self.resent += 1;
-            // Taken when queued: behind fresh segments the window holds, the
-            // resent one must not wait for an ACK that needs it.
-            let snd_max = connection.snd_max.unwrap_or(end);
-            connection.delay.resent(snd_max);
+            connection.delay.resent();
+            // Ahead of the fresh data queued here (TCP takes it in any
+            // order): the delay window may hold that data until an ACK this
+            // segment is what brings.
+            if let Some(max) = connection.snd_max
+                && let Some(at) = connection.queue.iter().position(|queued| {
+                    self::segment(queued).is_some_and(|queued| {
+                        queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
+                    })
+                })
+            {
+                connection.queue.insert(at, packet);
+                return fresh;
+            }
         }
         connection.queue.push_back(packet);
         fresh

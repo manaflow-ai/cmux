@@ -98,19 +98,15 @@ fn an_application_limited_round_does_not_grow_the_window() {
 }
 
 #[test]
-fn a_resend_opens_the_window_until_its_ack() {
+fn a_resend_clears_the_samples() {
     let start = Instant::now();
     let mut delay = DelayWindow::default();
     delay.departed(1200, 1200, start);
     delay.departed(2400, 2400, start);
-    assert_eq!(delay.window(), Some(INITIAL_WINDOW).filter(|_| enabled()));
-    delay.resent(2400);
-    assert_eq!(delay.window(), None);
+    delay.resent();
     assert!(delay.departures.is_empty(), "no sample after a resend (Karn)");
-    delay.acked(1200, 2400, start + Duration::from_millis(70));
-    assert_eq!(delay.window(), None, "the ACK has not passed the resend");
-    delay.acked(2400, 2400, start + Duration::from_millis(80));
-    assert_eq!(delay.window(), Some(INITIAL_WINDOW).filter(|_| enabled()));
+    delay.acked(2400, 2400, start + Duration::from_millis(500));
+    assert_eq!(delay.base(), None);
 }
 
 #[test]

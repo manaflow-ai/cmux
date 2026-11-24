@@ -29,14 +29,13 @@
 //!   bandwidth-delay product plus [`TARGET`] of queue; with no queue it grows
 //!   by `TARGET / base`. Each change is at most a factor of two either way.
 //! - Slow start doubles the window each measured round while the queueing
-//!   delay stays under half the target, and ends as soon as the smallest of
-//!   a round's first [`SLOW_START_SAMPLES`] or more samples shows more than
-//!   the target (cutting the window as above from it).
+//!   delay stays under half the target, and ends as soon as the last
+//!   [`SLOW_START_SAMPLES`] samples all show more than the target (cutting
+//!   the window as above from the smallest, by up to four times).
 //! - A connection that did not use its window in a round (application
 //!   limited) does not grow it.
-//! - While TCP resends (from the first retransmission until the ACK passes
-//!   what had been sent then), the window does not hold: a resent segment
-//!   queued behind fresh ones the window holds back would never leave.
+//! - The window holds fresh data only: the pacer queues a resent segment
+//!   ahead of the fresh ones, which may wait for the ACK it brings.
 //!
 //! The backlog the window holds back waits in the pacer, behind every
 //! interactive connection and datagram, instead of in the path's queue.
@@ -55,7 +54,7 @@ const MIN_WINDOW: u32 = 4 * 1200;
 /// The window before the first round is measured.
 const INITIAL_WINDOW: u32 = 32 * 1200;
 /// Samples of a round before slow start may end on them.
-const SLOW_START_SAMPLES: u32 = 8;
+const SLOW_START_SAMPLES: usize = 8;
 /// Departures kept for samples; past this, segments go unsampled.
 const MAX_DEPARTURES: usize = 4096;
 /// Minutes of base-delay history (RFC 6817's BASE_HISTORY).
@@ -97,12 +96,10 @@ pub(crate) struct DelayWindow {
     round: Option<Round>,
     /// Smallest sample of the round being measured.
     round_min: Option<Duration>,
-    /// Samples in the round being measured.
-    round_samples: u32,
+    /// The last [`SLOW_START_SAMPLES`] samples, in slow start.
+    recent: VecDeque<Duration>,
     /// Largest wire flight seen in the round being measured.
     round_flight: u32,
-    /// TCP is resending: the window does not hold until the ACK passes this.
-    recovery: Option<u32>,
 }
 
 impl Default for DelayWindow {
@@ -114,18 +111,16 @@ impl Default for DelayWindow {
             base: VecDeque::new(),
             round: None,
             round_min: None,
-            round_samples: 0,
+            recent: VecDeque::new(),
             round_flight: 0,
-            recovery: None,
         }
     }
 }
 
 impl DelayWindow {
-    /// The bytes allowed on the wire, or `None` when the window does not
-    /// hold (off, or TCP resending).
+    /// The bytes of fresh data allowed on the wire, or `None` when off.
     pub(crate) fn window(&self) -> Option<u32> {
-        (enabled() && self.recovery.is_none()).then_some(self.window)
+        enabled().then_some(self.window)
     }
 
     /// The base delay: the smallest sample of the history.
@@ -145,26 +140,18 @@ impl DelayWindow {
         }
     }
 
-    /// TCP sent old sequence space again; `snd_max` is the highest sequence
-    /// end sent so far.
-    pub(crate) fn resent(&mut self, snd_max: u32) {
+    /// TCP sends old sequence space again.
+    pub(crate) fn resent(&mut self) {
         // Karn: an ACK after a resend may be for either copy.
         self.departures.clear();
         self.round_min = None;
-        self.round_samples = 0;
+        self.recent.clear();
         self.round = self.round.map(|round| Round { until: None, ..round });
-        self.recovery = Some(match self.recovery {
-            Some(point) if after(point, snd_max) => point,
-            _ => snd_max,
-        });
     }
 
     /// The ACK moved to `ack` at `now`; `snd_max` is the highest sequence end
     /// sent.
     pub(crate) fn acked(&mut self, ack: u32, snd_max: u32, now: Instant) {
-        if self.recovery.is_some_and(|point| !after(point, ack)) {
-            self.recovery = None;
-        }
         let mut newest = None;
         while let Some(&(end, departed)) = self.departures.front() {
             if after(end, ack) {
@@ -178,24 +165,11 @@ impl DelayWindow {
             let sample = now.saturating_duration_since(departed);
             if departed >= round.since {
                 self.round_min = Some(self.round_min.map_or(sample, |min| min.min(sample)));
-                self.round_samples += 1;
                 round.until.get_or_insert(snd_max);
             }
             self.note_base(sample, now);
-            // Slow start ends as soon as the round's samples so far show a
-            // standing queue past the target, not a round later: the round
-            // lags a doubling window, and by its end the queue would be a
-            // whole window deep. The minimum of several samples (HyStart's),
-            // so a burst's own queue does not end it.
-            if self.slow_start
-                && self.round_samples >= SLOW_START_SAMPLES
-                && let (Some(base), Some(rtt)) = (self.base(), self.round_min)
-                && rtt.saturating_sub(base) > TARGET
-            {
-                self.slow_start = false;
-                self.adjust(rtt);
-                self.new_round(now);
-                return;
+            if self.slow_start && self.queue_standing(sample) {
+                return self.end_slow_start(now);
             }
         }
         let Some(round) = self.round else { return };
@@ -211,8 +185,36 @@ impl DelayWindow {
     fn new_round(&mut self, now: Instant) {
         self.round = Some(Round { since: now, until: None });
         self.round_min = None;
-        self.round_samples = 0;
         self.round_flight = 0;
+    }
+
+    /// Slow start ends as soon as the last [`SLOW_START_SAMPLES`] samples
+    /// all show more than the target of queue: a round's minimum misses a
+    /// queue a doubled window builds within the round, and by the round's
+    /// end that queue is a whole window deep. Several samples, so one
+    /// burst's own queue does not end it.
+    fn queue_standing(&mut self, sample: Duration) -> bool {
+        if self.recent.len() == SLOW_START_SAMPLES {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(sample);
+        let Some(base) = self.base() else { return false };
+        self.recent.len() == SLOW_START_SAMPLES
+            && self.recent.iter().all(|sample| sample.saturating_sub(base) > target())
+    }
+
+    /// Leave slow start, scaling the window down by the queue the recent
+    /// samples show (as a round would, but by up to four times: the last
+    /// doubling may have overshot by more than two).
+    fn end_slow_start(&mut self, now: Instant) {
+        self.slow_start = false;
+        if let (Some(base), Some(&rtt)) = (self.base(), self.recent.iter().min()) {
+            let window = f64::from(self.window);
+            let scaled = window * (base + target()).as_secs_f64() / rtt.as_secs_f64().max(1e-6);
+            self.window = (scaled.clamp(window / 4.0, window) as u32).max(MIN_WINDOW);
+        }
+        self.recent.clear();
+        self.new_round(now);
     }
 
     /// A new connection on the same 4-tuple: same path, so the base stays.
@@ -239,21 +241,45 @@ impl DelayWindow {
     fn adjust(&mut self, rtt: Duration) {
         let Some(base) = self.base() else { return };
         let queueing = rtt.saturating_sub(base);
-        // Application limited: the window did not bound the round.
-        let limited = self.round_flight.saturating_mul(2) < self.window;
+        // Application limited: the window did not bound the round, so the
+        // round says nothing about it (another flow's queue included).
+        if self.round_flight.saturating_mul(2) < self.window {
+            return;
+        }
         let window = f64::from(self.window);
-        let next = if self.slow_start && queueing < TARGET / 2 {
-            if limited { window } else { window * 2.0 }
+        let next = if self.slow_start && queueing < target() / 2 {
+            window * 2.0
         } else {
             self.slow_start = false;
-            let scaled = window * (base + TARGET).as_secs_f64() / rtt.as_secs_f64().max(1e-6);
-            let scaled = scaled.clamp(window / 2.0, window * 2.0);
-            if limited { scaled.min(window) } else { scaled }
+            let scaled = window * (base + target()).as_secs_f64() / rtt.as_secs_f64().max(1e-6);
+            scaled.clamp(window / 2.0, window * 2.0)
         };
         self.window = (next as u32).max(MIN_WINDOW);
+        if std::env::var_os("DW_TRACE").is_some() {
+            eprintln!(
+                "DWTRACE {:?} rtt={:?} base={:?} flight={} ss={} -> {}",
+                std::time::Instant::now(),
+                rtt,
+                base,
+                self.round_flight,
+                self.slow_start,
+                self.window
+            );
+        }
     }
 }
 
 #[cfg(test)]
 #[path = "delay_window_tests.rs"]
 mod tests;
+
+// TEMP tuning hook (removed before commit).
+fn target() -> Duration {
+    static T: OnceLock<Duration> = OnceLock::new();
+    *T.get_or_init(|| {
+        std::env::var("DW_TARGET_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map_or(TARGET, Duration::from_millis)
+    })
+}
