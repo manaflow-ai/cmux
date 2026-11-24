@@ -40,7 +40,9 @@
 //! "deleted":N,"kept":N,"skipped":N,"bytes":N,"skipped_files":[{"path","kind","why"}],
 //! "skipped_counts":{KIND:N}}` (a pull adds `fast_forwarded` and `head`),
 //! exit 0; on failure `{"ok":false,"error":...,"error_code":...}` on stdout
-//! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`; a
+//! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`, and
+//! still writes every file that merged and names each file: see
+//! [`pull`]'s module docs; a
 //! full disk on the machine is `disk_full`), exit 1; bad usage exits 64. A
 //! push also prints its progress on stderr as JSON lines
 //! (`{"progress":{"files_done","files_total","bytes_done","bytes_total"}}`):
