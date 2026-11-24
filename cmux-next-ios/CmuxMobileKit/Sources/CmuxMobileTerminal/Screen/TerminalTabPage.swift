@@ -107,6 +107,17 @@ public struct TerminalTabPage: View {
         self.isInteractive = isInteractive
     }
 
+    /// How far above the page's bottom inset its rows end now: the dock at rest (key row
+    /// and one-line composer) over the keyboard when it is up (``TerminalConnectingView``).
+    private var rowsLift: CGFloat {
+        let model = host.model
+        let stack = TerminalDockMetrics().restingStackHeight(
+            lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+            visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
+        let keyboard = model.keyboardVisible ? TerminalKeyboardHeight.shared.height : 0
+        return max(0, keyboard - insets.bottom) + stack + TerminalDocumentLayout.composerGap
+    }
+
     public var body: some View {
         @Bindable var model = host.model
         EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
@@ -142,7 +153,8 @@ public struct TerminalTabPage: View {
             .overlay {
                 Group {
                     if model.connectionState.keepsWarmFrame {
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame, showsPlaceholder: false)
+                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame, showsPlaceholder: false,
+                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                     } else if !model.connectionState.isAttached || model.coldFrame != nil {
@@ -150,8 +162,11 @@ public struct TerminalTabPage: View {
                         // the warm set or a cold restore shows its last frame at
                         // once; once attached the frame stays until the live rows
                         // are drawn, then goes in one frame: a cut, never a fade
-                        // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                        // over live rows at other positions (R3-4). Laid out for the
+                        // page as it is now (keyboard up or down), never over the
+                        // composer: typing and the key row work at once.
+                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
+                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)

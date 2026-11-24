@@ -172,6 +172,32 @@ public final class TerminalModel {
         coldFrame = image
         restoredFrame = image
         if snapshot == nil { snapshot = image }
+        measureColdFrame(image)
+    }
+
+    /// Where the cached frame's rows end (``TerminalFrameRows``), measured off the main
+    /// thread when the frame is restored; nil until then (the page draws no still until it
+    /// knows where its rows go) or for a blank frame.
+    public private(set) var coldFrameRows: TerminalFrameRows?
+    /// The cached frame has been measured (its rows may still be nil: a blank still).
+    public private(set) var coldFrameMeasured = false
+
+    private func measureColdFrame(_ image: UIImage) {
+        coldFrameRows = nil
+        coldFrameMeasured = false
+        guard let cgImage = image.cgImage else {
+            coldFrameMeasured = true
+            return
+        }
+        let box = TerminalUncheckedImage(cgImage)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let rows = TerminalFrameRows.measure(box.image)
+            await MainActor.run { [weak self] in
+                guard let self, self.coldFrame === image else { return }
+                self.coldFrameRows = rows
+                self.coldFrameMeasured = true
+            }
+        }
     }
 
     /// The cached frame this host was given (`restoreLastFrame`), kept after
@@ -197,6 +223,8 @@ public final class TerminalModel {
         self.programName = session.programName
         self.connectionState = session.connectionState
         quietStatus.update(down: !session.connectionState.isAttached)
+        // Listening from the first terminal on: a cached frame is laid out at the keyboard's height.
+        _ = TerminalKeyboardHeight.shared
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
