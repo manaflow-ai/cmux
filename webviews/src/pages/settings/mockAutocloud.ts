@@ -28,10 +28,16 @@ const GITHUB_EVENTS: Array<[string, string]> = [
 const OPS: Array<[string, string]> = [
   ["equals", "equals"],
   ["not_equals", "does not equal"],
-  ["contains", "contains"],
-  ["matches", "matches"],
   ["in", "is one of"],
+  ["not_in", "is none of"],
+  ["contains", "contains"],
+  ["prefix", "starts with"],
   ["exists", "exists"],
+  ["missing", "is missing"],
+  ["gt", "is more than"],
+  ["gte", "is at least"],
+  ["lt", "is less than"],
+  ["lte", "is at most"],
 ];
 
 const HARNESSES: Array<[string, string]> = [
@@ -51,7 +57,10 @@ export const MOCK_AUTOCLOUD_CATALOG: AutocloudCatalog = {
   ops: choices(OPS),
   harnesses: choices(HARNESSES),
   samples: [
-    ...GITHUB_EVENTS.map(([value, label]) => ({ value, label: `GitHub: ${label.toLowerCase()}` })),
+    ...GITHUB_EVENTS.map(([value, label]) => ({
+      value,
+      label: `GitHub: ${label.toLowerCase()}`,
+    })),
     { value: "webhook", label: "Webhook: a JSON body" },
     { value: "schedule", label: "Schedule: the time it fired" },
   ],
@@ -80,7 +89,12 @@ export const MOCK_AUTOCLOUD_TEMPLATES: AutocloudTemplate[] = [
         postBack: "comment",
         openPr: false,
       },
-      guardrails: { cooldownSeconds: 1800, maxRunsPerDay: 10, maxConcurrent: 1, maxMinutesPerRun: 30 },
+      guardrails: {
+        cooldownSeconds: 1800,
+        maxRunsPerDay: 10,
+        maxConcurrent: 1,
+        maxMinutesPerRun: 30,
+      },
     },
   },
   {
@@ -101,7 +115,12 @@ export const MOCK_AUTOCLOUD_TEMPLATES: AutocloudTemplate[] = [
         postBack: "comment",
         openPr: false,
       },
-      guardrails: { cooldownSeconds: 600, maxRunsPerDay: 20, maxConcurrent: 2, maxMinutesPerRun: 20 },
+      guardrails: {
+        cooldownSeconds: 600,
+        maxRunsPerDay: 20,
+        maxConcurrent: 2,
+        maxMinutesPerRun: 20,
+      },
     },
   },
   {
@@ -122,7 +141,12 @@ export const MOCK_AUTOCLOUD_TEMPLATES: AutocloudTemplate[] = [
         postBack: "comment",
         openPr: true,
       },
-      guardrails: { cooldownSeconds: 0, maxRunsPerDay: 10, maxConcurrent: 2, maxMinutesPerRun: 45 },
+      guardrails: {
+        cooldownSeconds: 0,
+        maxRunsPerDay: 10,
+        maxConcurrent: 2,
+        maxMinutesPerRun: 45,
+      },
     },
   },
 ];
@@ -130,7 +154,10 @@ export const MOCK_AUTOCLOUD_TEMPLATES: AutocloudTemplate[] = [
 const ciSpec: AutocloudSpec = {
   ...structuredClone(MOCK_AUTOCLOUD_TEMPLATES[0]!.spec),
   trigger: { type: "github", events: ["ci_failure"], repository: "acme/web" },
-  action: { ...structuredClone(MOCK_AUTOCLOUD_TEMPLATES[0]!.spec.action), repo: "acme/web" },
+  action: {
+    ...structuredClone(MOCK_AUTOCLOUD_TEMPLATES[0]!.spec.action),
+    repo: "acme/web",
+  },
 };
 
 export const MOCK_AUTOCLOUD_RUNS: AutocloudRun[] = [
@@ -144,7 +171,10 @@ export const MOCK_AUTOCLOUD_RUNS: AutocloudRun[] = [
     minutesText: "12 minutes",
     machine: "cloud-4",
     links: [
-      { label: "Comment", url: "https://github.com/acme/web/pull/42#issuecomment-3" },
+      {
+        label: "Comment",
+        url: "https://github.com/acme/web/pull/42#issuecomment-3",
+      },
       { label: "Session", url: "https://cmux.com/runs/run_mock_3" },
     ],
     matchedText: "workflow_run.event equals pull_request · workflow_run.pull_requests.0.number exists",
@@ -205,7 +235,11 @@ export const MOCK_AUTOCLOUD_DEPLOY: AutocloudAutomation = {
   triggerText: "Webhook · a signed POST",
   conditionsText: "Only when type equals deploy.failed",
   actionText: "Starts Codex on acme/api",
-  lastRun: { ...MOCK_AUTOCLOUD_RUNS[1]!, id: "run_mock_d1", whenText: "yesterday" },
+  lastRun: {
+    ...MOCK_AUTOCLOUD_RUNS[1]!,
+    id: "run_mock_d1",
+    whenText: "yesterday",
+  },
   lastRunText: "Succeeded 1 day ago",
   webhookUrl: "https://api.cmux.com/v1/hooks/auto_mock_deploy",
   spec: {
@@ -222,7 +256,12 @@ export const MOCK_AUTOCLOUD_DEPLOY: AutocloudAutomation = {
       postBack: "none",
       openPr: true,
     },
-    guardrails: { cooldownSeconds: 900, maxRunsPerDay: 5, maxConcurrent: 1, maxMinutesPerRun: 30 },
+    guardrails: {
+      cooldownSeconds: 900,
+      maxRunsPerDay: 5,
+      maxConcurrent: 1,
+      maxMinutesPerRun: 30,
+    },
   },
 };
 
@@ -240,7 +279,11 @@ export const MOCK_AUTOCLOUD_NIGHTLY: AutocloudAutomation = {
   webhookUrl: null,
   spec: {
     name: "Weekday dependency check",
-    trigger: { type: "schedule", cron: "0 9 * * 1-5", timeZone: "America/Los_Angeles" },
+    trigger: {
+      type: "schedule",
+      cron: "0 9 * * 1-5",
+      timeZone: "America/Los_Angeles",
+    },
     conditions: [],
     action: {
       type: "start_agent",
@@ -251,7 +294,12 @@ export const MOCK_AUTOCLOUD_NIGHTLY: AutocloudAutomation = {
       postBack: "none",
       openPr: true,
     },
-    guardrails: { cooldownSeconds: 0, maxRunsPerDay: 1, maxConcurrent: 1, maxMinutesPerRun: 30 },
+    guardrails: {
+      cooldownSeconds: 0,
+      maxRunsPerDay: 1,
+      maxConcurrent: 1,
+      maxMinutesPerRun: 30,
+    },
   },
 };
 
@@ -276,7 +324,12 @@ export function mockAutocloudState(overview: AutocloudOverview | null = mockAuto
 
 // ---- the preview, as cli/autocloud.rs `preview` renders it (a small mirror for the mock only) ----
 
-const SAMPLE_REPOSITORY = { full_name: "acme/web", name: "web", owner: { login: "acme" }, default_branch: "main" };
+const SAMPLE_REPOSITORY = {
+  full_name: "acme/web",
+  name: "web",
+  owner: { login: "acme" },
+  default_branch: "main",
+};
 const PR = {
   number: 42,
   title: "Fix the login redirect",
@@ -298,10 +351,21 @@ const SAMPLES: Record<string, unknown> = {
       head_sha: "4f2c9e1",
       html_url: "https://github.com/acme/web/actions/runs/1234",
       event: "pull_request",
-      pull_requests: [{ number: 42, head: { ref: "fix-login-redirect" }, base: { ref: "main" } }],
+      pull_requests: [
+        {
+          number: 42,
+          head: { ref: "fix-login-redirect" },
+          base: { ref: "main" },
+        },
+      ],
     },
   },
-  pr_opened: { action: "opened", repository: SAMPLE_REPOSITORY, sender: { login: "octocat" }, pull_request: PR },
+  pr_opened: {
+    action: "opened",
+    repository: SAMPLE_REPOSITORY,
+    sender: { login: "octocat" },
+    pull_request: PR,
+  },
   review_requested: {
     action: "review_requested",
     repository: SAMPLE_REPOSITORY,
@@ -314,7 +378,11 @@ const SAMPLES: Record<string, unknown> = {
     repository: SAMPLE_REPOSITORY,
     sender: { login: "octocat" },
     label: { name: "autofix" },
-    issue: { number: 7, title: "Search returns stale results", html_url: "https://github.com/acme/web/issues/7" },
+    issue: {
+      number: 7,
+      title: "Search returns stale results",
+      html_url: "https://github.com/acme/web/issues/7",
+    },
   },
   pr_comment: {
     action: "created",
@@ -322,9 +390,23 @@ const SAMPLES: Record<string, unknown> = {
     comment: { body: "@cmux please fix the flaky test" },
     issue: { number: 42 },
   },
-  pr_review_comment: { action: "created", repository: SAMPLE_REPOSITORY, comment: { body: "nit" }, pull_request: PR },
-  push: { ref: "refs/heads/main", repository: SAMPLE_REPOSITORY, head_commit: { id: "4f2c9e1" } },
-  webhook: { type: "deploy.failed", service: "api", environment: "staging", url: "https://deploys.example.com/991" },
+  pr_review_comment: {
+    action: "created",
+    repository: SAMPLE_REPOSITORY,
+    comment: { body: "nit" },
+    pull_request: PR,
+  },
+  push: {
+    ref: "refs/heads/main",
+    repository: SAMPLE_REPOSITORY,
+    head_commit: { id: "4f2c9e1" },
+  },
+  webhook: {
+    type: "deploy.failed",
+    service: "api",
+    environment: "staging",
+    url: "https://deploys.example.com/991",
+  },
   schedule: { scheduledAt: "2026-11-24T17:00:00Z" },
 };
 
@@ -373,12 +455,30 @@ function holds(c: AutocloudCondition, event: unknown): [boolean, string | null] 
       return [actual !== null && actual.includes(String(value)), actual];
     case "in":
       return [actual !== null && list.includes(actual), actual];
-    case "matches":
-      try {
-        return [actual !== null && new RegExp(String(value)).test(actual), actual];
-      } catch {
+    case "not_in":
+      return [actual === null || !list.includes(actual), actual];
+    case "prefix":
+      return [actual !== null && actual.startsWith(String(value)), actual];
+    case "missing":
+      return [raw === undefined || raw === null, actual];
+    case "gt":
+    case "gte":
+    case "lt":
+    case "lte": {
+      const a = Number(actual);
+      const w = Number(value);
+      if (
+        actual === null ||
+        actual.trim() === "" ||
+        Number.isNaN(a) ||
+        String(value).trim() === "" ||
+        Number.isNaN(w)
+      ) {
         return [false, actual];
       }
+      const ok = c.op === "gt" ? a > w : c.op === "gte" ? a >= w : c.op === "lt" ? a < w : a <= w;
+      return [ok, actual];
+    }
     default:
       return [false, actual];
   }
@@ -393,7 +493,11 @@ export function mockAutocloudPreview(spec: AutocloudSpec, sample?: string): Auto
         ? "schedule"
         : ((spec.trigger as { events?: string[] }).events?.[0] ?? "ci_failure"));
   const event = SAMPLES[kind] ?? SAMPLES.ci_failure;
-  const scope = { event, trigger: spec.trigger, run: { url: "https://cmux.com/runs/sample", id: "run_sample" } };
+  const scope = {
+    event,
+    trigger: spec.trigger,
+    run: { url: "https://cmux.com/runs/sample", id: "run_sample" },
+  };
   const [ref, missingRef] = render(spec.action.ref, scope);
   const [prompt, missingPrompt] = render(spec.action.prompt, scope);
   const missing = [...new Set([...missingRef, ...missingPrompt])];
@@ -459,7 +563,10 @@ function refuse(
   message: string,
 ): { answer: AutocloudAnswer; state: AutocloudState } {
   const error = { code: "cli.invalid_spec", message };
-  return { answer: { ok: false, error }, state: { ...state, error: { action, ...error } } };
+  return {
+    answer: { ok: false, error },
+    state: { ...state, error: { action, ...error } },
+  };
 }
 
 /** The mock CLI's answer to one action, and the state the card reads after it. */
@@ -472,7 +579,13 @@ export function runMockAutocloud(
   if (run.action === "preview") return { answer: mockAutocloudPreview(run.spec, run.sample), state };
   if (!overview?.ok || !overview.available)
     return {
-      answer: { ok: false, error: { code: "host.unavailable", message: "Automations are not here yet." } },
+      answer: {
+        ok: false,
+        error: {
+          code: "host.unavailable",
+          message: "Automations are not here yet.",
+        },
+      },
       state,
     };
   const list = overview.automations;
@@ -491,7 +604,10 @@ export function runMockAutocloud(
       return { answer: { ok: true }, state: withList(next) };
     }
     case "remove":
-      return { answer: { ok: true }, state: withList(list.filter((a) => a.id !== run.id)) };
+      return {
+        answer: { ok: true },
+        state: withList(list.filter((a) => a.id !== run.id)),
+      };
     case "create":
     case "update": {
       if (!run.spec.name.trim()) return refuse(state, run.action, "Name the automation.");
