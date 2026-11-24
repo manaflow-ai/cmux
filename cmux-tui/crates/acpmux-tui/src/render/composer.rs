@@ -105,15 +105,14 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         if rows.len() > visible {
             let track =
                 Rect { x: bx.x + bx.width - 2, y: text_area.y, width: 1, height: text_area.height };
-            let thumb =
-                crate::tui::scroll::thumb_geometry(rows.len(), visible, scroll, track.height);
+            let thumb = crate::scroll::thumb_geometry(rows.len(), visible, scroll, track.height);
             draw_thumb(
                 buf,
                 track,
                 thumb,
                 c.scrollbar_thumb_fg,
                 c.scrollbar_thumb_active_fg,
-                crate::tui::scroll::ThumbState::Idle,
+                crate::scroll::ThumbState::Idle,
             );
         }
         if focused {

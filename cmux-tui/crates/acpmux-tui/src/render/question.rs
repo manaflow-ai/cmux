@@ -3,7 +3,7 @@
 //! numbered options (checkboxes for a multi select), then the keys.
 
 use super::*;
-use crate::tui::Answering;
+use crate::Answering;
 
 /// Rows the card needs: borders, head, prompt, one per option, keys.
 pub(super) fn card_height(flow: &Answering) -> u16 {
@@ -29,7 +29,7 @@ pub(super) fn draw_question_card(
     super::composer::rounded_border(buf, area, Style::default().fg(c.attention_fg));
     let inner_w = area.width.saturating_sub(4) as usize;
     let x = area.x + 2;
-    let total = crate::question_answer::items(&flow.question).len();
+    let total = acpmux::question_answer::items(&flow.question).len();
     let agent = flow.question["agent"].as_str().unwrap_or("The agent");
     let header = item["header"].as_str().unwrap_or("");
     let mut head = format!("{agent} asks");

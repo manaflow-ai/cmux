@@ -351,7 +351,7 @@ impl App {
                         .selected_id()
                         .and_then(|id| self.transcripts.get(&id))
                         .and_then(|t| t.items.get(idx))
-                        .map(crate::transcript::item_text)
+                        .map(acpmux::transcript::item_text)
                         .unwrap_or_default();
                     self.copy_to_clipboard(&text);
                 }

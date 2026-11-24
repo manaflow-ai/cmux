@@ -301,14 +301,14 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     // Scrollbar at the inner edge when the list overflows.
     if entries.len() > body_h && body_h > 0 {
         let track = Rect { x: area.x + area.width - 2, y: body_y, width: 1, height: body_h as u16 };
-        let thumb = crate::tui::scroll::thumb_geometry(entries.len(), body_h, offset, track.height);
+        let thumb = crate::scroll::thumb_geometry(entries.len(), body_h, offset, track.height);
         draw_thumb(
             buf,
             track,
             thumb,
             c.scrollbar_thumb_fg,
             c.scrollbar_thumb_active_fg,
-            crate::tui::scroll::ThumbState::Idle,
+            crate::scroll::ThumbState::Idle,
         );
     }
     // The resize handle column stays the sidebar shade; a hover or drag

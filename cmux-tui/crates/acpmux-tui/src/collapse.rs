@@ -6,7 +6,7 @@
 //! flips. The defaults here match what the renderer draws.
 
 use super::*;
-use crate::transcript::{Item, Transcript};
+use acpmux::transcript::{Item, Transcript};
 
 /// Whether `t` starts open before any flip, as the renderer draws it.
 fn default_open(tr: &Transcript, t: Toggle, show_thoughts: bool) -> bool {
