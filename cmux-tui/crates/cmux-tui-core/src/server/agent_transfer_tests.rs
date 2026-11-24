@@ -292,6 +292,22 @@ fn a_receive_on_a_machine_whose_acpmux_is_down_starts_it_once() {
     assert_eq!(starts.load(Ordering::SeqCst), 1);
 }
 
+/// A receive whose acpmux starter fails answers with the starter's own error, so a failed Move
+/// to Cloud names its real cause instead of only "no acpmux or host" (#31209).
+#[test]
+fn a_receive_whose_acpmux_starter_fails_carries_the_starters_error() {
+    let fake = FakeAcpmux::start("xstartfail");
+    let home = Home::new("startfail");
+    let mux = transfer_mux(&fake, "atx-startfail", &home, true);
+    mux.set_acpmux_socket(Some(home.path.join("down.sock")));
+    mux.set_acpmux_starter(Some(Arc::new(|| Err("acpmux binary not found at /opt/acpmux".into()))));
+    let mut client = Client::connect(&mux, "xstartfail");
+    let reply = receive(&mut client, &home.text("work/project"));
+    assert_code(&reply, "agent_transfer.unavailable");
+    let error = reply["error"].as_str().unwrap_or_default();
+    assert!(error.contains("acpmux binary not found at /opt/acpmux"), "{reply}");
+}
+
 /// A move under way never starts acpmux: its finish on a daemon whose acpmux went away is
 /// unavailable, and the pump runs it again.
 #[test]
