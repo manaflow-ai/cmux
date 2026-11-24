@@ -4,9 +4,7 @@
 //! answer, no connection) the gate is shut. From then on one post may probe the hub per window,
 //! and the window doubles with each failure from [`FIRST_WINDOW`] up to [`MAX_WINDOW`] (or the
 //! hub's own `retryAfterSeconds` when that is longer). Every other send is queued in the outbox
-//! without asking the hub. The first post the hub takes opens the gate again, and wakes every
-//! send queued behind it ([`Gate::opened`]): one refused window costs the queue one window, not
-//! one window per send.
+//! without asking the hub. The first post the hub takes opens the gate again.
 //!
 //! A hub that answers ok never pays for this: an open gate is one atomic load.
 
@@ -14,7 +12,6 @@ use crate::no_panic::LockExt;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 use std::time::Duration;
-use tokio::sync::Notify;
 use tokio::time::Instant;
 
 /// The window after the first failure.
@@ -28,8 +25,6 @@ pub struct Gate {
     failures: AtomicU32,
     /// Until when no post may go; a probe moves it on as it claims its slot.
     until: Mutex<Option<Instant>>,
-    /// Woken when the hub takes a post after failing.
-    opened: Notify,
 }
 
 impl Gate {
@@ -57,22 +52,7 @@ impl Gate {
         if self.failures.load(SeqCst) != 0 {
             self.failures.store(0, SeqCst);
             *self.until.lock_or_recover() = None;
-            self.opened.notify_waiters();
         }
-    }
-
-    /// Resolves when the hub next takes a post after failing. Arm it (`enable`) before the post
-    /// whose failure it waits behind: `notify_waiters` wakes only waits that exist.
-    pub fn opened(&self) -> tokio::sync::futures::Notified<'_> {
-        self.opened.notified()
-    }
-
-    /// When the gate lets its next probe go, while shut.
-    pub fn reopens_at(&self) -> Option<Instant> {
-        if !self.shut() {
-            return None;
-        }
-        *self.until.lock_or_recover()
     }
 
     /// A post failed in a way that passes: shut it for the next window, or `retry_after` when the
@@ -142,21 +122,6 @@ mod tests {
         gate.answered();
         assert!(!gate.shut());
         assert!((0..10).all(|_| gate.may_try_at(at(10_001))));
-    }
-
-    #[tokio::test]
-    async fn an_answer_after_failing_wakes_every_send_waiting_behind_it() {
-        use futures_util::FutureExt as _;
-        let gate = Gate::default();
-        gate.failed(Some(Duration::from_secs(30)));
-        assert!(gate.reopens_at().is_some());
-        let mut waits: Vec<_> = (0..20).map(|_| Box::pin(gate.opened())).collect();
-        for w in &mut waits {
-            w.as_mut().enable();
-        }
-        gate.answered();
-        assert!(gate.reopens_at().is_none());
-        assert!(waits.into_iter().all(|w| w.now_or_never().is_some()));
     }
 
     #[test]
