@@ -842,8 +842,8 @@ fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Fallback> {
 /// [`BIG_UNTRACKED_TOTAL_CAP`] (RFD 0066 piece 4; it used to stay here).
 const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
 
-/// An untracked file bigger than this stays on this Mac, named with its
-/// size: one checkpoint or dataset would outweigh the rest of the seed.
+/// An untracked file bigger than this (100 MB, decimal as the reason prints
+/// it, unlike [`BIG_UNTRACKED`]'s MiB) stays on this Mac, named with its size.
 pub(crate) const BIG_UNTRACKED_FILE_CAP: u64 = 100_000_000;
 
 /// The most bytes the big untracked files (over [`BIG_UNTRACKED`]) add to a
