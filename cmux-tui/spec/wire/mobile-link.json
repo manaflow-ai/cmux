@@ -252,6 +252,12 @@
     "service:version"
   ],
   "capabilities": {
+    "agent-cli-hybrid-v1": [
+      "control:set-client-info.capabilities/agent-cli-hybrid-v1"
+    ],
+    "agent-cli-hybrid-v2": [
+      "control:set-client-info.capabilities/agent-cli-hybrid-v2"
+    ],
     "agent-session-tabs-v1": [
       "field:list-workspaces#agent_session"
     ],
@@ -259,6 +265,9 @@
       "param:appearance-wallpaper#id",
       "service:appearance",
       "service:appearance-wallpaper"
+    ],
+    "attach-output-coalesce-v1": [
+      "control:set-client-info.capabilities/attach-output-coalesce-v1"
     ],
     "browser-stream-v1": [
       "param:browser#tab",
@@ -360,6 +369,12 @@
     ],
     "tab-snapshots-v1": [
       "service:tabs"
+    ],
+    "terminal-full-screen-frames-v1": [
+      "control:set-client-info.capabilities/terminal-full-screen-frames-v1"
+    ],
+    "terminal-shell-lines-v1": [
+      "control:set-client-info.capabilities/terminal-shell-lines-v1"
     ],
     "webrtc-media": [
       "field:webrtc-offer#mediaFor"
