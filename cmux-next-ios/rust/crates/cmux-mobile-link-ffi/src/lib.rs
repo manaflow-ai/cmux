@@ -310,6 +310,12 @@ impl Drop for LinkHandle {
 }
 
 impl LinkHandle {
+    /// Test support: whether this link's WireGuard session signals through a Mac's local hub.
+    #[doc(hidden)]
+    pub fn signals_locally(&self) -> Option<bool> {
+        cmux_mobile_link::dial::wireguard::session_signals_locally(&self.session_id, true)
+    }
+
     /// A remote surface's video stream: `browser` or `surface`.
     async fn open_remote_surface(
         &self,
@@ -1172,6 +1178,8 @@ async fn network_changed_on(
     team_id: String,
     device_id: String,
 ) -> Vec<TimingMark> {
+    // The ads were seen on the old network: a dial now would wait on a dead hub.
+    local_link::local_link_forget_all();
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
@@ -1215,6 +1223,13 @@ async fn network_changed_on(
     if opened {
         if let Some(probe) = probe {
             probe.abort();
+        }
+        // Sessions that came up through a Mac's local hub leave it with the LAN: they signal
+        // through the new Worker socket from now on.
+        if let Some(socket) = pool.pooled(&key).await
+            && cmux_mobile_link::dial::wireguard::rehome_local_after_roam(&socket.client) > 0
+        {
+            timeline.mark("local_rehomed");
         }
     } else {
         let answered = match alive {

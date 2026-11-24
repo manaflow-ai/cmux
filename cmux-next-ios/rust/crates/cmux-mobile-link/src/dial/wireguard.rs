@@ -53,10 +53,13 @@ use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
 pub use paths::{app_backgrounded, set_app_backgrounded};
-pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
+pub use roam::{
+    network_changed, rehome, rehome_local_after_roam, resume_session, roam_timeline, route_destinations,
+};
 #[doc(hidden)]
 pub use roam::{
-    roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
+    roam_session, session_endpoints, session_signals_locally, simulate_blackout, simulate_network_loss,
+    simulate_turn_loss,
 };
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
