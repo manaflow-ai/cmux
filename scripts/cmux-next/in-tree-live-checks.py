@@ -1648,6 +1648,13 @@ def build_user_grid(page_tab):
     measured page's pane and its divider stay where the rows look for them. Returns what it opened."""
     made = {}
     terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+    if not terminal_tab:
+        # The split's reply named no tab (in-tree OFF, 2026-11-24): the terminal tab from the panes' topology.
+        focus = rpc("debug.focus") or {}
+        for pane in [p for w in focus.get("windows") or [] for p in w.get("topology") or []] + list(focus.get("topology") or []):
+            terminal_tab = next((str(t).split(":", 1)[0] for t in pane.get("tabs") or [] if str(t).endswith(":terminal")), None)
+            if terminal_tab:
+                break
     for name, from_tab, query in (("heavy", page_tab, "?grid-heavy"), ("probe2", terminal_tab, "?grid-a"),
                                   ("probe3", terminal_tab, "?grid-b")):
         if not from_tab:
@@ -1665,9 +1672,14 @@ def build_user_grid(page_tab):
     time.sleep(1.0)  # test harness: every page draws (the heavy canvas starts)
     views = [v for v in main_layers().get("page_views") or [] if not v.get("parked")]
     made["page_views_shown"] = len(views)
+    # In-tree OFF has no in-tree page views: there the grid counts as built when every page opened its tab.
+    opened = sum(1 for k in ("heavy", "probe2", "probe3") if isinstance(made.get(k), dict) and made[k].get("tab")) + 1
+    made["pages_opened"] = opened
     RAW["user_grid"] = made
-    row("PASS" if len(views) >= 4 else "FAIL", "user_grid",
-        {"page_views_shown": len(views), "made": made, "pass_if": "4 page views shown (the user's grid: 4 pages + a terminal)"})
+    built = len(views) >= 4 if opts.in_tree == "on" else opened >= 4
+    row("PASS" if built else "FAIL", "user_grid",
+        {"page_views_shown": len(views), "pages_opened": opened, "made": made,
+         "pass_if": "the user's grid: 4 pages + a terminal (in-tree ON: 4 page views shown; OFF: 4 pages opened)"})
     return made
 
 
