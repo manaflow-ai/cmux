@@ -17,6 +17,8 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .args(args)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        // `status` never refreshes the index it is comparing.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .expect("git runs");
     assert!(
