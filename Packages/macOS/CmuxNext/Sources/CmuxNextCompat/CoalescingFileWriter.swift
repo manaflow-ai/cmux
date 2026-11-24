@@ -174,6 +174,9 @@ public nonisolated final class CoalescingFileWriter: Sendable {
         if overBound {
             queue.async { [self] in drain() }
         } else if arm {
+            // concurrency-allow: the window's one-shot deadline runs drain() on the writer's own serial queue
+            // (a utility queue, or the store's background queue), never the main thread; CmuxNextCompat sits
+            // below CmuxNextWakeups, so DemandTimer is out of reach here, and one deadline per burst is not a poll
             queue.asyncAfter(deadline: .now() + window) { [self] in drain() }
         }
     }
