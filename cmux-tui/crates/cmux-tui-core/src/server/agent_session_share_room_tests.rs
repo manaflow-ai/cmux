@@ -2344,4 +2344,4 @@ fn the_access_request_refusals_a_guest_may_see_are_listed() {
 }
 
 #[path = "agent_session_share_latency_tests.rs"]
-mod latency;
+mod shares;
