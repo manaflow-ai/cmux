@@ -104,17 +104,26 @@ async fn raw_up(s: &mut TcpStream, data: &[u8]) -> Duration {
 }
 
 /// Phone sends `data` as a bundle. Returns (time, bytes sent up).
-async fn bundle_up(s: &mut TcpStream, key: &PairKey, store: &mut MemStore, data: &[u8]) -> (Duration, usize) {
+async fn bundle_up(
+    s: &mut TcpStream,
+    key: &PairKey,
+    store: &mut MemStore,
+    data: &[u8],
+) -> (Duration, usize) {
     let t = Instant::now();
     let tx = Sender::new(key, Kind::Attachment, data, store).unwrap();
     let offer = tagged(b'O', &tx.offer());
     let mut sent = offer.len();
     write_msg(s, &offer).await;
     let want = read_msg(s).await.unwrap();
-    for m in tx.on_want(&want, store, BATCH_BYTES).unwrap() {
-        let m = tagged(b'C', &m);
+    // Chunk messages stream back to back (no ack per batch); the acks are read after the last one.
+    let msgs = tx.on_want(&want, store, BATCH_BYTES).unwrap();
+    for m in &msgs {
+        let m = tagged(b'C', m);
         sent += m.len();
         write_msg(s, &m).await;
+    }
+    for _ in &msgs {
         read_msg(s).await.unwrap();
     }
     (t.elapsed(), sent)
@@ -129,7 +138,12 @@ async fn raw_down(s: &mut TcpStream, n: u8) -> (Duration, usize) {
 }
 
 /// Phone opens blob `n` as a bundle against its own store.
-async fn bundle_down(s: &mut TcpStream, key: &PairKey, store: &mut MemStore, n: u8) -> (Duration, usize, Vec<u8>) {
+async fn bundle_down(
+    s: &mut TcpStream,
+    key: &PairKey,
+    store: &mut MemStore,
+    n: u8,
+) -> (Duration, usize, Vec<u8>) {
     let t = Instant::now();
     write_msg(s, &[b'M', n]).await;
     let offer = read_msg(s).await.unwrap();
@@ -186,7 +200,8 @@ async fn main() {
     let profile_name = args.get(1).map_or("lte", String::as_str);
     let seed: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
     let mib: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(4);
-    let profile = ProfileFile::builtin().get(profile_name).expect("a profile in link-profiles.json").clone();
+    let profile =
+        ProfileFile::builtin().get(profile_name).expect("a profile in link-profiles.json").clone();
     let label = format!("{}@{}", profile.name, profile.version);
 
     let key = PairKey::derive(&[0x42; 32]);
@@ -248,6 +263,11 @@ async fn main() {
     row("re-sent attachment", raw_resend, attachment.len(), bundle_resend, resend_bytes);
     row("attachment open (phone holds it)", raw_open, raw_open_bytes, bundle_open, open_bytes);
     row("history page after +40 events", raw_page, raw_page_bytes, bundle_page, page_bytes);
+    // The link deflates today; the page's compressed size is the floor a whole resend could reach.
+    let z = zstd::bulk::compress(&page_after, 3).unwrap().len();
+    println!(
+        "{{\"profile\":\"{label}\",\"row\":\"history page compressed whole (zstd 3)\",\"bytes\":{z}}}"
+    );
 }
 
 fn tmp_ids(key: &PairKey, data: &[u8]) -> Vec<cmux_bundle::ChunkId> {

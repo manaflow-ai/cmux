@@ -424,7 +424,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
     const peer = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId))
     if (!peer) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
-    if (chunk[1] !== "have" && chunk[1] !== "get" && !CHUNK_ID.test(chunk[1]!.toLowerCase())) throw new HttpError(400, "bad_request", "chunk id must be 64 lowercase hexadecimal characters")
+    if (chunk[1] !== "have" && chunk[1] !== "get" && (!CHUNK_ID.test(chunk[1]!) || chunk[1] !== chunk[1]!.toLowerCase())) throw new HttpError(400, "bad_request", "chunk id must be 64 lowercase hexadecimal characters")
     const cache = env.CHUNK_CACHE.get(env.CHUNK_CACHE.idFromName(chunkPairName(me, space, deviceId, peer)), caller.hint ? { locationHint: caller.hint } : undefined)
     const target = chunk[1] === "have" ? "/have" : chunk[1] === "get" ? "/get" : `/${chunk[1]!.toLowerCase()}`
     const headers = new Headers(req.headers)

@@ -41,14 +41,21 @@ export class ChunkCache extends DurableObject<Env> {
   override async fetch(req: Request): Promise<Response> {
     const device = req.headers.get("x-cmux-chunk-device") ?? ""
     if (!device) return bad("missing chunk device")
-    const body = req.method === "PUT" ? await req.arrayBuffer() : undefined
-    const cost = body?.byteLength ?? 256
-    if (!this.take(device, cost)) return new Response("rate limited", { status: 429, headers: { "retry-after": "60" } })
+    const raw = req.method === "PUT" || req.method === "POST" ? await req.arrayBuffer() : undefined
+    if (!this.take(device, raw?.byteLength ?? 0)) return new Response("rate limited", { status: 429, headers: { "retry-after": "60" } })
     const path = new URL(req.url).pathname
-    if (req.method === "PUT") return this.put(path, body!)
-    if (req.method === "GET") return this.get(path)
-    if (req.method === "POST" && path === "/have") return this.have(await this.readJson(req))
-    if (req.method === "POST" && path === "/get") return this.batchGet(await this.readJson(req))
+    if (req.method === "PUT") return this.put(path, raw!)
+    if (req.method === "GET") return this.get(path, device)
+    let parsed: unknown
+    if (raw) {
+      try {
+        parsed = JSON.parse(new TextDecoder().decode(raw))
+      } catch {
+        parsed = undefined
+      }
+    }
+    if (req.method === "POST" && path === "/have") return this.have(parsed)
+    if (req.method === "POST" && path === "/get") return this.batchGet(parsed, device)
     return new Response("not found", { status: 404 })
   }
 
@@ -57,14 +64,6 @@ export class ChunkCache extends DurableObject<Env> {
     this.ctx.storage.sql.exec(`DELETE FROM chunks WHERE expires_at <= ?`, now)
     const next = this.ctx.storage.sql.exec<{ expires_at: number }>(`SELECT MIN(expires_at) AS expires_at FROM chunks`).toArray()[0]?.expires_at
     if (next !== null && next !== undefined) await this.ctx.storage.setAlarm(next)
-  }
-
-  private async readJson(req: Request): Promise<unknown> {
-    try {
-      return await req.json()
-    } catch {
-      return undefined
-    }
   }
 
   private put(path: string, data: ArrayBuffer): Response {
@@ -89,11 +88,12 @@ export class ChunkCache extends DurableObject<Env> {
     return json({ stored: true }, 201)
   }
 
-  private get(path: string): Response {
+  private get(path: string, device: string): Response {
     const id = path.split("/").pop() ?? ""
     if (!CHUNK_ID.test(id)) return bad("chunk id must be 64 lowercase hexadecimal characters")
     const row = this.ctx.storage.sql.exec<{ data: ArrayBuffer; expires_at: number }>(`SELECT data, expires_at FROM chunks WHERE id = ?`, id).toArray()[0]
     if (!row || row.expires_at <= Date.now()) return new Response(null, { status: 404 })
+    if (!this.takeBytes(device, row.data.byteLength)) return new Response("rate limited", { status: 429, headers: { "retry-after": "60" } })
     this.touch(id)
     return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store" } })
   }
@@ -106,7 +106,7 @@ export class ChunkCache extends DurableObject<Env> {
     return json({ have })
   }
 
-  private batchGet(body: unknown): Response {
+  private batchGet(body: unknown, device: string): Response {
     const ids = parseIds(body)
     if (!ids) return bad(`body must be {ids:[up to ${CHUNK_MAX_IDS} lowercase chunk ids]}`)
     const now = Date.now()
@@ -123,6 +123,7 @@ export class ChunkCache extends DurableObject<Env> {
       this.touch(id)
     }
     const total = out.reduce((n, part) => n + part.byteLength, 0)
+    if (!this.takeBytes(device, total)) return new Response("rate limited", { status: 429, headers: { "retry-after": "60" } })
     const result = new Uint8Array(total)
     let at = 0
     for (const part of out) {
@@ -157,6 +158,17 @@ export class ChunkCache extends DurableObject<Env> {
     refill(pair.bytes, RELAY_BUCKETS.bytes)
     if (pair.frames.tokens < 1 || pair.bytes.tokens < bytes) return false
     pair.frames.tokens -= 1
+    pair.bytes.tokens -= bytes
+    return true
+  }
+
+  private takeBytes(device: string, bytes: number): boolean {
+    const pair = this.buckets.get(device)
+    if (!pair) return false
+    const now = Date.now()
+    pair.bytes.tokens = Math.min(RELAY_BUCKETS.bytes.burst, pair.bytes.tokens + ((now - pair.bytes.at) / 1000) * RELAY_BUCKETS.bytes.rate)
+    pair.bytes.at = now
+    if (pair.bytes.tokens < bytes) return false
     pair.bytes.tokens -= bytes
     return true
   }
