@@ -1,8 +1,9 @@
 /// `app.startAgentGlobalHotKey`: whether Start Agent from Any App
 /// (⌃⌥⌘Space by default, its own row in Keyboard Shortcuts) is a
-/// system-wide hot key. Off when unset or invalid (cx-hkat), like
-/// `app.globalHotKey`: a system-wide key is taken from every other app only
-/// when the user asks for it.
+/// system-wide hot key. On when unset or invalid, unlike `app.globalHotKey`:
+/// off by default a new user never found it, which a report rated a reason to
+/// quit (Leo, 2026-11-08, ask-a862e90c70: "those NEED to be written down and
+/// FIXED"). Turning it off gives the key back to every other app.
 nonisolated extension CmuxConfigSnapshot {
     /// `app.startAgentGlobalHotKey`.
     public var startAgentGlobalHotKey: Bool {

@@ -680,17 +680,17 @@ The first item is the one menus and the command palette show. Settings > Keyboar
 
 Start Agent… (File menu, command palette, `cmux agent quick`, Ctrl+Cmd+Return) opens a small floating panel for one new agent session. The folder row at its top picks the folder or checkout, and the composer's chips pick the harness, model and mode. Return sends the prompt and starts the session in the background: the panel closes and the session appears in the sidebar as a new workspace, without taking focus. Cmd+Return starts it and opens it in the main window. Escape hides the panel and keeps the draft. Rebind the panel's key from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.quickAgentChat"]`.
 
-The panel can also open while another app is in front. This system-wide key is off by default, because it takes the key from every other app:
+The panel can also open while another app is in front. This system-wide key is on by default, so a new user finds it. It takes the key from every other app; to give it back:
 
 ```json
 {
   "app": {
-    "startAgentGlobalHotKey": true
+    "startAgentGlobalHotKey": false
   }
 }
 ```
 
-Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+Or turn it off in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 

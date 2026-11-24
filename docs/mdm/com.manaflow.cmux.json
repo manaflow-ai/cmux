@@ -890,7 +890,7 @@
       "type" : "boolean"
     },
     "app.startAgentGlobalHotKey" : {
-      "default" : false,
+      "default" : true,
       "description" : "⌃⌥⌘Space starts an agent while another app is in front.",
       "title" : "Start Agent from Any App",
       "type" : "boolean"

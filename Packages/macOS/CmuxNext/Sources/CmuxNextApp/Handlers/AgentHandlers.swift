@@ -99,7 +99,7 @@ enum AgentHandlers {
         // The front window's Home, else the Chief directly (HomeChiefActions).
         HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
-        // does Start Agent from Any App, its opt-in system-wide key (`app.startAgentGlobalHotKey`).
+        // does Start Agent from Any App, its system-wide key (`app.startAgentGlobalHotKey`, on by default).
         // The panel takes the keyboard from the frontmost app, so automation
         // cannot open it unless it asks for focus.
         for id: ActionID in ["palette.quickAgentChat", "palette.startAgentFromAnyApp"] {

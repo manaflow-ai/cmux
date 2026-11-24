@@ -18,6 +18,7 @@ import CmuxNextHostedChief
 import CmuxNextLayout
 import CmuxNextOnboarding
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWakeups
 
@@ -267,7 +268,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         let archived: @MainActor @Sendable () -> Set<String> = { service.directory.archivedChiefs }
         chiefIntroWatch = intro.follow(in: transcript, conversation: id, store: store, archivedChiefs: archived, holds: { onboarding.holdsWelcome }) {
             service.chiefWelcome.play(in: id, source: service.homeSource, connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                      intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false))
+                                      intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? CmuxConfigSnapshot.startAgentGlobalHotKeyDefault))
         }
         chiefOnboardingWatch = onboarding.follow(in: transcript, conversation: id, store: store, archivedChiefs: archived, registry: services.registry)
         // The first-run rows' shortcuts and the Switching card follow rebinds

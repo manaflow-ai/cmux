@@ -544,7 +544,7 @@
         },
         {
           "key": "app.startAgentGlobalHotKey",
-          "note": "Off when unset or invalid.",
+          "note": "On when unset or invalid.",
           "title": {
             "key": "settings.app.startAgentGlobalHotKey",
             "text": "Start Agent from Any App"
@@ -554,7 +554,7 @@
             "text": "⌃⌥⌘Space starts an agent while another app is in front."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "global",
             "hotkey",

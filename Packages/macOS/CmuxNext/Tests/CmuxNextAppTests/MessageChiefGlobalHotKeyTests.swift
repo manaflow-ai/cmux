@@ -36,7 +36,7 @@ import CmuxNextFocusUI
         let other = Shortcut("u", modifiers: [.control, .option, .command])
         registry.setConfiguredShortcuts([[Self.key], [other]], for: Self.action)
         let recorder = Recorder()
-        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi })
+        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi }, startAgentEnabled: { false })
         service.start()
         defer { service.stop() }
         #expect(recorder.registered.count == 2)
@@ -63,7 +63,7 @@ import CmuxNextFocusUI
             [Shortcut("b", modifiers: [.control]), Shortcut("n", modifiers: [])], [Self.key],
         ], for: Self.action)
         let recorder = Recorder()
-        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi })
+        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi }, startAgentEnabled: { false })
         service.apply()
         defer { service.stop() }
         #expect(recorder.registered.count == 1)
@@ -77,7 +77,7 @@ import CmuxNextFocusUI
         registry.setConfiguredShortcuts([[Self.key], [other]], for: Self.action)
         let recorder = Recorder()
         recorder.refused = [try #require(CarbonHotKey(other, layout: .ansi))]
-        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi })
+        let service = GlobalHotKeyService(registry: registry, registrar: recorder, layout: { .ansi }, startAgentEnabled: { false })
         service.apply()
         defer { service.stop() }
         #expect(recorder.registered.count == 1)

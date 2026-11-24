@@ -15,8 +15,9 @@ import CmuxNextFocusUI
 /// Show/Hide All Windows registers only while `app.globalHotKey` is on
 /// (off by default, coordinator decision 2026-10-06: a system-wide key is
 /// taken from every other app only when the user asks for it), and Start
-/// Agent from Any App only while `app.startAgentGlobalHotKey` is on
-/// (cx-hkat); turning a setting off releases its key.
+/// Agent from Any App while `app.startAgentGlobalHotKey` is on (on by
+/// default since Leo's 2026-11-08 quit-gaps ask, so a new user finds it;
+/// cx-hkat); turning a setting off releases its key.
 @Observable
 final class GlobalHotKeyService {
     /// Actions whose key is not registered: another app holds it, or
