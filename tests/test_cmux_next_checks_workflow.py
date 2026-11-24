@@ -1378,7 +1378,7 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertEqual(step["env"]["REF"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
         self.assertIn('[[ -z "${PR:-}" && -f scripts/ci/fleet_compile_result.py ]]', step["run"])
         self.assertIn('compile-check --ref "$REF" --app', step["run"])
-        # A pull request reads its head's Debug app check (note-556); only a push compiles from this job.
+        # A pull request reads its head's Debug app check (note-557); only a push compiles from this job.
         pr = step["run"][step["run"].index('if [[ -n "${PR:-}" ]]; then'):step["run"].index("client=")]
         self.assertIn('--pr "$PR" --phase app-debug', pr)
         self.assertNotIn("compile-check", pr)
@@ -2461,8 +2461,9 @@ class FastTierStartsWarm(unittest.TestCase):
         saves = [s for s in steps if is_cache_save(s)]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         self.assertEqual([s["with"]["path"] for s in saves],
-                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["swift"]],
-                         "the swift archive, whose pointer readers follow, goes last")
+                         ["${{ matrix.workspace }}/" + FAST_CACHE_DIRS["home"],
+                          "${{ matrix.workspace }}/" + FAST_CACHE_DIRS["swift"]],
+                         "the swift archive, whose pointer readers follow, goes last; each at its pool's path")
         for name, save in zip(("home", "swift"), saves):
             with self.subTest(name=name):
                 self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
@@ -2493,8 +2494,11 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
+        # blacksmith-root2: the same seed at the owned minis' second seed root's path (owned_spm_scratch).
+        self.assertEqual(set(pools), {"blacksmith", "blacksmith-root2"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["workspace"], "/Users/runner/_work/cmux-2/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["runner"], "blacksmith-6vcpu-macos-26")
 
     def test_a_seed_key_names_the_path_its_restore_writes(self):
         """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
@@ -3667,7 +3671,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # Mac fallback runs only when that read gives no verdict.
     LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
     # Gateway-guarded jobs that, on this event, run on cmux-linux and only read the compile the controller submits
-    # for them (note-556): the guard and fallback stay, the runner no longer waits on the gateway.
+    # for them (note-557): the guard and fallback stay, the runner no longer waits on the gateway.
     READS_ELSEWHERE = {"app-compile-fleet": "pull_request", "swift-canary-fleet": "pull_request"}
 
     def jobs(self) -> dict:
@@ -3787,7 +3791,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         context = {**self.context(), "needs.app-compile-placement.outputs.gateway_attempt": "1",
                    "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         self.assertTrue(evaluate(job["if"], context))
-        # It only reads the result the controller posts back, so no gateway runner waits (note-556).
+        # It only reads the result the controller posts back, so no gateway runner waits (note-557).
         self.assertEqual(route_of(job, context), "cmux-linux")
 
     def test_it_takes_only_an_idle_gateway_placement_saw(self):
@@ -3804,7 +3808,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 idle = {**context, f"needs.{placement}.outputs.gateway_attempt": "1",
                         f"needs.{placement}.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
                 self.assertTrue(evaluate(job["if"], idle))
-                # A pull request's read runs on cmux-linux; the reading still gates it (note-556).
+                # A pull request's read runs on cmux-linux; the reading still gates it (note-557).
                 self.assertEqual(route_of(job, idle), "cmux-linux")
                 none_idle = {**idle, f"needs.{placement}.outputs.gateway_runner": ""}
                 self.assertFalse(evaluate(job["if"], none_idle))
@@ -3912,7 +3916,7 @@ sys.exit({reader_exit})
 
     def test_the_native_pr_app_job_reads_only_its_debug_check(self):
         """It waits on no runner of its own: the controller submits the Debug app compile when this job is
-        queued and posts the result back (note-556). It never reads the tip check's Release record."""
+        queued and posts the result back (note-557). It never reads the tip check's Release record."""
         job = self.job()
         step = next(s for s in job["steps"] if s.get("id") == "check")
         self.assertIn("--phase app-debug", step["run"])
@@ -3932,7 +3936,7 @@ sys.exit({reader_exit})
         on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
         that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
         output stays unavailable, so release-compile still takes over where mac_release sends it."""
-        for word, reader_exit in (("none", 0), ("superseded", 0), ("pending", 0), ("", 0), ("pass", 1)):
+        for word, reader_exit in (("none", 0), ("superseded", 0), ("", 0), ("pass", 1)):
             with self.subTest(word=word, reader_exit=reader_exit):
                 result, output, _, summary = self.run_check(word, reader_exit=reader_exit)
                 self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
@@ -3942,6 +3946,17 @@ sys.exit({reader_exit})
                 self.assertIn("posted no result for this head", result.stdout)
                 self.assertIn("Build fleet app compile: no verdict", summary)
                 self.assertIn("No Mac Release compile runs for this change", result.stdout)
+
+    def test_a_fleet_that_kept_the_compile_queued_is_a_warning_not_a_red(self):
+        """cmux-ci exit 75 (queued past --queue-timeout) was 652 of 1030 red app compiles in 24 h, each re-run
+        queueing again; the verdict stays unavailable so the Release compile still takes over where asked. The
+        reader's pending (the controller holds the check, the fleet has not finished it) is that case now."""
+        result, output, _, summary = self.run_check("pending")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=unavailable", output)
+        self.assertNotIn("verdict=pass", output)
+        self.assertIn("::warning title=Build fleet compile: still queued", result.stdout)
+        self.assertIn("Build fleet app compile: unavailable", summary)
 
     def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
