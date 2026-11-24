@@ -301,6 +301,9 @@ function startFile(): void {
 const LIBRARY_GLOBALS: ReadonlyMap<string, string> = new Map([
   // seroval defines it on globalThis when it loads (node_modules/seroval/dist/index.js).
   ["__SEROVAL_REFS__", "library global created once at first evaluation, bounded"],
+  // computerUseState.ts installs the old host's entry point when it loads, so a state the host sends
+  // before the pane mounts is not lost; one function, the same one for the process.
+  ["cmuxAcpmuxComputerUseState", "host entry point installed once at module load, bounded"],
 ]);
 
 /// A global that held `undefined` as a plain value reads the same once deleted (`globalThis.window`,
