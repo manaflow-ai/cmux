@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Fork placement on staging (RFD 0145): what a new session placed on a fork of its parent's Cloud
+// Fork placement on staging (RFD 0154): what a new session placed on a fork of its parent's Cloud
 // machine gets, and what it costs in time.
 //
 // Per run: create a parent machine, write a marker file, commit a git repo and start a counter

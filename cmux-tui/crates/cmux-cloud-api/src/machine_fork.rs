@@ -1,7 +1,7 @@
 //! `machine.fork`: cmux-platform's `POST /v1/machines/{id}/fork` (`machines.fork`), a running
 //! copy of a Cloud machine, memory and disk, made by the carrier's snapshot then restore. The
 //! copy starts from the parent's files, processes and warm caches at that instant, so a new
-//! session or sub-agent placed on it needs no clone, install or warm build (RFD 0145, "Forking
+//! session or sub-agent placed on it needs no clone, install or warm build (RFD 0154, "Forking
 //! is the primitive"). Only the machine's creator may fork it; the copy is billed to the caller
 //! from its first running second, like any machine they made.
 //!

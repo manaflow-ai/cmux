@@ -1,6 +1,6 @@
 name: Cloud fork placement (staging)
 
-# RFD 0145: a new session placed on a fork of its parent's Cloud machine. Creates a parent machine on
+# RFD 0154: a new session placed on a fork of its parent's Cloud machine. Creates a parent machine on
 # staging, writes a marker, commits a repo and starts a counter there, forks it with cmux-platform's
 # POST /v1/machines/{id}/fork, times the fork call and fork-to-first-exec, checks the copy has the
 # same files, commit and live process, reads the copy's cost, deletes both and prints one JSON verdict

@@ -187,7 +187,7 @@
     "cloud.machine.fork": {
       "source": "local",
       "class": "mutation",
-      "digest": "530f9eb939f4baee"
+      "digest": "59c9d07499e1ad7b"
     },
     "cloud.machine.get": {
       "source": "cloud",
