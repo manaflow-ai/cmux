@@ -9,8 +9,12 @@ import { defineExperiment, experimentArm } from "../../../experiments/experiment
 /// Compare the arms in the gallery (agent-pane.new-tab-icon-column); test/newtab-icon-column.test.ts
 /// measures each arm's three centers. tiles, appicon and dock change the glyphs' treatment (Leo
 /// 2026-11-15: "theese are kinda crappy looking icons and stuff"): a tile around each glyph's own
-/// box. tiles ships (the blind pick of 2026-11-15; appicon's accent folder breaks the one chip ink
-/// rule, newtab-chip-ink-edges.test.ts). The arms' looks are newtab/screen.css's `data-icon-column` rules.
+/// box. tiles shipped after the blind pick of 2026-11-15 (appicon's accent folder breaks the one chip
+/// ink rule, newtab-chip-ink-edges.test.ts) until 2026-11-23, when its grey squares behind the folder,
+/// machine, + and shield read as stray backgrounds ("why is there a background icon grey thing here?
+/// we need to remove it"): pad ships again, the glyphs bare in the chip's ink, and
+/// test/newtab-chip-icons-bare.test.ts holds the shipped arm to no fill behind any chip glyph.
+/// The arms' looks are newtab/screen.css's `data-icon-column` rules.
 export const newTabIconColumn = defineExperiment({
   id: "new-tab-icon-column",
   title: "New Tab icon column",
@@ -20,7 +24,7 @@ export const newTabIconColumn = defineExperiment({
     pad: {
       label: "Bare text",
       description:
-        "The chips are muted text over and under the box with no fill; the icon column is the only structure (shipped until the Tiles pick).",
+        "The chips are muted text over and under the box with no fill; the icon column is the only structure (ships).",
     },
     tray: {
       label: "Tray",
@@ -53,7 +57,7 @@ export const newTabIconColumn = defineExperiment({
         "Icon treatment: icons only, on larger tiles, a dock-like column; the names stay in the accessible name.",
     },
   },
-  defaultArm: "tiles",
+  defaultArm: "pad",
 });
 
 export type NewTabIconColumnArm = keyof typeof newTabIconColumn.arms;
