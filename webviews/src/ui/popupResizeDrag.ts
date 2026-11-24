@@ -86,6 +86,18 @@ export interface PopupResizeDrag {
   onEnd(size: { width?: number; height?: number }): void;
 }
 
+/// The room the positioner gives `popup`, in px: the --available-width and --available-height Base UI
+/// sets on it. Infinite where it sets none (a popup no positioner sizes).
+function availableRoom(positioner: HTMLElement, popup: HTMLElement): { width: number; height: number } {
+  const computed = popup.ownerDocument.defaultView?.getComputedStyle(popup);
+  const px = (name: string) => {
+    const set = positioner.style.getPropertyValue(name) || computed?.getPropertyValue(name);
+    const value = Number.parseFloat(set || "");
+    return Number.isFinite(value) && value > 0 ? value : Infinity;
+  };
+  return { width: px("--available-width"), height: px("--available-height") };
+}
+
 /// Starts a resize drag from a press on `event.currentTarget` (a grip). Edge and corner drags share one
 /// frame update and pin the sides nearest the anchor. False when the press does not start a drag (not
 /// the primary button, no positioner).
@@ -115,18 +127,21 @@ export function startPopupResize(
   const startHeight = content.getBoundingClientRect().height;
   const startX = event.clientX;
   const startY = event.clientY;
-  // Never less room than the popup already has (a popup against the window's edge keeps its size), and
-  // never a floor above where it started: a popup smaller than the floor (a one-row menu) does not jump
-  // up to it on a press.
+  // Never more than the room the positioner gives the popup (Base UI's --available-width and -height,
+  // inside its collision padding and boundary): the kept size is capped there when the drag ends
+  // (PopupResize.tsx), so a drag that went past it would snap back (cmux#51745). Never less room than
+  // the popup already has (a popup against the window's edge keeps its size), and never a floor above
+  // where it started: a popup smaller than the floor (a one-row menu) does not jump up to it on a press.
+  const room = availableRoom(positioner, popup);
   const mostWidth = Math.max(
     Math.floor(start.width),
-    Math.floor(fromEnd ? start.right - bound.left : bound.right - start.left),
+    Math.floor(Math.min(fromEnd ? start.right - bound.left : bound.right - start.left, room.width)),
   );
   const leastWidth = Math.min(mostWidth, drag.least.width, Math.floor(start.width));
-  const mostHeight = Math.max(
-    Math.floor(startHeight),
-    Math.floor(fromTop ? start.bottom - (bound.top ?? 5) : bound.bottom - start.top),
-  );
+  // The room is the popup's; the height set is its content's, short of it by the popup's own chrome.
+  const chrome = Math.max(0, start.height - startHeight);
+  const roomHeight = fromTop ? start.bottom - (bound.top ?? 5) : bound.bottom - start.top;
+  const mostHeight = Math.max(Math.floor(startHeight), Math.floor(Math.min(roomHeight, room.height - chrome)));
   const leastHeight = Math.min(mostHeight, drag.least.height, Math.floor(startHeight));
   let width = start.width;
   let height = startHeight;
