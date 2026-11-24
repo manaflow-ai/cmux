@@ -89,6 +89,11 @@ import Testing
         #expect(!CrashReportingPolicy.telemetryOptIn(in: defaults))
     }
 
+    @Test func theSettingWritesThePreferenceCrashReportingReads() {
+        #expect(AnonymousTelemetryConsent.preferenceKey == CrashReportingPolicy.telemetryKey)
+        #expect(AnonymousTelemetryConsent.configPath == ["app", "sendAnonymousTelemetry"])
+    }
+
     @Test func aFailedWriteRestoresTheEarlierPreference() {
         let (defaults, suite) = defaults()
         defer { defaults.removePersistentDomain(forName: suite) }
