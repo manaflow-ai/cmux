@@ -1037,51 +1037,9 @@ fn batch_result(results: Vec<Value>) -> Value {
 }
 
 #[cfg(test)]
-mod sent_line_tests {
-    use super::sent_line;
-    use serde_json::json;
-
-    /// Leo: "the send/recieve messages are still only the older names". The confirmation names
-    /// the target by its given name, its HOST/NAME beside it; a target without one reads as before.
-    #[test]
-    fn a_send_confirmation_names_the_target_by_its_given_name() {
-        let row = |accepted| {
-            json!({"ok": true, "to": "studio-mac/coord-old", "promptId": "p1",
-                   "deliveryId": "d1", "delivery": "started", "accepted": accepted})
-        };
-        assert_eq!(
-            sent_line(&row(json!({"sessionId": "s1", "displayName": "Mango"}))),
-            "Sent to Mango · studio-mac/coord-old: it started a turn with it (promptId p1)."
-        );
-        assert_eq!(
-            sent_line(&row(json!({"sessionId": "s1"}))),
-            "Sent to studio-mac/coord-old: it started a turn with it (promptId p1)."
-        );
-        // Sent by the given name: said once.
-        let mut by_given = row(json!({"sessionId": "s1", "displayName": "Mango"}));
-        by_given["to"] = json!("Mango");
-        assert_eq!(sent_line(&by_given), "Sent to Mango: it started a turn with it (promptId p1).");
-    }
-}
+#[path = "acpmux_mcp_send_sent_line_tests.rs"]
+mod sent_line_tests;
 
 #[cfg(test)]
-mod budget_nesting_tests {
-    use super::*;
-
-    /// A relay started late in the call gets only what is left, never its full wait.
-    #[tokio::test(start_paused = true)]
-    async fn the_relay_deadline_is_cut_to_the_calls_end() {
-        let start = tokio::time::Instant::now();
-        let call_end = start + CALL_BUDGET;
-        assert_eq!(relay_deadline(call_end), start + RELAY_WAIT);
-        tokio::time::advance(CALL_BUDGET - Duration::from_secs(3)).await;
-        assert_eq!(relay_deadline(call_end), call_end);
-    }
-
-    /// The steps nest: each inner wait is shorter than the call that runs it.
-    #[test]
-    fn inner_waits_are_shorter_than_the_call() {
-        assert!(RESOLVE_WAIT < CALL_BUDGET && RELAY_WAIT < CALL_BUDGET);
-        assert!(CALL_BUDGET < Duration::from_secs(60));
-    }
-}
+#[path = "acpmux_mcp_send_budget_nesting_tests.rs"]
+mod budget_nesting_tests;
