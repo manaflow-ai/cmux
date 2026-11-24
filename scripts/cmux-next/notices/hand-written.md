@@ -614,6 +614,13 @@ The following packages are linked into the cmux app binary.
 - **Copyright:** Copyright (c) Apple Inc. and the SwiftCrypto / SwiftASN1 project authors
 - **Source:** https://github.com/apple/swift-crypto, https://github.com/apple/swift-asn1
 
+### FluidAudio
+
+- **License:** Apache License 2.0
+- **Copyright:** Copyright (c) FluidInference
+- **Source:** https://github.com/FluidInference/FluidAudio (v0.18.4; the Parakeet speech model it
+  downloads is NVIDIA's parakeet-tdt-0.6b-v3, CC-BY-4.0, fetched at runtime and not bundled)
+
 ### Stack Auth Swift SDK
 
 - **License:** MIT License (per Stack Auth's published per-package licensing policy,

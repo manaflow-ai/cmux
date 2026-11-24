@@ -32,6 +32,17 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     }
 
     public func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hearsRecording = recordedInput != nil
+        #else
+        let hearsRecording = false
+        #endif
+        if !hearsRecording, let make = DictationEngineChoice.engine {
+            let chosen = make(levelMeter)
+            active = chosen
+            Self.logger.info("dictation engine: Labs choice")
+            return try await chosen.transcribe(locale: locale)
+        }
         if #available(macOS 26, *), !Self.forcesRecognizerEngine {
             let analyzer = SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter)
             #if DEBUG || CMUX_BENCH_HOOKS
