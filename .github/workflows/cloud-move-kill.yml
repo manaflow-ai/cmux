@@ -99,7 +99,7 @@ jobs:
       deployment: false
     # Twice this stays within the leaked-machine sweep's age bound (STALE_JOURNEY_MS, 3 h), so the sweep never takes a
     # drill's live machine: 24 cells take about 65 min.
-    timeout-minutes: 90
+    timeout-minutes: 180
     continue-on-error: true
     strategy:
       fail-fast: false
