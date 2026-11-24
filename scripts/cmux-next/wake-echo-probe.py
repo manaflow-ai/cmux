@@ -354,9 +354,19 @@ def run(directory):
             try:
                 with open(arm_path) as f:
                     arm = json.load(f)
-                os.unlink(arm_path)
             except Exception:
                 arm = None
+            # A stall shorter than the cycle's hold (the guest slowed while the machine read pausing) is not the
+            # pause: it stays armed for the real gap (run 45488380864: 4 cycles fired on 1.4-4.0 s stalls before
+            # the wake). The pause lasts at least the hold, by the guest's wall clock.
+            if arm and dw < float(arm.get("min_gap_ms", 0)):
+                log.write(json.dumps(dict(gap, armed=True, skipped="gap under min_gap_ms %s" % arm.get("min_gap_ms"))) + "\n")
+                arm = None
+            elif arm:
+                try:
+                    os.unlink(arm_path)
+                except Exception:
+                    pass
             log.write(json.dumps(dict(gap, armed=arm is not None)) + "\n")
             if arm:
                 with open(os.path.join(directory, "config.json")) as f:

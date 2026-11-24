@@ -73,3 +73,7 @@ test("start retries an indeterminate answer with the same key, and a pausing ref
   expect(notes.length).toBe(2);
   await expect(startWithRetry(async () => ({ status: 200, body: { ok: false, error: { code: "cloud.machine.not_found", retryable: false } } }), () => "k", async () => "paused", 60_000, sleep, () => t)).rejects.toThrow(/not_found/);
 });
+
+test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {
+  expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("probe fired before the wake (harness)");
+});

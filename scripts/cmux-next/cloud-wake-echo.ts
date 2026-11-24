@@ -78,6 +78,7 @@ export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   const e = c.error;
   if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
   if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
+  if (/before wake_at: not this wake/.test(e)) return "probe fired before the wake (harness)";
   if (/no probe result|clock offset|^exec: |vm_unavailable/.test(e)) return "guest unreachable";
   if (/guest probe: net|no TCP connect/.test(e)) return "guest network";
   if (/guest probe/.test(e)) return "guest probe";
@@ -266,7 +267,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
     try {
       // A machine still pausing (or starting) from the last cycle settles first; one that settled paused is woken.
       await ensureRunning(d, sleep);
-      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}"}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
+      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}","min_gap_ms":${Math.max(0, d.holdMs - 500)}}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
       c.paused_ms = await d.pause();
@@ -305,13 +306,15 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       const p = phasesOf(mm);
       c.phases = p.phases;
       c.warnings.push(...p.warnings);
-      if (mm.resumed !== undefined && mm.resumed < -2000) c.warnings.push(`the probe's gap ended ${-mm.resumed} ms before wake_at: not this wake`);
+      // The guest ran again before the start was sent: the probe measured a stall, not this wake. Not an echo.
+      const early = mm.resumed !== undefined && mm.resumed < -2000 ? `the probe's gap ended ${-mm.resumed} ms before wake_at: not this wake` : "";
       const st = await d.exec(`cat /run/cmux-vm-agent/state.json 2>/dev/null || sudo -n cat /run/cmux-vm-agent/state.json 2>/dev/null; true`, 20_000).catch(() => null);
       try {
         const sj = st && st.stdout.includes("{") ? JSON.parse(st.stdout.slice(st.stdout.indexOf("{"))) : null;
         c.state_json = sj !== null;
         c.state_wake = sj?.wake ?? null;
       } catch { c.state_json = false; }
+      if (early) throw new Error(early);
       if (g.error) throw new Error(`guest probe: ${g.error}`);
       if (g.echo_at === undefined) throw new Error("the probe marked no echo");
       c.ok = true;
