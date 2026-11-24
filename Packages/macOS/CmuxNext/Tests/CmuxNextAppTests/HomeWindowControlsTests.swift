@@ -192,5 +192,9 @@ struct HomeWindowControlsTests {
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)
+        // Opening the search moves nothing: the list starts where it did, the field centred where
+        // the circles were (the user, 2026-11-23: "make the height not shift").
+        #expect(open.listTop == closed.listTop)
+        #expect(abs(open.search.midY - closed.filter.midY) <= 0.5 && abs(open.search.midY - closed.searchIcon.midY) <= 0.5)
     }
 }
