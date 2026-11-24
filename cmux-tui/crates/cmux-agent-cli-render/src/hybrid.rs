@@ -88,19 +88,69 @@ impl Overlay {
         let mut spans = Vec::new();
         for (y, row) in self.cells.iter().enumerate() {
             let Ok(row_no) = u16::try_from(y) else { break };
-            let mut open: Option<Span> = None;
-            for (x, over) in row.iter().enumerate() {
-                let Ok(col) = u16::try_from(x) else { break };
-                let want = cell_at(real, y, x).unwrap_or(&blank);
-                let under = cell_at(drawn, y, x).unwrap_or(&blank);
-                let shown = over.as_ref().unwrap_or(under);
-                let change = if shown.looks_same(want) {
-                    Change::Keep
-                } else if under.looks_same(want) {
-                    Change::Clear
-                } else {
-                    Change::Set(want.clone())
+            let mut changes: Vec<Change> = row
+                .iter()
+                .enumerate()
+                .map(|(x, over)| {
+                    let want = cell_at(real, y, x).unwrap_or(&blank);
+                    let under = cell_at(drawn, y, x).unwrap_or(&blank);
+                    let shown = over.as_ref().unwrap_or(under);
+                    if shown.looks_same(want) {
+                        Change::Keep
+                    } else if under.looks_same(want) {
+                        Change::Clear
+                    } else {
+                        Change::Set(want.clone())
+                    }
+                })
+                .collect();
+            // A glyph that is not one ASCII character and the empty cell right of it (the right
+            // half of a wide glyph): a blank written or erased over the right half erases the
+            // glyph in the viewer's terminal (a right half that looks blank, as one with only a
+            // foreground does, would otherwise go as a clear). So a right half that changes goes
+            // as a set, and its glyph is set with it. A glyph set over a right half that already
+            // looks right needs nothing more.
+            // The right half of a wide glyph has the glyph's style when the daemon's grid gives
+            // it, so the two go in one span. A right half of another style (a blank right of a
+            // narrow glyph, or a wide glyph's spacer the grid left plain) goes as its own span
+            // before the glyph's, so the glyph is written over it and stays.
+            let mut right_half = vec![false; changes.len()];
+            for x in 0..changes.len().saturating_sub(1) {
+                let (Some(glyph), Some(right)) = (cell_at(real, y, x), cell_at(real, y, x + 1))
+                else {
+                    break;
                 };
+                let paired = right.text.is_empty()
+                    && !glyph.text.is_empty()
+                    && !matches!(glyph.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
+                if paired
+                    && let [this, next, ..] = changes.get_mut(x..).unwrap_or_default()
+                    && !matches!(next, Change::Keep)
+                {
+                    *this = Change::Set(glyph.clone());
+                    *next = Change::Set(right.clone());
+                    if let [_, half, ..] = right_half.get_mut(x..).unwrap_or_default() {
+                        *half = true;
+                    }
+                }
+            }
+            let mut open: Option<Span> = None;
+            for (x, change) in changes.into_iter().enumerate() {
+                let Ok(col) = u16::try_from(x) else { break };
+                if let (Change::Set(cell), Some(Span::Set { cells, .. })) = (&change, &mut open)
+                    && right_half.get(x).copied().unwrap_or(false)
+                    && cells.first().is_some_and(|first| first.style != cell.style)
+                {
+                    let glyph: Vec<Cell> = cells.pop().into_iter().collect();
+                    if !cells.is_empty() {
+                        spans.extend(open.take());
+                    }
+                    spans.push(Span::Set { row: row_no, col, cells: vec![cell.clone()] });
+                    // The glyph's span ends here: it starts left of this cell, so the next cell
+                    // cannot join it.
+                    spans.push(Span::Set { row: row_no, col: col.saturating_sub(1), cells: glyph });
+                    continue;
+                }
                 match (change, &mut open) {
                     (Change::Clear, Some(Span::Clear { len, .. })) => *len += 1,
                     (Change::Set(cell), Some(Span::Set { cells, .. }))

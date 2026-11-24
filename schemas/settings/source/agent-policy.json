@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.autoCloud",
         "window.titlebar"
       ]
     },
