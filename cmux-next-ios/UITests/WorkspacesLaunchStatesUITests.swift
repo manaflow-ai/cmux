@@ -11,11 +11,13 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(_ demo: String) -> XCUIApplication {
+    private func launch(_ demo: String, appearance: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore",
                                 "-cmux-mobile-demo", demo]
+        // The app's own appearance setting wins over the device's (HomeNewMessageUITests sets both).
+        if let appearance { app.launchArguments += ["-cmuxMobile.settings.appearance", appearance] }
         app.launch()
         return app
     }
@@ -103,7 +105,9 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
     /// Ink is a pixel more than 60 luma from the background (text, icons). Placeholder rows show
     /// when there are 3 or more bars; rows show when ink is 0.3% of the band or more. A sample with
     /// neither shows nothing in the band: the blink.
-    struct BandRead { var bars: Int; var ink: Double; var blank: Bool { bars < 3 && ink < 0.003 } }
+    /// `background` is the band's most common luma; `barLuma` the mean luma of its bar pixels (lighter
+    /// than the background on dark, darker on light: the rule is the distance, either way).
+    struct BandRead { var bars: Int; var ink: Double; var background: Int; var barLuma: Int; var blank: Bool { bars < 3 && ink < 0.003 } }
 
     static func read(_ px: [UInt8], width: Int, height: Int) -> BandRead {
         var hist = [Int](repeating: 0, count: 256)
@@ -115,7 +119,7 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
             hist[l] += 1
         }
         let background = hist.indices.max { hist[$0] < hist[$1] } ?? 0
-        var ink = 0, bars = 0, run = 0
+        var ink = 0, bars = 0, run = 0, barSum = 0, barCount = 0
         for y in 0..<height {
             var barPixels = 0
             for x in 0..<width {
@@ -123,7 +127,7 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
                 let d = abs(luma[i] - background)
                 if d > 60 { ink += 1; continue }
                 let r = Int(px[i * 4]), g = Int(px[i * 4 + 1]), b = Int(px[i * 4 + 2])
-                if d >= 4, max(r, g, b) - min(r, g, b) <= 14 { barPixels += 1 }
+                if d >= 4, max(r, g, b) - min(r, g, b) <= 14 { barPixels += 1; barSum += luma[i]; barCount += 1 }
             }
             if barPixels * 100 >= width * 15 {
                 run += 1
@@ -133,7 +137,33 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
             }
         }
         if run >= 2 { bars += 1 }
-        return BandRead(bars: bars, ink: Double(ink) / Double(width * height))
+        return BandRead(bars: bars, ink: Double(ink) / Double(width * height), background: background,
+                        barLuma: barCount == 0 ? -1 : barSum / barCount)
+    }
+
+    /// The navigation bar's background left of the title (points): the page's appearance.
+    static let backdropBand = CGRect(x: 80, y: 66, width: 40, height: 10)
+
+    /// The mean luma of `rect` (points) in a screenshot.
+    @MainActor
+    static func meanLuma(_ shot: XCUIScreenshot, _ rect: CGRect) -> Double? {
+        let image = shot.image
+        guard let cg = image.cgImage, image.size.width > 0 else { return nil }
+        let k = CGFloat(cg.width) / image.size.width
+        guard let crop = cg.cropping(to: CGRect(x: rect.minX * k, y: rect.minY * k, width: rect.width * k, height: rect.height * k)) else { return nil }
+        let width = Int(rect.width), height = Int(rect.height)
+        var px = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn: Bool = px.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var sum = 0
+        for i in 0..<(width * height) { sum += (Int(px[i * 4]) * 299 + Int(px[i * 4 + 1]) * 587 + Int(px[i * 4 + 2]) * 114) / 1000 }
+        return Double(sum) / Double(width * height)
     }
 
     /// The band of a screenshot, downscaled to `bandScale` pixels a point, as RGBA bytes.
@@ -160,9 +190,12 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
     @MainActor
     private func handOff(dark: Bool) {
         let name = dark ? "dark" : "light"
-        if #available(iOS 17.0, *) { XCUIDevice.shared.appearance = dark ? .dark : .light }
-        defer { if #available(iOS 17.0, *) { XCUIDevice.shared.appearance = .light } }
-        let app = launch("retry-first-launch-handoff")
+        // As HomeNewMessageUITests: the device's appearance and the app's own setting
+        // (-cmuxMobile.settings.appearance), which wins over the device's. handoff-red-5 set the
+        // device only, and its "dark" captures were light.
+        XCUIDevice.shared.appearance = dark ? .dark : .light
+        defer { XCUIDevice.shared.appearance = .light }
+        let app = launch("retry-first-launch-handoff", appearance: name)
         defer { app.terminate() }
         let loading = app.descendants(matching: .any)["workspaces.loading"]
         XCTAssertTrue(loading.waitForExistence(timeout: 30), "first-load placeholders\n\(app.debugDescription)")
@@ -180,6 +213,16 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
             return
         }
         attach(app, "handoff-\(name)-first-load")
+        // The appearance it ran in, from pixels: the navigation bar's background (above the title's
+        // glyphs). A dark run on a light page, or the reverse, is INCONCLUSIVE, never a pass.
+        guard let backdrop = Self.meanLuma(XCUIScreen.main.screenshot(), Self.backdropBand) else {
+            XCTFail("INCONCLUSIVE (\(name)): the appearance band could not be read")
+            return
+        }
+        guard dark ? backdrop < 80 : backdrop > 175 else {
+            XCTFail("INCONCLUSIVE (\(name)): the page's background reads luma \(Int(backdrop)), not \(name)")
+            return
+        }
         // The window: the three phase changes and the rows (7.5 s after the first phase), screenshots
         // only, no accessibility query in between (each costs more than a gap allows).
         var shots: [(t: TimeInterval, px: [UInt8], width: Int, height: Int)] = []
@@ -197,10 +240,10 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
             if index > 0 { gaps.append(gap) }
             let r = Self.read(shot.px, width: shot.width, height: shot.height)
             if r.blank { blanks.append(index) }
-            timeline.append(String(format: "%.3f gap=%.0fms bars=%d ink=%.4f%@", shot.t, gap * 1000, r.bars, r.ink, r.blank ? " BLANK" : ""))
+            timeline.append(String(format: "%.3f gap=%.0fms bars=%d ink=%.4f bg=%d bar=%d%@", shot.t, gap * 1000, r.bars, r.ink, r.background, r.barLuma, r.blank ? " BLANK" : ""))
         }
         let maxGap = gaps.max() ?? .infinity
-        let note = XCTAttachment(string: "appearance \(name), band \(Self.handOffBand) pt, \(shots.count) samples, max gap \(Int(maxGap * 1000)) ms\n"
+        let note = XCTAttachment(string: "appearance \(name), background luma \(Int(backdrop)), band \(Self.handOffBand) pt, \(shots.count) samples, max gap \(Int(maxGap * 1000)) ms\n"
             + timeline.joined(separator: "\n"))
         note.name = "handoff-\(name)-timeline"
         note.lifetime = .keepAlways
