@@ -1033,6 +1033,8 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
         # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
         condition = condition.split(") && ", 1)[1]
+        # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
+        condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
 
         def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false") -> bool:
             values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,

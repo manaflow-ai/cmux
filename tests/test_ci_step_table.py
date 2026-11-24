@@ -614,9 +614,10 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(steps["web-complexity"].job, "linux")
         # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
-        self.assertEqual(wf["jobs"]["sdk"]["if"],
-                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
-        self.assertNotIn("if", wf["jobs"]["rust"])
+        # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
+        self.assertTrue(wf["jobs"]["sdk"]["if"].startswith(
+            "${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && "), wf["jobs"]["sdk"]["if"])
+        self.assertNotIn("github.base_ref", wf["jobs"]["rust"].get("if", ""))
         self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
         # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
@@ -647,9 +648,9 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-guards.yml's security-holes job judged every pull request (gitleaks reads any file), so its step's
         # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
-        self.assertEqual(wf["jobs"]["security-holes"]["if"],
-                         "${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
-                         "|| github.workflow == 'docs-only fallback') }}")
+        self.assertTrue(wf["jobs"]["security-holes"]["if"].startswith(  # then the land tier (test_head_tier.py)
+                        "${{ (github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
+                        "|| github.workflow == 'docs-only fallback')) && "), wf["jobs"]["security-holes"]["if"])
         holes = steps["security-holes"]
         self.assertEqual(holes.job, "linux")
         self.assertEqual(holes.inputs, ("**",))
@@ -677,7 +678,9 @@ class PipelineTest(unittest.TestCase):
         for (name, job), step in jobs.items():
             with self.subTest(workflow=name, job=job):
                 wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
-                self.assertEqual(wf["jobs"][job]["if"], "github.event_name != 'pull_request'")
+                condition = str(wf["jobs"][job]["if"])  # the land tier may wrap it (tests/test_head_tier.py)
+                self.assertTrue(condition == "github.event_name != 'pull_request'"
+                                or condition.startswith("${{ (github.event_name != 'pull_request') && "), condition)
                 runs = [s["run"] for s in wf["jobs"][job]["steps"] if "run" in s]
                 self.assertEqual(runs, [steps[step].run])
                 self.assertEqual(steps[step].job, "linux")
