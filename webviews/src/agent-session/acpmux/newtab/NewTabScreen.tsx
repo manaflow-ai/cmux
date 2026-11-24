@@ -1916,10 +1916,10 @@ export function NewTabScreen(props: Props) {
       if (!rows.length) return false;
       switch (command) {
         case "list.next":
-          pick(stepRows(current, 1));
+          pick(stepSelection(current, 1, rows.length));
           return;
         case "list.previous":
-          pick(stepRows(current, -1));
+          pick(stepSelection(current, -1, rows.length));
           return;
         case "list.first":
           return pick(0);
