@@ -345,15 +345,19 @@ impl Hub {
         &self,
         open: &[Arc<Making>],
         hosted: &std::collections::HashSet<String>,
-    ) -> usize {
+    ) -> (usize, Vec<String>) {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
-        let live: std::collections::HashSet<&str> = sessions
+        let live: Vec<&Arc<Session>> =
+            sessions.iter().filter(|s| is_live(s.status(), hosted.contains(&s.id))).collect();
+        // Filler work a real start may take the room of (`admission_redirect::is_filler`).
+        let fillers = live
             .iter()
-            .filter(|s| is_live(s.status(), hosted.contains(&s.id)))
-            .map(|s| s.id.as_str())
+            .filter(|s| super::admission_redirect::is_filler(s))
+            .map(|s| s.id.clone())
             .collect();
-        counted(&live, open)
+        let live: std::collections::HashSet<&str> = live.iter().map(|s| s.id.as_str()).collect();
+        (counted(&live, open), fillers)
     }
 
     /// Whether a new session may start here (module docs). Hold the returned
@@ -377,9 +381,9 @@ impl Hub {
         let (flag, registry, unreadable, source, machine, hosted, here) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
-        let (verdict, mut admitted) = {
+        let (verdict, fillers, mut admitted) = {
             let mut admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
-            let live = self.live_sessions(&admitting, &hosted);
+            let (live, fillers) = self.live_sessions(&admitting, &hosted);
             let verdict = check(&Inputs {
                 flag: flag.as_deref(),
                 registry: registry.as_ref(),
@@ -390,7 +394,11 @@ impl Hub {
             });
             let made = Arc::new(Making::default());
             admitting.push(made.clone());
-            (verdict, Admitted { admitting: &self.admitting, made, warning: None, placed: None })
+            (
+                verdict,
+                fillers,
+                Admitted { admitting: &self.admitting, made, warning: None, placed: None },
+            )
         };
         // Logged beside the admission; a create that asks moves on its verdict
         // (`admission_redirect.rs`), and nothing else does.
@@ -420,7 +428,15 @@ impl Hub {
         // and the warning.
         let peers = (reason.is_some() || verdict.over.is_some())
             .then(|| self.peer_verdict(registry.as_ref()));
-        if let (Some(reason), Some(peers)) = (reason, &peers) {
+        if let (Some(reason), Some(filler)) = (reason, fillers.first()) {
+            // A filler's room is this start's: it starts here, never moved for it.
+            super::admission_redirect::log(
+                "local_filler_room",
+                reason,
+                None,
+                Some(filler.as_str()),
+            );
+        } else if let (Some(reason), Some(peers)) = (reason, &peers) {
             let live = verdict.over.as_ref().map_or(0, |o| o.live);
             let max = verdict.over.as_ref().map(|o| o.max);
             admitted.placed = super::admission_redirect::pick(peers, reason, live, max);

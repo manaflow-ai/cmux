@@ -101,6 +101,14 @@ pub(crate) struct Placed {
     pub max: Option<u64>,
 }
 
+/// Whether `session` is filler work (`tools/idle_feeder.py`'s, in leo-workspace), whose room a
+/// real start takes: that start stays here, never moved for it. False until the feeder marks
+/// its sessions (lane/idle-feeder-sources); the filler's preempt or hibernate then goes here
+/// too, in admission (`admission.rs` `admit_new`).
+pub(crate) fn is_filler(_session: &super::Session) -> bool {
+    false
+}
+
 /// Whether `params` asks to follow a placed create.
 pub(crate) fn asked(params: &Value) -> bool {
     match params.pointer(&format!("/_meta/acpmux/{FIELD}")) {
@@ -166,7 +174,7 @@ pub(crate) fn pick(
 }
 
 /// One decision's log line (module docs): `outcome` is `redirected`,
-/// `local_no_room`, `local_forward_failed` or `local_not_asked`.
+/// `local_no_room`, `local_forward_failed`, `local_not_asked` or `local_filler_room`.
 pub(crate) fn log(
     outcome: &str,
     reason: Reason,
