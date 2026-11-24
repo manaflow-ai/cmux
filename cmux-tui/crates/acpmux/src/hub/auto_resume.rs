@@ -186,6 +186,55 @@ pub(super) fn capacity_wait(index: usize, delays: &[u64], session_id: &str) -> u
     staggered(wait, &format!("{session_id}#{index}"))
 }
 
+/// The deadline a capacity error's own `retry after Ss` names, jittered per chat and attempt:
+/// up to a fifth later, never earlier. Every chat the SR2 pool turned away at once is told the
+/// same `retry after`, so without the jitter they all came back at the moment the next account
+/// freed and emptied it again (2026-11-24: one lane's continuations were scheduled at exactly
+/// `delayMs: 203000` for `retry after 203s`). Any other reason's deadline is kept as it is.
+pub(super) fn jittered_reset(
+    reason: RetryReason,
+    reset: Option<u64>,
+    now: u64,
+    key: &str,
+) -> Option<u64> {
+    match (reason, reset) {
+        (RetryReason::Capacity, Some(at)) if at > now => {
+            Some(now.saturating_add(staggered(at - now, key)))
+        }
+        _ => reset,
+    }
+}
+
+/// The `lastTurn` a session row shows. A turn a capacity error cut, whose continuation acpmux
+/// waits for or is deciding or running, reads `status: "capacity"` (with `heldUntil`, the
+/// continuation's time, while it waits), not `failed`: acpmux holds it and goes on by itself
+/// once the pool frees, so a census of failed turns (HQ NOW's `failed_turns`) does not count it
+/// (Leo, 2026-11-24: "21 turns just died on '503 no non-exhausted claude accounts available'.
+/// why are we out of accounts, and why isn't anything falling back?"). The log keeps the
+/// turn's `failed` result; with no continuation coming (auto-resume off, Stop) the row says
+/// `failed` as before.
+pub(in crate::hub) fn row_last_turn(
+    last: Option<&Value>,
+    retry: Option<&RetrySummary>,
+    deciding: bool,
+) -> Option<Value> {
+    let last = last?;
+    let error = last.get("errorText").and_then(Value::as_str).unwrap_or_default();
+    let capacity = last.get("status").and_then(Value::as_str) == Some("failed")
+        && super::turn_errors::resume_cause(error, error).and_then(RetryReason::from_cause)
+            == Some(RetryReason::Capacity);
+    let waits = retry.filter(|r| r.reason == RetryReason::Capacity);
+    if !capacity || (waits.is_none() && !deciding) {
+        return Some(last.clone());
+    }
+    let mut held = last.clone();
+    held.set("status", json!("capacity"));
+    if let Some(retry) = waits {
+        held.set("heldUntil", json!(retry.next_at));
+    }
+    Some(held)
+}
+
 /// The slash command a cut prompt was, when its continuation must send it again rather than
 /// ask the agent to go on: `/compact` (with or without instructions). Asking a chat whose
 /// compaction failed to "continue" sends its whole context again and the compaction is lost.
@@ -306,22 +355,57 @@ enum Mark {
     /// A continuation waits to answer for this cut turn; `retry` once its wait is set.
     Waiting { turn: String, retry: Option<RetrySummary>, _wake: Wake },
     /// The continuation of this cut turn fired and has not started its turn yet; Stop or
-    /// close now still counts for it.
-    Firing(String),
+    /// close now still counts for it. Its generation is its task's token ([`Pending::generation`]).
+    Firing(String, u64),
     /// This turn has ended and whether it is continued is not settled yet; Stop or close now
     /// still counts for it.
     Ending(String),
     /// Stop or close came while this turn ran or was ending: it gets no continuation.
     Stopped(String),
     /// Stop or close came after a continuation or retry of this cut turn fired and before its
-    /// turn started: its turn never starts, and its task alone clears this (`clear_fired`), so
-    /// the chat's retry (`retry_turn.rs`) waits for that task to end.
-    Stopping(String),
+    /// turn started: its turn never starts, and its task clears this (`clear_fired`), so the
+    /// chat's retry (`retry_turn.rs`) waits for that task to end, at most until `bound`: a task
+    /// that never ends then no longer holds the chat ([`Pending::lock`] lets the mark go). The
+    /// Stop moved [`Pending::generation`] past `fired_gen`, so that task's turn still never starts.
+    Stopping { turn: String, fired_gen: u64, bound: cmux_deadline::Deadline },
+}
+
+/// The longest a Stopping mark waits for its fired task to end (#54378). That task is bounded
+/// by its prompt's own start bounds; one that died without clearing its mark would otherwise
+/// refuse the chat's Retry (`retry.busy`) until the daemon restarts.
+const STOPPING_BOUND: std::time::Duration = std::time::Duration::from_secs(120);
+
+impl Mark {
+    /// A Stop overtook the continuation of `turn` that fired as generation `fired_gen`.
+    fn stopping(turn: String, fired_gen: u64) -> Self {
+        Mark::Stopping { turn, fired_gen, bound: cmux_deadline::Deadline::after(stopping_bound()) }
+    }
+}
+
+#[cfg(not(test))]
+fn stopping_bound() -> std::time::Duration {
+    STOPPING_BOUND
+}
+
+#[cfg(test)]
+thread_local! {
+    static STOPPING_BOUND_FOR_TEST: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn stopping_bound() -> std::time::Duration {
+    STOPPING_BOUND_FOR_TEST.with(std::cell::Cell::get).unwrap_or(STOPPING_BOUND)
 }
 
 /// The retry state of one session instance; returning imports have their own mark.
 pub(crate) struct Pending {
     mark: Mutex<Option<Mark>>,
+    /// Moves on, under `mark`, at each fire and at each Stop of a fired continuation. A fired
+    /// task carries the value its fire set (`PromptOptions::fired`), and its turn starts only
+    /// while that is still the current one (`start_turn`): a Stop, or a later fire, fences it
+    /// even once its mark is gone.
+    generation: std::sync::atomic::AtomicU64,
     /// Loaded once from the journal; checked under `mark` before a prompt gets a turn.
     stopped_prompts: Mutex<Option<HashSet<String>>>,
     /// The compaction an attempt runs before its continuation ([`compact_first`]). Taken
@@ -340,6 +424,7 @@ impl Default for Pending {
     fn default() -> Self {
         Self {
             mark: Mutex::default(),
+            generation: std::sync::atomic::AtomicU64::new(0),
             stopped_prompts: Mutex::default(),
             compacting: Mutex::default(),
             released: tokio::sync::watch::channel(0).0,
@@ -353,14 +438,41 @@ impl Default for Pending {
 
 /// Whether `mark` is a continuation that may still fire (`continuation_pending`).
 fn is_pending(mark: Option<&Mark>) -> bool {
-    matches!(mark, Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)))
+    matches!(mark, Some(Mark::Waiting { .. } | Mark::Firing(..) | Mark::Ending(_)))
 }
 
 impl Pending {
     fn lock(&self) -> PendingGuard<'_> {
-        let mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A Stopping mark past its bound: its task never cleared it (#54378). The Stop already
+        // fenced that task's turn (`generation`), so the chat is free again.
+        if let Some(Mark::Stopping { turn, fired_gen, bound }) = mark.as_ref()
+            && bound.expired()
+        {
+            tracing::warn!(
+                "a stopped continuation of turn {turn} (generation {fired_gen}) did not end within \
+                 {:?}; its mark is let go",
+                stopping_bound()
+            );
+            mark.take();
+        }
         let was = is_pending(mark.as_ref());
         PendingGuard { mark, was, released: &self.released }
+    }
+
+    /// A fire: the generation its task carries (`Mark::Firing`, `PromptOptions::fired`).
+    fn next_generation(&self) -> u64 {
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+    }
+
+    /// A Stop of a fired continuation: the generation its task carries is no longer current.
+    fn fence_fired(&self) {
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether a fired task's generation `fired_gen` is still the current one.
+    fn current(&self, fired_gen: u64) -> bool {
+        self.generation.load(std::sync::atomic::Ordering::SeqCst) == fired_gen
     }
 
     /// Changes each time a pending continuation is let go, however it went: settled, stopped,
@@ -732,7 +844,9 @@ impl Hub {
             let attempt = done + 1;
             let now = super::now_ms();
             let limits = session.meta().usage_limits;
-            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            let reset = reset_hint::reset_at(&error, limits.as_ref(), now);
+            let reset = jittered_reset(reason, reset, now, &format!("{}#{index}", session.id))
+                .max(not_before);
             let mut next_at = now.saturating_add(delay).max(reset.unwrap_or(now));
             // A rate limit's continuation waits out the chat's backoff, which grows with its
             // strikes, however early its own attempt would come; a parked chat's waits for a
@@ -911,7 +1025,7 @@ impl Hub {
         let cut = session.turn().is_some()
             || matches!(
                 session.auto_resume.lock().as_ref(),
-                Some(Mark::Ending(_) | Mark::Stopping(_))
+                Some(Mark::Ending(_) | Mark::Stopping { .. })
             );
         if !cut {
             self.stop_auto_resume_by(session, Some(by));
@@ -1125,17 +1239,23 @@ impl Hub {
         let marked = match pending.as_ref() {
             Some(
                 Mark::Waiting { turn, .. }
-                | Mark::Firing(turn)
+                | Mark::Firing(turn, _)
                 | Mark::Ending(turn)
                 | Mark::Stopped(turn)
-                | Mark::Stopping(turn),
+                | Mark::Stopping { turn, .. },
             ) => Some(turn.clone()),
             None => None,
         };
         if let Some(turn) = marked.filter(|turn| turns.contains(turn)) {
-            let fired = matches!(pending.as_ref(), Some(Mark::Firing(_) | Mark::Stopping(_)));
-            pending.replace(if fired {
-                Mark::Stopping(turn.clone())
+            let fired = match pending.as_ref() {
+                Some(Mark::Firing(_, fired_gen) | Mark::Stopping { fired_gen, .. }) => {
+                    Some(*fired_gen)
+                }
+                _ => None,
+            };
+            pending.replace(if let Some(fired_gen) = fired {
+                session.auto_resume.fence_fired();
+                Mark::stopping(turn.clone(), fired_gen)
             } else {
                 Mark::Stopped(turn.clone())
             });
@@ -1185,7 +1305,7 @@ impl Hub {
         // chat cannot restore a retry, and stopping it again must not refresh its age.
         let waiting_mark = matches!(
             pending.as_ref(),
-            Some(Mark::Waiting { retry: Some(_), .. } | Mark::Firing(_))
+            Some(Mark::Waiting { retry: Some(_), .. } | Mark::Firing(..))
         );
         let mut journal_retry = None;
         let mut journal_prompt = None;
@@ -1246,7 +1366,7 @@ impl Hub {
                 );
             } else if waiting_mark || journal_retry.is_some() {
                 let turn_id = match pending.as_ref() {
-                    Some(Mark::Waiting { turn, .. } | Mark::Firing(turn)) => Some(turn.clone()),
+                    Some(Mark::Waiting { turn, .. } | Mark::Firing(turn, _)) => Some(turn.clone()),
                     _ => journal_retry,
                 };
                 let prompt_id = match pending.as_ref() {
@@ -1263,13 +1383,21 @@ impl Hub {
         }
         let settles = settled_by_stop(pending.as_ref());
         let (ending, fired) = match pending.as_ref() {
-            Some(Mark::Ending(t)) => (Some(t.clone()), false),
-            Some(Mark::Firing(t) | Mark::Stopping(t)) => (Some(t.clone()), true),
-            _ => (None, false),
+            Some(Mark::Ending(t)) => (Some(t.clone()), None),
+            Some(Mark::Firing(t, fired_gen) | Mark::Stopping { turn: t, fired_gen, .. }) => {
+                (Some(t.clone()), Some(*fired_gen))
+            }
+            _ => (None, None),
         };
+        if fired.is_some() {
+            // The fired task's turn never starts now, even once its mark is gone.
+            session.auto_resume.fence_fired();
+        }
         match (session.turn().map(|t| t.turn_id), ending) {
             (Some(t), _) => pending.replace(Mark::Stopped(t)),
-            (None, Some(t)) if fired => pending.replace(Mark::Stopping(t)),
+            (None, Some(t)) if let Some(fired_gen) = fired => {
+                pending.replace(Mark::stopping(t, fired_gen))
+            }
             (None, Some(t)) => pending.replace(Mark::Stopped(t)),
             (None, None) => pending.take(),
         };
@@ -1336,6 +1464,7 @@ impl Hub {
         &self,
         session: &Session,
         after: Option<&str>,
+        fired: Option<u64>,
         exclusive: bool,
         subagent_retry: bool,
         turn: super::TurnInfo,
@@ -1361,12 +1490,21 @@ impl Hub {
         {
             return Err(retry_turn::busy());
         }
+        // A fired task a Stop overtook: refused even when its mark is gone (its Stopping mark
+        // past its bound) or a later fire took the chat (#54378).
+        if fired.is_some_and(|fired_gen| !session.auto_resume.current(fired_gen)) {
+            return Err(stopped());
+        }
         if let Some(cut) = after {
             let mark = match pending.as_ref() {
-                Some(Mark::Firing(t)) if t == cut => Some(true),
+                Some(Mark::Firing(t, fired_gen))
+                    if t == cut && fired.is_none_or(|f| f == *fired_gen) =>
+                {
+                    Some(true)
+                }
                 Some(Mark::Stopped(t)) if t == cut => Some(false),
                 // Its task clears it once it ends.
-                Some(Mark::Stopping(t)) if t == cut => return Err(stopped()),
+                Some(Mark::Stopping { turn: t, .. }) if t == cut => return Err(stopped()),
                 _ => None,
             };
             if mark.is_some() {
@@ -1430,7 +1568,7 @@ impl Hub {
                 _ => None,
             };
             let deciding = cut.is_some_and(|cut| match mark {
-                Some(Mark::Ending(t) | Mark::Firing(t)) => t == cut,
+                Some(Mark::Ending(t) | Mark::Firing(t, _)) => t == cut,
                 Some(Mark::Waiting { turn, retry: None, .. }) => turn == cut,
                 Some(_) => false,
                 // Its retry's turn started since the row read `turn` (`start_turn` sets it
@@ -1447,27 +1585,36 @@ impl Hub {
     }
 
     /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark
-    /// stays, as firing, until its turn starts. Else why it does not: `superseded` when a newer
-    /// turn took its mark or the chat moved on, `stopped` when Stop or close took it.
-    fn fire_pending(&self, session: &Session, cut_turn: &str) -> Result<(), &'static str> {
+    /// stays, as firing, until its turn starts. Its generation, for `PromptOptions::fired` and
+    /// [`Hub::clear_fired`]. Else why it does not: `superseded` when a newer turn took its mark
+    /// or the chat moved on, `stopped` when Stop or close took it.
+    fn fire_pending(&self, session: &Session, cut_turn: &str) -> Result<u64, &'static str> {
         let mut pending = session.auto_resume.lock();
         match pending.as_ref() {
             Some(Mark::Waiting { turn, .. }) if turn == cut_turn => {
-                pending.replace(Mark::Firing(cut_turn.to_owned()));
-                Ok(())
+                let fired_gen = session.auto_resume.next_generation();
+                pending.replace(Mark::Firing(cut_turn.to_owned(), fired_gen));
+                Ok(fired_gen)
             }
-            Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => Err("superseded"),
+            Some(Mark::Waiting { .. } | Mark::Firing(..) | Mark::Ending(_)) => Err("superseded"),
             // The turn that ended before `still_cut` reads its result is a newer one.
             _ if !still_cut(session, cut_turn) => Err("superseded"),
             _ => Err("stopped"),
         }
     }
 
-    /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
-    fn clear_fired(&self, session: &Session, cut_turn: &str) {
+    /// Drops what is left of the continuation of `cut_turn` that fired as generation `fired_gen`
+    /// and did not start its turn. A later fire's mark for the same turn is not its own.
+    fn clear_fired(&self, session: &Session, cut_turn: &str, fired_gen: u64) {
         let mut pending = session.auto_resume.lock();
-        if matches!(pending.as_ref(), Some(Mark::Firing(t) | Mark::Stopped(t) | Mark::Stopping(t)) if t == cut_turn)
-        {
+        let ours = match pending.as_ref() {
+            Some(Mark::Firing(t, g) | Mark::Stopping { turn: t, fired_gen: g, .. }) => {
+                t == cut_turn && *g == fired_gen
+            }
+            Some(Mark::Stopped(t)) => t == cut_turn,
+            _ => false,
+        };
+        if ours {
             pending.take();
         }
     }
@@ -1509,18 +1656,21 @@ impl Hub {
                 self.lift_rate_hold(session, why);
             }
         };
-        if let Err(why) = self.fire_pending(session, cut_turn) {
+        let fired_gen = match self.fire_pending(session, cut_turn) {
+            Ok(fired_gen) => fired_gen,
             // Stop or close took it, or a newer turn replaced it.
-            skip(why);
-            return;
-        }
+            Err(why) => {
+                skip(why);
+                return;
+            }
+        };
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
-            self.clear_fired(session, cut_turn);
+            self.clear_fired(session, cut_turn, fired_gen);
             skip("closed");
             return;
         }
         if !still_cut_by(session, cut_turn, rate) {
-            self.clear_fired(session, cut_turn);
+            self.clear_fired(session, cut_turn, fired_gen);
             skip("superseded");
             return;
         }
@@ -1531,7 +1681,7 @@ impl Hub {
             && cut.slash.is_none()
             && self.rate_hold_due(session, &held, continue_text(cut.error, reason))
         {
-            self.clear_fired(session, cut_turn);
+            self.clear_fired(session, cut_turn, fired_gen);
             self.append_retry(session, "auto_resume_skipped", skipped("folded"));
             return;
         }
@@ -1554,6 +1704,7 @@ impl Hub {
             trust_gate: cut.trust_gate,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.to_owned()),
+            fired: Some(fired_gen),
             ..PromptOptions::default()
         };
         // A cut `/compact` goes again as itself: the chat still needs compacting.
@@ -1575,7 +1726,7 @@ impl Hub {
             &cut,
             attempt,
             &held,
-            result,
+            (result, fired_gen),
             accepted.load(std::sync::atomic::Ordering::SeqCst),
         );
     }
@@ -1588,11 +1739,11 @@ impl Hub {
         cut: &CutTurn<'_>,
         attempt: usize,
         held: &[String],
-        result: Result<Value, RpcError>,
+        (result, fired_gen): (Result<Value, RpcError>, u64),
         accepted: bool,
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
-        self.clear_fired(session, cut_turn);
+        self.clear_fired(session, cut_turn, fired_gen);
         // Read before the retry lock: scheduling takes the shutdown plan, then this lock
         // (`before_shutdown`, `set_retry`), so never the other way round.
         let fenced = self.shutting_down()

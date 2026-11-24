@@ -774,6 +774,7 @@ impl Hub {
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
+        let fired = opts.fired;
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
@@ -988,7 +989,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
+        if let Err(e) =
+            self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -1795,6 +1798,10 @@ impl Hub {
         trigger: bool,
         next: Option<&super::carried_turn::NextTurn>,
     ) -> Result<Value, RpcError> {
+        // The turn's end, which its cost is ready after (`turn_cost.rs`).
+        let ended = std::time::Instant::now();
+        let started_at =
+            session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|t| t.started_at);
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
@@ -2094,6 +2101,8 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // What the task cost, model and compute, and the chat's total so far.
+                        super::turn_cost::add_turn_cost(session, o, started_at, ended);
                         // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
                         if let Some(hm) = v.pointer("/_meta/harnessMagic").filter(|m| m.is_object())
                         {
