@@ -296,7 +296,9 @@ impl Hub {
             .into_iter()
             .map(|s| {
                 s.evict_tried_at.store(now, Ordering::Relaxed);
+                let id = s.id.clone();
                 self.evict(s, now, after)
+                    .inspect_err(|why| tracing::debug!(session = %id, %why, "kept in memory"))
             })
             .filter(Result::is_ok)
             .count();
