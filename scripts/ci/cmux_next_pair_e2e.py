@@ -430,7 +430,9 @@ def main():
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
     connect_runs = connect_timeline_runs()
     if connect_runs:
-        note(f"- connect timeline: {connect_runs} runs per profile and phase (the commit's Connect-Timeline-Runs)")
+        note(f"- connect timeline: {connect_runs} runs per profile and launch; foreground after "
+             f"{connect_timeline_aways()} s away, {connect_timeline_away_runs(connect_runs)} runs each "
+             f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
@@ -654,7 +656,7 @@ def main():
 CONNECT_STEPS = ("dial_start", "link_connected", "first_daemon_response", "workspaces_live")
 # Fresh after a foreground: the tree arrived again, or the kept link answered (its list is current).
 CONNECT_FRESH = ("workspaces_live", "link_alive", "link_standby_promoted", "link_adopted")
-CONNECT_AWAY = 60
+CONNECT_AWAY = 60  # the default away time; `Connect-Timeline-Away: 60,300,600` (seconds, 1-1800) asks for more
 CONNECT_BOUND = 30  # seconds one attempt may take before it counts as a miss
 TIMING = re.compile(r"timing (\w+) (\w+) \+(\d+)ms(?: \(\d+ms\))? ?(.*)$")
 
@@ -681,6 +683,19 @@ def connect_timeline_profiles():
     return [p for p in got if p in ("lan", "relay")] or ["lan", "relay"]
 
 
+def connect_timeline_aways():
+    """The commit's Connect-Timeline-Away trailer: away times in seconds (comma-separated, 1-1800; default 60)."""
+    got = [p.strip() for p in commit_trailer("Connect-Timeline-Away").split(",") if p.strip()]
+    return [int(p) for p in got if p.isdigit() and 1 <= int(p) <= 1800] or [CONNECT_AWAY]
+
+
+def connect_timeline_away_runs(runs):
+    """The commit's Connect-Timeline-Away-Runs trailer (1-30): foreground runs per away time, else `runs`.
+    A 600 s away costs 10 minutes a run, so a long one is usually asked for with fewer runs."""
+    got = commit_trailer("Connect-Timeline-Away-Runs")
+    return int(got) if got.isdigit() and 1 <= int(got) <= 30 else runs
+
+
 def connect_attempt(phone_log, attempt, since, wanted):
     """{step: ms since the attempt began} for one attempt, until one of `wanted` (or the bound)."""
     marks, details = {}, {}
@@ -702,8 +717,9 @@ def connect_attempt(phone_log, attempt, since, wanted):
 
 
 def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, out, note):
-    """Launch and foreground-after-CONNECT_AWAY connect times, per profile; True when every run ended."""
+    """Launch and foreground-after-away connect times, per profile; True when every run ended."""
     rows, ok = [], True
+    aways, away_runs = connect_timeline_aways(), connect_timeline_away_runs(runs)
     path = os.path.join(out, "connect-timeline.jsonl")
     profiles = [(p, a) for p, a in (("lan", []), ("relay", ["-" + "cmuxMobile.dev.relayOnly", "YES"]))
                 if p in connect_timeline_profiles()]
@@ -718,19 +734,21 @@ def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, ou
             marks, details, end = connect_attempt(phone_log, "launch", since, ("workspaces_live",))
             rows.append({"profile": profile, "phase": "launch", "run": run, "end": end, "marks": marks,
                          "transport": details.get("dial_start", ""), "rtt": details.get("link_alive", "")})
-        # Foreground after CONNECT_AWAY s: one process, sent to the background by Settings and back.
-        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
-        since = time.monotonic()
-        subprocess.run(launch, env=phone_env, capture_output=True)
-        connect_attempt(phone_log, "launch", since, ("workspaces_live",))
-        for run in range(1, runs + 1):
-            subprocess.run(simctl + ["launch", udid, "com.apple.Preferences"], capture_output=True)
-            time.sleep(CONNECT_AWAY)
+        # Foreground after each away time: one process per away time, sent to the background by Settings and back.
+        for away in aways:
+            subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
             since = time.monotonic()
-            subprocess.run(simctl + ["launch", udid, bundle_id], env=phone_env, capture_output=True)
-            marks, details, end = connect_attempt(phone_log, "foreground", since, CONNECT_FRESH)
-            rows.append({"profile": profile, "phase": "foreground", "run": run, "end": end, "marks": marks,
-                         "transport": details.get("dial_start", ""), "rtt": details.get("link_alive", "")})
+            subprocess.run(launch, env=phone_env, capture_output=True)
+            connect_attempt(phone_log, "launch", since, ("workspaces_live",))
+            for run in range(1, away_runs + 1):
+                subprocess.run(simctl + ["launch", udid, "com.apple.Preferences"], capture_output=True)
+                time.sleep(away)
+                since = time.monotonic()
+                subprocess.run(simctl + ["launch", udid, bundle_id], env=phone_env, capture_output=True)
+                marks, details, end = connect_attempt(phone_log, "foreground", since, CONNECT_FRESH)
+                rows.append({"profile": profile, "phase": "foreground", "away": away, "run": run, "end": end,
+                             "marks": marks, "transport": details.get("dial_start", ""),
+                             "rtt": details.get("link_alive", "")})
         subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
     with open(path, "w") as f:
         for row in rows:
@@ -742,8 +760,9 @@ def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, ou
     note("| profile | phase | interval | p50 | p95 | n |")
     note("| --- | --- | --- | --- | --- | --- |")
     for profile, _ in profiles:
-        for phase in ("launch", "foreground"):
-            got = [r for r in rows if r["profile"] == profile and r["phase"] == phase]
+        for phase, away in [("launch", None)] + [("foreground", w) for w in aways]:
+            got = [r for r in rows if r["profile"] == profile and r["phase"] == phase and r.get("away") == away]
+            label = phase if away is None else f"foreground after {away} s"
             done = [r for r in got if r["end"]]
             if len(done) < len(got):
                 ok = False
@@ -764,14 +783,14 @@ def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, ou
                 intervals.append(("total: process start -> workspaces_live", [r["marks"]["workspaces_live"] for r in done]))
             for name, values in intervals:
                 if values:
-                    note(f"| {profile} | {phase} | {name} | {percentile(values, 0.5):.0f} | {percentile(values, 0.95):.0f} | {len(values)} |")
+                    note(f"| {profile} | {label} | {name} | {percentile(values, 0.5):.0f} | {percentile(values, 0.95):.0f} | {len(values)} |")
                 else:
-                    note(f"| {profile} | {phase} | {name} | - | - | 0 |")
+                    note(f"| {profile} | {label} | {name} | - | - | 0 |")
             ends = {}
             for r in got:
                 ends[r["end"] or "miss"] = ends.get(r["end"] or "miss", 0) + 1
             transports = sorted({r["transport"] for r in got if r["transport"]})
-            note(f"| {profile} | {phase} | end marks {ends}; transports {transports or ['none dialed']} | | | {len(got)} |")
+            note(f"| {profile} | {label} | end marks {ends}; transports {transports or ['none dialed']} | | | {len(got)} |")
     note("")
     return ok
 
