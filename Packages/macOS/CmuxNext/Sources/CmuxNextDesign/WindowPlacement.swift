@@ -152,8 +152,9 @@ public struct WindowPlacement {
 
     /// Places `window` for `parent` (unless it is already on screen) and
     /// orders it in: key and front normally; under no-activate front on
-    /// the test screen or behind everything, never key.
-    public static func present(_ window: NSWindow, parent: NSWindow? = nil) {
+    /// the test screen or behind everything, never key. `intent` `.bringForward`
+    /// (a window automation opened) orders it in front of the app's windows without the keys.
+    public static func present(_ window: NSWindow, parent: NSWindow? = nil, intent: WindowActivation.Intent = .present) {
         let parent = parent ?? defaultParent()
         if !window.isVisible, let screen = targetScreen(parent: parent) {
             fitToContent(window)
@@ -169,6 +170,6 @@ public struct WindowPlacement {
             }
             window.setFrame(frame, display: false)
         }
-        WindowActivation.show(window, .present)
+        WindowActivation.show(window, intent)
     }
 }
