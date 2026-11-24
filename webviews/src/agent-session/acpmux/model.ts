@@ -98,7 +98,13 @@ import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
+import {
+  linkedImagePath,
+  SENT_IMAGE_HEIGHT,
+  SENT_IMAGE_MAX_WIDTH,
+  sentImageSize,
+  sentImageWidth,
+} from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -945,6 +951,10 @@ export type AcpmuxActivity = {
     awaitingCall?: true;
     inputSummary?: string;
     output?: string;
+    /// The output starts after the beginning of what the call printed: a long call's oldest lines went
+    /// with their records when the chat let go of its oldest (direct.ts `shedOlderHeld`), and scrolling
+    /// up reads them back (`foldOlder`). Its Shell block marks the cut as a read tail's is marked.
+    earlierOutput?: true;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
     command?: string;
     /// What the call says it does in a few words (Claude Code's Bash `rawInput.description`): a
@@ -3664,6 +3674,9 @@ function attachmentBox(
       width: sentImageWidth(video),
       height: SENT_IMAGE_HEIGHT,
     });
+  // An image sent as its file's link draws as a sent image of unknown size (UserBubble.tsx
+  // `SentLinkedImage`) until it is read.
+  if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
   const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
   const content =
