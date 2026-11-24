@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45381501414",
+  "recorded_at": "2026-11-24T15:26:04Z",
+  "reason": "cmux-tui 7e9b5a72dd97 changes the image's cmux-tui (pinned 67d01201b152)",
+  "dry_run": false,
+  "cmux_tui": "7e9b5a72dd974bf16fe9477d9f58f5b9861f3c2d",
+  "fixes": [
+    {
+      "sha": "f49858e2215e76b04e2a0acefc73c07297956387",
+      "mergedAt": "2026-11-24T10:00:51Z",
+      "subject": "cmux-wg: a lost SYN on the tunnel resends after 300 ms, not 1 s (#53397)"
+    },
+    {
+      "sha": "a261329fe7ae02b74120204fe712e129f5934547",
+      "mergedAt": "2026-11-24T09:47:12Z",
+      "subject": "cmux-rd-host Linux: share one X window, followed through moves (#50435)"
+    },
+    {
+      "sha": "e1aa4f7faabb88f767b128a670472d734eb75be5",
+      "mergedAt": "2026-11-24T09:45:03Z",
+      "subject": "cloud: play while the checkout downloads (hot files, background blob download, per-path read gate) (#53320)"
+    },
+    {
+      "sha": "4e86ad0de8b2ab6186a2a43a4209d3a3e0ffde1b",
+      "mergedAt": "2026-11-24T09:42:57Z",
+      "subject": "Workspace names are automatic unless someone renames them (#53137)"
+    },
+    {
+      "sha": "5e18ffa3480d2ba19d132ffa78ddb6b53348d436",
+      "mergedAt": "2026-11-24T09:38:41Z",
+      "subject": "chore(next): base autofix at 65d94c5f9266"
+    },
+    {
+      "sha": "269f7ce65d00f758f55796a79e00aa1ba48d71d7",
+      "mergedAt": "2026-11-24T09:34:22Z",
+      "subject": "cmux-host: report a person's attached clients apart from the open sessions (#53501)"
+    },
+    {
+      "sha": "5659e7e2b238e14cea19e8d07b081fbf08dfeaac",
+      "mergedAt": "2026-11-24T02:26:28-07:00",
+      "subject": "a listing row carries neither what every row shares nor what it derives (#53482)"
+    },
+    {
+      "sha": "d182b24308ad9157f8eb9164cb0bfb3d02e06512",
+      "mergedAt": "2026-11-24T09:19:27Z",
+      "subject": "Gooey tabs core: springs, blob, neck and plans in cmux-motion, with a C ABI (#52114)"
+    },
+    {
+      "sha": "d02c3d9f6bf06a9dba9beff10e360a3c8ebf7dab",
+      "mergedAt": "2026-11-24T09:18:07Z",
+      "subject": "acpmux: every daemon HTTP client resolves IPv6 first (#53518)"
+    },
+    {
+      "sha": "748fb853bb3cd235a7d81614743860c942e2e21e",
+      "mergedAt": "2026-11-24T09:10:41Z",
+      "subject": "Cloud start: a claimed spare's record is not read again before its link (connect.resume) (#49897)"
+    },
+    {
+      "sha": "c31d521887158b579f271442f42a88a41143e515",
+      "mergedAt": "2026-11-24T01:09:59-08:00",
+      "subject": "Background tasks panel lists every subagent from acpmux's tree, not the page (#53421)"
+    },
+    {
+      "sha": "d755b7139bdea9dca79c09e8ba9e649e288eba7f",
+      "mergedAt": "2026-11-24T09:08:58Z",
+      "subject": "linux host remove-device: load keeps an old join record, like the other hub commands (base compile break) (#53424)"
+    },
+    {
+      "sha": "aac2a7777cf6c6bb278e42e4cc8aac3f78304ec7",
+      "mergedAt": "2026-11-24T09:07:35Z",
+      "subject": "acpmux: session move --dry-run asks the target, and a move it would refuse never freezes the chat (#51984)"
+    },
+    {
+      "sha": "6d7b8a9415b2ad3baef27ad5413025dfb50ffa5c",
+      "mergedAt": "2026-11-24T09:07:21Z",
+      "subject": "cmux-tui: every Cloud, remote, link and machine verb has its own --help (#53090)"
+    },
+    {
+      "sha": "74f58f31a56d9e33cf2f25215bce266f60f8779b",
+      "mergedAt": "2026-11-24T09:03:59Z",
+      "subject": "terminal-find: Cmd-F over a terminal's whole history (Rust engine + daemon command) (#53152)"
+    },
+    {
+      "sha": "553943e19fc8d11749550f0e40f476da3fa0affa",
+      "mergedAt": "2026-11-24T08:38:39Z",
+      "subject": "acpmux: cold wakes batch on an interval and compact first (#53124)"
+    },
+    {
+      "sha": "d578510d7763b2a3f8363896461c6b0a1ee21b7a",
+      "mergedAt": "2026-11-24T08:26:51Z",
+      "subject": "cmux-session-cloud: open cold history from a session-pack tail (#53377)"
+    },
+    {
+      "sha": "58b92b7c569c27bb535de9167e67cea2fb83f941",
+      "mergedAt": "2026-11-24T00:07:50-08:00",
+      "subject": "acpmux: a Waiting chat always names what it waits on (#52470)"
+    },
+    {
+      "sha": "c1528c088feb34b4d9c24eb5078edcc1b547381f",
+      "mergedAt": "2026-11-24T07:58:07Z",
+      "subject": "acpmux: refuse a Codex start where Codex is not signed in (hq#21792 event 12) (#53307)"
+    },
+    {
+      "sha": "073fff007fa7a16d49268be07c852cf099b8f428",
+      "mergedAt": "2026-11-24T07:57:13Z",
+      "subject": "acpmux: install chat harnesses during SSH enrollment (#44547)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-24T15:26:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
