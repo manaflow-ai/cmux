@@ -2415,9 +2415,9 @@ def _evaluate_branch_expression(template: str, context: dict[str, object]) -> st
 def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
     # BRANCH_BUILD_SUPERSEDED: on 2026-11-13..19 the builds of non-trunk branch
     # pushes ran 622 min/day after their branch had a newer push. A branch
-    # push's build shares one group per branch with cancel-in-progress; every
-    # trunk, integration, nightly and dispatch build keeps a group per run that
-    # nothing cancels. The R2 writers keep their per-run groups.
+    # push's (or dispatch's) build shares one group per branch with
+    # cancel-in-progress; every trunk, integration and nightly build, pushed or
+    # dispatched, keeps a group per run that nothing cancels. The R2 writers keep their per-run groups.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     concurrency = jobs["build"]["concurrency"]
@@ -2428,14 +2428,22 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
                                 "repository": "manaflow-ai/cmux"}}
         )
 
-    for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x"):
-        assert render(concurrency["group"], "push", ref) == f"cmux-tui-build-ref-{ref}", ref
-        assert render(concurrency["group"], "push", ref, "8") == render(concurrency["group"], "push", ref), ref
-        assert render(concurrency["cancel-in-progress"], "push", ref) == "True", ref
+    # DISPATCH_SUPERSEDED: a dispatch on such a branch (the hot verify rust look's tree request) shares the
+    # branch's group too, so a newer head's build cancels the older head's.
+    for event_name in ("push", "workflow_dispatch"):
+        for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x", "refs/heads/lane/c"):
+            assert render(concurrency["group"], event_name, ref) == f"cmux-tui-build-ref-{ref}", ref
+            assert render(concurrency["group"], event_name, ref, "8") == render(concurrency["group"], event_name, ref), ref
+            assert render(concurrency["cancel-in-progress"], event_name, ref) == "True", ref
+            linux = jobs["build-linux"]["concurrency"]
+            assert render(linux["group"], event_name, ref) == f"cmux-tui-build-linux-ref-{ref}", ref
+            assert render(linux["cancel-in-progress"], event_name, ref) == "True", ref
+    assert (render(concurrency["group"], "push", "refs/heads/fix/a")
+            == render(concurrency["group"], "workflow_dispatch", "refs/heads/fix/a"))
     assert render(concurrency["group"], "push", "refs/heads/fix/a") != render(concurrency["group"], "push", "refs/heads/fix/b")
     kept = ["refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next",
             "refs/heads/feat-cmux-next-ios", "refs/heads/next-batch/1", "refs/heads/rc/1.2", "refs/heads/cmux-tui-pin-aa"]
-    for event_name, ref in [("push", ref) for ref in kept] + [("workflow_dispatch", "refs/heads/fix/a")]:
+    for event_name, ref in [(event, ref) for ref in kept for event in ("push", "workflow_dispatch")]:
         assert render(concurrency["group"], event_name, ref) == "cmux-tui-build-" + "k" * 12 + "-7", (event_name, ref)
         assert render(concurrency["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
     # The jobs that write R2 never share a group across runs and are never cancelled by one.
@@ -2447,8 +2455,10 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
     # a timeout's cancel (FALLBACK_AFTER_TIMEOUT) and a failed head read still plan one.
     plan = next(s for s in jobs["darwin-fallback-plan"]["steps"] if s.get("id") == "plan")
     assert render(plan["env"]["BRANCH_PUSH"], "push", "refs/heads/fix/a") == "1"
+    assert render(plan["env"]["BRANCH_PUSH"], "workflow_dispatch", "refs/heads/lane/c") == "1"
     for ref in kept:
         assert render(plan["env"]["BRANCH_PUSH"], "push", ref) == "", ref
+        assert render(plan["env"]["BRANCH_PUSH"], "workflow_dispatch", ref) == "", ref
     assert '"$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}"' in plan["run"]
     assert '"$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA"' in plan["run"]
     assert jobs["darwin-fallback-plan"]["permissions"]["contents"] == "read"
