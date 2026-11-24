@@ -23,6 +23,11 @@ Each attempt is one fresh session (new keys, new link). Per attempt it records:
                   the first lost key press to the next one that showed
   recovered_after_drop
                   true when a marker arrived after the selected full-drop interval
+  recovery_ms     the longest stall minus the drop itself: how long frames took to come back once
+                  the network did
+With --gate-recovery-ms MS every drop row is a gate: the run exits 1, naming each attempt, when an
+attempt did not recover or took longer than MS to. CI runs the 10 s and 60 s rows this way
+(screen-share-drop-gate.yml), so a change that breaks the reconnect after a drop fails its PR.
 An attempt that does not connect, or ends before its samples, counts as a failed connect.
 """
 import argparse, json, os, select, shutil, subprocess, sys, time
@@ -114,6 +119,33 @@ def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
     return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
 
 
+def recovery_ms(drop_s, stalls_ms):
+    """The time past the drop itself that frames took to come back: the longest stall spans the
+    drop (from the first key it swallowed) and then the recovery."""
+    if drop_s is None or not stalls_ms:
+        return None
+    return round(max(0.0, max(stalls_ms) - drop_s * 1000), 1)
+
+
+def drop_gate(records, bound_ms):
+    """Each drop attempt that failed the gate, as one line: it never connected, it did not
+    recover after the network came back, or it took longer than bound_ms to."""
+    failures = []
+    for rec in records:
+        drop_s = rec.get("drop_s")
+        if drop_s is None:
+            continue
+        name = f"attempt {rec.get('attempt')} ({rec.get('row')})"
+        if "connect_ms" not in rec:
+            failures.append(f"{name}: never connected: {rec.get('error') or 'no report'}")
+        elif not rec.get("recovered_after_drop"):
+            why = rec.get("host_ended") or rec.get("error") or "no marker after the network came back"
+            failures.append(f"{name}: did not recover: {why}")
+        elif rec.get("recovery_ms") is not None and rec["recovery_ms"] > bound_ms:
+            failures.append(f"{name}: recovered in {rec['recovery_ms']:.0f} ms, over {bound_ms:.0f} ms")
+    return failures
+
+
 STAGES = ("up", "inject", "draw_damage", "gate", "capture", "encode", "send", "down", "decode",
           "total")
 
@@ -202,7 +234,12 @@ def attempt(args, n, drop_s=None):
     host = None
     try:
         line = readline(viewer, time.time() + 10)
-        viewer_key = json.loads(line)["key"]
+        try:
+            viewer_key = json.loads(line)["key"]
+        except (ValueError, KeyError, TypeError):
+            # The viewer's own words (a build without `bench` says so), not a JSONDecodeError.
+            err = (line or "").strip() or (viewer.stderr.read() if viewer.poll() is not None else "")
+            raise RuntimeError(f"viewer did not start: {err.strip()[-400:] or 'no output'}") from None
         timing_env = ["env", f"CMUX_RD_TIMING_LOG={args.timing_log}"] if args.timing_log else []
         host = subprocess.Popen(["ip", "netns", "exec", HOST_NS, *timing_env, *args.host_wrap.split(), args.bin, "serve", "--display",
                                  args.display, "--profile", "baseline", *args.serve_arg],
@@ -286,6 +323,8 @@ def attempt(args, n, drop_s=None):
             rec["recovered_after_drop"] = recovered_after_drop(
                 drop_s, drop_restored, rec["stalls_ms"], rec.get("host_ended")
             )
+            if drop_s is not None:
+                rec["recovery_ms"] = recovery_ms(drop_s, rec["stalls_ms"])
             rec["frames_per_s"] = rep.get("frames_per_s")
             rec["mbit_per_s"] = rep.get("mbit_per_s")
             rec["ended"] = rep.get("ended")
@@ -338,6 +377,9 @@ def main():
         metavar="SECONDS",
         help="run a fresh-session row for each full-drop duration (repeat for 10 and 60)",
     )
+    ap.add_argument("--gate-recovery-ms", type=float, default=None, metavar="MS",
+                    help="fail the run when a drop attempt does not recover, or takes longer than MS "
+                         "after the network is back")
     ap.add_argument("--timeout", type=float, default=90)
     ap.add_argument("--serve-arg", action="append", default=[])
     ap.add_argument("--out")
@@ -350,6 +392,8 @@ def main():
     args = ap.parse_args()
     if args.drop_seconds is not None and args.blip_at is None:
         ap.error("--drop-seconds requires --blip-at")
+    if args.gate_recovery_ms is not None and args.blip_at is None:
+        ap.error("--gate-recovery-ms requires --blip-at (it gates the drop rows)")
     drop_seconds = args.drop_seconds
     if drop_seconds is None:
         drop_seconds = [args.blip_s] if args.blip_at is not None else [None]
@@ -392,6 +436,12 @@ def main():
         teardown()
     if run_status(records):
         sys.exit(f"screen-share-netem: none of {len(records)} attempts reached a first frame")
+    if args.gate_recovery_ms is not None:
+        failures = drop_gate(records, args.gate_recovery_ms)
+        if failures:
+            sys.exit("screen-share-netem: drop gate failed:\n  " + "\n  ".join(failures))
+        print(f"screen-share-netem: drop gate passed: every drop attempt recovered within "
+              f"{args.gate_recovery_ms:.0f} ms", flush=True)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,10 @@ export type FieldGrowthDetail = {
   duration: number;
   /// The field's own animation: what moves with it starts on its start time (the same frame).
   animation: Animation;
+  /// Set for a change of the value from outside (a send clearing a tall prompt): the field lands at
+  /// once, as such a change always did, unless a listener calls `claim` during the dispatch and plays
+  /// `animation` on its own clock (VirtualTranscript: the send's one motion, motionTransaction.ts).
+  outside?: { claim: () => void };
 };
 
 export type FieldGrowthEvent = CustomEvent<FieldGrowthDetail>;

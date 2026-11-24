@@ -35,7 +35,7 @@ import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { MeshStore } from "../db/mesh.ts";
-import { agentBudgetAllows, agentSlotOwner, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
+import { agentBudgetAllows, agentSlotOwner, agentStartAllows, ciSizeAllowed, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -900,10 +900,12 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       timedStart("start", (phases) => audited(
         "vm.start",
         auditableVmId(path.vmId),
-        withOwnedVm(path.vmId, "vm:write", "write", (_caller, vm, proofs) =>
+        withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
             phases["vmId"] = vm.value;
+            // A team key's running and spend caps (RFD 0016): read the VM only when the key sets one.
+            yield* agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead)));
             const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
               .pipe(Effect.mapError(onVm("The VM cannot start now: it no longer exists or no capacity is available")));
             phases["stateAfter"] = started.state;
@@ -916,7 +918,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       timedStart("resume", (phases) => audited(
         "vm.resume",
         auditableVmId(path.vmId),
-        withOwnedVm(path.vmId, "vm:write", "write", (_caller, vm, proofs) =>
+        withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
             const current = yield* timedPhase(phases, "readMs", upstream.getVmForWrite(vm, proofs)).pipe(Effect.mapError(onRead));
@@ -925,6 +927,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             }
             phases["vmId"] = vm.value;
             phases["stateBefore"] = current.state;
+            yield* agentStartAllows(caller, proofs.scope, Effect.succeed(current));
             const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs))
               .pipe(Effect.mapError(onVm("The VM cannot resume now: no capacity is available")));
             phases["stateAfter"] = resumed.state;
