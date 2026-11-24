@@ -95,8 +95,14 @@ export function sentVideosOf(
 /// note (its text is what the bubble reads). A chip the host could not read, or whose frames were
 /// left off (`withoutFrames`), is still its tile, with what the chip knows.
 function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
+  // The same recording attached twice is one video (`withoutRepeatedVideos`).
+  const seen = new Set<string>();
+  const once = (chip: ComposerAttachment) => {
+    const key = `${chip.name}\n${chip.size}`;
+    return !seen.has(key) && Boolean(seen.add(key));
+  };
   return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
-    chip.kind === "link" && chip.path && isVideoFile(chip.path, chip.mimeType)
+    chip.kind === "link" && chip.path && isVideoFile(chip.path, chip.mimeType) && once(chip)
       ? [
           {
             name: chip.name,
@@ -136,12 +142,47 @@ function videoPath(row: Pick<AcpmuxRow, "inlineParts" | "retryAttachments">, nam
   return undefined;
 }
 
-/// Whether a recorded file part is one of `videos`: the tile draws it, not a file chip.
+/// Whether a recorded file part is one of `videos`: the tile draws it, not a file chip. By its
+/// path, else by its name: the same recording attached a second time goes as a second upload of it
+/// (another path), and it is still that video, never a file chip beside its tile (Leo, 2026-11-22:
+/// "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?").
 export function sentVideoOf(
   part: Exclude<PromptContentPart, { kind: "text" | "image" }>,
   videos: readonly SentVideo[],
 ): SentVideo | undefined {
   if (part.kind !== "file" || !part.uri) return undefined;
-  const path = attachmentPath(part.uri);
-  return videos.find((video) => video.name === part.name && video.path === path);
+  return sentVideoFor({ name: part.name, path: attachmentPath(part.uri) }, videos);
+}
+
+/// The video of `videos` a file of `name` at `path` is (`sentVideoOf`): the one at its path, else
+/// the one of its name.
+export function sentVideoFor(
+  file: { name: string; path?: string },
+  videos: readonly SentVideo[],
+): SentVideo | undefined {
+  return (
+    videos.find((video) => video.name === file.name && video.path === file.path) ??
+    videos.find((video) => video.name === file.name)
+  );
+}
+
+/// `parts` with each video once: a second part that is a video already drawn (the same recording
+/// attached again: its name and size, whichever upload of it the part names) draws nothing, so one
+/// video is one tile. UserBubble.tsx draws these and the row's estimate (bubbleParts.ts
+/// `bubbleLayout`) measures them.
+export function withoutRepeatedVideos<T extends PromptContentPart>(
+  parts: readonly T[],
+  videos: readonly SentVideo[],
+): T[] {
+  const drawn = new Set<string>();
+  return parts.filter((given) => {
+    const part: PromptContentPart = given;
+    if (part.kind === "text" || part.kind === "image") return true;
+    const video = sentVideoOf(part, videos);
+    if (!video) return true;
+    const key = `${video.name}\n${part.size ?? ""}`;
+    if (drawn.has(key)) return false;
+    drawn.add(key);
+    return true;
+  });
 }

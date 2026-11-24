@@ -10,9 +10,11 @@ public import Foundation
 ///   (`_acpmux/peer_state_changed`: `connected` only after the handshake; `connecting`, `degraded`,
 ///   `reconnecting`, `restarting`, `offline`...). The composer's machine-link row draws this push
 ///   (peerLink.ts), so its states and their times are the row's.
-/// - `agent.chat.live_paint` `{session, peer, link, at_ms}`: a chat of `peer` drew acpmux's settled
-///   view of itself (the page's `pane.painted` with `settled`; the first one per chat a pane shows): the live
-///   session is on screen. `link` is the peer's last state pushed before it.
+/// - `agent.chat.live_paint` `{session, peer, link, at_ms}`: a chat of `peer` drew its live session: acpmux's
+///   settled view of it, or the page's own attach to it answered (the page's `pane.painted` with `settled` or
+///   `live`; the first one per chat a pane shows). A chat's first open has no settled view (acpmux writes one
+///   for the next open, settled_attach.rs), so `live` is what a fresh chat reports. `link` is the peer's last
+///   state pushed before it.
 ///
 /// Nothing is drawn or changed for the person; a chat on this Mac publishes nothing. O(1) each.
 /// The App owns one (``AgentPaneMachineLink/events``) and points `publish` at the control socket's bus.
@@ -37,7 +39,7 @@ public final class RemoteChatEvents {
         publish(Self.linkEvent, ["peer": .string(peer), "state": .string(state), "at_ms": atMilliseconds])
     }
 
-    /// A pane drew `session`'s settled view; `last` is the session its previous paint published for. Publishes
+    /// A pane drew `session` live (its settled view, or its attach answered); `last` is the session its previous paint published for. Publishes
     /// only the first settled paint of each chat a pane shows (the page reports one on every settled draw), so a
     /// probe timing from it never reads a repaint. Returns the session the pane remembers.
     public func livePainted(session: String?, last: String?) -> String? {
