@@ -9,7 +9,8 @@ import { createStrings } from "../shared/i18n";
 import { makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
-import { OPS, type MakeItYoursState } from "./ops";
+import { MockOnboardingProvider } from "./mockProvider";
+import { OPS, type MakeItYoursState, type OnboardingState } from "./ops";
 import { OnboardingStore } from "./store";
 import {
   LOOK_BUNDLES,
@@ -127,6 +128,25 @@ describe("intro walk: screens", () => {
 });
 
 describe("intro walk: writes", () => {
+  test("the gallery mock restores its opening choices after a walk bundle and Skip", async () => {
+    const provider = new MockOnboardingProvider("makeItYours", makeItYoursState("picked", { introWalk: true }));
+    const opened = await provider.call<OnboardingState>(OPS.state, {});
+    await provider.call(OPS.walk, {
+      writes: [
+        { path: "tabs.newTabTemplate", value: "terminal" },
+        { path: "appearance.density", value: "ultraCompact" },
+        { path: "appearance.twoTone", value: "auto" },
+      ],
+    });
+    const picked = await provider.call<OnboardingState>(OPS.state, {});
+    expect(picked.makeItYours?.workStyle).toBe("terminal");
+    expect(picked.makeItYours?.density).toBe("ultraCompact");
+    expect(picked.makeItYours?.walk).toEqual({ "appearance.twoTone": "auto" });
+    await provider.call(OPS.skip, {});
+    const restored = await provider.call<OnboardingState>(OPS.state, {});
+    expect(restored.makeItYours).toEqual(opened.makeItYours);
+  });
+
   test("a new Mac opens on House, Full Access, Banners and Sound, Tidy off", () => {
     const now = walkValues(choices());
     expect(pickedBundle(now, now)).toBe("house");
