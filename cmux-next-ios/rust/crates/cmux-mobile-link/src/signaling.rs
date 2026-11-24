@@ -161,6 +161,10 @@ pub struct MailboxItem {
     pub sealed: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    /// Its place in the sender phone's queue for this Mac: 1, 2, 3, ... in post order
+    /// (PROTOCOL.md "Store and forward", API 0.18.0). An older hub sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
 }
 
 /// The Mac's answer for one mailbox item.
@@ -911,15 +915,22 @@ mod tests {
     #[test]
     fn mailbox_frames_match_the_contract() {
         let frame: SignalMessage = serde_json::from_str(
-            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"}]}"#,
+            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"},{"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7}]}"#,
         )
         .unwrap();
         let SignalMessage::Mailbox { items } = frame else { panic!("{frame:?}") };
         assert_eq!(
             items[0],
-            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }
+            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5), seq: None }
         );
         assert_eq!(items[1].at, None);
+        // A store-and-forward hub (API 0.18.0) adds each item's `seq`; an older one sends none.
+        assert_eq!((items[1].seq, items[2].seq), (None, Some(7)));
+        assert_eq!(
+            serde_json::to_value(&items[2]).unwrap(),
+            serde_json::json!({"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7})
+        );
+        assert!(serde_json::to_value(&items[0]).unwrap().get("seq").is_none());
         let ack = SignalMessage::MailboxAck {
             results: vec![
                 MailboxResult { id: "r1".into(), applied: true, reason: None, sig: Some("ab".into()) },
