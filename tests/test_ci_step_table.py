@@ -493,10 +493,12 @@ class PipelineTest(unittest.TestCase):
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
         routed = pr_router.table_jobs_routed
-        self.assertEqual(routed(callees, ["webviews/src/app.tsx"]), ["web-browser"])
+        # `security-holes` (inputs ["**"]) routes every change to linux, so linux is in every list; web-browser
+        # starts only for a browser step's inputs.
+        self.assertEqual(routed(callees, ["webviews/src/app.tsx"]), ["linux", "web-browser"])
         self.assertEqual(routed(callees, ["scripts/ci/notify-indexnow.py"]), ["linux"])
         self.assertEqual(routed(callees, ["web/app/page.tsx"]), ["linux", "web-browser"])
-        self.assertEqual(routed(callees, ["docs/x.md"]), [])
+        self.assertEqual(routed(callees, ["docs/x.md"]), ["linux"])
         # Unknown changes or an unreadable table run every job.
         self.assertEqual(routed(callees, None), ["linux", "web-browser"])
         self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser"])
