@@ -24,6 +24,7 @@ pub mod config;
 pub mod control;
 pub mod host;
 pub mod link_deflate;
+pub mod link_zstd;
 pub mod link_socket;
 pub mod localhost;
 pub mod machine;

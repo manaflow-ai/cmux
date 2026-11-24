@@ -267,7 +267,7 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 10] = [
+pub const CAPABILITIES: [&str; 11] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -278,6 +278,7 @@ pub const CAPABILITIES: [&str; 10] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::ZSTD_STREAM,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -1233,6 +1234,8 @@ async fn acpmux(
     let (mut ws_sink, mut ws_source) = socket.split();
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
+    // A phone that lists `zstd-stream-v1` gets every message through one stream (`link_zstd.rs`).
+    let zstd = crate::link_zstd::asked(args).then(crate::link_zstd::LinkZstd::new);
     let mut message = MessageAssembler::default();
     let exposure = peer.session_exposure.clone();
     // What both directions learn about the sessions this phone touches. Locked only for a
@@ -1407,7 +1410,15 @@ async fn acpmux(
                         }
                         text
                     };
-                    if sender.send(crate::link_deflate::frame(deflate, &filtered).await).await.is_err() {
+                    let frame = match &zstd {
+                        // A lost stream can't skip a message: the channel ends and the phone reopens it.
+                        Some(zstd) => match zstd.frame(filtered).await {
+                            Some(frame) => frame,
+                            None => break,
+                        },
+                        None => crate::link_deflate::frame(deflate, &filtered).await,
+                    };
+                    if sender.send(frame).await.is_err() {
                         break;
                     }
                 }

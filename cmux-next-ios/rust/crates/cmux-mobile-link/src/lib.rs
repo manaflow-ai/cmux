@@ -12,6 +12,7 @@
 //! - [`link_stat`]: the phone's path report (`link_stat` on the signaling socket).
 //! - [`path_report`]: one log line per path change and per 10 s (path, srtt).
 //! - [`names`]: the link's capability names, declared once (PROTOCOL.md "Capabilities").
+//! - [`zstd_stream`]: `zstd-stream-v1`, one zstd stream per acpmux channel on the link.
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 
 pub mod api;
@@ -33,6 +34,7 @@ pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod timing;
+pub mod zstd_stream;
 
 pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
