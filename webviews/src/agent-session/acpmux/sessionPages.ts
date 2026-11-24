@@ -222,7 +222,7 @@ export class SessionPager<S extends Summary> {
    * rows was 400 notices ahead of every reply on the connection. The cursor stays at most `after`
    * until a read holds them, so a follow from it reads them.
    */
-  private owed?: { after: number; through: number };
+  private owed?: { after: number; through: number; epoch?: string };
 
   /** `held`: the rows the client holds now, which a follow lays its changes over. `readOwed`: asks
    *  for a list read (`first`), called when peer batch rows are owed and no read is out for them. */
@@ -241,9 +241,12 @@ export class SessionPager<S extends Summary> {
       typeof listSeq === "number" &&
       Number.isSafeInteger(listSeq)
     ) {
-      this.owed = this.owed
-        ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq) }
-        : { after: afterSeq, through: listSeq };
+      // The positions are the daemon run's the pager reads now (`listEpoch`): the list being read, else the one held.
+      const epoch = this.reading?.epoch ?? this.cursor?.epoch;
+      this.owed =
+        this.owed && this.owed.epoch === epoch
+          ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq), epoch }
+          : { after: afterSeq, through: listSeq, epoch };
       this.keepBelowOwed();
     }
     if (!this.loading) this.readOwed();
@@ -258,12 +261,22 @@ export class SessionPager<S extends Summary> {
   }
 
   /** A reply current to `seq` of a read of the rows changed after `from` (0: a whole list) holds the
-   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last. */
-  private readOwedTo(from: number, seq: number): void {
+   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last.
+   *  A reply of another daemon run (`epoch`: the daemon restarted since the batch) owes none: that run's
+   *  rows and positions are gone, and the new run's list is read anew. Before, its positions (lower than
+   *  the batch's) never reached the batch's last row, so every list settled asked for one more read: the
+   *  agent page read the list again and again at idle (renderer 0.36-0.56 % of a core, the bundle's
+   *  acpmux 11-13 context switches a second, against 0.017 % and 0.2 before #46563). */
+  private readOwedTo(from: number, seq: number, epoch: string): void {
     const owed = this.owed;
-    if (!owed || from > owed.after) return;
+    if (!owed) return;
+    if (owed.epoch !== undefined && owed.epoch !== epoch) {
+      this.owed = undefined;
+      return;
+    }
+    if (from > owed.after) return;
     const after = Math.max(owed.after, seq);
-    this.owed = after < owed.through ? { after, through: owed.through } : undefined;
+    this.owed = after < owed.through ? { after, through: owed.through, epoch } : undefined;
   }
 
   /** Keeps this pager's list under `key`, the daemon connection it reads (`heldLists`): a pager of
@@ -370,7 +383,7 @@ export class SessionPager<S extends Summary> {
     if (reply?.follow !== true) this.cursor = undefined;
     const at = cursorOf(reply);
     if (!at) return;
-    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq);
+    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq, at.epoch);
     this.listedAt = at.seq;
     let seq = at.seq;
     for (const [sessionId, changedAt] of this.changedAt) {

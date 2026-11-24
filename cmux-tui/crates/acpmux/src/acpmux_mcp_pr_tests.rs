@@ -207,3 +207,34 @@ fn the_tool_takes_a_description() {
     assert_eq!(t["inputSchema"]["required"], json!(["pr"]));
     assert!(t["inputSchema"]["properties"]["description"].is_object());
 }
+
+#[test]
+fn origin_urls_name_their_repo() {
+    for url in [
+        "https://github.com/manaflow-ai/cmux.git",
+        "https://github.com/manaflow-ai/cmux",
+        "https://x-access-token:abc@github.com/manaflow-ai/cmux.git",
+        "git@github.com:manaflow-ai/cmux.git",
+        "ssh://git@github.com/manaflow-ai/cmux",
+    ] {
+        assert_eq!(origin_repo(url).as_deref(), Some("manaflow-ai/cmux"), "{url}");
+    }
+    for url in ["", "https://gitlab.com/a/b", "/home/me/repo", "https://github.com/a/b/c"] {
+        assert_eq!(origin_repo(url), None, "{url}");
+    }
+}
+
+#[test]
+fn the_poller_line_says_how_it_had_it() {
+    assert_eq!(
+        poller_line(&json!({"source": "fetched", "ageSecs": 0})),
+        "via this machine's GitHub poller: read now"
+    );
+    let line = poller_line(&json!({
+        "source": "stale", "ageSecs": 40, "note": "budget spent", "timedOut": true, "waitedSecs": 45
+    }));
+    assert_eq!(
+        line,
+        "via this machine's GitHub poller: stale, 40s old; timed out after 45s (budget spent)"
+    );
+}

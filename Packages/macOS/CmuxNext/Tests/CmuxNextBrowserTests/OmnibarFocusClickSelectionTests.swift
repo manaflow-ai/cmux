@@ -62,7 +62,7 @@ struct OmnibarFocusClickSelectionTests {
             .fieldChanged(.init(text: focused.fieldText, selection: NSRange(location: 5, length: 8)), nil),
             .fieldMouseUp,
         ])
-        // The resting field shows the host alone; the release shows the whole address with the same characters selected.
+        // The resting field shows the compact address; the release shows the whole address with the same characters selected.
         let picked = (focused.fieldText as NSString).substring(with: NSRange(location: 5, length: 8))
         #expect(dragged.edit.selection.length == 8)
         #expect((dragged.fieldText as NSString).substring(with: dragged.edit.selection) == picked,

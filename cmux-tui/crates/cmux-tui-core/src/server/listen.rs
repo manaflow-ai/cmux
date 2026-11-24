@@ -35,6 +35,7 @@ impl PendingServer {
         self.mux.mark_server_lifecycle_ready();
         #[cfg(unix)]
         start_apps_when_ready(&self.mux);
+        super::start_scheduled_sender(&self.mux);
         self.path.take().ok_or_else(|| anyhow::anyhow!("pending server path was already taken"))
     }
 

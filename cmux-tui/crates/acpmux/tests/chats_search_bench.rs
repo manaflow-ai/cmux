@@ -194,10 +194,10 @@ fn write_chat(
     for turn in 0..turns {
         let prompt = sentence(rng, words, PROMPT_WORDS);
         let mut answer = sentence(rng, words, ANSWER_WORDS);
-        if turn == turns / 2 {
-            if let Some(planted) = planted {
-                answer = format!("{answer} {planted} {}", sentence(rng, words, 20));
-            }
+        if turn == turns / 2
+            && let Some(planted) = planted
+        {
+            answer = format!("{answer} {planted} {}", sentence(rng, words, 20));
         }
         let lines = if codex {
             vec![
