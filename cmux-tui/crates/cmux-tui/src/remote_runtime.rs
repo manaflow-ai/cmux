@@ -78,6 +78,7 @@ mod daemon_state;
 mod route_last_good;
 mod route_race;
 mod startup_progress;
+mod warm_standby;
 pub use daemon_state::load_runtime_info;
 use daemon_state::{
     CommittedRuntimeInfoError, finalize_daemon_lifecycle, persist_runtime_info,
@@ -98,6 +99,7 @@ use route_last_good::LastGoodRoute;
 pub(crate) use route_race::{RouteOrder, RouteRace};
 use startup_progress::StartupProgress;
 pub use startup_progress::startup_refusal;
+use warm_standby::{Armed, WarmStandby, arm_standby, next_warm_route, warm_standby_enabled};
 
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
@@ -1236,12 +1238,12 @@ impl RuntimeInitialRouteAttempt<'_> {
         let connection_timeout = if invitation { self.options.startup_timeout } else { timeout };
         let connection_deadline =
             if invitation { tokio::time::Instant::now() + connection_timeout } else { deadline };
-        let reconnect_groups: Arc<dyn ReconnectGroupSource> =
-            Arc::new(RuntimeReconnectGroups::with_shutdown(
-                self.options.clone(),
-                index,
-                self.shutdown.clone(),
-            ));
+        let standby_groups = Arc::new(RuntimeReconnectGroups::with_shutdown(
+            self.options.clone(),
+            index,
+            self.shutdown.clone(),
+        ));
+        let reconnect_groups: Arc<dyn ReconnectGroupSource> = standby_groups.clone();
         let mut shutdown = self.shutdown.clone();
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
@@ -1282,7 +1284,11 @@ impl RuntimeInitialRouteAttempt<'_> {
             }
         };
         match connection {
-            Ok(connection) => Ok((connection, route)),
+            Ok(connection) => {
+                // The link is up: the best other route goes warm beside it.
+                standby_groups.start_standby();
+                Ok((connection, route))
+            }
             Err(error) if error.refusal().is_some() => {
                 close_failed_initial_group(&group).await;
                 Err(InitialRouteAttemptError::Fatal(error.into()))
@@ -1496,12 +1502,26 @@ async fn select_reconnect_route<T: Send>(
 }
 
 struct RuntimeReconnectGroups {
+    inner: Arc<ReconnectGroupsInner>,
+}
+
+struct ReconnectGroupsInner {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
     /// The reconnect pass's race (`None`: one route at a time), as the first connect's.
     race: Option<RouteRace>,
     prepared_ssh: Vec<AtomicBool>,
     shutdown: Option<watch::Receiver<bool>>,
+    /// The warm standby route (`warm_standby.rs`); empty until [`Self::start_standby`].
+    standby: WarmStandby<Arc<dyn LinkGroup>>,
+}
+
+impl std::ops::Deref for RuntimeReconnectGroups {
+    type Target = ReconnectGroupsInner;
+
+    fn deref(&self) -> &ReconnectGroupsInner {
+        &self.inner
+    }
 }
 
 impl RuntimeReconnectGroups {
@@ -1542,12 +1562,32 @@ impl RuntimeReconnectGroups {
             .collect();
         let race = reconnect_race(&options);
         Self {
-            options,
-            next: AtomicUsize::new(selected_index.saturating_add(1)),
-            race,
-            prepared_ssh,
-            shutdown,
+            inner: Arc::new(ReconnectGroupsInner {
+                options,
+                next: AtomicUsize::new(selected_index.saturating_add(1)),
+                race,
+                prepared_ssh,
+                shutdown,
+                standby: WarmStandby::new(selected_index),
+            }),
         }
+    }
+
+    /// Starts keeping one warm standby route, once the active link is up. One keeper task per
+    /// peer; it ends when this source is dropped. A no-op for a single route, for any follow-up
+    /// auth but Enrolled, and with `CMUX_REMOTE_WARM_STANDBY=0`.
+    fn start_standby(&self) {
+        if !self.standby_enabled() {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        runtime.spawn(keep_standby(Arc::downgrade(&self.inner), self.standby.wake()));
+    }
+
+    fn standby_enabled(&self) -> bool {
+        followup_auth_kind(&self.options.auth) == AuthKind::Enrolled
+            && self.options.routes.len() > 1
+            && warm_standby_enabled()
     }
 
     fn unprepared_ssh_probe_count(&self) -> usize {
@@ -1590,7 +1630,8 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             prepared_ssh: &self.prepared_ssh,
             shutdown: self.shutdown.clone(),
         };
-        next_reconnect_route(
+        let (group, stale) = next_warm_route(
+            &self.standby,
             &self.next,
             &self.options.routes,
             self.race,
@@ -1599,7 +1640,60 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             followup_auth_kind(&self.options.auth),
             &attempt,
         )
-        .await
+        .await?;
+        if let Some(stale) = stale {
+            close_failed_initial_group(&stale).await;
+        }
+        Ok(group)
+    }
+}
+
+/// The keeper of one peer's warm standby: dials it when the slot is empty or stale, and looks
+/// again when the reconnect took it, at the standby's expiry, or after a backoff when the dial
+/// failed. Holds the source only weakly, so it ends with it.
+async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tokio::sync::Notify>) {
+    let mut backoff = warm_standby::INITIAL_BACKOFF;
+    loop {
+        let Some(inner) = weak.upgrade() else { return };
+        if inner.shutdown.as_ref().is_some_and(|shutdown| *shutdown.borrow()) {
+            return;
+        }
+        let attempt = RuntimeReconnectRouteAttempt {
+            options: &inner.options,
+            prepared_ssh: &inner.prepared_ssh,
+            shutdown: inner.shutdown.clone(),
+        };
+        let armed = arm_standby(
+            &inner.standby,
+            &inner.next,
+            &inner.options.routes,
+            inner.options.session,
+            inner.options.lane_policy,
+            followup_auth_kind(&inner.options.auth),
+            &attempt,
+        )
+        .await;
+        let wait = match armed {
+            Ok(Armed::Held(left)) => left,
+            Ok(Armed::Dialed { retired, .. }) => {
+                backoff = warm_standby::INITIAL_BACKOFF;
+                if let Some(retired) = retired {
+                    close_failed_initial_group(&retired).await;
+                }
+                warm_standby::MAX_AGE
+            }
+            Ok(Armed::NoRoute) => return,
+            Err(_) => {
+                let wait = backoff;
+                backoff = (backoff * 2).min(warm_standby::MAX_BACKOFF);
+                wait
+            }
+        };
+        drop(inner);
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = wake.notified() => {}
+        }
     }
 }
 
