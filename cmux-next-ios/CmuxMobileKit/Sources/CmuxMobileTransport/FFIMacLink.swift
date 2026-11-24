@@ -103,6 +103,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     var connectedPath: LinkPathKind? { handle.path().kind }
 
+    var peerScope: String { handle.peerScope() }
+
     var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
 
     var trafficAgo: Duration? { .milliseconds(handle.trafficAgoMs()) }
