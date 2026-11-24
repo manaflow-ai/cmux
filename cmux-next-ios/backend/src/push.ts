@@ -781,6 +781,15 @@ export const sendApns = async (
   e: NotifyEvent,
   now: number,
   fetcher: typeof fetch = fetch
+): Promise<Array<ApnsSendResult>> => sendEach(config, targets, now, fetcher, (t, token) => apnsRequest(t, e, token, now))
+
+/** Sends each target the request `build` makes it; never throws. */
+const sendEach = async (
+  config: ApnsConfig,
+  targets: ReadonlyArray<PushRegistration>,
+  now: number,
+  fetcher: typeof fetch,
+  build: (target: PushRegistration, token: string) => Request
 ): Promise<Array<ApnsSendResult>> => {
   if (targets.length === 0) return []
   const tokens = await tokensByEnvironment(config, targets, now)
@@ -788,7 +797,7 @@ export const sendApns = async (
     targets,
     async (t): Promise<ApnsSendResult> => {
       try {
-        const res = await fetcher(apnsRequest(t, e, tokens.get(t.environment)!, now))
+        const res = await fetcher(build(t, tokens.get(t.environment)!))
         const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
         // A malformed body (`{"reason": true}`, `null`) has no reason.
         const reason = typeof body === "string" ? body : undefined
@@ -802,3 +811,83 @@ export const sendApns = async (
     "notify"
   )
 }
+
+/**
+ * Retracting a resolved push (PROTOCOL.md "Retracting a resolved push"): the Mac names pushes that are no longer
+ * true (an ask answered or cancelled anywhere, a finished turn whose chat started a new one), and each phone that
+ * got them gets one background push naming their collapse ids, so it removes them from Notification Center. A
+ * phone on an app from before this ignores it (no alert, no sound, an unknown key).
+ */
+export interface RetractItem {
+  readonly eventId: string
+  readonly kind: PushKind
+  readonly sessionId?: string
+}
+
+/** Pushes one retract may name (a background push stays well under 4096 bytes). */
+export const MAX_RETRACT = 16
+
+/** The retract body (`{clear: [{eventId, kind, sessionId?}]}`), or why it is refused. */
+export const parseRetract = (b: Record<string, unknown>): Array<RetractItem> | string => {
+  const bad = `clear must be 1-${MAX_RETRACT} of {eventId, kind, sessionId?}, kind one of ${PUSH_KINDS.join(", ")}`
+  if (!Array.isArray(b.clear) || b.clear.length === 0 || b.clear.length > MAX_RETRACT) return bad
+  const out: Array<RetractItem> = []
+  for (const item of b.clear as Array<unknown>) {
+    if (!isObject(item) || typeof item.eventId !== "string" || !EVENT_ID.test(item.eventId)) return bad
+    if (!(PUSH_KINDS as ReadonlyArray<unknown>).includes(item.kind)) return bad
+    if (present(item.sessionId) && (typeof item.sessionId !== "string" || !OPAQUE_ID.test(item.sessionId))) return bad
+    out.push({ eventId: item.eventId, kind: item.kind as PushKind, ...(typeof item.sessionId === "string" ? { sessionId: item.sessionId } : {}) })
+  }
+  return out
+}
+
+/** The items a target got pushed: the kinds it wants, from a Mac it has not muted (as `pushTargets`). */
+const retractedFor = (target: PushRegistration, macId: string, items: ReadonlyArray<RetractItem>): Array<RetractItem> =>
+  target.mutedMacs.includes(macId) ? [] : items.filter((i) => target.kinds.includes(i.kind))
+
+/** The phones a retract goes to: each that got at least one of its pushes. */
+export const retractTargets = (regs: ReadonlyArray<PushRegistration>, macId: string, items: ReadonlyArray<RetractItem>): Array<PushRegistration> =>
+  regs.filter((r) => retractedFor(r, macId, items).length > 0)
+
+/**
+ * The background push body: `content-available` and no alert, and `cmuxRetract` naming each push by the collapse
+ * id it was sent with (the notification's identifier on the phone) and by its event id. Only what APNs already saw
+ * in those pushes' headers: no content, so nothing to seal.
+ */
+export const retractPayload = (macId: string, items: ReadonlyArray<RetractItem>) => ({
+  aps: { "content-available": 1 as const },
+  cmuxRetract: {
+    v: 1 as const,
+    mac: macId,
+    ids: [...new Set(items.map((i) => collapseId({ ...i, macId })))],
+    events: [...new Set(items.map((i) => i.eventId))]
+  }
+})
+
+/** The APNs request of a retract: a background push (priority 5, as Apple requires for one). */
+export const retractRequest = (target: PushRegistration, macId: string, items: ReadonlyArray<RetractItem>, token: string, now: number): Request => {
+  const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
+  return new Request(`https://${host}/3/device/${target.token}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${token}`,
+      "apns-topic": target.topic,
+      "apns-push-type": "background",
+      "apns-priority": "5",
+      // As long as the longest push it clears (an ask's day): a phone offline until then still clears it.
+      "apns-expiration": String(Math.floor((now + 24 * 3600_000) / 1000)),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(retractPayload(macId, retractedFor(target, macId, items)))
+  })
+}
+
+/** Sends a retract to every target; never throws. */
+export const sendRetract = async (
+  config: ApnsConfig,
+  targets: ReadonlyArray<PushRegistration>,
+  macId: string,
+  items: ReadonlyArray<RetractItem>,
+  now: number,
+  fetcher: typeof fetch = fetch
+): Promise<Array<ApnsSendResult>> => sendEach(config, targets, now, fetcher, (t, token) => retractRequest(t, macId, items, token, now))

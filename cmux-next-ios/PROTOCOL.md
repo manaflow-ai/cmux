@@ -1836,6 +1836,30 @@ though Claude Code fires two hooks for it in either order (PermissionRequest
 carries no `tool_use_id`). The phone answers a notification only while that
 very question is pending on its tab; any other push is answered from the Feed card.
 
+### Retracting a resolved push
+
+A pushed ask answered on the Mac, on the phone or anywhere else, or cancelled, leaves the phone; so does a
+pushed finished turn or error once its chat starts a new turn.
+
+- **Mac** (`cmux-mobile-host` `notify.rs`). The reporter remembers the questions, permissions and turn ends
+  that reached a phone (`sent > 0`; 256 at most; one turn end per session, the collapse id's rule). Each
+  `_acpmux/session_changed` says what it resolves: `session.pendingPermissions` 0 resolves the session's asks
+  (acpmux names no single resolved permission, so with two pending the first answer clears nothing until the
+  second); `recordKind` `turn_started` resolves the session's turn ends, or its Chief's. A peer that sends no
+  `pendingPermissions` resolves nothing. The resolved pushes go, at most 16 per request, to
+  `POST /v1/devices/:macId/retract` `{clear: [{eventId, kind, sessionId?}]}`, each once. An older Worker's 404
+  is ignored.
+- **Worker** (`push.ts` `parseRetract`, `sendRetract`). Only the owner's Mac (403 otherwise), rate limited as
+  notify; `→ {configured, sent, failed, dropped, failures?}`. Each phone that wants one of the kinds and has
+  not muted the Mac gets a background push (`apns-push-type: background`, `apns-priority: 5`, no collapse id,
+  a day's expiration): `{"aps": {"content-available": 1}, "cmuxRetract": {"v": 1, "mac", "ids": [collapse
+  ids], "events": [event ids]}}`. The ids are the collapse ids the alerts went out with (already plaintext in
+  APNs headers), so nothing new is revealed; there is no alert, sound or text, and an older app ignores it.
+- **Phone** (`PushRetract`, `CmuxMobileAppDelegate` `didReceiveRemoteNotification`, `UIBackgroundModes`
+  `remote-notification`). It removes each delivered notification whose identifier is a named collapse id, or
+  whose `cmuxMobile` payload carries a named event, from the same Mac. iOS delivers background pushes on its
+  own budget, so a retract can arrive late or not at all; the Feed's own clearing still runs when the app is open.
+
 ## Sealed pushes and the reply mailbox (API 0.14.0, `feat-cmux-next-ios-push-fallback`)
 
 Held for the #13742 decision (`verify/notifications-trust.md`). Every

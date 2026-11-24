@@ -369,8 +369,9 @@ targets:
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
         NSMicrophoneUsageDescription: Talk to Chief on calls and record audio messages for Chief and your agents.
         NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device. Audio is not sent for recognition.
-        # The Action Button Chief call keeps recording while the phone is locked.
-        UIBackgroundModes: [audio]
+        # The Action Button Chief call keeps recording while the phone is locked. A silent push clears a
+        # notification once its ask is answered on the Mac (PROTOCOL.md "Retracting a resolved push").
+        UIBackgroundModes: [audio, remote-notification]
         NSFaceIDUsageDescription: Unlock cmux with Face ID when Require Face ID is on.
         CADisableMinimumFrameDurationOnPhone: true
         UILaunchScreen:

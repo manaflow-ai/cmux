@@ -204,3 +204,45 @@ import UserNotifications
         #expect(count == PushSnapshotStore.maxSessions)
     }
 }
+
+/// PROTOCOL.md "Retracting a resolved push": the silent push that clears an answered ask or a turn's end.
+@Suite struct PushRetractTests {
+    /// The Worker's retract payload, as APNs hands it over.
+    func retract(mac: String? = "mac-1", ids: [String] = ["p-1", "turn-s-1"], events: [String] = ["p-1", "t-s-1-4"]) -> [AnyHashable: Any] {
+        var body: [String: Any] = ["v": 1, "ids": ids, "events": events]
+        if let mac { body["mac"] = mac }
+        return ["aps": ["content-available": 1], "cmuxRetract": body]
+    }
+
+    func payload(mac: String?, eventId: String) -> PushPayload? {
+        var body: [String: Any] = ["v": 2, "kind": "question", "eventId": eventId, "sessionId": "s-1"]
+        if let mac { body["mac"] = mac }
+        return PushPayload(userInfo: ["cmuxMobile": body])
+    }
+
+    @Test func readsTheWorkersRetract() throws {
+        let r = try #require(PushRetract(userInfo: retract()))
+        #expect(r.mac == "mac-1" && r.ids == ["p-1", "turn-s-1"] && r.events == ["p-1", "t-s-1-4"])
+        // Any other push, a later version or one naming nothing is not a retract.
+        #expect(PushRetract(userInfo: ["aps": ["content-available": 1]]) == nil)
+        #expect(PushRetract(userInfo: ["cmuxRetract": ["v": 2, "ids": ["p-1"]]]) == nil)
+        #expect(PushRetract(userInfo: retract(ids: [], events: [""])) == nil)
+        // No more than the Worker sends.
+        let many = try #require(PushRetract(userInfo: retract(ids: (0..<40).map { "p-\($0)" }, events: [])))
+        #expect(many.ids.count == PushRetract.maxItems)
+    }
+
+    @Test func clearsTheNamedNotificationsOfItsMacOnly() throws {
+        let r = try #require(PushRetract(userInfo: retract()))
+        // The alert's identifier is the collapse id it went out with.
+        #expect(r.matches(identifier: "p-1", payload: payload(mac: "mac-1", eventId: "p-1")))
+        #expect(r.matches(identifier: "turn-s-1", payload: payload(mac: "mac-1", eventId: "t-s-1-4")))
+        #expect(r.matches(identifier: "turn-s-1", payload: nil))
+        // An alert this phone posted under its own id, carrying a named event.
+        #expect(r.matches(identifier: "local-7", payload: payload(mac: "mac-1", eventId: "t-s-1-4")))
+        // Another Mac's notification, an unnamed one, or an event with no Mac to compare stays.
+        #expect(!r.matches(identifier: "p-1", payload: payload(mac: "mac-2", eventId: "p-1")))
+        #expect(!r.matches(identifier: "p-2", payload: payload(mac: "mac-1", eventId: "p-2")))
+        #expect(!r.matches(identifier: "local-7", payload: payload(mac: nil, eventId: "p-1")))
+    }
+}

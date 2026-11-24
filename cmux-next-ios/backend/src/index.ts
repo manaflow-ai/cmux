@@ -12,6 +12,9 @@ import {
   notifyFailures,
   notifyLimitKey,
   parseNotify,
+  parseRetract,
+  retractTargets,
+  sendRetract,
   pushTargets,
   sendApns,
   TURN_PUSH_WINDOW_MS,
@@ -543,7 +546,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ deleted: { devices: gone.length } })
   }
 
-  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|mailbox)(?:\/([^/]+))?)?$/)
+  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify|retract|mailbox)(?:\/([^/]+))?)?$/)
   if (dev) {
     const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
@@ -661,6 +664,29 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         ...(skipped ? { skipped } : {}),
         wants,
         batches: true,
+        ...(failures.length ? { failures } : {})
+      })
+    }
+    if (sub === "retract" && method === "POST") {
+      // PROTOCOL.md "Retracting a resolved push": the phones that got these pushes remove them.
+      const items = parseRetract(await readJson(req))
+      if (typeof items === "string") throw new HttpError(400, "bad_request", items)
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
+      if (!device) throw new HttpError(404, "not_found", "no such device")
+      if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "retract from your own Mac")
+      await limit(env.NOTIFY_LIMIT, `${deviceId}:retract`, "retracts")
+      const config = apnsConfig(env)
+      const targets = config ? retractTargets(await withStore(env, ctx, (s) => s.listOwnerPush(space, me)), deviceId, items) : []
+      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
+      const results = await sendRetract(config, targets, deviceId, items, Date.now())
+      const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
+      if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(space, drop))
+      const failures = notifyFailures(results)
+      return json({
+        configured: true,
+        sent: results.filter((r) => r.outcome === "sent").length,
+        failed: failures.length,
+        dropped: drop.length,
         ...(failures.length ? { failures } : {})
       })
     }

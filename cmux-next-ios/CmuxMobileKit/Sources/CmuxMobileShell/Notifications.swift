@@ -254,6 +254,26 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         log.error("APNs registration failed: \(String(describing: error), privacy: .public)")
     }
 
+    /// A silent push. A retract (PROTOCOL.md "Retracting a resolved push") removes the delivered
+    /// notifications it names: an ask resolved on the Mac or anywhere, or a turn's end whose chat started
+    /// a new turn. Any other silent push changes nothing.
+    public func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                            fetchCompletionHandler completionHandler: @escaping @Sendable (UIBackgroundFetchResult) -> Void) {
+        guard let retract = PushRetract(userInfo: userInfo) else {
+            completionHandler(.noData)
+            return
+        }
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let cleared = await center.deliveredNotifications()
+                .filter { retract.matches(identifier: $0.request.identifier, payload: PushPayload(userInfo: $0.request.content.userInfo)) }
+                .map(\.request.identifier)
+            if !cleared.isEmpty { center.removeDeliveredNotifications(withIdentifiers: cleared) }
+            log.info("Push retract: cleared \(cleared.count, privacy: .public) notification(s)")
+            completionHandler(cleared.isEmpty ? .noData : .newData)
+        }
+    }
+
     /// A push while the app is in front. The completion handler form, called on
     /// the main thread, like `didReceive`: the async form of a
     /// UNUserNotificationCenterDelegate method calls UIKit's handler from a

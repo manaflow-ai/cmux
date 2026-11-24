@@ -223,7 +223,47 @@ pub fn is_question(request: &Value) -> bool {
         || tool_call.pointer("/rawInput/questions").and_then(Value::as_array).is_some_and(|q| !q.is_empty())
 }
 
+/// A session's pushes that are no longer true (PROTOCOL.md "Retracting a resolved push"): its
+/// asks were all answered or cancelled (`asks`), or a new turn started (`turns`). The reporter
+/// retracts only what it pushed (`Reporter::resolve`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    /// The session, as a push names it (`NotifyEvent::session_id`).
+    pub session_id: String,
+    /// What its turn pushes collapse under (`retract_scope`): the session, or its Chief.
+    pub scope: String,
+    /// It waits on the person for nothing now (`pendingPermissions` 0).
+    pub asks: bool,
+    /// A new turn started (`turn_started`): its last finished or failed push is out of date.
+    pub turns: bool,
+}
+
 impl Classifier {
+    /// What `message` resolves, if anything: a `_acpmux/session_changed` whose session waits on
+    /// no permission or question (`pendingPermissions` 0, sent on every change, so an answer on
+    /// the Mac, the phone or elsewhere, a cancel and a turn's end all read the same), or that
+    /// starts a turn. A row without `pendingPermissions` (a peer on an older acpmux) resolves no
+    /// ask. Call it after `handle`, so a session first seen in this message has its label.
+    pub fn resolution(&self, message: &Value) -> Option<Resolved> {
+        if message.get("method")?.as_str()? != "_acpmux/session_changed" {
+            return None;
+        }
+        let params = message.get("params")?;
+        let session = params.get("session")?;
+        let raw = session.get("sessionId")?.as_str()?;
+        let asks = session.get("pendingPermissions").and_then(Value::as_u64) == Some(0);
+        let record = params.get("recordKind").or_else(|| params.get("kind")).and_then(Value::as_str);
+        let turns = record == Some("turn_started");
+        if !asks && !turns {
+            return None;
+        }
+        let scope = match self.sessions.get(raw).and_then(|l| l.chief_home.as_deref()) {
+            Some(home) => format!("chief:{}", label_id(home)),
+            None => label_id(raw),
+        };
+        Some(Resolved { session_id: label_id(raw), scope, asks, turns })
+    }
+
     /// A classifier that names each session's workspace and tab from `places`.
     pub fn with_places(places: Arc<Places>) -> Self {
         Self { places: Some(places), ..Self::default() }
@@ -468,6 +508,84 @@ pub struct Reporter {
     /// send task, immediately before the HTTP request, so an OFF transition
     /// cannot race the token or sealing awaits.
     session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The asks and turn ends that reached a phone and may be retracted (`Reporter::resolve`).
+    pushed: Arc<Mutex<Pushed>>,
+}
+
+/// What a push is retracted by: its session and kind, and the ids the backend clears it by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PushedEvent {
+    event_id: String,
+    kind: String,
+    session_id: String,
+    /// The session, or `chief:<home>` for a Chief reply (`retract_scope`).
+    scope: String,
+}
+
+/// The pushes a phone may still show, newest last, at most `PUSHED_LIMIT`.
+#[derive(Debug, Default)]
+struct Pushed(VecDeque<PushedEvent>);
+
+/// Pushes remembered for a retract; the oldest past it are never retracted.
+const PUSHED_LIMIT: usize = 256;
+/// Kinds a resolve retracts: asks (`Resolved::asks`) and turn ends (`Resolved::turns`).
+const ASK_KINDS: [&str; 2] = ["question", "permission"];
+const TURN_KINDS: [&str; 3] = ["completed", "failed", "chief"];
+/// At most this many pushes in one retract (the backend's limit).
+pub const RETRACT_MAX: usize = 16;
+
+/// What a turn push collapses under for a retract: a Chief reply under its Chief, else its session.
+fn retract_scope(event: &NotifyEvent) -> Option<String> {
+    let session = event.session_id.as_deref().filter(|s| !s.is_empty())?;
+    Some(match (event.kind.as_str(), event.conversation_id.as_deref()) {
+        ("chief", Some(home)) if !home.is_empty() => format!("chief:{home}"),
+        _ => session.to_owned(),
+    })
+}
+
+impl Pushed {
+    /// Remembers `event` when a resolve may retract it: an acpmux ask or turn end of a session
+    /// (never a terminal notification or the Mac app's own Feed request).
+    fn remember(&mut self, event: &NotifyEvent) {
+        let kind = event.kind.as_str();
+        if !(ASK_KINDS.contains(&kind) || TURN_KINDS.contains(&kind))
+            || event.event_id.starts_with(crate::needs_you::EVENT_PREFIX)
+        {
+            return;
+        }
+        let Some(scope) = retract_scope(event) else { return };
+        let session_id = event.session_id.clone().unwrap_or_default();
+        // A session's newer turn end replaces its older one on the phone (one collapse id).
+        if TURN_KINDS.contains(&kind) {
+            self.0.retain(|p| !(TURN_KINDS.contains(&p.kind.as_str()) && p.session_id == session_id));
+        }
+        self.0.retain(|p| p.event_id != event.event_id);
+        self.0.push_back(PushedEvent {
+            event_id: event.event_id.clone(),
+            kind: kind.into(),
+            session_id,
+            scope,
+        });
+        while self.0.len() > PUSHED_LIMIT {
+            self.0.pop_front();
+        }
+    }
+
+    /// Forgets `event_id`: its push reached no phone.
+    fn forget(&mut self, event_id: &str) {
+        self.0.retain(|p| p.event_id != event_id);
+    }
+
+    /// Takes the pushes `resolved` makes out of date.
+    fn take(&mut self, resolved: &Resolved) -> Vec<PushedEvent> {
+        let matches = |p: &PushedEvent| {
+            (resolved.asks && ASK_KINDS.contains(&p.kind.as_str()) && p.session_id == resolved.session_id)
+                || (resolved.turns && TURN_KINDS.contains(&p.kind.as_str()) && p.scope == resolved.scope)
+        };
+        let (taken, kept): (VecDeque<_>, VecDeque<_>) = self.0.drain(..).partition(matches);
+        self.0 = kept;
+        taken.into()
+    }
 }
 
 impl Reporter {
@@ -480,6 +598,7 @@ impl Reporter {
             wants: Arc::default(),
             sealer: None,
             session_exposure: None,
+            pushed: Arc::default(),
         }
     }
 
@@ -545,6 +664,8 @@ impl Reporter {
                 return tracing::debug!(kind = event.kind, "push skipped: chat is not exposed");
             }
             let api = ApiClient::new(&this.base_url, &token).with_build_space(this.build_space.clone());
+            // Remembered before the request, so a resolve that comes while it is out still finds it.
+            this.pushed().remember(&event);
             match api.notify_body(&this.device_id, &body).await {
                 Ok(result) => {
                     this.wants
@@ -552,11 +673,18 @@ impl Reporter {
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .learn(&result, Instant::now());
                     tracing::info!(kind = event.kind, %result, "push reported");
+                    let sent = result.get("sent").and_then(Value::as_u64).unwrap_or(0);
                     if !batches_follow(&result) {
+                        if sent == 0 {
+                            this.pushed().forget(&event.event_id);
+                        }
                         return;
                     }
                 }
-                Err(error) => return tracing::warn!(kind = event.kind, %error, "push report failed"),
+                Err(error) => {
+                    this.pushed().forget(&event.event_id);
+                    return tracing::warn!(kind = event.kind, %error, "push report failed");
+                }
             }
             for batch in bodies {
                 match api.notify_body(&this.device_id, &batch).await {
@@ -566,6 +694,43 @@ impl Reporter {
             }
         });
     }
+}
+
+impl Reporter {
+    fn pushed(&self) -> std::sync::MutexGuard<'_, Pushed> {
+        self.pushed.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Retracts, in the background, the pushes `resolved` makes out of date that reached a phone
+    /// (PROTOCOL.md "Retracting a resolved push"): nothing when none did. The body carries only
+    /// what the backend already had (event ids, kinds and session ids, the ids it built each
+    /// push's collapse id from), never content, so it is not sealed.
+    pub fn resolve(&self, resolved: &Resolved) {
+        let taken = self.pushed().take(resolved);
+        if taken.is_empty() {
+            return;
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            let token = match this.tokens.access_token().await {
+                Ok(token) => token,
+                Err(error) => return tracing::warn!("no access token for a retract ({error:#})"),
+            };
+            let api = ApiClient::new(&this.base_url, &token).with_build_space(this.build_space.clone());
+            for chunk in taken.chunks(RETRACT_MAX) {
+                match api.retract_body(&this.device_id, &retract_body(chunk)).await {
+                    Ok(result) => tracing::info!(count = chunk.len(), %result, "push retracted"),
+                    // An older backend has no retract: the push stays, as it always did.
+                    Err(error) => tracing::debug!(count = chunk.len(), %error, "push retract failed"),
+                }
+            }
+        });
+    }
+}
+
+/// The retract body for `pushes` (`{clear: [{eventId, kind, sessionId}]}`).
+fn retract_body(pushes: &[PushedEvent]) -> Value {
+    json!({"clear": pushes.iter().map(|p| json!({"eventId": p.event_id, "kind": p.kind, "sessionId": p.session_id})).collect::<Vec<_>>()})
 }
 
 /// Whether the batches after a lead go out, from the lead's answer: only when
@@ -724,7 +889,12 @@ async fn watch_once(
         };
         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
         let (queries, events) = waiting.receive(&value, classifier)?;
+        let resolved = classifier.resolution(&value);
         report_and_query(&mut sink, queries, events, |event| reporter.send(event)).await?;
+        // After this message's own pushes: a turn's start retracts its last finished push.
+        if let Some(resolved) = resolved {
+            reporter.resolve(&resolved);
+        }
     }
     Err("acpmux closed".into())
 }
@@ -905,6 +1075,21 @@ mod tests {
 
     /// Answers every request on `listener` with `answer`, and sends each request's JSON body.
     fn notify_backend(listener: TcpListener, answer: Value) -> tokio::sync::mpsc::UnboundedReceiver<Value> {
+        let mut requests = backend(listener, answer);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Some((_, body)) = requests.recv().await {
+                let _ = tx.send(body);
+            }
+        });
+        rx
+    }
+
+    /// Answers every request on `listener` with `answer`, and sends each request's path and JSON body.
+    fn backend(
+        listener: TcpListener,
+        answer: Value,
+    ) -> tokio::sync::mpsc::UnboundedReceiver<(String, Value)> {
         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(async move {
@@ -929,9 +1114,11 @@ mod tests {
                         if buf.len() < end + 4 + length {
                             continue;
                         }
-                        let _ = tx.send(
+                        let path = head.split_whitespace().nth(1).unwrap_or_default().to_owned();
+                        let _ = tx.send((
+                            path,
                             serde_json::from_slice(&buf[end + 4..end + 4 + length]).unwrap_or_default(),
-                        );
+                        ));
                         let response = format!(
                             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
                             answer.len()
@@ -1056,6 +1243,145 @@ mod tests {
         let lead = timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap();
         assert_eq!(lead["batchedPhones"].as_array().unwrap().len(), 25);
         assert!(timeout(Duration::from_millis(300), posted.recv()).await.is_err());
+    }
+
+    fn resolved(session: &str, asks: bool, turns: bool) -> Resolved {
+        Resolved { session_id: session.into(), scope: session.into(), asks, turns }
+    }
+
+    fn pushed(event_id: &str, kind: &str, session: &str) -> NotifyEvent {
+        NotifyEvent {
+            event_id: event_id.into(),
+            kind: kind.into(),
+            session_id: Some(session.into()),
+            ..NotifyEvent::default()
+        }
+    }
+
+    #[test]
+    fn a_session_waiting_on_nothing_or_starting_a_turn_resolves_its_pushes() {
+        let mut c = Classifier::default();
+        let changed = |record: &str, session: Value| json!({"method":"_acpmux/session_changed","params":{"recordKind":record,"seq":3,"session":session}});
+        // Answered on the Mac, the phone or anywhere, or cancelled: the row waits on nothing.
+        let answered = changed(
+            "permission_decision",
+            json!({"sessionId":"s1","status":"running","pendingPermissions":0}),
+        );
+        assert_eq!(c.resolution(&answered), Some(resolved("s1", true, false)));
+        // Still waiting on another ask: nothing resolved yet.
+        let waiting = changed(
+            "permission_decision",
+            json!({"sessionId":"s1","status":"waiting","pendingPermissions":1}),
+        );
+        assert_eq!(c.resolution(&waiting), None);
+        // A peer on an older acpmux sends no count: never read as resolved.
+        assert_eq!(c.resolution(&changed("status", json!({"sessionId":"s1"}))), None);
+        // A new turn: its last finished push is out of date (and it waits on nothing).
+        let started =
+            changed("turn_started", json!({"sessionId":"s1","status":"running","pendingPermissions":0}));
+        assert_eq!(c.resolution(&started), Some(resolved("s1", true, true)));
+        // Other methods never resolve.
+        assert_eq!(
+            c.resolution(
+                &json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p"}})
+            ),
+            None
+        );
+        // A Chief's turn session resolves under its Chief, as its replies collapse.
+        let chief = changed(
+            "turn_started",
+            json!({"sessionId":"ct2","harness":"claude-code","tags":{"cmux.chief":"home/1","cmux.chief.role":"turn"}}),
+        );
+        c.handle(&chief);
+        let r = c.resolution(&chief).unwrap();
+        assert_eq!((r.scope.as_str(), r.asks, r.turns), ("chief:home1", false, true));
+    }
+
+    #[test]
+    fn only_pushed_asks_and_turn_ends_are_retracted_once() {
+        let mut p = Pushed::default();
+        p.remember(&pushed("p-q1", "question", "s1"));
+        p.remember(&pushed("p-q2", "permission", "s2"));
+        p.remember(&pushed("t-s1-1", "completed", "s1"));
+        // Never retractable: a terminal notification, the Mac app's own Feed request, no session.
+        p.remember(&pushed("term-1", "terminal", "s1"));
+        p.remember(&pushed("feed-fi_1", "question", "s1"));
+        p.remember(&NotifyEvent {
+            event_id: "p-x".into(),
+            kind: "question".into(),
+            ..NotifyEvent::default()
+        });
+        let ids = |v: Vec<PushedEvent>| v.into_iter().map(|e| e.event_id).collect::<Vec<_>>();
+        // The ask answered: its one push, not the finished turn's, not another session's.
+        assert_eq!(ids(p.take(&resolved("s1", true, false))), ["p-q1"]);
+        assert!(p.take(&resolved("s1", true, false)).is_empty(), "retracted once");
+        // Never pushed: nothing to retract.
+        assert!(p.take(&resolved("s9", true, true)).is_empty());
+        // A new turn retracts the prior finished push.
+        assert_eq!(ids(p.take(&resolved("s1", false, true))), ["t-s1-1"]);
+        // A newer turn end replaces the older (one collapse id on the phone).
+        p.remember(&pushed("t-s2-1", "completed", "s2"));
+        p.remember(&pushed("t-s2-2", "failed", "s2"));
+        assert_eq!(ids(p.take(&resolved("s2", false, true))), ["t-s2-2"]);
+        // A Chief's replies, from its turn sessions, all go when it starts a turn.
+        let chief = |id: &str, session: &str| NotifyEvent {
+            conversation_id: Some("home1".into()),
+            ..pushed(id, "chief", session)
+        };
+        p.remember(&chief("t-c1", "ct1"));
+        p.remember(&chief("t-c2", "ct2"));
+        let r = Resolved { session_id: "ct3".into(), scope: "chief:home1".into(), asks: true, turns: true };
+        assert_eq!(ids(p.take(&r)), ["t-c1", "t-c2"]);
+        assert_eq!(ids(p.take(&resolved("s2", true, false))), ["p-q2"]);
+        // Bounded.
+        for i in 0..PUSHED_LIMIT + 10 {
+            p.remember(&pushed(&format!("p-{i}"), "question", "s"));
+        }
+        assert_eq!(p.0.len(), PUSHED_LIMIT);
+    }
+
+    fn plain_reporter(base_url: String) -> Reporter {
+        let (token_tx, token_rx) = watch::channel(Some("access-token".to_owned()));
+        std::mem::forget(token_tx);
+        Reporter::new(base_url, "mac-1".into(), Arc::new(Tokens::new(TokenSource::Supplied(token_rx))))
+    }
+
+    #[tokio::test]
+    async fn a_resolved_ask_that_reached_a_phone_is_retracted_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut requests =
+            backend(listener, json!({"configured": true, "sent": 1, "failed": 0, "dropped": 0}));
+        let reporter = plain_reporter(base_url);
+        reporter.send(pushed("p-perm1", "question", "s1"));
+        let (path, _) = timeout(Duration::from_secs(5), requests.recv()).await.unwrap().unwrap();
+        assert_eq!(path, "/v1/devices/mac-1/notify");
+        // The answered ask's push leaves the phone.
+        reporter.resolve(&resolved("s1", true, false));
+        let (path, body) = timeout(Duration::from_secs(5), requests.recv()).await.unwrap().unwrap();
+        assert_eq!(path, "/v1/devices/mac-1/retract");
+        assert_eq!(body, json!({"clear": [{"eventId": "p-perm1", "kind": "question", "sessionId": "s1"}]}));
+        // Resolved again, or a session never pushed: no request.
+        reporter.resolve(&resolved("s1", true, true));
+        reporter.resolve(&resolved("s2", true, true));
+        assert!(timeout(Duration::from_millis(200), requests.recv()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_push_no_phone_got_is_never_retracted() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        // Coalesced by the backend: no phone shows it.
+        let mut requests = backend(
+            listener,
+            json!({"configured": true, "sent": 0, "failed": 0, "dropped": 0, "coalesced": true}),
+        );
+        let reporter = plain_reporter(base_url);
+        reporter.send(pushed("t-s1-9", "completed", "s1"));
+        timeout(Duration::from_secs(5), requests.recv()).await.unwrap().unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        reporter.resolve(&resolved("s1", true, true));
+        assert!(timeout(Duration::from_millis(200), requests.recv()).await.is_err());
     }
 
     #[test]
