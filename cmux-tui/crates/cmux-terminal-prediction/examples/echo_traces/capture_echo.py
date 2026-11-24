@@ -49,6 +49,22 @@ def main():
     preamble = read_until_quiet(fd, 1.5, SETTLE + 20)
     # SETUP: keys to get past first-run screens, comma-separated, \r for Enter;
     # each is followed by a quiet wait, and its output joins the preamble.
+    # AUTO=1 answers Claude Code's first-run screens by what is on them.
+    if os.environ.get("AUTO"):
+        import re
+        tail = preamble
+        for _ in range(8):
+            text = re.sub(rb"\x1b\[[0-9;?<>=]*[a-zA-Z~]|\x1b.|[\s]", b"", tail[-4000:])
+            if b"Itrustthisfolder" in text:
+                os.write(fd, b"\x1b[B")
+                time.sleep(0.4)
+                os.write(fd, b"\r")
+            elif b"PressEnter" in text or b"Entertoconfirm" in text or b"theme" in text:
+                os.write(fd, b"\r")
+            else:
+                break
+            tail = read_until_quiet(fd, 1.5, SETTLE + 20)
+            preamble += tail
     for step in filter(None, os.environ.get("SETUP", "").split(",")):
         if step == "WAIT":
             time.sleep(8)
