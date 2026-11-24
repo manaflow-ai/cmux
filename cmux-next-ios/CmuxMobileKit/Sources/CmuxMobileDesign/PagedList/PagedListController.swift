@@ -95,6 +95,10 @@ public final class PagedListProbe {
     /// the rows around the eye line (``PagedListFollow/neighbourShift(previous:current:reading:explained:around:)``),
     /// a check that does not share the rule by which the anchor or the measures pick their row.
     public var neighbourShift: ((_ shift: CGFloat, _ detail: String?) -> Void)?
+    /// After every committed frame, while set (DEBUG): a push one frame back (``PagedListPush``), the
+    /// rows' drawn move NOT less what the scroll or the list explains, judged against the frames on
+    /// both sides; 0 when that frame was smooth. Frames with a finger on the list are not judged.
+    public var pushShift: ((_ size: CGFloat, _ detail: String?) -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -393,6 +397,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// and the row being read.
     private var drawnRows: [(id: CellID, y: CGFloat)] = []
     private var drawnHeights: [CellID: CGFloat] = [:]
+    /// The push measure's last two frames: the followed row's raw drawn move and whether a finger
+    /// was on the list (the older first).
+    private var pushMoves: [(move: CGFloat, tracking: Bool)] = []
     private var drawnReading: CellID?
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
@@ -1166,6 +1173,18 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                                                   current: rows.map { PagedListFollow.Row(id: $0.id, y: $0.y) },
                                                   reading: drawnReading) else { return }
         let shift = (followed.now - followed.was) + explained
+        if let push = probe?.pushShift {
+            pushMoves.append((followed.now - followed.was, collectionView.isTracking))
+            if pushMoves.count > 3 { pushMoves.removeFirst() }
+            if pushMoves.count == 3, !pushMoves[1].tracking {
+                let size = PagedListPush.size(before: pushMoves[0].move, move: pushMoves[1].move, after: pushMoves[2].move)
+                push(size, size > 0 && probe?.shiftDetail != nil
+                    ? String(format: "push moves=%.1f,%.1f,%.1f explained=%.1f row=%@ follows=%d spring=%d",
+                             pushMoves[0].move, pushMoves[1].move, pushMoves[2].move, explained,
+                             String(describing: followed.id), followsNewest ? 1 : 0, spring.isRunning ? 1 : 0)
+                    : nil)
+            }
+        }
         let detail = abs(shift) > 0.5 && probe?.shiftDetail != nil
             ? String(format: "drawn moved=%.1f explained=%.1f row=%@ followed=%@", followed.now - followed.was, explained,
                      String(describing: followed.id), followed.id == drawnReading ? "reading" : "survivor")

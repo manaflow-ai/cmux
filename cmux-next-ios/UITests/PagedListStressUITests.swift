@@ -89,6 +89,10 @@ final class PagedListStressUITests: XCTestCase {
         // keeps still: each counts when nothing between it and the read row changed.
         XCTAssertLessThanOrEqual(reading.neighbourShift, 0.5,
                                  "\(name): a row next to the one read moved \(reading.neighbourShift) pt in a frame the scroll does not explain (\(reading.neighbourShifted) frames)")
+        // Everything drawn jumping in one frame, whether or not the list explains its own move (the
+        // shift measures above subtract the list's slide and jumps as explained).
+        XCTAssertEqual(reading.pushShifted, 0,
+                       "\(name): everything drawn jumped in \(reading.pushShifted) frames, the largest \(reading.pushShift) pt off the frames around it")
         XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
         if judgeHitches {
             XCTAssertLessThanOrEqual(reading.hitchMsPerS, 10, "\(name): scrolling hitched \(reading.hitchMsPerS) ms a second")
