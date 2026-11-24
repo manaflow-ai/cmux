@@ -24,6 +24,9 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     var drawnRows: () -> Range<Int> = { 0..<0 }
     /// The view the highlights live in (the scroll view's content, or a full-screen app's host).
     var highlightHost: () -> UIView? = { nil }
+    /// The daemon's find for this terminal (`terminal-find`), nil when the page searches its own
+    /// rows: a full-screen app, a projection, a session without a Mac, a daemon without the command.
+    var daemon: () -> TerminalFindDaemonSource? = { nil }
     /// Brings `match` into view.
     var reveal: (TerminalFindResults.Match) -> Void = { _ in }
     /// The bar closed: give the keyboard back to the terminal when it had it.
@@ -33,12 +36,33 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     private var interaction: UIFindInteraction?
     private let highlight = TerminalFindHighlightView()
     private var restoreFocus = false
+    /// The bar's toggles: Match Case and Full Words are the system bar's own options; Regular
+    /// Expression is added to its options menu.
+    private var options = TerminalFindOptions()
+    /// Watches the host scroll view, so the highlights follow every offset, size and bounds change
+    /// (not only the ones a caller remembers to report).
+    private var hostObservers: [NSKeyValueObservation] = []
+    private weak var observedHost: UIView?
+    /// The daemon's pages are streaming in.
+    private var streamTask: Task<Void, Never>?
+    /// A selected match older than the mirror: reveal it when its history arrives.
+    private var revealWhenLoaded = false
 
     /// The find bar is up.
     var isActive: Bool { interaction?.isFindNavigatorVisible == true }
 
     func install(in view: UIView) {
         let interaction = UIFindInteraction(sessionDelegate: self)
+        interaction.optionsMenuProvider = { [weak self] menu in
+            guard let self else { return menu }
+            let regex = UIAction(title: String(localized: "Regular Expression"),
+                                 state: self.options.regex ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.options.regex.toggle()
+                self.restartSearch()
+            }
+            return UIMenu(children: menu.children + [UIMenu(options: .displayInline, children: [regex])])
+        }
         view.addInteraction(interaction)
         self.interaction = interaction
         highlight.isUserInteractionEnabled = false
@@ -73,7 +97,7 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// Output arrived since `snapshot` was read.
     private var snapshotStale = false
     /// The search running off the main thread, superseded by the next.
-    private var searchTask: Task<Void, Never>?
+    private(set) var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
     /// Rows Ghostty dropped (a running total, negative): a search that finishes after a drop
     /// moves its matches by the rows dropped while it ran.
@@ -86,7 +110,15 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         if isActive { snapshotStale = true }
     }
 
-    fileprivate func search(_ query: String, revealing: Bool = true, nearRow: Int? = nil) {
+    func search(_ query: String, options newOptions: TerminalFindOptions? = nil, revealing: Bool = true, nearRow: Int? = nil) {
+        if let newOptions {
+            options.caseSensitive = newOptions.caseSensitive
+            options.wholeWord = newOptions.wholeWord
+        }
+        if !daemonUnavailable, let source = daemon() {
+            return searchDaemon(query, source: source)
+        }
+        streamTask?.cancel()
         if snapshot == nil || snapshotStale, let source = readRows() {
             snapshot = TerminalFindRows(rows: source.rows, wraps: source.wraps, firstRow: source.firstRow, columns: source.columns)
             snapshotStale = false
@@ -120,15 +152,86 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         }
     }
 
+    /// Asks the daemon, a page at a time, newest first: the count and the highlights grow as
+    /// the pages arrive, the newest match is shown at once.
+    private func searchDaemon(_ query: String, source: TerminalFindDaemonSource) {
+        self.query = query
+        searchTask?.cancel()
+        streamTask?.cancel()
+        searchGeneration += 1
+        let generation = searchGeneration
+        results = query.isEmpty ? TerminalFindResults() : TerminalFindResults(daemonQuery: query)
+        interaction?.updateResultCount()
+        redraw()
+        guard !query.isEmpty else { return }
+        let options = options
+        streamTask = Task { [weak self] in
+            var request = TerminalFindRequest(query: query, options: options)
+            var first = true
+            while !Task.isCancelled {
+                let page: TerminalFindPage?
+                do {
+                    page = try await source.page(request)
+                } catch {
+                    findLog.error("find: terminal-find failed: \(String(describing: error), privacy: .public)")
+                    self?.fallBackToMirror(query, generation: generation)
+                    return
+                }
+                guard let self, generation == self.searchGeneration, !Task.isCancelled else { return }
+                guard let page else { return self.fallBackToMirror(query, generation: generation) }
+                guard let map = source.map() else { return self.fallBackToMirror(query, generation: generation) }
+                self.results.append(page: page, map: map, columns: source.columns())
+                if first, let match = self.results.selectedMatch { self.revealMatch(match) }
+                first = false
+                findLog.notice("find: daemon page \(page.hits.count, privacy: .public), \(self.results.matches.count, privacy: .public) so far")
+                self.interaction?.updateResultCount()
+                self.redraw()
+                guard !self.results.isComplete, let before = page.nextBefore else { return }
+                request = TerminalFindRequest(query: query, options: options, before: before, epoch: page.epoch)
+            }
+        }
+    }
+
+    /// The daemon cannot answer: search the mirror's rows, as before.
+    private func fallBackToMirror(_ query: String, generation: Int) {
+        guard generation == searchGeneration else { return }
+        daemonUnavailable = true
+        search(query)
+    }
+
+    /// The daemon failed or lacks the command: the rest of this find bar's life searches the mirror.
+    private var daemonUnavailable = false
+
+    /// Shows `match`: scrolls to it, or, when it is older than the mirror, loads its history first.
+    private func revealMatch(_ match: TerminalFindResults.Match) {
+        if match.isLoaded {
+            revealWhenLoaded = false
+            reveal(match)
+        } else if let source = daemon(), let daemon = match.daemon, let map = source.map() {
+            revealWhenLoaded = true
+            let fromBottom = map.daemonRows - daemon.row
+            if !source.loadHistory(daemon.row, fromBottom) { findLog.notice("find: history for an older match is busy") }
+        }
+    }
+
+    /// A toggle changed: search again with the same query.
+    fileprivate func restartSearch() {
+        search(query)
+        interaction?.updateResultCount()
+    }
+
     fileprivate func highlightNext(forward: Bool) {
         results.step(forward: forward)
-        if let match = results.selectedMatch { reveal(match) }
+        if let match = results.selectedMatch { revealMatch(match) }
         interaction?.updateResultCount()
         redraw()
     }
 
     fileprivate func invalidate() {
         searchTask?.cancel()
+        streamTask?.cancel()
+        revealWhenLoaded = false
+        daemonUnavailable = false
         searchGeneration += 1
         results = TerminalFindResults()
         query = ""
@@ -140,6 +243,14 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// was resized, the mirror was reset and replayed): search the new rows, near the same place.
     func rowsReplaced() {
         guard isActive, !query.isEmpty else { return }
+        if results.fromDaemon, let source = daemon(), let map = source.map() {
+            // The daemon's matches keep their rows; they are laid on the new mirror.
+            results.remap(map, columns: source.columns())
+            if revealWhenLoaded, let match = results.selectedMatch, match.isLoaded { revealMatch(match) }
+            interaction?.updateResultCount()
+            redraw()
+            return
+        }
         snapshot = nil
         search(query, revealing: false, nearRow: results.selectedMatch?.row)
     }
@@ -153,16 +264,51 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         redraw()
     }
 
+    /// The highlighted cells' rects in the host's coordinates (what is on screen now).
+    var highlightedRects: [CGRect] {
+        highlight.isHidden ? [] : highlight.rects.map { $0.0.offsetBy(dx: highlight.frame.minX, dy: highlight.frame.minY) }
+    }
+
+    /// The rows the highlights were last laid over.
+    private var laidRows: Range<Int> = 0..<0
+
+    /// Follows the host: the highlights are laid again whenever its scroll offset, content size or
+    /// bounds change and the rows to draw are no longer the ones laid. A highlight that only a
+    /// caller repositioned floated whenever a change was not reported (a scroll that moved the
+    /// frame without a redraw, a zoom, a pan).
+    private func follow(_ host: UIView) {
+        guard observedHost !== host else { return }
+        observedHost = host
+        hostObservers = []
+        let moved = MainActionBox { [weak self] in
+            guard let self, self.isActive || !self.results.matches.isEmpty else { return }
+            if self.drawnRows() != self.laidRows { self.redraw() }
+        }
+        let resized = MainActionBox { [weak self] in self?.redraw() }
+        if let scroll = host as? UIScrollView {
+            hostObservers.append(scroll.observe(\.contentOffset, options: [.new]) { _, _ in moved.run() })
+            hostObservers.append(scroll.observe(\.contentSize, options: [.new]) { _, _ in resized.run() })
+        }
+        hostObservers.append(host.observe(\.bounds, options: [.new]) { _, _ in resized.run() })
+    }
+
     /// Lays the highlights over the drawn rows again (the page moved, the document changed).
+    /// The host's own changes call it too (``follow(_:)``).
     func redraw() {
-        guard !results.matches.isEmpty, let host = highlightHost() else {
+        guard let host = highlightHost() else {
+            highlight.isHidden = true
+            return
+        }
+        follow(host)
+        laidRows = drawnRows()
+        guard !results.matches.isEmpty else {
             highlight.isHidden = true
             return
         }
         if highlight.superview !== host { host.addSubview(highlight) }
         let selected = results.selected
         var rects: [(CGRect, Bool)] = []
-        for (index, match) in results.matches(in: drawnRows()) {
+        for (index, match) in results.matches(in: laidRows) {
             for segment in match.segments {
                 let first = rectFor(TerminalCellPoint(row: segment.row, column: segment.start))
                 let last = rectFor(TerminalCellPoint(row: segment.row, column: segment.end))
@@ -212,7 +358,10 @@ private final class TerminalFindSession: UIFindSession {
     override var supportsReplacement: Bool { false }
 
     override func performSearch(query: String, options: UITextSearchOptions?) {
-        owner?.search(query)
+        var found = TerminalFindOptions()
+        found.caseSensitive = !(options?.stringCompareOptions.contains(.caseInsensitive) ?? true)
+        found.wholeWord = options?.wordMatchMethod == .fullWord
+        owner?.search(query, options: found)
     }
 
     override func highlightNextResult(in direction: UITextStorageDirection) {
@@ -257,5 +406,24 @@ private final class TerminalFindHighlightView: UIView {
             }
         }
     }
+}
+
+/// A main-actor action a KVO callback runs (UIKit posts them on the main thread).
+private final class MainActionBox: @unchecked Sendable {
+    private let action: @MainActor () -> Void
+    init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+    func run() { MainActor.assumeIsolated { action() } }
+}
+
+/// What the find bar needs of the daemon's `terminal-find` for the terminal on screen.
+struct TerminalFindDaemonSource {
+    /// One page of matches (nil: the session has no such command).
+    var page: (TerminalFindRequest) async throws -> TerminalFindPage?
+    /// The mirror's row mapping now (nil: unknown).
+    func map() -> TerminalFindRowMap? { mapNow() }
+    var mapNow: () -> TerminalFindRowMap?
+    var columns: () -> Int
+    /// Loads the history around a daemon row (its row, rows above the bottom); returns whether asked.
+    var loadHistory: (_ daemonRow: Int, _ rowsFromBottom: Int) -> Bool
 }
 #endif
