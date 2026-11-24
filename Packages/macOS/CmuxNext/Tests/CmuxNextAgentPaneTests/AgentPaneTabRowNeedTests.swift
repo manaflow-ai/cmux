@@ -20,6 +20,22 @@ struct AgentPaneTabRowNeedTests {
         #expect(row.neededWidth == 210)
     }
 
+    /// The rolling summary takes only the row's leftover room: it is in the width the tabs give up, never in the
+    /// need, so a pane split narrower than the width it was measured at still offers the row and the tools stay in it
+    /// (Leo 2026-11-22: "the icons on the top right have gotten displaced due to putting things on a line").
+    @Test func theNeedLeavesOutTheSummary() {
+        let row = AgentPaneTabRow()
+        row.report(width: 420, need: 140)
+        #expect(row.toolsWidth == 420)
+        #expect(row.neededWidth == 140)
+        #expect(row.sharedNeed(zoom: 2) == 280)
+        // An older page sends no need: its width is the need, as before; a need over the width is no more than it.
+        row.report(width: 180)
+        #expect(row.neededWidth == 180)
+        row.report(width: 160, need: 900)
+        #expect(row.neededWidth == 160)
+    }
+
     @Test func aReloadedPageKeepsTheNeed() {
         let row = AgentPaneTabRow()
         row.report(width: 180)
