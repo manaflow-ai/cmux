@@ -924,6 +924,25 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;
     let ws_shutdown = hub.ws_shutdown.clone();
+    // Opt-in (`CMUX_TAILNET_CARRIER`): peers of this person's tailnet may also reach the same
+    // port on this machine's tailnet address, whois-admitted (`tailnet_carrier.rs`).
+    let tailnet_mode = crate::tailnet_carrier::Mode::from_env();
+    if let (Some(addr), Some((_, token)), true) =
+        (bound_addr, ws_listener.as_ref(), tailnet_mode != crate::tailnet_carrier::Mode::Off)
+    {
+        hub.scope.spawn_until_cancelled(
+            "tailnet peers",
+            crate::tailnet_carrier::serve_peers(
+                hub.clone(),
+                addr.port(),
+                token.clone(),
+                crate::server::WsAuth { local_app: local_app.clone(), peer: peer.clone() },
+                ws_shutdown.clone(),
+                tailnet_mode,
+                crate::tailnet_carrier::Gate::cli(),
+            ),
+        );
+    }
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
         tokio::spawn(crate::server::serve_ws_until(
