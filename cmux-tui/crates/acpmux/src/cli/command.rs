@@ -670,6 +670,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// Download one large file over parallel range requests (16 by default), for a path where
+    /// one stream is slow (a Cloud VM's IPv4 from GitHub). Follows redirects; checks the length
+    /// and, with --sha256, the hash before the file appears at -o.
+    Fetch(crate::cli::fetch::FetchArgs),
     /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
     /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
     #[command(subcommand)]
