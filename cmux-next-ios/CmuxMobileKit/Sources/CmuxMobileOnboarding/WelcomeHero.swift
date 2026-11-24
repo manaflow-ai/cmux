@@ -592,7 +592,11 @@ struct WelcomeHeroMorph: View {
         let chevronWidth = chevronHeight * Chevron.aspect
         // The word's place in the settled lockup (the chevron is at x 0).
         let lockupWordX = chevronWidth + xh * 0.42
-        let width = lockupWordX + word.width + xh * 0.1
+        // Glide centers on ink: its canvas ends at the x's last stroke, so the
+        // settled lockup (chevron to x) sits exactly in the middle. Morph keeps
+        // its frame (a little room after the x).
+        let ink = word.path.boundingRect
+        let width = centered ? lockupWordX + ink.maxX : lockupWordX + word.width + xh * 0.1
         let height = chevronHeight
         // Glide flies home over a little longer: two shapes move at once.
         let flight = centered ? 0.5 : 0.42
@@ -617,10 +621,13 @@ struct WelcomeHeroMorph: View {
                 }
                 let m = E.inOut(E.seg(t, 1.0, 1.0 + flight))
 
-                // Where the word is typed: at its lockup place (Morph), or
-                // with the typed line centered on the settled lockup's center
-                // (Glide), which then slides into the lockup with the cursor.
-                let typingWordX = centered ? ((lockupWordX + word.width) - (cursorOffset + blockWidth)) / 2 : lockupWordX
+                // Where the word is typed: at its lockup place (Morph), or with
+                // the typed line's ink (first letter to the cursor's right edge)
+                // centered in the canvas (Glide), which then slides into the
+                // lockup with the cursor. Before the first letter the line is the
+                // cursor alone; `min` lets the c's side bearing in continuously.
+                let lineLeft = min(ink.minX, cursorOffset)
+                let typingWordX = centered ? (width - lineLeft - cursorOffset - blockWidth) / 2 : lockupWordX
                 let wordX = typingWordX + (lockupWordX - typingWordX) * CGFloat(m)
 
                 // The cursor, drawn first: on its way home it passes behind
