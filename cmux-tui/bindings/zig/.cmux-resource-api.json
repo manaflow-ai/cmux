@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "ddc7c783cb41c69f757383c0ac88ad361446b59c898c77b8c25401bc6733315a",
+  "catalog_sha256": "889027ea8f3d984654d36711fff18d24c3214d71ee7c5576dbe5e15abeb2294f",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -106,6 +106,12 @@
     "chat.pin": {
       "class": "mutation"
     },
+    "chief.automation.list": {
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "class": "mutation"
+    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -190,7 +196,13 @@
     "cloud.machine.chat_access": {
       "class": "read"
     },
+    "cloud.machine.chief_resize": {
+      "class": "mutation"
+    },
     "cloud.machine.chief_start": {
+      "class": "mutation"
+    },
+    "cloud.machine.fork": {
       "class": "mutation"
     },
     "cloud.machine.io": {
@@ -367,6 +379,9 @@
     "diff.comments.send": {
       "class": "mutation"
     },
+    "diff.comments.thread": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -412,6 +427,15 @@
     "git.push": {
       "class": "mutation"
     },
+    "git.review.comment": {
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "class": "mutation"
+    },
+    "git.review.start": {
+      "class": "mutation"
+    },
     "git.status": {
       "class": "read"
     },
@@ -426,6 +450,9 @@
     },
     "git.worktree.setup": {
       "class": "read"
+    },
+    "git.worktree.setup.run": {
+      "class": "mutation"
     },
     "history.backups.purge": {
       "class": "mutation"
@@ -576,6 +603,9 @@
     },
     "participant.avatar.set": {
       "class": "mutation"
+    },
+    "project.actions.list": {
+      "class": "read"
     },
     "project.add": {
       "class": "mutation"
@@ -763,6 +793,9 @@
     "settings.get": {
       "class": "read"
     },
+    "settings.history": {
+      "class": "read"
+    },
     "settings.list": {
       "class": "read"
     },
@@ -770,6 +803,12 @@
       "class": "mutation"
     },
     "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
       "class": "mutation"
     },
     "settings.schema": {
@@ -780,6 +819,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"
