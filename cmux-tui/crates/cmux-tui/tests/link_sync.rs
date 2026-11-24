@@ -242,6 +242,30 @@ fn a_dirty_repo_arrives_with_its_git_state_and_without_ignored_files_or_secrets(
     assert_eq!(git(&remote, &status), git(&repo, &status));
 }
 
+#[test]
+fn a_missing_source_root_keeps_the_cloud_copy_and_reports_next_step() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("keep.txt"), "keep me\n").unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+
+    let (ok, first, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{first}");
+    std::fs::remove_dir_all(&folder).unwrap();
+
+    let (ok, answer, _) = push_output(&socket, &folder, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], json!("source_folder_missing"), "{answer}");
+    let message = answer["error"].as_str().unwrap_or_default();
+    assert!(message.contains("Restore it locally or re-point the chat"), "{answer}");
+    assert!(message.contains("Cloud copy is still intact"), "{answer}");
+    assert_eq!(std::fs::read_to_string(remote.join("keep.txt")).unwrap(), "keep me\n");
+}
+
 /// A working copy whose objects live in other repositories, the way
 /// `git clone --shared` and worktree mirrors leave it: `app` borrows from
 /// `mid`, which borrows from `base` (by a relative path), and only `app`'s
@@ -1059,9 +1083,12 @@ fn missing_ignored_and_outside_files_are_absent_and_outside_name_is_reported() {
     let root = std::fs::canonicalize(root.path()).unwrap();
     let folder = root.join("chat");
     std::fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "-q", "-b", "main"]);
     std::fs::write(folder.join(".gitignore"), "ignored.txt\n").unwrap();
     std::fs::write(folder.join("ignored.txt"), "needed build input\n").unwrap();
     std::fs::write(folder.join("present.txt"), "arrived\n").unwrap();
+    git(&folder, &["add", ".gitignore", "present.txt"]);
+    git(&folder, &["commit", "-q", "-m", "fixture"]);
     std::fs::write(root.join("outside.txt"), "needed source\n").unwrap();
     std::os::unix::fs::symlink(root.join("outside.txt"), folder.join("outside-link")).unwrap();
 
