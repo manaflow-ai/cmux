@@ -123,6 +123,37 @@ async function profiled<T>(cdp: CDPSession, label: string, run: () => Promise<T>
     const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-2).join("/").split("?")[0]}:${frame.lineNumber + 1}`;
     self.set(key, (self.get(key) ?? 0) + ms);
   });
+  if (process.env.PROFILE_TOTAL) {
+    const parent = new Map<number, number>();
+    for (const node of profile.nodes) for (const child of (node as any).children ?? []) parent.set(child, node.id);
+    const inclusive = new Map<string, number>();
+    (profile.samples ?? []).forEach((id, index) => {
+      const ms = (profile.timeDeltas?.[index + 1] ?? 0) / 1000;
+      const seen = new Set<string>();
+      for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+        const frame = byId.get(at)?.callFrame;
+        if (
+          !frame ||
+          frame.functionName === "(idle)" ||
+          frame.functionName === "(program)" ||
+          frame.functionName === "(root)"
+        )
+          continue;
+        const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-2).join("/").split("?")[0]}:${frame.lineNumber + 1}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
+      }
+    });
+    console.log(
+      `PROFILE-TOTAL ${label}:\n` +
+        [...inclusive]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 70)
+          .map(([k, ms]) => `  ${ms.toFixed(1).padStart(8)} ms  ${k}`)
+          .join("\n"),
+    );
+  }
   const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 40);
   console.log(
     `PROFILE ${label} total ${Math.round(total)} ms self:\n` +
@@ -138,7 +169,7 @@ async function traced<T>(page: Page, label: string, run: () => Promise<T>): Prom
   if (!TRACE) return run();
   const browser = page.context().browser()!;
   await browser.startTracing(page, {
-    categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+    categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack", "toplevel"],
   });
   const result = await run();
   const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] }).traceEvents;
@@ -159,12 +190,61 @@ async function traced<T>(page: Page, label: string, run: () => Promise<T>): Prom
     const stack = event.args?.beginData?.stackTrace as
       | { functionName: string; url: string; lineNumber: number }[]
       | undefined;
+    if (process.env.TRACE_TASKS && (event.name === "Layout" || event.name === "UpdateLayoutTree") && ms > 5)
+      console.log(
+        `BIG ${event.name} ${ms.toFixed(1)}ms ${JSON.stringify(event.args?.beginData ? { ...event.args.beginData, stackTrace: undefined } : {})} ${JSON.stringify(event.args?.endData ?? event.args?.elementCount ?? "")} ${(
+          stack ?? []
+        )
+          .slice(0, 4)
+          .map((f) => `${f.functionName}@${f.url.split("/").pop()?.split("?")[0]}:${f.lineNumber + 1}`)
+          .join(" < ")}`,
+      );
     if ((event.name === "Layout" || event.name === "UpdateLayoutTree") && stack?.length) {
       const top = stack
         .slice(0, 3)
         .map((f) => `${f.functionName || "(anon)"}@${f.url.split("/").pop()?.split("?")[0]}:${f.lineNumber + 1}`)
         .join(" < ");
       forced.set(`${event.name} ${top}`, (forced.get(`${event.name} ${top}`) ?? 0) + ms);
+    }
+  }
+  if (process.env.TRACE_TASKS) {
+    const main = events.find((e) => e.name === "EventDispatch")?.tid;
+    const tasks = events.filter((e) => e.ph === "X" && /RunTask/.test(e.name) && e.tid === main && (e.dur ?? 0) > 4000);
+    const t0 = tasks[0] ? (tasks[0] as any).ts : 0;
+    for (const task of tasks) {
+      const ts = (task as any).ts as number;
+      const end = ts + (task.dur ?? 0);
+      const inner = events.filter(
+        (e) =>
+          e.tid === main &&
+          e.ph === "X" &&
+          (e as any).ts >= ts &&
+          (e as any).ts < end &&
+          e !== task &&
+          (e.dur ?? 0) > 2000,
+      );
+      console.log(
+        `TASK +${((ts - t0) / 1000).toFixed(0)}ms ${((task.dur ?? 0) / 1000).toFixed(1)}ms: ` +
+          inner
+            .slice(0, 14)
+            .map(
+              (e) =>
+                `${e.name}${e.args?.data?.type ? ":" + e.args.data.type : ""}${
+                  e.args?.data?.functionName
+                    ? ":" +
+                      e.args.data.functionName +
+                      "@" +
+                      String(e.args.data.url ?? "")
+                        .split("/")
+                        .pop()
+                        ?.split("?")[0] +
+                      ":" +
+                      e.args.data.lineNumber
+                    : ""
+                } ${((e.dur ?? 0) / 1000).toFixed(1)}`,
+            )
+            .join(" | "),
+      );
     }
   }
   console.log(
@@ -317,6 +397,30 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
                 `down at ${event.clientX},${event.clientY} hit=${hit?.getAttribute("data-tick") ?? (event.target as Element)?.className} tick=${box ? `${Math.round(box.left)},${Math.round(box.top)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone"}`,
               );
             }
+            if (trace) {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              let peak = 0;
+              let added = 0;
+              const watch = new MutationObserver((records) => {
+                for (const r of records) added += r.addedNodes.length;
+                const now = document.getElementsByTagName("*").length;
+                if (now > peak) {
+                  peak = now;
+                  ((window as any).__frames ??= []).push(
+                    `peak els=${now} rows=${scroller.querySelectorAll(".acpmux-row").length} added=${added} at ${Math.round(performance.now() - start)}ms`,
+                  );
+                }
+              });
+              watch.observe(document.body, { childList: true, subtree: true });
+              setTimeout(() => watch.disconnect(), 3000);
+            }
+            if (trace)
+              for (const kind of ["pointerup", "mouseup", "click"])
+                addEventListener(
+                  kind,
+                  () => ((window as any).__frames ??= []).push(`${kind} at ${Math.round(performance.now() - start)}ms`),
+                  { capture: true, once: true },
+                );
             let frames = 0;
             window.cmuxAfterPaint(() => {
               frames += 1;
@@ -334,7 +438,13 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
                 );
                 const rows = scroller.querySelectorAll(".acpmux-row").length;
                 ((window as any).__frames ??= []).push(
-                  `${Math.round(ms)}ms top=${Math.round(scroller.scrollTop)} h=${scroller.scrollHeight} rows=${rows} target=${bubble ? Math.round(bubble.getBoundingClientRect().top - view.top) : "none"}`,
+                  `${Math.round(ms)}ms top=${Math.round(scroller.scrollTop)} h=${scroller.scrollHeight} rows=${rows} els=${document.getElementsByTagName("*").length} text=${scroller.textContent?.length} rail=${document.querySelector(".acpmux-minimap")?.getElementsByTagName("*").length} big=${[
+                    ...scroller.querySelectorAll<HTMLElement>(".acpmux-row"),
+                  ]
+                    .map((r) => r.textContent?.length ?? 0)
+                    .sort((a, b) => b - a)
+                    .slice(0, 3)
+                    .join("/")} target=${bubble ? Math.round(bubble.getBoundingClientRect().top - view.top) : "none"}`,
                 );
               }
               if (shown) {
