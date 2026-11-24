@@ -229,6 +229,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/felt_snapshot",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -554,6 +560,14 @@
       "name": "_acpmux/subagent_transcript",
       "params": {
         "$ref": "#/types/SubagentTranscriptParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
       },
       "result": true
     },
@@ -1017,6 +1031,18 @@
     {
       "kind": "request",
       "name": "_acpmux/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
       "params": true,
       "result": true
     },
@@ -1868,6 +1894,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_preflight",
       "params": true,
       "result": true
     },
@@ -7367,7 +7399,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -8332,7 +8364,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -8650,6 +8682,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,
