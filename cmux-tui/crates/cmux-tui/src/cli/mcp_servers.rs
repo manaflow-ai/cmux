@@ -157,6 +157,13 @@ pub(super) fn parse(
     Ok((Common { platform, team, token }, verb))
 }
 
+/// Set `key` on a JSON object; a non-object is left alone (no panicking index).
+fn put(target: &mut Value, key: &str, value: Value) {
+    if let Some(map) = target.as_object_mut() {
+        map.insert(key.to_owned(), value);
+    }
+}
+
 /// One request under `/v1/mcp-servers`: method, path and body (the key added at send time).
 pub(super) fn request_of(verb: &Verb) -> (&'static str, String, Option<Value>) {
     match verb {
@@ -164,7 +171,7 @@ pub(super) fn request_of(verb: &Verb) -> (&'static str, String, Option<Value>) {
         Verb::Connect { name, owner, return_to, .. } => {
             let mut body = json!({"catalog": name, "owner": owner.as_deref().unwrap_or("me")});
             if let Some(r) = return_to {
-                body["return_to"] = json!(r);
+                put(&mut body, "return_to", json!(r));
             }
             ("POST", "/connect".into(), Some(body))
         }
@@ -236,24 +243,28 @@ pub(super) fn entry_view(entry: &Value) -> Value {
     });
     let Some(connection) = connection else {
         if !available {
-            view["state"] = json!("unavailable");
-            view["statusLabel"] = json!(unavailable_text(text(entry, "unavailableReason")));
-            view["buttonLabel"] = Value::Null;
+            put(&mut view, "state", json!("unavailable"));
+            put(
+                &mut view,
+                "statusLabel",
+                json!(unavailable_text(text(entry, "unavailableReason"))),
+            );
+            put(&mut view, "buttonLabel", Value::Null);
         } else {
-            view["state"] = json!("connect");
-            view["statusLabel"] = Value::Null;
-            view["buttonLabel"] = json!("Connect");
-            view["keyField"] = json!(auth == "key");
+            put(&mut view, "state", json!("connect"));
+            put(&mut view, "statusLabel", Value::Null);
+            put(&mut view, "buttonLabel", json!("Connect"));
+            put(&mut view, "keyField", json!(auth == "key"));
         }
         return view;
     };
     let count = connection.get("toolCount").and_then(Value::as_u64).unwrap_or(0);
     let owner = text(connection, "owner").unwrap_or("me");
-    view["connectionId"] = json!(text(connection, "id"));
-    view["owner"] = json!(owner);
-    view["ownerLabel"] = json!(if owner == "team" { "Team" } else { "Personal" });
-    view["toolCount"] = json!(count);
-    view["toolsLabel"] = json!(tools_label(count));
+    put(&mut view, "connectionId", json!(text(connection, "id")));
+    put(&mut view, "owner", json!(owner));
+    put(&mut view, "ownerLabel", json!(if owner == "team" { "Team" } else { "Personal" }));
+    put(&mut view, "toolCount", json!(count));
+    put(&mut view, "toolsLabel", json!(tools_label(count)));
     let (state, status, button) = match text(connection, "status").unwrap_or("ready") {
         "ready" => ("connected", format!("Connected · {}", tools_label(count)), None),
         "changed" => {
@@ -263,9 +274,9 @@ pub(super) fn entry_view(entry: &Value) -> Value {
         "needs_auth" => ("reconnect", "Sign in again".to_owned(), Some("Reconnect")),
         other => ("reconnect", clean(other, 40), Some("Reconnect")),
     };
-    view["state"] = json!(state);
-    view["statusLabel"] = json!(status);
-    view["buttonLabel"] = json!(button);
+    put(&mut view, "state", json!(state));
+    put(&mut view, "statusLabel", json!(status));
+    put(&mut view, "buttonLabel", json!(button));
     view
 }
 
@@ -313,7 +324,7 @@ pub(super) fn api_error(status: u16, body: &Value) -> Value {
         _ => format!("the cmux platform answered HTTP {status}"),
     });
     let mut error = error_json(&code, &message);
-    error["status"] = json!(status);
+    put(&mut error, "status", json!(status));
     error
 }
 
@@ -386,7 +397,7 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
     if method == "POST" {
         let mut body = body.unwrap_or_else(|| json!({}));
         if let Some(key) = &key {
-            body["key"] = json!(key.as_str());
+            put(&mut body, "key", json!(key.as_str()));
         }
         let sent = Zeroizing::new(body.to_string());
         if let Some(map) = body.as_object_mut()
