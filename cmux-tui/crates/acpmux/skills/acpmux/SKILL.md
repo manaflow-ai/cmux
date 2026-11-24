@@ -319,6 +319,7 @@ cmux agent wait A B --all --timeout 600 --print  # every named session, print ea
 cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
 ```
 

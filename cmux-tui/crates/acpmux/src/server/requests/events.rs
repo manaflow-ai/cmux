@@ -22,9 +22,10 @@ pub(super) fn handle(
     let explicit_after = params.get("afterSeq").and_then(Value::as_u64);
     let before = params.get("beforeSeq").and_then(Value::as_u64);
     let prompt_index = params.get("promptIndex").and_then(Value::as_bool) == Some(true);
-    if since_seen && (explicit_after.is_some() || before.is_some() || prompt_index) {
+    let turn_opener = params.get("turnOpener").and_then(Value::as_bool) == Some(true);
+    if since_seen && (explicit_after.is_some() || before.is_some() || prompt_index || turn_opener) {
         return Err(RpcError::invalid_params(
-            "sinceSeen cannot be combined with afterSeq, beforeSeq, or promptIndex",
+            "sinceSeen cannot be combined with afterSeq, beforeSeq, promptIndex, or turnOpener",
         ));
     }
     let mut after = explicit_after.unwrap_or(0);
@@ -52,10 +53,16 @@ pub(super) fn handle(
     // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
     // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.
     hub.catch_up_tail(&s);
-    let (last, created, seen_seq) = {
-        let meta = s.meta();
-        (meta.last_seq, meta.created_at, meta.seen_seq)
+    let seen_seq = if since_seen {
+        let author = crate::author::author(params)?;
+        let reader = crate::hub::reader_of(author.as_ref());
+        hub.read_through(&s, reader)
+            .map(|seq| hub.presence.active_cutover(&s.id, reader).unwrap_or(seq))
+    } else {
+        None
     };
+    // Read the upper bound after the cursor: a concurrent seen update can include new records.
+    let (last, created) = s.read_meta(|meta| (meta.last_seq, meta.created_at));
     if since_seen {
         // A chat with no saved cursor has never been focused. It must not turn a recap
         // request into an all-history read from seq 0.
@@ -109,13 +116,6 @@ pub(super) fn handle(
             "pageThrough": through,
             "createdAt": created,
         });
-        let reply = if since_seen {
-            let mut reply = reply;
-            reply["seenSeq"] = json!(seen_seq);
-            reply
-        } else {
-            reply
-        };
         if let Some((key, stamp)) = keep {
             hub.page_replies.put(&s.id, key, last, stamp, reply.clone());
         }
@@ -131,11 +131,7 @@ pub(super) fn handle(
     let through = if before.is_none() && !page.has_more { last } else { newest_seq(&page.events) };
     // Background peer read-ahead needs the same prompt context as attach. Opt in so
     // ordinary history/index reads keep their current cost (and cannot recurse here).
-    let opener = if params.get("turnOpener").and_then(Value::as_bool) == Some(true) {
-        turn_opener::turn_opener(hub, &s.id, &page)
-    } else {
-        None
-    };
+    let opener = if turn_opener { turn_opener::turn_opener(hub, &s.id, &page) } else { None };
     hub.lane_report_events_read(caller, &s.id, &page.events);
     // Kept only when the log neither grew nor changed while the page was read.
     let keep = kept.filter(|(_, stamp)| {
@@ -151,12 +147,10 @@ pub(super) fn handle(
         // The session the page is of: a copy never joins another journal of the same id.
         "createdAt": created,
     });
-    if since_seen {
-        reply["seenSeq"] = json!(seen_seq);
+    if let Some(seen) = seen_seq {
+        reply["seenSeq"] = json!(seen);
     }
-    if params.get("turnOpener").and_then(Value::as_bool) == Some(true)
-        && let Some(object) = reply.as_object_mut()
-    {
+    if turn_opener && let Some(object) = reply.as_object_mut() {
         object.insert("turnOpener".to_owned(), json!(opener));
     }
     if let Some((key, stamp)) = keep {

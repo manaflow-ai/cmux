@@ -10,11 +10,26 @@ fn hard_stopped() -> Arc<Hub> {
 }
 
 fn hard_stopped_with_seen(seen_seq: Option<u64>) -> Arc<Hub> {
+    hard_stopped_with_cursors(seen_seq, seen_seq, None)
+}
+
+fn hard_stopped_with_cursors(
+    seen_seq: Option<u64>,
+    owner_read_through: Option<u64>,
+    alice_read_through: Option<u64>,
+) -> Arc<Hub> {
     let store = MemoryStore::default();
+    let mut read_through = serde_json::Map::new();
+    if let Some(seq) = owner_read_through {
+        read_through.insert("owner".into(), json!(seq));
+    }
+    if let Some(seq) = alice_read_through {
+        read_through.insert("user_alice".into(), json!(seq));
+    }
     let meta: SessionMeta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
         "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
-        "lastSeq": 2, "eventCount": 2, "seenSeq": seen_seq,
+        "lastSeq": 2, "eventCount": 2, "seenSeq": seen_seq, "readThrough": read_through,
     }))
     .unwrap();
     store.save(&meta).unwrap();
@@ -73,7 +88,7 @@ fn since_seen_reads_after_the_saved_cutover_without_moving_it() {
     assert_eq!(page["seenSeq"], 2);
     assert_eq!(page["lastSeq"], 5);
     assert_eq!(page["pageThrough"], 5);
-    assert_eq!(hub.resolve("c".into()).unwrap().meta().seen_seq, Some(2));
+    assert_eq!(hub.resolve("c").unwrap().meta().seen_seq, Some(2));
 
     let never_focused = hard_stopped_with_seen(None);
     let empty = handle(
@@ -95,6 +110,35 @@ fn since_seen_reads_after_the_saved_cutover_without_moving_it() {
     )
     .unwrap_err();
     assert!(invalid.message.contains("cannot be combined"), "{}", invalid.message);
+}
+
+#[test]
+fn since_seen_uses_the_request_reader_cursor_over_legacy_seen_seq() {
+    let hub = hard_stopped_with_cursors(Some(4), Some(4), Some(3));
+    let owner = crate::hub::presence::Who { id: "owner".into(), name: "Owner".into() };
+    hub.presence.view_with_cutover("c", "conn-owner", &owner, true, true, Some(2)).unwrap();
+    let owner =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "sinceSeen": true}), None)
+            .unwrap();
+    assert_eq!(seqs(&owner), [3, 4, 5]);
+    assert_eq!(owner["seenSeq"], 2);
+
+    let other = handle(
+        &hub,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "sinceSeen": true,
+            "_meta": {"acpmux": {"author": {"id": "user_alice", "name": "Alice"}}}}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(seqs(&other), [4, 5]);
+    assert_eq!(other["seenSeq"], 3);
+    hub.presence.leave("c", "conn-owner");
+    let away =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "sinceSeen": true}), None)
+            .unwrap();
+    assert_eq!(away["seenSeq"], 4);
+    assert_eq!(seqs(&away), [5]);
 }
 
 /// A reader that pages forward on its own (a durable watch on a peer chat, `hub/watch_events.rs`)
