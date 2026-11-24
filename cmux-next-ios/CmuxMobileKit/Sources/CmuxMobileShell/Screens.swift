@@ -123,7 +123,6 @@ struct WorkspacesScreen: View {
     private var workspaces: some View {
         WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
-                rememberedWorkspaceID: shell.lastWorkspaceID,
                 reconnect: shell.live.map { live in
                     { macID in live.recover(macID: macID) }
                 },
@@ -138,7 +137,8 @@ struct WorkspacesScreen: View {
                     shell.tab = .settings
                     shell.settingsPath = [.account]
                 },
-                filter: shell.macFilter
+                filter: shell.macFilter,
+                rememberedWorkspaceID: shell.lastWorkspaceID
             ) { workspace in
                 // Two-pane: a workspace replaces the open one beside the list instead of stacking on it.
                 if layout.twoPane { shell.workspacesPath = [workspace] } else { shell.workspacesPath.append(workspace) }
