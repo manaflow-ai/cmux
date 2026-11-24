@@ -1,0 +1,33 @@
+{
+  "//": [
+    "Declared inputs of tooling-tests steps the walker cannot read whole (scripts/ci/tooling_steps.py): a shell script",
+    "that runs a file from a variable (`for t in tests/*.test.sh; do bash \"$t\"`), or a run text that names no test.",
+    "Without an entry such a step runs on every pull request. With one, it runs when a changed path matches an input glob",
+    "(`**` crosses folders) or an input the walker resolved, and is skipped with the reason otherwise. A change to this",
+    "file runs every step. `tooling_steps.py verify --workflow W --job J` runs each declared step under strace -f and",
+    "fails on a checkout file it touched that neither its globs nor its resolved inputs cover",
+    "(tests/test_ci_tooling_steps.py: DeclaredInputs, RealDeclarations)."
+  ],
+  ".github/workflows/cmux-next-guards.yml": {
+    "tooling-tests": {
+      "tt-measure-tests": {
+        "inputs": [
+          "scripts/**",
+          ".github/**",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/**",
+          "App/main.swift",
+          "tests/fleet_test_host.py",
+          "tests/git_fixture_env.py",
+          "tests/real_git.py",
+          "tests/process_gone.py",
+          "ghostty",
+          "ghostty-next",
+          "cmux-next-ios/verify",
+          "cmux-next-ios/verify/**",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/**"
+        ],
+        "why": "run-all.sh runs every scripts/measure/tests/*.test.sh and *.test.py by a loop variable; no-unattended-prompts reads every tracked file under scripts/ and .github/"
+      }
+    }
+  }
+}

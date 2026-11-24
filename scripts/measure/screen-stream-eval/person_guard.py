@@ -2,7 +2,8 @@
 
 An Apple Screen Sharing run on an owner's own Mac took focus with AppleScript, hung, and left a
 window he could not quit (2026-11-16). Such targets now run only on dedicated fleet Macs, or on an
-unknown Mac nobody has touched for a while. There is no override: a person's Mac is refused.
+unknown Mac nobody has touched for a while, or in a cmux-ci step the fleet worker ran in a dedicated
+gui-session-v1 console. A Mac the registry names as a person's is refused first. There is no override: a person's Mac is refused.
 
   python3 -I person_guard.py check TARGETS_CSV [viewer]   (exit 0 allowed, 2 refused with one stderr line)
 
@@ -91,7 +92,14 @@ def idle_seconds(ioreg_output):
     return min(values) / 1e9 if values else None
 
 
-def decide(targets, names, machines, idle_s, viewer=False):
+def fleet_console_step(env):
+    # A cmux-ci step the build-fleet worker placed in a gui-session-v1 console session: the worker
+    # sets both (gui_session.go guiStepEnv), and only dedicated fleet Macs carry that label. Its own
+    # console hygiene posts input just before the step, so the console never reads idle there.
+    return env.get("CMUX_CI_CONSOLE_SESSION") == "1" and bool(env.get("CMUX_CI_STEP_KEY"))
+
+
+def decide(targets, names, machines, idle_s, viewer=False, fleet_console=False):
     """(None, None) when allowed, else (target, reason) for the first refused target."""
     gui = [t for t in targets if opens_windows(t, viewer)]
     if not gui:
@@ -101,7 +109,7 @@ def decide(targets, names, machines, idle_s, viewer=False):
         roles = sorted(PERSON_ROLES & set(entry.get("roles") or []))
         if roles:
             return gui[0], f"a person's Mac (fleet registry {key}, role {', '.join(roles)})"
-    if matches:
+    if matches or fleet_console:
         return None, None
     where = "not in the fleet registry" if machines else "not known (no fleet registry found)"
     if idle_s is None:
@@ -115,7 +123,7 @@ def message(target, host, reason):
     return f"screen-stream-eval: refused: {target} opens windows or posts input, and {host} is {reason}; next: {NEXT_STEP}"
 
 
-def check(targets_csv, env_path, home, run=_run, viewer=False):
+def check(targets_csv, env_path, home, run=_run, viewer=False, fleet_console=False):
     targets = [t for t in targets_csv.split(",") if t]
     if not any(opens_windows(t, viewer) for t in targets):
         return None
@@ -123,8 +131,8 @@ def check(targets_csv, env_path, home, run=_run, viewer=False):
     machines = load_registry(find_registry(env_path, home))
     # ioreg only when the registry does not decide, so a known Mac pays nothing for it.
     known = machines and match_entries(machines, names)
-    idle_s = None if known else idle_seconds(run(["ioreg", "-c", "IOHIDSystem", "-d", "4"]))
-    target, reason = decide(targets, names, machines, idle_s, viewer)
+    idle_s = None if known or fleet_console else idle_seconds(run(["ioreg", "-c", "IOHIDSystem", "-d", "4"]))
+    target, reason = decide(targets, names, machines, idle_s, viewer, fleet_console)
     if target is None:
         return None
     return message(target, names[0] if names else "this Mac", reason)
@@ -136,7 +144,7 @@ def main(argv):
         return 2
     # The account's real home: a CI step's $HOME is scratch and would hide the registry.
     refusal = check(argv[2], os.environ.get("CMUX_FLEET_REGISTRY", ""), pwd.getpwuid(os.getuid()).pw_dir,
-                    viewer=len(argv) == 4)
+                    viewer=len(argv) == 4, fleet_console=fleet_console_step(os.environ))
     if refusal:
         print(refusal, file=sys.stderr)
         return 2
