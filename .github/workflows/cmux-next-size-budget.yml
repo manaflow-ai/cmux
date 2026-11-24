@@ -93,49 +93,66 @@ jobs:
     outputs:
       bytes: ${{ steps.measure.outputs.bytes }}
     steps:
+      # Only what web-bundle-key.py --source hashes (INPUTS and what webviews imports), with
+      # no blobs outside it: a published key needs no build. A file left out changes the key,
+      # so a narrow pattern can only miss, never reuse the wrong bundles.
       - name: Checkout the base
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.base }}
-      # The base's bytes from the bundles feat-cmux-next already published for the base's web source key
-      # (cmux-next-web-bundle-publish.yml, every push that changes a bundle input; scripts/cmux-next/
-      # fetch-web-bundles.sh checks the archive's sha256), instead of building the base again on every pull
-      # request. Leo, 2026-11-23: "we're drowning in our own workflow"; this build was 134 runner-h a day.
-      # A key not published yet (exit 3) or any fetch failure builds it as before.
-      # vars.CI_SIZE_BUDGET_BASE_FETCH == '0' builds every time.
-      - name: Fetch the base's published bundles
-        id: fetched
-        if: ${{ format('{0}', vars.CI_SIZE_BUDGET_BASE_FETCH) != '0' }}
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /schemas/
+            /scripts/
+            /web/data/
+            /examples/
+            /config/
+            /clients/ts/
+            /Resources/markdown-viewer/
+            /release-notes/next/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+      # The base is a feat-cmux-next commit, so cmux-next-web-bundle-publish.yml has usually
+      # published its bundles already (same key, same pinned toolchain): fetch, don't rebuild.
+      - name: The base's published web bundles
+        id: published
         env:
-          CMUX_WEB_BUN_VERSION: "1.4.4"
           CMUX_WEB_NODE_VERSION: "24.22.1"
         run: |
-          set -uo pipefail
-          rc=0
-          timeout 300 scripts/cmux-next/fetch-web-bundles.sh --out "$RUNNER_TEMP/web" >/dev/null || rc=$?
-          if (( rc == 0 )); then
+          set -euo pipefail
+          key="$(python3 -I scripts/cmux-next/web-bundle-key.py . --source)"
+          [[ "$key" =~ ^[0-9a-f]{64}$ ]]
+          rc=3
+          if [[ -x scripts/cmux-next/fetch-web-bundles.sh ]]; then
+            scripts/cmux-next/fetch-web-bundles.sh --key "$key" --out "$RUNNER_TEMP/web" >/dev/null && rc=0 || rc=$?
+          fi
+          if [[ "$rc" == 0 ]]; then
             echo "hit=true" >> "$GITHUB_OUTPUT"
+            echo "base web bundles: published under $key"
           else
-            echo "::notice title=size budget::no published base bundles to read (fetch exit $rc); building the base"
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+            echo "base web bundles: $key not fetched (exit $rc); building"
             rm -rf "$RUNNER_TEMP/web"
+            git sparse-checkout disable
           fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: ${{ steps.fetched.outputs.hit != 'true' }}
+        if: steps.published.outputs.hit != 'true'
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        if: ${{ steps.fetched.outputs.hit != 'true' }}
+        if: steps.published.outputs.hit != 'true'
         with:
           node-version: "24.22.1"
       - name: Build and measure
         id: measure
         env:
-          FETCHED: ${{ steps.fetched.outputs.hit }}
+          HIT: ${{ steps.published.outputs.hit }}
         run: |
           set -euo pipefail
-          if [[ "$FETCHED" != true ]]; then
+          if [[ "$HIT" != true ]]; then
             (cd webviews && bun install --frozen-lockfile >/dev/null)
             ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
           fi
