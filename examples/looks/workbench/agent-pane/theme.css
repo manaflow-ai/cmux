@@ -1,0 +1,18 @@
+/* Workbench's chat: tight and technical. Prompts are flat rows (the layout setting draws the accent
+   rule); cards are a faint cool fill with a crisp hairline and small corners; links in the accent.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own, so it reads over a light theme as well as Workbench's dark one. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 4px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-code-edge-fade: 24px;
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 76%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 68%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text));
+}
