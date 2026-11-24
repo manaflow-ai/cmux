@@ -605,6 +605,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         self.lookup = lookup
         builder = ChatTranscriptBuilder(diffs: store.diffs, mode: source.mode)
         builder.turnRows = source.turnRows
+        builder.continuesTurn = source.window.map { window in { window.continues($0.id) } }
         let layout = ChatTranscriptLayout()
         self.layout = layout
         lookup.layout = layout
@@ -871,10 +872,33 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The turn running at the last reload.
     private var runningShown: String?
 
-    /// The source shows more of its rows than before (a subagent transcript's window grew): its
-    /// turns are built again, and only the rows that came are weighed.
+    /// Lays out on the spot the newest rows one screen holds, by their real heights (a native row's
+    /// layout gives it; a SwiftUI row counts its estimate), and gives their items those heights.
+    /// Counting estimates instead laid out about twice a screen (#47189 r4: 40 rows for 21 shown).
+    private func primeNewest(ids: [String], items: inout [ChatTranscriptLayout.Item], missing: inout [String]) {
+        var budget = collectionView.bounds.height > 0 ? collectionView.bounds.height : 900
+        var made: Set<String> = []
+        var index = items.count - 1
+        while index >= 0, budget > 0 {
+            let id = ids[index]
+            if let row = rows[id], lookup.eligible(row),
+               let native = lookup.layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: lookup.expanded(id)) {
+                items[index].estimate = native.height
+                items[index].exact = true
+                made.insert(id)
+                if let turn = shownTurns[row.turnID], let at = turn.ids.firstIndex(of: id) {
+                    shownTurns[row.turnID]?.items[at] = items[index]
+                }
+            }
+            budget -= items[index].estimate + items[index].gap
+            index -= 1
+        }
+        if !made.isEmpty { missing.removeAll { made.contains($0) } }
+    }
+
+    /// The source shows more of its rows than before (a subagent transcript's window grew a chunk):
+    /// the new chunk is a turn of its own, so the reload builds and weighs it only.
     func sourceRowsChanged() {
-        for turn in source.turns() { builder.forget(turn.id) }
         reload()
     }
 
@@ -970,18 +994,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         var heldRows: [String] = []
         var heldMissing: [String] = []
+        // The first reload with a width lays out the newest rows on the spot (after the rows are
+        // weighed, below): as many as one screen holds by their real heights.
+        var primeAtEnd = false
         if !primed, lookup.layouts.environment != nil {
             primed = true
-            // The rows one screen holds at the end (estimated): the rest lay out as their cells come,
-            // or off the main thread. 24 rows was more than a screen (#47189 r3, subagent-stream).
-            var budget = collectionView.bounds.height > 0 ? collectionView.bounds.height : 900
-            let primeWidth = max(layout.columnWidth - 40, 100)
-            for turn in built.reversed() where budget > 0 && opensOnNewest() {
-                for row in turn.rows.reversed() where budget > 0 {
-                    budget -= row.estimatedHeight(width: primeWidth) + CGFloat(row.gap)
-                    if lookup.eligible(row) { prime.insert(row.id) }
-                }
-            }
+            primeAtEnd = opensOnNewest()
         }
         for turn in built {
             if !reweighTurns.contains(turn.turnID), let shown = shownTurns[turn.turnID], shown.generation == turn.generation,
@@ -1074,6 +1092,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
         reweigh = []
         reweighTurns = []
+        if primeAtEnd { primeNewest(ids: ids, items: &items, missing: &missing) }
         layout.trailingGap = ChatTranscriptBuilder.trailingGap(after: built.last?.rows.last)
         if ids.count + heldRows.count < rows.count {
             let live = Set(ids).union(heldRows)

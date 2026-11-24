@@ -133,6 +133,9 @@ final class ChatTranscriptBuilder {
     /// A turn's row grouping (`AgentTurn.rows`) when the source keeps it by what changed (a
     /// subagent's long transcript: an appended item makes its own rows, `SubagentRowsMemo`).
     var turnRows: ((AgentTurn) -> [TurnRow])?
+    /// Turns that continue the turn above them (a subagent transcript's rows in chunks): their first
+    /// row takes the gap between rows, not a turn's first gap, so the rows lay out as one turn.
+    var continuesTurn: ((AgentTurn) -> Bool)?
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
     /// Each answer's block rows as last built, by its parse's key: the blocks its next parse leaves
@@ -163,11 +166,6 @@ final class ChatTranscriptBuilder {
 
     /// Lines the last parse of `messageID` read (tests: a token re-parses the tail only).
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
-
-    /// The turn is built again on the next build (its source's rows changed without the turn).
-    func forget(_ turnID: String) {
-        memos[turnID] = nil
-    }
 
     func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
                earlierHistory: Bool = false, foldsWork: Bool = true) -> [ChatTurnRows] {
@@ -264,7 +262,7 @@ final class ChatTranscriptBuilder {
         // Answer rows taken as they were from the last build (`blockRows`).
         var reused = 0
         let turnID = turn.id
-        var nextGap = 16.0
+        var nextGap = continuesTurn?(turn) == true ? 10.0 : 16.0
         func add(_ id: String, _ kind: ChatRow.Kind, gap: Double? = nil) {
             rows.append(ChatRow(id: id, turnID: turnID, kind: kind, gap: gap ?? nextGap))
             nextGap = 10
