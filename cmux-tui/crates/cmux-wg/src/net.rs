@@ -559,6 +559,15 @@ impl Driver {
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
+        if dbg_on() {
+            eprintln!(
+                "WGDBG {:.1} side={} rx {:?} from {:?}",
+                dbg_t(),
+                if self.config.endpoint.is_some() { "phone" } else { "mac" },
+                classify(datagram),
+                origin.addr
+            );
+        }
         let handshake = matches!(
             classify(datagram),
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
@@ -642,6 +651,14 @@ impl Driver {
                         }
                         let mut packet = packet.to_vec();
                         self.pacer.refresh_stale_ack(&mut packet);
+                        if dbg_on() {
+                            eprintln!(
+                                "WGDBG {:.1} side={} in {}",
+                                dbg_t(),
+                                if self.config.endpoint.is_some() { "phone" } else { "mac" },
+                                dbg_tcp(&packet)
+                            );
+                        }
                         self.stack.push_rx(packet, None);
                     }
                     break;
@@ -680,6 +697,14 @@ impl Driver {
                     break;
                 }
             };
+            if dbg_on() {
+                eprintln!(
+                    "WGDBG {:.1} side={} out {}",
+                    dbg_t(),
+                    if self.config.endpoint.is_some() { "phone" } else { "mac" },
+                    dbg_tcp(&packet)
+                );
+            }
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
@@ -812,3 +837,25 @@ pub use datagram_ops::{Datagram, DatagramDrops, WgDatagramSocket};
 #[cfg(test)]
 #[path = "net_tests.rs"]
 mod tests;
+
+pub(crate) fn dbg_t() -> f64 {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
+}
+pub(crate) fn dbg_on() -> bool {
+    std::env::var_os("WGDBG").is_some()
+}
+pub(crate) fn dbg_tcp(p: &[u8]) -> String {
+    if p.len() < 40 || p[9] != 6 {
+        return format!("ip proto {} len {}", p.get(9).copied().unwrap_or(0), p.len());
+    }
+    let ihl = ((p[0] & 15) as usize) * 4;
+    let f = p[ihl + 13];
+    format!(
+        "tcp {}->{} flags {:#04x} len {}",
+        u16::from_be_bytes([p[ihl], p[ihl + 1]]),
+        u16::from_be_bytes([p[ihl + 2], p[ihl + 3]]),
+        f,
+        p.len()
+    )
+}

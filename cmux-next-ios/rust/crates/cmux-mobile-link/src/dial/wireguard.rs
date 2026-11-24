@@ -984,6 +984,13 @@ impl HybridUnderlay {
     fn retarget_turn(&mut self) {
         self.turn_targets =
             if self.turn.is_some() { turn_targets(&self.peer_endpoints, &self.options) } else { Vec::new() };
+        // The peer's relayed addresses go first: they are the ones its
+        // answer to us comes from, and the first to need a permission.
+        let relayed = &self.labels.peer_relayed;
+        self.turn_targets.sort_by_key(|addr| !relayed.contains(addr));
+        if let Some(turn) = &self.turn {
+            turn.permit(&self.turn_targets);
+        }
     }
 
     /// Apply the roaming side's changes, then bring the selector's paths in
@@ -1160,6 +1167,7 @@ impl HybridUnderlay {
                     if !relayed.is_empty() {
                         self.labels.peer_relayed = addresses(&relayed);
                         self.labels.peer_relayed_tls = addresses(&relayed_tls);
+                        self.retarget_turn();
                     }
                     self.publish_path();
                 }
@@ -2268,6 +2276,7 @@ pub(super) fn dial_wireguard<'a>(
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
         tunnel.session.follow(events.session);
+        options.timeline.mark("tunnel_started");
         let guard = Guard { session: Arc::clone(&tunnel.session) };
         let net = tunnel.session.net()?;
         tunnel.session.start_control(&net).await;
@@ -2303,7 +2312,9 @@ pub(super) fn dial_wireguard<'a>(
         // The Mac listed the lane once its port was bound: it listens.
         let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
+        options.timeline.mark("tcp_connect_start");
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
+        options.timeline.mark("tcp_connected");
         // The input lane: a second TCP stream to the same port, opened
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
