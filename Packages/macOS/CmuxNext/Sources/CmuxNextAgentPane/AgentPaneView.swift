@@ -82,11 +82,6 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
-    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
-    /// person, so its prompts would reach the agent as an unverified sender's.
-    var personUnprovenNotice: AgentPaneNotice?
-    /// Holds the notice back until the state has lasted ``NoticeTiming/connectionQuiet`` (a connection blip says nothing).
-    let personUnprovenHold = QuietHold(owner: "AgentPaneView.personUnproven", delay: NoticeTiming.connectionQuiet)
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -200,6 +195,8 @@ public final class AgentPaneView: NSView {
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
     var chromiumMoveWait: ChromiumMoveWait?
+    /// What waits for a moved Chromium page to show (``whenMovedPageShows(_:)``): a pane's paint hold.
+    var movedPageWaiters: [() -> Void] = []
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -575,6 +572,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -607,7 +605,6 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
-        model.transport.onPersonProof = nil
         model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil

@@ -129,6 +129,13 @@ impl Hub {
                         if agent == session.stopped_agent.load(Ordering::SeqCst) {
                             continue;
                         }
+                        // The replay of a session its `session/fork` made (`fork_replay.rs`).
+                        if params
+                            .as_ref()
+                            .is_some_and(|p| super::fork_replay::update_of_the_fork(&session, p))
+                        {
+                            continue;
+                        }
                         // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
                         // before it is applied (the log has it already), as a busy inbound loop
                         // does, so the daemon's integration tests can reach an agent first.
@@ -182,6 +189,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update_cache(&session, params.as_ref(), replayed);
+                        self.surgery_on_update(&session, params.as_ref(), replayed);
                         self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))

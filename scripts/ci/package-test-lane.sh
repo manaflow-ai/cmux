@@ -314,6 +314,7 @@ select_packages() {
     CmuxScreenKit
     CmuxTabsKit
     CmuxVNCWebRTC
+    CmuxVisibleRows
     GlassHost
   )
 
