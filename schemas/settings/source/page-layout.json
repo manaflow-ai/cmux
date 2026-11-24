@@ -503,7 +503,7 @@
               "terminal.linkOpener.default", "terminal.linkOpener.rules"
             ]},
             {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
-              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab"
+              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"
             ]}
           ],
           "lead": ["terminalInfo"],

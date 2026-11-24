@@ -63,3 +63,40 @@ test("a change while the write waits moves its timer: one wakeup, then the write
   expect(armed()).toBe(0);
   stop();
 });
+
+// The chat's copy is written again after a resize that changed no markup: a copy is drawn only at
+// the size it was written at (shared.ts `fitsDocument`), so a pane resized after the last write left
+// a copy the next launch refused, and the chat opened from nothing (relaunch-shift bench, "size
+// 868x712, drawn at 528x512"; Leo, 2026-11-14: "too much render shift when the thing restarts").
+test("a resize with no markup change writes the copy again once it rests, inside the write gap", () => {
+  noteChatTheme("light");
+  clock = 0;
+  const { win, advance } = page();
+  const writes: Record<string, unknown>[] = [];
+  const stop = watchChatSnapshot(
+    "chat",
+    async (params) => {
+      writes.push(params);
+      return { kept: true };
+    },
+    win.document,
+  );
+  // The first write, once the page has been quiet.
+  advance(1_700);
+  expect(writes).toHaveLength(1);
+  // Nothing changed: no write past the gap.
+  advance(1_900);
+  expect(writes).toHaveLength(1);
+  // A drag's resizes: one write, once they rest, though the write gap (10 s) has not passed.
+  win.dispatchEvent(new win.Event("resize"));
+  advance(2_000);
+  win.dispatchEvent(new win.Event("resize"));
+  advance(2_200);
+  expect(writes).toHaveLength(1);
+  advance(2_600);
+  expect(writes).toHaveLength(2);
+  stop();
+  win.dispatchEvent(new win.Event("resize"));
+  advance(4_000);
+  expect(writes).toHaveLength(2);
+});
