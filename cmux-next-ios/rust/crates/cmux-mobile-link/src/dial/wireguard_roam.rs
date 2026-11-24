@@ -58,7 +58,7 @@ pub(super) enum Control {
         stun: Vec<SocketAddr>,
         reflexive: mpsc::UnboundedSender<SocketAddr>,
         timeline: Timeline,
-        new_hop_port: oneshot::Sender<SocketAddr>,
+        new_hop_port: oneshot::Sender<hop::Rebind>,
     },
     /// Ask `stun` for the current socket's reflexive address and send what
     /// they answer to `reflexive` (an answer that went out with its host
@@ -451,7 +451,9 @@ impl Session {
                 let mut endpoints = lock(&session.endpoints).clone();
                 match result {
                     Ok(RelayAllocation::Hop(Some(hop))) => {
-                        *lock(&session.own_hop) = Some(hop.relayed);
+                        if let Some(old) = lock(&session.own_hop).replace(hop.relayed) {
+                            endpoints.retain(|s| s != &old.to_string());
+                        }
                         if session.control.send(Control::Hop(hop)).is_err() {
                             return;
                         }
@@ -706,7 +708,26 @@ impl Session {
             found
         };
         let hop = async {
-            let Ok(addr) = hop_port.await else { return };
+            let addr = match hop_port.await {
+                Ok(hop::Rebind::NewAddress(addr)) => addr,
+                Ok(hop::Rebind::TicketRefused) => {
+                    // Mint once for this roam. Keep TURN and direct recovery moving
+                    // while the authenticated HTTP request and BIND are in flight.
+                    let signaling = self.signaling();
+                    let mut options = self.options.clone();
+                    let mut pending = tokio::task::JoinSet::new();
+                    pending.spawn(async move {
+                        let config =
+                            tokio::time::timeout(Duration::from_secs(3), signaling.fresh_ice()).await;
+                        let Ok(Ok(config)) = config else { return RelayAllocation::Hop(None) };
+                        options.ice_servers = config.ice_servers;
+                        RelayAllocation::Hop(hop::allocate(&options).await)
+                    });
+                    self.finish_allocations(pending, false, generation);
+                    return;
+                }
+                Err(_) => return,
+            };
             let old = lock(&self.own_hop).replace(addr);
             let _ = self.control.send(Control::HopRebound(addr));
             let mut endpoints = lock(&self.endpoints).clone();

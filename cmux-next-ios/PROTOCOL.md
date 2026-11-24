@@ -306,7 +306,9 @@ closed with 4001 `moved`.
 - An enabled UDP PoP adds `hopServers: [{kind:"hop",url:"hop://host:port",ticket}]` to
   the authenticated ICE response. Older clients ignore this field. WebRTC receives
   only standard ICE URLs. Each dial uses its own ticket for BIND, and repeats BIND
-  with the same ticket after a roam to keep its relayed port. The phone lists the
+  with the same ticket after a roam to keep its relayed port. If the PoP
+  refuses an expired ticket, the phone requests a new ticket from the authenticated
+  ICE service and announces the replacement port on the existing session. The phone lists the
   BIND_OK address in `endpoints` and `relayed` and identifies it in `hop` on
   `wg-init` and subsequent endpoint announcements. This optional field negotiates
   the Mac leg independently of the WireGuard signaling version. An older Mac sends
@@ -470,7 +472,10 @@ is forwarded, and the service never answers it.
 ```
 
 - `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
-  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+  (WireGuard over TURN on TCP/TLS), `hop` (WireGuard over the hop/1 PoP), or `none` (no working route right now).
+- `hop` is present only when `path` is `hop` and carries the selected hop/1 leg's
+  bounded counters. It has `srttMs` (at most 600000), `lossPermille` (at most 1000),
+  `resent` and `repaired` (at most 100000 each). `repaired` includes NACK and FEC repairs.
 - `reason`: `first` (once the link's first ping is answered, or 5 s after it
   came up), `periodic` (every 60 s while up), `path` (the path changed; at
   most one per 10 s, a change inside that only counts in `switches`), `end`

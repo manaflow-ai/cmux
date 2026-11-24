@@ -92,6 +92,28 @@ impl RttSummary {
     }
 }
 
+/// Counters from the hop/1 leg, included only while the selected path is hop.
+/// Values are bounded before they enter a link-stat frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HopStats {
+    pub srtt_ms: u64,
+    pub loss_permille: u16,
+    pub resent: u64,
+    pub repaired: u64,
+}
+
+impl HopStats {
+    fn bounded(self) -> Self {
+        Self {
+            srtt_ms: self.srtt_ms.min(u64::from(MAX_MS)),
+            loss_permille: self.loss_permille.min(1_000),
+            resent: self.resent.min(100_000),
+            repaired: self.repaired.min(100_000),
+        }
+    }
+}
+
 /// One `link_stat` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,6 +132,8 @@ pub struct LinkStat {
     pub marks: BTreeMap<&'static str, u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt: Option<RttSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hop: Option<HopStats>,
     /// Pings sent since the last stat.
     pub pings: u32,
     /// Pings lost since the last stat (sent, never answered, no longer waiting).
@@ -205,6 +229,7 @@ impl Reporter {
         timeline: Option<&Timeline>,
         end: Option<&str>,
         cellular: bool,
+        hop: Option<HopStats>,
     ) -> Option<LinkStat> {
         if self.ended {
             return None;
@@ -238,6 +263,7 @@ impl Reporter {
             setup_ms,
             marks,
             rtt: RttSummary::of(&pings.samples),
+            hop: (self.path == LinkPath::Hop).then_some(hop).flatten().map(HopStats::bounded),
             pings: clamp(sent),
             lost: clamp(lost),
             switches: self.switches.min(10_000),
@@ -254,7 +280,9 @@ impl Reporter {
 /// Send `stat` on the current signaling socket. `false` when that socket's Worker refused stats
 /// (no more go out), or there is none.
 async fn send(signaling: &SignalingSource, stat: &LinkStat) -> bool {
-    let Some(client) = signaling().await else { return true };
+    let Some(client) = signaling().await else {
+        return true;
+    };
     if !client.sends_link_stats() {
         return false;
     }
@@ -270,6 +298,7 @@ pub fn spawn(
     transport: TransportKind,
     mut path: watch::Receiver<LinkPath>,
     timeline: Timeline,
+    session_id: String,
     signaling: SignalingSource,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -290,6 +319,9 @@ pub fn spawn(
                 Some(&timeline),
                 None,
                 cellular(),
+                (reporter.path == LinkPath::Hop)
+                    .then(|| crate::dial::wireguard::hop_stats(&session_id, true))
+                    .flatten(),
             );
             if let Some(stat) = stat
                 && !send(&signaling, &stat).await
@@ -325,6 +357,9 @@ pub fn spawn(
                 first.then_some(&timeline),
                 end.as_deref(),
                 cellular(),
+                (reporter.path == LinkPath::Hop)
+                    .then(|| crate::dial::wireguard::hop_stats(&session_id, true))
+                    .flatten(),
             );
             let Some(stat) = stat else { return };
             if !send(&signaling, &stat).await || reason == Reason::End {
@@ -368,6 +403,7 @@ mod tests {
                 Some(&timeline),
                 None,
                 true,
+                None,
             )
             .unwrap();
         let json: serde_json::Value = serde_json::from_str(&stat.to_text()).unwrap();
@@ -388,7 +424,7 @@ mod tests {
         assert!(json.get("end").is_none());
         // Later stats carry neither setup nor marks.
         let next = reporter
-            .build(Reason::Periodic, up + PERIOD, &pings(5, 4, 1, &[]), Some(&timeline), None, false)
+            .build(Reason::Periodic, up + PERIOD, &pings(5, 4, 1, &[]), Some(&timeline), None, false, None)
             .unwrap();
         assert_eq!((next.setup_ms, next.marks.len(), next.rtt), (None, 0, None));
         assert_eq!((next.pings, next.lost), (4, 0));
@@ -398,15 +434,16 @@ mod tests {
     fn loss_counts_pings_neither_answered_nor_waiting_once() {
         let up = Instant::now();
         let mut reporter = Reporter::new(TransportKind::WebRtc, LinkPath::Turn, up);
-        let a = reporter.build(Reason::First, up, &pings(4, 2, 1, &[]), None, None, false).unwrap();
+        let a = reporter.build(Reason::First, up, &pings(4, 2, 1, &[]), None, None, false, None).unwrap();
         assert_eq!((a.pings, a.lost), (4, 1));
         // The waiting one was lost too; nothing counted twice.
-        let b =
-            reporter.build(Reason::Periodic, up + PERIOD, &pings(6, 4, 0, &[]), None, None, false).unwrap();
+        let b = reporter
+            .build(Reason::Periodic, up + PERIOD, &pings(6, 4, 0, &[]), None, None, false, None)
+            .unwrap();
         assert_eq!((b.pings, b.lost), (2, 1));
         // A late pong (answered grows past what was counted) never takes loss below zero.
         let c = reporter
-            .build(Reason::Periodic, up + PERIOD * 2, &pings(6, 6, 0, &[]), None, None, false)
+            .build(Reason::Periodic, up + PERIOD * 2, &pings(6, 6, 0, &[]), None, None, false, None)
             .unwrap();
         assert_eq!((c.pings, c.lost), (0, 0));
     }
@@ -424,6 +461,7 @@ mod tests {
             reporter.path_changed(LinkPath::TurnTls, up);
         }
         let huge = pings(u64::MAX, 0, 0, &vec![u32::MAX; PingStats::MAX_SAMPLES]);
+        reporter.path_changed(LinkPath::Hop, up);
         let stat = reporter
             .build(
                 Reason::End,
@@ -432,6 +470,12 @@ mod tests {
                 Some(&timeline),
                 Some("keepalive timed out"),
                 true,
+                Some(HopStats {
+                    srtt_ms: u64::MAX,
+                    loss_permille: u16::MAX,
+                    resent: u64::MAX,
+                    repaired: u64::MAX,
+                }),
             )
             .unwrap();
         let text = stat.to_text();
@@ -440,7 +484,7 @@ mod tests {
         assert_eq!(stat.end, Some("keepalive"));
         assert!(stat.lost <= stat.pings);
         // Nothing after the end stat.
-        assert!(reporter.build(Reason::Periodic, up, &huge, None, None, false).is_none());
+        assert!(reporter.build(Reason::Periodic, up, &huge, None, None, false, None).is_none());
     }
 
     #[test]
@@ -451,14 +495,15 @@ mod tests {
         // Before the first stat a change is only counted.
         assert!(!reporter.path_changed(LinkPath::Turn, up + Duration::from_secs(1)));
         let first = up + Duration::from_secs(2);
-        reporter.build(Reason::First, first, &PingStats::default(), None, None, false).unwrap();
+        reporter.build(Reason::First, first, &PingStats::default(), None, None, false, None).unwrap();
         assert_eq!(reporter.next_periodic(), first + PERIOD);
         // The same path is no change; a change inside the gap is counted, not sent.
         assert!(!reporter.path_changed(LinkPath::Turn, first + Duration::from_secs(20)));
         assert!(!reporter.path_changed(LinkPath::Direct, first + PATH_GAP - Duration::from_millis(1)));
         assert!(reporter.path_changed(LinkPath::Turn, first + PATH_GAP));
-        let stat =
-            reporter.build(Reason::Path, first + PATH_GAP, &PingStats::default(), None, None, false).unwrap();
+        let stat = reporter
+            .build(Reason::Path, first + PATH_GAP, &PingStats::default(), None, None, false, None)
+            .unwrap();
         assert_eq!((stat.path, stat.switches), ("turn", 3));
         assert_eq!(reporter.next_periodic(), first + PATH_GAP + PERIOD);
     }

@@ -66,11 +66,17 @@ impl HopSender {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Rebind {
+    NewAddress(SocketAddr),
+    TicketRefused,
+}
+
 pub(super) struct HopCarrier {
     pub(super) relayed: SocketAddr,
     pub(super) sender: HopSender,
     pub(super) inbound: mpsc::Receiver<Vec<u8>>,
-    roam: mpsc::UnboundedSender<oneshot::Sender<SocketAddr>>,
+    roam: mpsc::UnboundedSender<oneshot::Sender<Rebind>>,
     driver: tokio::task::JoinHandle<()>,
 }
 
@@ -96,6 +102,9 @@ async fn bind(socket: &UdpSocket, request: &[u8]) -> io::Result<SocketAddr> {
             match HopMsg::decode(&reply[..got?]) {
                 Ok(HopMsg::BindOk { addr, lifetime_s }) if addr.port() != 0 && lifetime_s > 0 => {
                     return Ok(addr);
+                }
+                Ok(HopMsg::Error { code: 1 }) => {
+                    return Err(io::Error::new(io::ErrorKind::PermissionDenied, "hop ticket refused"));
                 }
                 Ok(HopMsg::Error { .. }) => return Err(io::Error::other("hop BIND rejected")),
                 _ => {}
@@ -165,7 +174,7 @@ impl HopCarrier {
         let shared = Arc::new(Shared { leg: Mutex::new(fresh_leg()), wake: Notify::new() });
         let sender = HopSender(Arc::downgrade(&shared));
         let (tx, inbound) = mpsc::channel(256);
-        let (roam, mut changed) = mpsc::unbounded_channel::<oneshot::Sender<SocketAddr>>();
+        let (roam, mut changed) = mpsc::unbounded_channel::<oneshot::Sender<Rebind>>();
         let driver = tokio::spawn(async move {
             let mut socket = socket;
             let mut allocation = relayed;
@@ -193,13 +202,20 @@ impl HopCarrier {
                         let Ok(fresh) = connected(addr) else { continue };
                         if let Some(request) = &bind_request {
                             let reply = tokio::time::timeout(ALLOCATION_TIMEOUT, bind(&fresh, request)).await;
-                            let Ok(Ok(address)) = reply else { continue };
+                            let address = match reply {
+                                Ok(Ok(address)) => address,
+                                Ok(Err(error)) if error.kind() == io::ErrorKind::PermissionDenied => {
+                                    let _ = new_port.send(Rebind::TicketRefused);
+                                    continue;
+                                }
+                                _ => continue,
+                            };
                             if address != allocation {
                                 // The old allocation aged out while the phone slept.
                                 // A fresh relay also has a fresh peer sequence space.
                                 *shared.leg.lock().unwrap_or_else(PoisonError::into_inner) = fresh_leg();
                                 allocation = address;
-                                let _ = new_port.send(address);
+                                let _ = new_port.send(Rebind::NewAddress(address));
                             }
                         }
                         socket = fresh;
@@ -217,7 +233,7 @@ impl HopCarrier {
         Self { relayed, sender, inbound, roam, driver }
     }
 
-    pub(super) fn rebind(&self, new_port: oneshot::Sender<SocketAddr>) {
+    pub(super) fn rebind(&self, new_port: oneshot::Sender<Rebind>) {
         let _ = self.roam.send(new_port);
     }
 }
@@ -295,6 +311,12 @@ mod tests {
         let replacement: SocketAddr = "127.0.0.1:52321".parse().unwrap();
         let fresh = HopMsg::BindOk { addr: replacement, lifetime_s: 60 }.encode().unwrap();
         server.send_to(&fresh, third).await.unwrap();
-        assert_eq!(reply_port.await.unwrap(), replacement);
+        assert_eq!(reply_port.await.unwrap(), Rebind::NewAddress(replacement));
+
+        let (changed, result) = oneshot::channel();
+        carrier.rebind(changed);
+        let (_, fourth) = next(&server, TYPE_BIND).await;
+        server.send_to(&HopMsg::Error { code: 1 }.encode().unwrap(), fourth).await.unwrap();
+        assert_eq!(result.await.unwrap(), Rebind::TicketRefused);
     }
 }
