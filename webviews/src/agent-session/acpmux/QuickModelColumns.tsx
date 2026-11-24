@@ -181,15 +181,21 @@ export function QuickModelColumns(props: QuickSurfaceProps) {
 
 /// Whether `chip` sits in a row packed to its end (justify-content flex-end), where its start
 /// moves with its width. Rows drawn as display: contents, and wrappers that hug the chip, pass to
-/// their parent.
+/// their parent. A wrapper hugs the chip when its content box is the chip's width: New Tab's model
+/// chip has end padding on its wrapper, past the pill (newtab/screen.css).
 function rowPackedToEnd(chip: HTMLElement): boolean {
   const view = chip.ownerDocument.defaultView;
   let child: HTMLElement = chip;
   for (let row = chip.parentElement; row && view; row = row.parentElement) {
     const style = view.getComputedStyle(row);
     if (style.display === "contents") continue;
-    // A wrapper as wide as what it holds (the picker's own box) is no row: its parent may be.
-    if (row.getBoundingClientRect().width - child.getBoundingClientRect().width <= 1) {
+    const inner =
+      row.getBoundingClientRect().width -
+      (Number.parseFloat(style.paddingLeft) || 0) -
+      (Number.parseFloat(style.paddingRight) || 0) -
+      (Number.parseFloat(style.borderLeftWidth) || 0) -
+      (Number.parseFloat(style.borderRightWidth) || 0);
+    if (inner - child.getBoundingClientRect().width <= 1) {
       child = row;
       continue;
     }
