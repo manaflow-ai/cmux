@@ -28,10 +28,8 @@ public struct TerminalFindRequest: DaemonRequest {
 
             /// The matched text: `snippetLen` UTF-16 units of the snippet from `snippetStart`.
             public var text: String {
-                let view = snippet.utf16
-                let start = view.index(view.startIndex, offsetBy: Int(clamping: snippetStart), limitedBy: view.endIndex) ?? view.endIndex
-                let end = view.index(start, offsetBy: Int(clamping: snippetLen), limitedBy: view.endIndex) ?? view.endIndex
-                return String(view[start..<end]) ?? ""
+                let slice = snippet.utf16.dropFirst(Int(clamping: snippetStart)).prefix(Int(clamping: snippetLen))
+                return String(slice) ?? ""
             }
         }
 
