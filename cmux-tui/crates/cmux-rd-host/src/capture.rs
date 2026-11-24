@@ -59,6 +59,15 @@ pub struct DamageEvent {
     pub rect: Rect,
 }
 
+/// What happened to a window a [`Capturer`] watches ([`Capturer::watch`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowEvent {
+    /// Moved, resized, reparented or mapped: read its rect again.
+    Changed(Window),
+    Unmapped(Window),
+    Destroyed(Window),
+}
+
 /// How pixels come back from the X server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Readback {
@@ -185,18 +194,48 @@ impl Capturer {
         self.conn.stream().as_raw_fd()
     }
 
-    /// Drains every queued X event without blocking; returns damage reports.
-    pub fn drain(&self, out: &mut Vec<DamageEvent>) -> Res<()> {
+    /// `window`'s rect in root coordinates; Err when it does not exist.
+    pub fn window_rect(&self, window: Window) -> Res<crate::x11_window::WinRect> {
+        crate::x11_window::rect(&self.conn, self.root, window)
+    }
+
+    /// Reports `window`'s structure changes (and its window manager frame's) through
+    /// [`Capturer::drain`]. Only this connection's own event mask changes.
+    pub fn watch(&self, window: Window) -> Res<()> {
+        use x11rb::protocol::xproto::{ChangeWindowAttributesAux, EventMask};
+        let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY);
+        self.conn
+            .change_window_attributes(window, &aux)?
+            .check()
+            .map_err(|e| format!("window {window:#x} is not on this X display: {e}"))?;
+        let frame = crate::x11_window::frame(&self.conn, self.root, window)?;
+        if frame != window {
+            self.conn.change_window_attributes(frame, &aux)?.check()?;
+        }
+        Ok(())
+    }
+
+    /// Drains every queued X event without blocking; returns damage reports, and in `windows`
+    /// what happened to watched windows.
+    pub fn drain(&self, out: &mut Vec<DamageEvent>, windows: &mut Vec<WindowEvent>) -> Res<()> {
         while let Some(ev) = self.conn.poll_for_event()? {
-            if let Event::DamageNotify(d) = ev {
-                let a = d.area;
-                let rect = Rect {
-                    x: a.x.max(0) as u32,
-                    y: a.y.max(0) as u32,
-                    w: u32::from(a.width),
-                    h: u32::from(a.height),
-                };
-                out.push(DamageEvent { rect });
+            match ev {
+                Event::DamageNotify(d) => {
+                    let a = d.area;
+                    let rect = Rect {
+                        x: a.x.max(0) as u32,
+                        y: a.y.max(0) as u32,
+                        w: u32::from(a.width),
+                        h: u32::from(a.height),
+                    };
+                    out.push(DamageEvent { rect });
+                }
+                Event::ConfigureNotify(e) => windows.push(WindowEvent::Changed(e.window)),
+                Event::ReparentNotify(e) => windows.push(WindowEvent::Changed(e.window)),
+                Event::MapNotify(e) => windows.push(WindowEvent::Changed(e.window)),
+                Event::UnmapNotify(e) => windows.push(WindowEvent::Unmapped(e.window)),
+                Event::DestroyNotify(e) => windows.push(WindowEvent::Destroyed(e.window)),
+                _ => {}
             }
         }
         Ok(())
@@ -262,7 +301,7 @@ mod tests {
         // The loop connection has both changes (its own round trip, then its queue).
         loop_conn.conn.get_input_focus().unwrap().reply().unwrap();
         let mut seen = Vec::new();
-        loop_conn.drain(&mut seen).unwrap();
+        loop_conn.drain(&mut seen, &mut Vec::new()).unwrap();
         assert!(seen.iter().any(|e| e.rect.x >= 1000), "the loop never saw the second change");
         let mut taken = Vec::new();
         cap.take_damage(&mut taken).unwrap();

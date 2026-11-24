@@ -15,6 +15,9 @@ page (a new port, so a new origin, every run). For each engine:
      only after the grant. Clicking that banner runs the page's `onclick`. In Chromium,
      the page also exposes Chrome's Notification and PushManager interfaces before the grant.
 
+The Chromium tab also edits a draft and follows a link twice: Stay keeps the edited
+document and Leave opens the link in the same tab.
+
 Location is only ever denied: allowing it would raise the macOS location prompt on the
 host. GUI host only (a capture mini). The app is quit and the tag's daemons stopped at
 the end. Exits 1 when a check fails.
@@ -72,6 +75,16 @@ addEventListener("load", () => {
     document.body.appendChild(frame);
   }
 });
+</script>
+"""
+DRAFT_PAGE = """<!doctype html><title>Unsaved draft</title>
+<button id="edit">Edit draft</button><a id="leave" href="index.html">Leave draft</a>
+<script>
+document.querySelector('#edit').onclick = event => {
+  if (!event.isTrusted) return;
+  document.title = 'Edited draft';
+  window.onbeforeunload = event => { event.preventDefault(); event.returnValue = ''; };
+};
 </script>
 """
 failures = []
@@ -210,6 +223,38 @@ def banner(title):
     return next((b for b in banners() if (b.get("subtitle") or "").split(" · ")[0] == title), None)
 
 
+def check_beforeunload(destination):
+    draft = urllib.parse.urljoin(destination, "draft.html")
+    rpc("browser.page.navigate", {"tab": TAB, "url": draft})
+    if not wait_for(lambda: page("document.title") == "Unsaved draft", "chromium: the draft loads"):
+        return
+    point = page("""(() => { const r = document.querySelector('#edit').getBoundingClientRect();
+                       return {x: r.x + r.width / 2, y: r.y + r.height / 2}; })()""")
+    if not point:
+        check(False, "chromium: the draft edit button has a click point")
+        return
+    clicked = rpc("browser.page.mouse", {"tab": TAB, "kind": "click", "button": "left", "modifiers": [], **point})
+    check(clicked.get("native") is True, "chromium: a native click edits the draft")
+    if not wait_for(lambda: page("document.title") == "Edited draft", "chromium: the edit arms beforeunload"):
+        return
+
+    def draft_prompt():
+        queue = prompts()
+        return queue and queue[0].get("kind", "").startswith("beforeUnload(") and queue[0].get("origin") == draft
+
+    for answer, label, url, title in (("cancel", "Stay", draft, "Edited draft"),
+                                      ("accept", "Leave", destination, "permission prompts")):
+        # Let the RPC return before the pending navigation pauses the renderer.
+        page("setTimeout(() => document.querySelector('#leave').click(), 0); true")
+        if not wait_for(draft_prompt, f"chromium: the draft asks before {label}"):
+            return
+        replied = rpc("debug.browser.prompts", {"tab": TAB, "respond": answer})
+        check(replied.get("responded") is True, f"chromium: the draft prompt accepts {label}")
+        if not wait_for(lambda: not prompts() and page("[location.href, document.title]") == [url, title],
+                        f"chromium: {label} shows {title} at {url}"):
+            return
+
+
 def run_engine(engine):
     global TAB
     print(f"== {engine}", flush=True)
@@ -296,6 +341,8 @@ def run_engine(engine):
         notification_decided("cmux framed")
         check(banner("cmux framed") is None, f"{engine}: an allowed site framed in another site shows no banner ({banners()})")
 
+    if engine == "chromium":
+        check_beforeunload(url)
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None
 
@@ -304,6 +351,8 @@ def serve():
     root = tempfile.mkdtemp(prefix="permission-prompts-page-")
     with open(os.path.join(root, "index.html"), "w") as f:
         f.write(PAGE)
+    with open(os.path.join(root, "draft.html"), "w") as f:
+        f.write(DRAFT_PAGE)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
     handler.log_message = lambda *args: None
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)

@@ -1423,6 +1423,11 @@ public abstract class GeneratedCmuxClient {
         return TerminalEventsResult.fromWire(result);
     }
 
+    public final Object terminalFind(TerminalFindRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_FIND, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_HISTORY, request.toWire());
         return TerminalHistoryPagesResult.fromWire(result);
