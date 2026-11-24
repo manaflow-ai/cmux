@@ -546,6 +546,7 @@ final class WindowManager {
     func prepareForTermination() async {
         loadObservation?.cancel()
         recordSaver.geometryTimer.cancel()
+        await recordSaver.launchImages.captureForQuit() // the last frames, before the record's last write
         await recordSaver.flushSaves()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
