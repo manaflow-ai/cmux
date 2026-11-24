@@ -3612,6 +3612,39 @@ export default agentPaneEntry({
         },
       },
     },
+    "secret-card-keep": {
+      note: "Play: the person ticks Keep as key STRIPE_API_KEY before Provide, so acpmux also stores the value in Keys under that name (docs/design/safe-keys.md); the answer carries keepAs, never more.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      afterCall: {
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.click({ selector: ".acpmux-secret-card-keep input" });
+        await ctx.click({ role: "button", name: "Provide" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top; the composer and the rows do not move.",
+        },
+      },
+    },
     "secret-card-unsent": {
       note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
       snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
