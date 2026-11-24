@@ -44,6 +44,9 @@ mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_folder;
+#[cfg(all(test, unix))]
+mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
 #[cfg(test)]
@@ -1263,6 +1266,8 @@ pub struct Hub {
     pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
     /// Background-task starts, one at a time (`bg_tasks.rs`).
     pub(super) bg_starts: tokio::sync::Mutex<()>,
+    /// The chats' task folders at their last look (`bg_folder.rs`).
+    pub(super) bg_folders: bg_folder::BgFolders,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -1741,6 +1746,7 @@ impl Hub {
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
+            bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
