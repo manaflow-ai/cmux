@@ -69,6 +69,8 @@ cmux-unix-socket = { path = "../../../cmux-tui/crates/cmux-unix-socket" }
 # The settings file's path and JSONC dialect (src/agent_memory/settings.rs),
 # the daemon's own reader.
 cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
+# The machine's cores and load for the helper limit (src/machine_limits.rs); no tokio.
+cmux-host-budget = { path = "../../../cmux-tui/crates/cmux-host-budget", default-features = false }
 # The panic log the cmux-next app sends to Sentry under the telemetry choice
 # (`<optchat root>/panics.jsonl`, RustPanicSource.chief).
 cmux-panic-log = { path = "../../../cmux-tui/crates/cmux-panic-log" }

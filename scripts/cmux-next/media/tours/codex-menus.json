@@ -1,0 +1,12 @@
+{
+  "title": "The account menu and the browser's More (⋮) menu, light and dark, for Lawrence's 2026-11-23 ask to match the Codex and ChatGPT menus. Record it with: cmux-ci capture SHA --state tour:codex-menus",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "End Meet Chief", "rpc": {"method": "debug.onboarding", "params": {"action": "meet_chief_end"}}, "wait": 1, "shot": false, "optional": "debug.onboarding is DEBUG only"},
+    {"title": "Browser workspace", "rpc": {"method": "action.run", "params": {"action": "newBrowserWorkspace", "focus": true}}, "wait": 4, "shot": false},
+    {"title": "The More (⋮) menu", "rpc": {"method": "debug.object_menu", "params": {"menu": "browserMore"}}, "wait": 2},
+    {"title": "Tools", "rpc": {"method": "debug.object_menu", "params": {"folders": ["Tools"]}}, "wait": 1.5, "optional": "the Tools folder"},
+    {"title": "Close the More menu", "rpc": {"method": "debug.object_menu", "params": {"dismiss": true}}, "wait": 1.5, "shot": false, "optional": "debug.object_menu is DEBUG only"},
+    {"title": "The account menu", "rpc": {"method": "action.run", "params": {"action": "sidebar.profileMenu"}}, "wait": 1.5}
+  ]
+}
