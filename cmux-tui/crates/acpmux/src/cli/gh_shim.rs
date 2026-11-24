@@ -150,6 +150,8 @@ fn request(
         issue,
         title: p.values.remove("--title"),
         body,
+        // A `token` action takes its permissions from the daemon's call, never from `gh`.
+        permissions: None,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
     })
