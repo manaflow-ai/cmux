@@ -19,7 +19,7 @@ public enum TerminalColdFrameDemo {
     @MainActor
     public static func frame() -> UIImage {
         let bounds = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.bounds }.first
-            ?? CGRect(x: 0, y: 0, width: 402, height: 874)
+            ?? UIScreen.main.bounds
         let format = UIGraphicsImageRendererFormat()
         format.scale = 2
         format.opaque = true
