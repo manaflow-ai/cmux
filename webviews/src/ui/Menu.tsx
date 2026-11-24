@@ -482,6 +482,7 @@ export function MenuPopup({
           // The App's menu glass under the page (glass/hostGlass.ts).
           data-host-glass="menu"
           data-host-glass-cover=""
+          data-surface-role="menu"
           // The experiments' arms (menuStyleV2, menuRowStates), styled in popupSurface.css; off draws none.
           data-menu-style={arms.look === "off" ? undefined : arms.look}
           data-menu-states={arms.states === "off" ? undefined : arms.states}
