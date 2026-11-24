@@ -2,7 +2,8 @@
   "title": "Installed after confirming Standup and Quick Links (Quick Links section in the sidebar)",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],

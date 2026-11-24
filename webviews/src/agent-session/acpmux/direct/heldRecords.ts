@@ -20,6 +20,12 @@ export const HELD_RECORDS = 2 * HELD_KEPT;
 /// How many more records a chat that could not shed past `HELD_RECORDS` takes before it tries again
 /// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
 export const HELD_RETRY = HELD_KEPT / 4;
+
+/// A row a shed kept across its cut (direct.ts `splits`): a tool call's row (`callId`, `earlier` once its oldest
+/// output lines went), or a streaming reply's. `aside`: the records older than the held ones that draw it again.
+export type HeldSplit =
+  | { kind: "tool"; callId: string; aside: EventRecord[]; earlier: boolean }
+  | { kind: "reply"; aside: EventRecord[] };
 /// The client's fields a fold of records writes about the turn they are in (`foldOlder` keeps them as the live
 /// chat's): a window whose newest records are left folds a page read forward with its own (`landNewer`).
 export const FOLD_TURN_KEYS = [

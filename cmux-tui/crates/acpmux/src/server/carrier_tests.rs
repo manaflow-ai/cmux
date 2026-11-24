@@ -369,7 +369,7 @@ async fn the_remote_guard_answers_the_owner_as_a_peer_daemon_for_every_method() 
                         false,
                     )
                     .await
-                    .map(|()| params)
+                    .map(|()| scratch_free(params))
                     .map_err(|e| (e.code, e.message))
                 }
             };
@@ -380,6 +380,18 @@ async fn the_remote_guard_answers_the_owner_as_a_peer_daemon_for_every_method() 
             );
         }
     }
+}
+
+/// An owner's start with no folder gets its own fresh scratch folder each call (cmux#50026), so
+/// two equal answers differ only in that folder's per-session name.
+fn scratch_free(mut params: Value) -> Value {
+    if let Some(cwd) = params.get("cwd").and_then(Value::as_str)
+        && cwd.contains("acpmux-peer-scratch-")
+        && let Some((base, _)) = cwd.rsplit_once("/session-")
+    {
+        params["cwd"] = Value::String(format!("{base}/session-*"));
+    }
+    params
 }
 
 /// One request on `send`, its answer from `recv`.
