@@ -78,12 +78,23 @@ pub struct MoveSessionsArgs {
     /// frozen, and this says why.
     #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
     pub abort: bool,
+    /// With --abort: give the chat back here even though its move's target cannot say whether
+    /// it took it, once the chat was offered back (`session info` shows `move undecided`, about
+    /// ten minutes after the move's client went away). If the target did take it and comes back,
+    /// it holds a second copy.
+    #[arg(long, requires = "abort")]
+    pub take_back: bool,
     /// Start the chats on the machine from this machine's copy of them, for a machine that does
     /// not answer: their transcript (the newest records kept here) and name, in a new chat
     /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
     /// left as it is.
     #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
     pub from_snapshot: bool,
+    /// Land the chats on the machine's harness HARNESS instead of the one named like theirs
+    /// here: one that runs the same agent (a `claude-sr2` chat onto a machine that has only
+    /// `claude`). The machine refuses a harness for another agent, or one it does not have.
+    #[arg(long = "as", value_name = "HARNESS", conflicts_with = "from_snapshot")]
+    pub as_harness: Option<String>,
 }
 
 #[derive(Parser)]
@@ -218,6 +229,10 @@ pub enum Command {
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
     Ledger(crate::cli::ledger::LedgerArgs),
+    /// The harness-magic scorecard of this machine's turns: tokens and leo-units per settled pull
+    /// request, steering rate, time to the first useful result, firstModelMs, requests per turn,
+    /// cache-hit ratio and every harnessMagic counter, by the features the turns ran with.
+    Scorecard(crate::cli::scorecard::ScorecardArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -804,6 +819,14 @@ pub enum Command {
         #[arg(long)]
         refresh: bool,
     },
+    /// A Cloud machine: make the reserved folder of its first home chat and warm an agent in it
+    /// (`hub/pool/reserved.rs`). The Cloud app runs it right after keying a spare machine.
+    #[command(name = "warm-home", hide = true)]
+    WarmHome {
+        /// Answer once the agent is ready, not when it starts.
+        #[arg(long)]
+        wait: bool,
+    },
     #[command(hide = true)]
     Info {
         session: String,
@@ -837,6 +860,7 @@ pub enum Command {
         held: bool,
         fleet: bool,
         allow: Vec<String>,
+        set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
     },
@@ -1345,18 +1369,24 @@ pub enum SessionCmd {
     /// Hold a session: it takes no turn until the person asks for it. Every other agent's
     /// message, tool notice or background task's end waits in its inbox; its idle agent is
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
-    /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
+    /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them.
+    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
+    /// `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
         /// Hold this machine's whole fleet of sessions.
         #[arg(long)]
         fleet: bool,
-        /// With `--fleet`: names that keep running, comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
+        /// With `--fleet`: names added to the allowlist (it keeps the ones already there),
+        /// comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
         #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
+        /// With `--fleet`: replace the whole allowlist with these names (then `--allow` adds to
+        /// it); `--set-allow ''` empties it.
+        #[arg(long, value_delimiter = ',', num_args = 0..=1)]
+        set_allow: Option<Vec<String>>,
         /// With `--fleet`: why, shown in each refusal.
         #[arg(long)]
         reason: Option<String>,
@@ -1508,7 +1538,8 @@ pub enum SessionCmd {
         last: u64,
         #[arg(long, short)]
         follow: bool,
-        /// Start after this cursor (`<sessionId>:<seq>` or a seq). A cursor past the log is an error.
+        /// Start after a cursor (`<sessionId>:<seq>` or a seq), or use `seen` for the reader's cutover.
+        /// A chat the reader has never focused has no recap.
         #[arg(long)]
         since: Option<String>,
     },
@@ -1934,14 +1965,23 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, reason, status } => {
-                Command::SessionHold { session, held: true, fleet, allow, reason, status }
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+                Command::SessionHold {
+                    session,
+                    held: true,
+                    fleet,
+                    allow,
+                    set_allow,
+                    reason,
+                    status,
+                }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
                 fleet,
                 allow: Vec::new(),
+                set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
             },
