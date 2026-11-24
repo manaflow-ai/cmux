@@ -6,19 +6,20 @@ competitive-fleet-recovery-99; metric `fleet.recovery.resumed_within_30s_pct`).
 Leo, 2026-11-24 12:50Z: "if you havent already you guys can also look at chatgpt's rfd 162 and go
 even further beyond".
 
-Three real acpmux daemons, each its own home, each a machine:
-  owner  the daemon that watches the fleet (a Mac or the fleet controller). It peers both others,
-         as a fleet tool writes a lane VM (`vmBoundary`), so it keeps a copy of their chats
-         (`hub/peer_snapshot/warm.rs` `keeps_copies`).
+Two real acpmux daemons, each its own home, each a machine:
   host   the machine that dies. N chats on the stand-in agent (`tests/fake_agent.py`), each with
          TURNS finished turns.
-  spare  the survivor the chats go to.
+  spare  the survivor. It peers the host as a fleet tool writes a lane VM (`vmBoundary`), so it
+         keeps a copy of the host's chats (`hub/peer_snapshot/warm.rs` `keeps_copies`), and the
+         chats start there (`--machine local`). A copy move's target is this machine or an ssh
+         peer (`cli/run/session_move_snapshot.rs`), so the machine that holds the copy is the
+         survivor here.
 
 The kill: every process of the host's home (daemon, agent hosts, agents) is frozen with SIGSTOP
 at t0, so its sockets go silent as a powered-off machine's do (no FIN, no RST), and killed with
-SIGKILL when the run ends. From t0 the owner does what the fleet's death router does
+SIGKILL when the run ends. From t0 the spare does what the fleet's death router does
 (`acpmux session route` -> `move_from_copy`, cmux#52791): it waits until its link to the host
-reads down, then runs `acpmux session move host/CHAT --machine spare --from-snapshot` for each
+reads down, then runs `acpmux session move host/CHAT --machine local --from-snapshot` for each
 chat, PARALLEL at a time.
 
 A chat counts as resumed at the moment, measured from t0, that all of these hold on the spare:
@@ -205,9 +206,9 @@ def conversation(events: list[dict]) -> list[tuple[str, str]]:
     for e in events:
         kind, msg = e.get("kind"), e.get("msg") or {}
         if kind == "user_message":
-            text = "".join(
-                b.get("text", "") for b in (msg.get("prompt") or msg.get("content") or []) if isinstance(b, dict)
-            ) or json.dumps(msg.get("text") or msg.get("prompt") or "")
+            text = msg.get("text")
+            if not isinstance(text, str):
+                text = "".join(b.get("text", "") for b in (msg.get("prompt") or []) if isinstance(b, dict))
             out.append(("user", text))
         elif kind == "agent_message_chunk":
             upd = (msg.get("params") or {}).get("update") or {}
@@ -248,22 +249,18 @@ def sessions(m: Machine) -> list[dict]:
 
 
 def peer_up(owner: Machine, peer: str) -> bool | None:
+    """Whether `owner`'s link to `peer` reads connected (`_acpmux/peers`)."""
     try:
         r = owner.rpc(3)
         try:
-            st = r.call("_acpmux/peer_status", {})
+            st = r.call("_acpmux/peers", {})
         finally:
             r.close()
-    except (OSError, RuntimeError, EOFError):
+    except (OSError, RuntimeError, EOFError, TimeoutError):
         return None
-    peers = st.get("peers", st) if isinstance(st, dict) else st
-    rows = peers.values() if isinstance(peers, dict) else peers
-    for p in rows:
-        if isinstance(p, dict) and p.get("name") == peer:
-            state = str(p.get("state") or p.get("status") or "")
-            if "connected" in p:
-                return bool(p["connected"])
-            return state in ("connected", "up", "live")
+    for p in st.get("peers") or []:
+        if p.get("name") == peer:
+            return bool(p.get("connected"))
     return None
 
 
@@ -286,24 +283,20 @@ def main() -> int:
     root = Path(a.root) if a.root else Path(tempfile.mkdtemp(prefix="fleet-recovery-", dir=Path.home() / ".cache"))
     root.mkdir(parents=True, exist_ok=True)
     root.chmod(0o700)
-    owner = Machine(root, "owner", binary, None)
     host = Machine(root, "host", binary, free_port())
-    spare = Machine(root, "spare", binary, free_port())
+    spare = Machine(root, "spare", binary, None)
+    owner = spare
     t_start = time.time()
     result: dict = {"metric": METRIC, "n": a.n, "turns": a.turns, "budget_s": a.budget,
                     "binary": str(binary), "version": None}
     try:
         result["version"] = subprocess.run([str(binary), "--version"], capture_output=True, text=True).stdout.strip()
-        for m in (host, spare):
-            m.write_config({})
-            m.start()
-        peers = {}
-        for m in (host, spare):
-            tok = (m.home / "run" / "peer.token").read_text().strip()
-            peers[m.name] = {"url": f"ws://127.0.0.1:{m.port}", "token": m.token, "peerToken": tok,
-                             "vmBoundary": True}
-        owner.write_config({"peers": peers})
-        owner.start()
+        host.write_config({})
+        host.start()
+        tok = (host.home / "run" / "peer.token").read_text().strip()
+        spare.write_config({"peers": {"host": {"url": f"ws://127.0.0.1:{host.port}", "token": host.token,
+                                               "peerToken": tok, "vmBoundary": True}}})
+        spare.start()
 
         # N chats on the host, TURNS turns each.
         work = root / "work"
@@ -374,7 +367,7 @@ def main() -> int:
 
         def recover(c: dict) -> dict:
             out = {"name": c["name"], "copy_records": c["copy_records"], "truth_turns": c["truth_turns"]}
-            r = owner.cli("--json", "session", "move", f"host/{c['id']}", "--machine", "spare", "--from-snapshot",
+            r = owner.cli("--json", "session", "move", f"host/{c['id']}", "--machine", "local", "--from-snapshot",
                           timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
             out["move_s"] = round(time.monotonic() - t_kill, 2)
             if r.returncode != 0:
@@ -386,11 +379,11 @@ def main() -> int:
                 moved = {}
             text = r.stdout
             new = None
-            for row in moved.get("moved") or moved.get("results") or ([moved] if isinstance(moved, dict) else []):
-                new = row.get("newId") or row.get("to") or row.get("sessionId") or new
-            new = new or c["name"]
-            if isinstance(new, str) and "/" in new:
-                new = new.split("/", 1)[1]
+            for row in moved.get("moves") or []:
+                new = row.get("targetSessionId") or new
+            if not new:
+                out["error"] = f"move: no target session in {text[-300:]}"
+                return out
             out["new"] = new
             probe = f"probe after kill of chat {c['i']}"
             pr = spare.cli("send", new, probe, timeout=max(5, a.deadline - (time.monotonic() - t_kill)))
@@ -429,7 +422,7 @@ def main() -> int:
             wall_s=round(time.time() - t_start, 1),
         )
     finally:
-        for m in (owner, spare, host):
+        for m in (spare, host):
             try:
                 m.stop()
             except Exception as e:  # noqa: BLE001 - clean up the rest regardless
