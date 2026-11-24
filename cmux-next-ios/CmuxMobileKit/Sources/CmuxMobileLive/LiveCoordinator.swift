@@ -756,6 +756,8 @@ public final class LiveCoordinator {
         // Its link closes first, and its phase change must not write data for it back.
         closeSession(id)
         parkedTerminals[id] = nil
+        // Its tab cards go too: a Mac added again under this id starts from a whole manifest.
+        tabs.forget(macID: id)
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
