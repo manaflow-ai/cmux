@@ -32,7 +32,7 @@ export const SUBSESSION_KIND = "subsession";
 export type PlainAttach = Pick<
   AttachParams,
   "sessionId" | "waitLogs" | "settled" | "afterSeq" | "limit" | "maxBytes" | "kinds" | "eventStream" | "visible"
->;
+> & { attending: boolean };
 
 /// The attach of a chat drawn by v1: its newest page, then its records live. With `afterSeq` (a
 /// reconnect that holds the chat through that seq) the page is the records after it instead, oldest
@@ -40,7 +40,14 @@ export type PlainAttach = Pick<
 /// missed rather than the newest 400 records again (cmuxterm-hq#14027).
 export function plainAttach(
   sessionId: string,
-  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number; afterSeq?: number },
+  options: {
+    settled: boolean;
+    visible: boolean;
+    attending?: boolean;
+    local: boolean;
+    maxBytes: number;
+    afterSeq?: number;
+  },
 ): PlainAttach {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
@@ -74,6 +81,7 @@ export function plainAttach(
     ],
     eventStream: true,
     visible: options.visible,
+    attending: options.attending ?? true,
   };
 }
 

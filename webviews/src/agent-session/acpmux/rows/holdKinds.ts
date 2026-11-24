@@ -28,6 +28,7 @@ export type HoldAttach = Pick<AttachParams, "sessionId"> & {
   eventStream: true;
   kinds: string[];
   visible: boolean;
+  attending: boolean;
 };
 
 /// The hold's params, or none when its kinds are not exact page-state kinds within the bound: the
@@ -36,9 +37,10 @@ export function holdAttach(
   sessionId: string,
   visible: boolean,
   kinds: readonly string[] = HOLD_KINDS,
+  attending = true,
 ): HoldAttach | undefined {
   if (kinds.length > HOLD_MAX_KINDS || kinds.some((kind) => !kind || CATEGORIES.has(kind))) return undefined;
-  return { sessionId, hold: true, eventStream: true, kinds: [...kinds], visible };
+  return { sessionId, hold: true, eventStream: true, kinds: [...kinds], visible, attending };
 }
 
 /// What of a record streamed on a hold the page reads: a `subsession` record only as its `limits`.
