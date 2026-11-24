@@ -27,6 +27,8 @@ pub(super) struct Loop<C> {
     pub chats: HashMap<String, Tracked>,
     /// The read of the owner's chats, when one is on its way.
     pub look: Look,
+    /// The Cloud's events of the chats held elsewhere, shared with the daemon's read.
+    pub projections: Arc<super::projection::Projections>,
     network: Option<watch::Receiver<u64>>,
     new_chats: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
@@ -61,6 +63,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
             side,
             chats: HashMap::new(),
             look: Look::Idle,
+            projections: Arc::default(),
             network: options.network,
             new_chats: options.new_chats,
         }
@@ -203,6 +206,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
             self.effect(id, session.as_ref(), effect).await;
         }
         self.sync(id);
+        self.project(id);
         // A chat that may run here again takes what the Cloud holds for it and what an
         // earlier drain still owes it. The drain's end reads its work, which copies it.
         if !before.may_run() && chat.may_run() && chat.here() {

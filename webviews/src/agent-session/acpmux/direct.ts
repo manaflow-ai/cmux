@@ -12727,6 +12727,28 @@ export class AcpmuxDirectClient {
     );
     return undefined;
   }
+  /// The Cloud's events of the shown chat `sessionId` after seq `after`, while the Cloud runs it
+  /// (acpmux `_acpmux/auto_session/transcript`, version 1): a read-only projection, never this
+  /// Mac's log. `undefined` when there is none to show: the chat runs here (`projection: null`),
+  /// or acpmux, the host or the read's version predates it, so the pane shows the local log as today.
+  async autoTranscript(
+    sessionId: string,
+    after = 0,
+  ): Promise<{ projection: Record<string, unknown>; events: unknown[]; more: boolean } | undefined> {
+    if (!sessionId || sessionId !== this.selectedSessionId) throw new Error(translate("error.notOpen"));
+    let result: any;
+    try {
+      result = await this.request("_acpmux/auto_session/transcript", { sessionId, after, version: 1 }, 15_000);
+    } catch (error) {
+      const { code, reason } = (error ?? {}) as { code?: unknown; reason?: unknown };
+      if (code === METHOD_NOT_FOUND || code === "transport.method_refused" || reason === "auto.transcript_version")
+        return undefined;
+      throw error;
+    }
+    const projection = result?.projection;
+    if (!projection || typeof projection !== "object") return undefined;
+    return { projection, events: Array.isArray(result.events) ? result.events : [], more: result.more === true };
+  }
   /// `auto` is the shown chat's `autoSession` now, unless the pane left the chat meanwhile.
   private takeAutoSession(sessionId: string, generation: number, auto: AutoSession | undefined): void {
     if (!auto || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || !this.summary)

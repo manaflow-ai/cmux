@@ -112,3 +112,33 @@ test("Apply and Discard end the notice, from the answer or at once when it names
   expect(discarded.sent[0]!.params).toEqual({ sessionId: "s1", action: "discard" });
   expect(discarded.auto()).toEqual({ ...settled, auto: false });
 });
+
+test("the Cloud's transcript is read at version 1, and an acpmux without it shows the local log", async () => {
+  const projection = { source: "cloud", readOnly: true, epoch: 2, lastSeq: 5, status: "live" };
+  const events = [{ seq: 5, record: { msg: { type: "agent_message", content: { text: "cloud: done" } } } }];
+  const away = clientAnswering(() => ({ version: 1, projection, events }));
+  expect(await away.client.autoTranscript("s1", 4)).toEqual({ projection, events, more: false });
+  expect(away.sent[0]).toMatchObject({
+    method: "_acpmux/auto_session/transcript",
+    params: { sessionId: "s1", after: 4, version: 1 },
+  });
+  // Held here: no projection.
+  const here = clientAnswering(() => ({ version: 1, projection: null, events: [] }));
+  expect(await here.client.autoTranscript("s1")).toBeUndefined();
+  // An acpmux that predates the read, a host that relays none, a daemon on another version.
+  for (const refusal of [
+    { code: -32601, message: "no such method" },
+    { code: "transport.method_refused", message: "not allowed" },
+    { code: -32000, message: "version", data: { reason: "auto.transcript_version", version: 1 } },
+  ]) {
+    const old = clientAnswering(() => {
+      throw new AcpmuxRpcError(refusal);
+    });
+    expect(await old.client.autoTranscript("s1")).toBeUndefined();
+  }
+  // Any other failure is one to say.
+  const broken = clientAnswering(() => {
+    throw new AcpmuxRpcError({ code: -32000, message: "boom", data: { reason: "auto.other" } });
+  });
+  expect(await broken.client.autoTranscript("s1").catch((error: unknown) => error)).toBeInstanceOf(AcpmuxRpcError);
+});
