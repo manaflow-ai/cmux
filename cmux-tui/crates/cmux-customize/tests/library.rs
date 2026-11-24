@@ -575,3 +575,62 @@ fn a_profile_entry_says_what_the_profile_says_it_is() {
     use_and_apply(&customize, &bare, 20);
     assert_eq!(customize.library().unwrap().entries[0].description, "profile bare");
 }
+
+#[test]
+fn a_rollback_turns_off_what_it_takes_away_and_rolling_forward_turns_it_back_on() {
+    let home = Home::new();
+    home.write("cmux-next.json", PLAIN);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    let name = ask_and_apply(&customize, &home, "make it compact", &settings("compact"), 10);
+    let applied = customize.generations().unwrap().current.unwrap();
+    assert!(customize.library().unwrap().entries[0].on);
+
+    // Rolled back past the apply: the change is gone, and the library says
+    // it is off, not on.
+    customize.rollback(None, "cli", 20).unwrap();
+    assert_eq!(home.density(), None);
+    let listing = customize.library().unwrap();
+    assert_eq!(listing.entries[0].name, name);
+    assert!(!listing.entries[0].on, "rolled back, yet on: {listing:?}");
+
+    // Rolled forward to it again: on again.
+    customize.rollback(Some(applied), "cli", 30).unwrap();
+    assert_eq!(home.density().as_deref(), Some("compact"));
+    assert!(customize.library().unwrap().entries[0].on);
+
+    // A toggle rolls back with its on-state too.
+    customize.library_set_on(&name, false, "cli", 40).unwrap();
+    customize.rollback(None, "cli", 50).unwrap();
+    assert_eq!(home.density().as_deref(), Some("compact"));
+    assert!(customize.library().unwrap().entries[0].on);
+}
+
+/// `refresh` runs again at start only after the app's commit changed; a
+/// NIGHTLY's short stamp and a full commit are the same commit.
+#[test]
+fn refresh_is_due_once_per_app_commit() {
+    use cmux_customize::library::refresh_due;
+    assert!(!refresh_due(None, None), "a DEV build has no commit");
+    assert!(!refresh_due(Some("8815f4c"), None));
+    assert!(refresh_due(None, Some("8815f4c")), "the first start");
+    assert!(!refresh_due(Some("8815f4c"), Some("8815f4c")));
+    assert!(!refresh_due(Some("8815F4C"), Some("8815f4c")));
+    assert!(!refresh_due(Some("8815f4c0123456789abcdef0123456789abcdef0"), Some("8815f4c")));
+    assert!(refresh_due(Some("8815f4c"), Some("9a0b1c2")), "an update");
+}
+
+/// The commit `refresh` ran on is kept in library.json beside the entries,
+/// and recording it changes nothing else (no generation).
+#[test]
+fn the_commit_refresh_ran_on_is_kept() {
+    let home = Home::new();
+    let customize = home.customize();
+    assert_eq!(customize.library_refreshed_on().unwrap(), None);
+    customize.library_mark_refreshed("8815f4c").unwrap();
+    assert_eq!(customize.library_refreshed_on().unwrap().as_deref(), Some("8815f4c"));
+    assert!(customize.library().unwrap().entries.is_empty());
+    assert!(customize.generations().unwrap().generations.is_empty());
+    let text = fs::read_to_string(customize.roots().state_dir.join("library.json")).unwrap();
+    assert!(text.contains("\"refreshed_on\": \"8815f4c\""), "{text}");
+}

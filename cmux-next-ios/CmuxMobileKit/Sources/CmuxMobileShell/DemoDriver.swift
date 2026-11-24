@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -57,7 +57,7 @@ struct DemoDriver {
             shell.store.teamDataState = .failed
         // CMUX-49: the launch states (`retry-` names: public captures, no real names).
         // A first launch (nothing cached) loading, waiting offline, or failed; and a
-        // cached list whose refresh failed (the rows stay, marked last known).
+        // cached list whose refresh failed (the rows stay; no connection text).
         case "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed":
             shell.tab = .workspaces
             shell.store.workspaces = []
@@ -67,6 +67,11 @@ struct DemoDriver {
         case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
+        case "retry-offline":
+            // The phone offline over the cached list: the offline chip, on one line
+            // (iOS release bar read-back: "Workspaces offline pill fits one line").
+            shell.tab = .workspaces
+            shell.store.isOffline = true
         case "retry-feed":
             shell.tab = .feed
             // A failed real refresh is the fixture; no private connection is used.
@@ -77,12 +82,12 @@ struct DemoDriver {
             // top bar (no link is dialed: the mock store marks the Mac's link failed).
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
             shell.store.tracksMacData = true
-            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-home-failed":
-            // The link is up, but the last read failed: kept rows, "Couldn't refresh · last known".
+            // The link is up, but the last read failed: kept rows, no connection text.
             MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
-            MacHomeFeed.shared.setProblemForDemo("The Mac didn't answer.")
+            MacHomeFeed.shared.setProblemForDemo("Can't reach the Mac right now.")
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .connected
             shell.tab = .home
@@ -101,7 +106,7 @@ struct DemoDriver {
                 }
             }
             shell.store.tracksMacData = true
-            shell.store.macConnection["mac-studio"] = .failed("The Mac didn't answer.")
+            shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
             shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
@@ -119,6 +124,11 @@ struct DemoDriver {
         case "call-scope": await callScope()
         case "call-scope-home":
             ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
+        case "home-showcase":
+            // Home with a Mac's conversations and no link, for App Store screenshots (`MacHomeFeed.seedShowcaseRows`).
+            MacHomeFeed.shared.seedShowcaseRows(
+                macID: "mac-studio", chiefConversationID: ChiefSources.shared.mac.conversationID ?? "showcase-chief")
             shell.tab = .home
         case "new-message-forward":
             // A11: Forward from a Chief's select mode opens Home's New Message with the draft
@@ -140,6 +150,19 @@ struct DemoDriver {
             // The Mac Chief's row is its session's conversation, as on a real Mac's list.
             MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
             shell.tab = .home
+        case "chief-list", "chief-list-placed", "chief-list-cloud-only":
+            // One Chief list (CmuxChiefList): the Mac's Chiefs and every Cloud Chief, tagged and with Main as the
+            // Mac's Home has them. -placed: the Chief on a paired server is the open one (Main · its server).
+            // -cloud-only: no Mac, so the default Cloud Chief is Main.
+            let chiefs: [(name: String, isDefault: Bool, server: String?)] = [
+                ("Atlas", true, nil), ("Ops", false, nil), ("Chief (Mac mini)", false, "cmux20"),
+            ]
+            ChiefSources.shared.showDemoCloudChiefs(chiefs, open: name == "chief-list-placed" ? 2 : 0)
+            if name != "chief-list-cloud-only" {
+                ChiefSources.shared.mac.macName = "Mac Studio"
+                MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
+            }
+            shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
@@ -151,6 +174,18 @@ struct DemoDriver {
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "ws-terminal-reattach":
+            // The zsh tab, attached, then its link drops and stays down past the
+            // quiet bound (`QuietStatusGate.threshold`): a reattach that is not a
+            // blip (TerminalDockInsetUITests). Reconnect in the page menu ends it.
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+            await pause(1.5)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            model.demoConnection(.reattaching(mac: "Demo Mac"))
+            model.reconnect = { [weak model] in model?.demoConnection(.attached) }
         case "ws-terminal-composer":
             // The zsh tab with a draft in the composer, for gallery captures
             // of its states: CMUX_MOBILE_DEMO_COMPOSER=short (one line),
@@ -169,6 +204,16 @@ struct DemoDriver {
                 model.demoFillComposer("Run the tests again please", attachments: false)
             case "long":
                 model.demoFillComposer((1...9).map { "Line \($0) of a longer message for the agent" }.joined(separator: "\n"), attachments: false)
+            case let mode? where mode.hasPrefix("chars:"):
+                // ComposerTypingLagUITests: a long draft (N characters of
+                // prose) with two photos attached, focused, caret at its end
+                // (Leo, 2026-11-23: typing lag after two pictures attached
+                // and removed in a long text).
+                // `chars:N:bare`: the same draft with no photos (the control).
+                let parts = mode.split(separator: ":")
+                let count = parts.count > 1 ? Int(parts[1]) ?? 5_000 : 5_000
+                model.demoFillComposer(TerminalModel.demoProse(count), attachments: !parts.contains("bare"), file: false)
+                model.focusComposer()
             default:
                 model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
             }
@@ -231,6 +276,22 @@ struct DemoDriver {
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "switcher-retry", "switcher-retry-chat":
+            // The tab grid (or the chat opened from it) on a chat whose last turn failed with
+            // Retry with another model offered (Leo, 2026-11-17: the card drew a yellow
+            // placeholder where that button is). Quick enough for `shots`' 5 s capture.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return FailedLastTurnSource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true))
+            }
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(0.6)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.2)
+            if name == "switcher-retry" { WorkspaceDemoDirector.shared.post(.showGrid(true)) }
         case "slow-history-chat":
             // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
             // shows its loading state, never the new-chat screen, until the history lands.
@@ -1309,6 +1370,42 @@ final class DelayedHistorySource: AgentSessionSource {
                 }
             }
             continuation.finish()
+        }
+        return stream
+    }
+
+    func send(_ intent: AgentClientIntent) { inner.send(intent) }
+}
+/// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
+/// with Retry and Retry with another model (the mock offers three models).
+@MainActor
+final class FailedLastTurnSource: AgentSessionSource {
+    let inner: MockAgentSession
+
+    init(inner: MockAgentSession) {
+        self.inner = inner
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let inner = inner
+        Task { @MainActor in
+            for await event in inner.events() { continuation.yield(event) }
+            continuation.finish()
+        }
+        Task { @MainActor in
+            // Demo only: after the mock's history has replayed.
+            try? await Task.sleep(for: .milliseconds(400))
+            let at = Date()
+            continuation.yield(.batch([
+                .userMessage(text: "Merge it once the checks are green", promptId: "p-failed", turnId: "t-failed", attachments: [], at: at),
+                .turnStarted(turnId: "t-failed", at: at),
+                .turnResult(turnId: "t-failed", status: .failed,
+                            errorText: #"API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed the rate limit."}}"#,
+                            at: at),
+            ]))
         }
         return stream
     }

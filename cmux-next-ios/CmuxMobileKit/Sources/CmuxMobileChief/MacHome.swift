@@ -4,53 +4,6 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 
-/// Markdown to one plain line, as a list preview: the rows, Chief's pin
-/// bubble and its VoiceOver label (F4).
-///
-/// Runs once per row of every Home read, so a text with nothing to strip costs one pass
-/// over its bytes and no regular expression (`home_list_first_screen`,
-/// cmux-next-ios/design/instant-perf.md).
-func plainPreview(_ markdown: String) -> String {
-    var text = markdown
-    if text.utf8.contains(UInt8(ascii: "`")) {
-        text = text.replacingOccurrences(of: "```[a-z]*", with: "", options: .regularExpression)
-    }
-    if text.utf8.contains(where: { PreviewMarkers.bytes.contains($0) }) {
-        var kept = String.UnicodeScalarView()
-        kept.append(contentsOf: text.unicodeScalars.lazy.filter { !PreviewMarkers.scalars.contains($0) })
-        text = String(kept)
-    }
-    if PreviewMarkers.needsSpaceFolding(text) {
-        text = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-    }
-    return text.trimmingCharacters(in: .whitespaces)
-}
-
-/// The Markdown markers a preview drops (`[*_`#>]`), and whether a text has any run of
-/// whitespace that is not already one space.
-private enum PreviewMarkers {
-    static let scalars: Set<Unicode.Scalar> = ["*", "_", "`", "#", ">"]
-    static let bytes: Set<UInt8> = Set(scalars.map { UInt8($0.value) })
-
-    /// False only for ASCII text whose whitespace is single spaces: then `\\s+` to one space
-    /// changes nothing. Any other text (a tab, a newline, two spaces, or a non-ASCII scalar,
-    /// which may be Unicode whitespace) takes the regular expression.
-    static func needsSpaceFolding(_ text: String) -> Bool {
-        var lastWasSpace = false
-        for byte in text.utf8 {
-            if byte >= 0x80 { return true }
-            if byte == 0x20 {
-                if lastWasSpace { return true }
-                lastWasSpace = true
-            } else {
-                if byte == 0x09 || byte == 0x0A || byte == 0x0B || byte == 0x0C || byte == 0x0D { return true }
-                lastWasSpace = false
-            }
-        }
-        return false
-    }
-}
-
 /// A conversation of the Mac's Home list other than the Mac Chief's: pushed
 /// as that conversation over the Mac's `chief` channel.
 public struct MacConversationRoute: Hashable, Sendable {
@@ -299,6 +252,15 @@ public enum HomeListNote: Equatable, Sendable {
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
     }
+
+    /// `make`'s `macsMayExist`: a Mac's list can still come with no Mac chosen. Only while Macs
+    /// are tracked live (`live`; the mock and a demo without a Mac link never answer), and the
+    /// account's Macs are not known yet or one of them is online. Before, a mock Home, or an
+    /// account whose every Mac is offline, said "Loading conversations…" forever (iOS release
+    /// bar read-back, 2026-11-22, shot 04).
+    public static func macsMayAnswer(live: Bool, macsKnown: Bool, anyOnline: Bool) -> Bool {
+        live && (!macsKnown || anyOnline)
+    }
 }
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
@@ -329,8 +291,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     public let kind: Kind
     /// A retry runs: Retry shows its spinner and the toast says it reconnects.
     public let isRetrying: Bool
-    /// The status in words after the Mac's name (Workspaces' words), for VoiceOver.
-    public let detail: String
     /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
     public let empty: Empty?
 
@@ -352,13 +312,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         } else {
             return nil
         }
-        let detail: String = if retrying {
-            String(localized: "Updating…")
-        } else if kind == .failed {
-            String(localized: "Couldn't refresh · last known")
-        } else {
-            String(localized: "Offline · last known")
-        }
         let empty: Empty? = switch kind {
         case .macOffline:
             Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
@@ -368,16 +321,11 @@ public struct HomeConnectionStatus: Equatable, Sendable {
                   message: String(localized: "\(macAtStart) is online, but this iPhone can't reach it."), canRetry: true)
         case .failed:
             Empty(symbol: "desktopcomputer.trianglebadge.exclamationmark", title: String(localized: "Couldn't load conversations"),
-                  message: String(localized: "\(macAtStart) didn't answer. It tries again on its own."), canRetry: true)
+                  message: String(localized: "Can't reach \(macAtStart) right now. It reconnects on its own."), canRetry: true)
         case .connecting:
             nil
         }
-        return HomeConnectionStatus(kind: kind, isRetrying: retrying, detail: detail, empty: empty)
-    }
-
-    /// The connecting line when no rows show and no empty state applies.
-    public static func connectingTitle(macName: String?) -> String {
-        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
+        return HomeConnectionStatus(kind: kind, isRetrying: retrying, empty: empty)
     }
 }
 
@@ -530,6 +478,36 @@ public final class MacHomeFeed {
     }
     #endif
 
+    #if DEBUG
+    /// App Store screenshots (`-cmux-mobile-demo home-showcase`): a Mac's Home as a person
+    /// who runs a few agents sees it, with no link: its Chief's conversation (`chiefConversationID`,
+    /// listed as the Mac Chief) newest, two pinned. Fictional work, no real names.
+    public func seedShowcaseRows(macID: String, chiefConversationID: String) {
+        let stamp = ISO8601DateFormatter()
+        let conversations: [(kind: String, name: String, minutes: Double, unread: Int, pinned: Bool, preview: String)] = [
+            ("chief", "Chief", 1, 1, false,
+             "Heads up: Claude in cmux is asking to run cargo test -p cmux-mobile-link. Want me to allow it?"),
+            ("direct", "Pricing page", 4, 0, true, "Codex: The new pricing table is up on staging. 18 tests pass."),
+            ("group", "Release 1.2", 18, 0, true, "Claude: The release notes are drafted. Want me to tag the build?"),
+            ("direct", "Dialer retries", 9, 1, false,
+             "Claude: The dialer now retries with backoff, capped at 30 s. 24 tests pass."),
+            ("channel", "Design review", 36, 0, false, "Codex: I left three comments on the new Settings layout."),
+            ("direct", "Onboarding copy", 75, 0, false, "Claude: Here are two shorter versions of the welcome screen text."),
+            ("group", "Build runners", 140, 0, false, "Codex: All eight runners are green again after the cache fix."),
+            ("direct", "Docs search", 320, 0, false, "Claude: Search now loads its index once and keeps it between pages."),
+        ]
+        setRows(conversations.enumerated().compactMap { index, row in
+            MacHomeRow(wire: [
+                "id": row.kind == "chief" ? chiefConversationID : "showcase-\(index)", "kind": row.kind, "name": row.name,
+                "unread": row.unread, "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
+                "preview": row.preview, "pinned": row.pinned, "pin_position": index,
+            ])
+        }, complete: true)
+        macChiefID = chiefConversationID
+        self.macID = macID
+    }
+    #endif
+
     /// The Mac Chief's own conversation on this Mac (the oldest with the owner and `agent_mux`,
     /// as the Mac's Home picks it), from the owner's list: its row is the Mac Chief.
     public private(set) var macChiefID: String?
@@ -656,7 +634,9 @@ public final class MacHomeFeed {
     /// The open session when there is one; nil when nothing can be kept (no account or Mac),
     /// unless `orEmpty`: then an empty one (its title and composer) for a conversation whose
     /// first open failed, so its screen never falls back to a full-screen error.
-    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
+    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``), with no bar:
+    /// a normal reconnect says nothing, and its loader marks it only past the quiet bound
+    /// (``MacConversationLoader``; Leo, 2026-11-16).
     public func keptSession(for route: MacConversationRoute, orEmpty: Bool = false) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
         let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
@@ -666,15 +646,12 @@ public final class MacHomeFeed {
                                     participants: [identity.me, identity.chief])
         let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
                                    transcripts: key == nil ? nil : transcripts, transcriptKey: key)
-        session.unavailableTitle = Self.keptTitle
-        session.status = Self.keptReason
         session.macID = macID
         keptSessions[route.conversationID] = session
         return session
     }
 
-    /// The bar over a conversation shown from what the phone kept while its channel opens.
-    static var keptTitle: String { String(localized: "Connecting to your Mac…") }
+    /// Why a conversation shown from what the phone kept is not live (its offline backend's reason).
     static var keptReason: String { String(localized: "Showing the last messages. New ones load when it connects.") }
 
     /// Bumped each time the opened conversations close (a new link or another Mac):
@@ -729,11 +706,18 @@ public final class MacHomeFeed {
             isShowingKeptRows = true
             return
         }
+        // The first screen of kept rows in this turn (one small head file), so the first frame
+        // draws them, not "Connecting to <Mac>…"; the rest of the kept list follows off the main thread.
+        let head = rowsCache.firstScreen(key)
+        if let head {
+            setRows(head, complete: false)
+            isShowingKeptRows = true
+        }
         let macID = macID
         // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did
         Task { [weak self] in
             guard let kept = await rowsCache.load(key), let self,
-                  self.macID == macID, self.rows == nil, self.rowsKey() == key else { return }
+                  self.macID == macID, self.rows == head, self.rowsKey() == key, kept != head else { return }
             self.setRows(kept, complete: false)
             self.isShowingKeptRows = true
         }

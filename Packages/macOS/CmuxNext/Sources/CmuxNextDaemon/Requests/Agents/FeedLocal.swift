@@ -39,10 +39,15 @@ public struct FeedLocalItem: Decodable, Sendable, Hashable, Identifiable {
     public var state: State
     public var home: String?
     public var count: UInt32
+    /// What the item's agent said (its whole answer, an error, an approval's command, a
+    /// question and its options), while the daemon keeps it in memory; never in the durable
+    /// row. The Feed shows it as the body (`FeedHandoffPolicy`), as a GUI chat's card does.
+    public var detail: String?
 
     public init(id: String, dedupeKey: String, title: String, body: String = "", level: String = "info",
                 source: String = "agent", context: Context = .init(), createdAtMs: UInt64, updatedAtMs: UInt64? = nil,
-                readAtMs: UInt64? = nil, state: State = .open, home: String? = nil, count: UInt32 = 1) {
+                readAtMs: UInt64? = nil, state: State = .open, home: String? = nil, count: UInt32 = 1,
+                detail: String? = nil) {
         self.id = id
         self.dedupeKey = dedupeKey
         self.title = title
@@ -56,10 +61,11 @@ public struct FeedLocalItem: Decodable, Sendable, Hashable, Identifiable {
         self.state = state
         self.home = home
         self.count = count
+        self.detail = detail
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, body, level, source, context, state, home, count
+        case id, title, body, level, source, context, state, home, count, detail
         case dedupeKey = "dedupe_key"
         case createdAtMs = "created_at_ms"
         case updatedAtMs = "updated_at_ms"
@@ -81,6 +87,7 @@ public struct FeedLocalItem: Decodable, Sendable, Hashable, Identifiable {
         state = try c.decode(State.self, forKey: .state)
         home = try c.decodeIfPresent(String.self, forKey: .home)
         count = try c.decodeIfPresent(UInt32.self, forKey: .count) ?? 1
+        detail = try c.decodeIfPresent(String.self, forKey: .detail).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     public var isUnread: Bool { readAtMs == nil }

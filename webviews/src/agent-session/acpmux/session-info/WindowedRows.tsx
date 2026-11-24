@@ -11,6 +11,11 @@
 // to, and Shift-Tab into the list from below (Tab from above) mounts its true last (first) row's window.
 // A row's memo boundary is its own component (what `render` returns, with stable props): moving the
 // window renders the rows that come into it and none of those that stay.
+//
+// The press that opens a list mounts the rows that can show and FIRST_PAINT_OVERSCAN_ROWS under them,
+// in one commit, and keeps them while they hold the view; the viewports of overscan apply from its
+// first scroll. So the open's frame mounts no row only to remove it before paint, and no more rows
+// than the grow-only list it replaced.
 import { useLayoutEffect, useRef, useState, type Key, type ReactElement, type ReactNode, type RefObject } from "react";
 
 /// The least height a list row draws at, in px: the rows a window can show are its height over this.
@@ -19,10 +24,13 @@ const ROW_MIN_PX = 24;
 export const OVERSCAN_VIEWS = 1;
 export const MAX_OVERSCAN_VIEWS = 2;
 
-/// The rows a list mounts before it has measured, for a window `viewHeight` px tall: as many as can
-/// show and its overscan under them (a list opens at its top).
-export function firstRowCount(viewHeight: number, overscan = OVERSCAN_VIEWS): number {
-  return Math.max(1, Math.ceil(viewHeight / ROW_MIN_PX)) * (1 + overscan);
+/// The rows mounted past the view's edge from a list's open until its first scroll.
+export const FIRST_PAINT_OVERSCAN_ROWS = 8;
+
+/// The rows a list mounts at its open, for a window `viewHeight` px tall: as many as can show and
+/// FIRST_PAINT_OVERSCAN_ROWS under them (a list opens at its top).
+export function firstRowCount(viewHeight: number): number {
+  return Math.max(1, Math.ceil(viewHeight / ROW_MIN_PX)) + FIRST_PAINT_OVERSCAN_ROWS;
 }
 
 /// What the keyboard can focus in a row.
@@ -71,13 +79,13 @@ export function WindowedRows<T>({
 }) {
   const views = Math.min(MAX_OVERSCAN_VIEWS, Math.max(0, overscan));
   const total = items.length;
-  const opening = firstRowCount(viewHeight(), views);
+  const opening = firstRowCount(viewHeight());
   const [range, setRange] = useState<Range>(() => ({ start: 0, end: opening }));
   const [pin, setPin] = useState<Pin | null>(null);
   // A list that fits mounts every row, with no box and no listener; folded back to fit, it opens again
-  // at its top.
+  // at its top, with the open's rows (its overscan grows again at its next first scroll).
   const windowed = total > opening;
-  if (!windowed && range.start !== 0) setRange({ start: 0, end: opening });
+  if (!windowed && (range.start !== 0 || range.end !== opening)) setRange({ start: 0, end: opening });
   let { start, end } = windowed ? range : { start: 0, end: total };
   // A list that lost rows keeps its window's size, at its end.
   if (end > total) {
@@ -97,6 +105,10 @@ export function WindowedRows<T>({
   const list = useRef<HTMLElement | null>(null);
   const pitch = useRef(ROW_MIN_PX);
   const pending = useRef<Pending | null>(null);
+  // Whether the list has scrolled (or resized) since it opened: the viewports of overscan apply from then.
+  const settled = useRef(false);
+  // The window the boxes were last sized for (its start, end, length and kept row).
+  const sized = useRef("");
   // The keys of the mounted rows by place, for the row focus comes to.
   const keys = useRef(new Map<number, Key | null>());
   // What the listeners read: the window as it is in the last commit.
@@ -133,10 +145,13 @@ export function WindowedRows<T>({
     return index < now.current.total ? index : undefined;
   };
 
-  // Each commit: the boxes' heights at the rows' pitch, each row's place for a screen reader, and the
-  // row the keyboard was sent to focused (its scroll into view measures the view again).
+  // Each commit: the boxes' heights at the rows' pitch (measured again when the window moved, so a
+  // parent's render that keeps the window reads no layout), each row's place for a screen reader, and
+  // the row the keyboard was sent to focused (its scroll into view measures the view again).
   useLayoutEffect(() => {
     if (!windowed) {
+      settled.current = false;
+      sized.current = "";
       // Folded back to fit: every row is mounted again, in its own place.
       if (list.current) {
         for (const row of list.current.children) {
@@ -152,7 +167,10 @@ export function WindowedRows<T>({
     const last = kept && kept.index >= end ? gap.current : bottom.current;
     const lead = first?.nextElementSibling;
     const tail = last?.previousElementSibling;
-    if (lead && tail && lead !== last && end > start) {
+    const shape = `${start} ${end} ${total} ${kept?.index ?? ""}`;
+    const moved = shape !== sized.current;
+    sized.current = shape;
+    if (moved && lead && tail && lead !== last && end > start) {
       const measured = (tail.getBoundingClientRect().bottom - lead.getBoundingClientRect().top) / (end - start);
       // jsdom draws no boxes: the least row height stands in.
       if (measured > 1) pitch.current = measured;
@@ -162,7 +180,9 @@ export function WindowedRows<T>({
       element.style.height = `${Math.max(0, rows) * pitch.current}px`;
       element.style.display = rows > 0 ? "" : "none";
     };
-    if (kept && kept.index < start) {
+    if (!moved) {
+      // The same window: the boxes keep their heights.
+    } else if (kept && kept.index < start) {
       size(top.current, kept.index);
       size(gap.current, start - kept.index - 1);
       size(bottom.current, total - end);
@@ -182,9 +202,12 @@ export function WindowedRows<T>({
       const after: Element[] = [];
       for (let at = bottom.current.nextElementSibling; at; at = at.nextElementSibling) after.push(at);
       const setSize = String(before.length + total + after.length);
+      // Written only where a row's place changed: a scroll step writes the rows it mounts.
       const place = (row: Element | null | undefined, position: number) => {
-        row?.setAttribute("aria-setsize", setSize);
-        row?.setAttribute("aria-posinset", String(position));
+        if (!row) return;
+        const posinset = String(position);
+        if (row.getAttribute("aria-setsize") !== setSize) row.setAttribute("aria-setsize", setSize);
+        if (row.getAttribute("aria-posinset") !== posinset) row.setAttribute("aria-posinset", posinset);
       };
       before.forEach((row, index) => place(row, index + 1));
       after.forEach((row, index) => place(row, before.length + total + index + 1));
@@ -228,14 +251,23 @@ export function WindowedRows<T>({
       if (viewBottom <= viewTop) return;
       const origin = lead.getBoundingClientRect().top - at.start * pitch.current;
       const clamp = (value: number) => Math.max(0, Math.min(at.total, value));
-      const over = Math.ceil((at.views * (viewBottom - viewTop)) / pitch.current);
-      const next = {
-        start: clamp(Math.floor((viewTop - origin) / pitch.current) - over),
-        end: clamp(Math.ceil((viewBottom - origin) / pitch.current) + over),
-      };
+      const first = clamp(Math.floor((viewTop - origin) / pitch.current));
+      const last = clamp(Math.ceil((viewBottom - origin) / pitch.current));
+      // Until the first scroll, a window that holds the rows in view stays as it is: the open's frame
+      // mounts no row only to remove it again.
+      if (!settled.current && at.start <= first && at.end >= last) return;
+      const over = settled.current
+        ? Math.ceil((at.views * (viewBottom - viewTop)) / pitch.current)
+        : FIRST_PAINT_OVERSCAN_ROWS;
+      const next = { start: clamp(first - over), end: clamp(last + over) };
       if (next.end > next.start && (next.start !== at.start || next.end !== at.end)) setRange(next);
     };
     measure();
+    /// A scroll or a resize: from now the window holds the viewports of overscan.
+    const moved = () => {
+      settled.current = true;
+      measure();
+    };
     /// Mounts row `index` in a window of the same size and focuses it once it is there.
     const reach = (index: number, edge: Pending["edge"]) => {
       const at = now.current;
@@ -308,8 +340,8 @@ export function WindowedRows<T>({
       }
     };
     const scrolled: EventTarget[] = [...scrollers, window];
-    for (const target of scrolled) target.addEventListener("scroll", measure, { passive: true });
-    window.addEventListener("resize", measure);
+    for (const target of scrolled) target.addEventListener("scroll", moved, { passive: true });
+    window.addEventListener("resize", moved);
     // A panel that changes height without the window: one observer, on the nearest scroller.
     const resized = scrollers[0] && typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     if (scrollers[0]) resized?.observe(scrollers[0]);
@@ -317,8 +349,8 @@ export function WindowedRows<T>({
     host.addEventListener("focusout", focusOut);
     host.addEventListener("keydown", keyDown);
     return () => {
-      for (const target of scrolled) target.removeEventListener("scroll", measure);
-      window.removeEventListener("resize", measure);
+      for (const target of scrolled) target.removeEventListener("scroll", moved);
+      window.removeEventListener("resize", moved);
       resized?.disconnect();
       host.removeEventListener("focusin", focusIn);
       host.removeEventListener("focusout", focusOut);

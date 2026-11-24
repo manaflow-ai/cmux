@@ -4,16 +4,21 @@
 // title 52 from the top, its sentence 8 below, the body 28 below that, and a footer 28 from the
 // bottom with Back (over the import explainers), Skip and the filled primary. Computer Use has its
 // own layout. Return presses the primary (not on a repeat, nor when a text field, a focused button
-// or an open popup owns it); Escape skips.
+// or an open popup owns it); Escape skips. While the webview is offline, one line under the title
+// says so (sign-ins and downloads work once it is back); it goes by itself when the network returns.
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import { AgentsStep, DEFAULT_AGENTS_LOOK, type AgentsLook } from "./AgentsStep";
+import type { ProviderReadinessProps } from "../shared/signIn/ProviderReadiness";
 import { ComputerUseStep } from "./ComputerUseStep";
 import { ImportSources, ImportStep } from "./ImportStep";
+import { DEFAULT_MAKE_IT_YOURS_LOOK, MakeItYoursStep, type MakeItYoursLook } from "./MakeItYoursStep";
 import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep } from "./ops";
-import { OnboardingContext, useOnboarding } from "./parts";
+import { OnboardingContext, useOnboarding, useOnline } from "./parts";
+import { useOnboardingReadiness } from "./signInReadiness";
 import type { OnboardingStore } from "./store";
 import { keyIntent, primaryLabel, primaryLabels, skipLabel, skipLabels, windowTitle } from "./text";
 
@@ -62,21 +67,48 @@ function Footer({ footer, step, leading }: { footer: OnboardingFooter; step: Onb
   );
 }
 
-function Scaffold({ state, agentsLook }: { state: OnboardingState; agentsLook: AgentsLook }) {
+function Scaffold({
+  state,
+  agentsLook,
+  makeItYoursLook,
+  readiness,
+  online,
+}: {
+  state: OnboardingState;
+  agentsLook: AgentsLook;
+  makeItYoursLook: MakeItYoursLook;
+  readiness?: ProviderReadinessProps;
+  online: boolean;
+}) {
   const { strings } = useOnboarding();
   const agents = state.step === "agents";
-  const sources = !agents && state.importer != null ? <ImportSources importer={state.importer} /> : null;
+  const make = state.step === "makeItYours";
+  const sources = !agents && !make && state.importer != null ? <ImportSources importer={state.importer} /> : null;
+  // A network blip says nothing; only an outage past the shared quiet bound shows the line.
+  const offlineShown = useConnectionQuiet(!online);
   return (
     <div className="onb-scaffold" data-step={state.step}>
       <header className="onb-header">
         <h1 className="onb-title">
-          {agents ? strings.t("onboarding.agents.heading") : strings.t("onboarding.import.title2")}
+          {agents
+            ? strings.t("onboarding.agents.heading")
+            : make
+              ? strings.t("onboarding.makeItYours.title")
+              : strings.t("onboarding.import.title2")}
         </h1>
         {agents && <p className="onb-sentence">{strings.t("onboarding.agents.body")}</p>}
+        {make && <p className="onb-sentence">{strings.t("onboarding.makeItYours.body")}</p>}
+        {offlineShown && (
+          <output className="onb-offline" aria-live="polite">
+            {strings.t("onboarding.offline")}
+          </output>
+        )}
       </header>
       <div className="onb-body">
         {agents ? (
-          <AgentsStep agents={state.agents} look={agentsLook} />
+          <AgentsStep agents={state.agents} look={agentsLook} readiness={readiness} />
+        ) : make ? (
+          <MakeItYoursStep choices={state.makeItYours} look={makeItYoursLook} />
         ) : state.importer != null ? (
           <ImportStep importer={state.importer} progress={state.footer.progress} />
         ) : null}
@@ -90,12 +122,21 @@ export function OnboardingPage({
   store,
   strings,
   agentsLook = DEFAULT_AGENTS_LOOK,
+  makeItYoursLook = DEFAULT_MAKE_IT_YOURS_LOOK,
+  online: onlineOverride,
 }: {
   store: OnboardingStore;
   strings: Strings;
   agentsLook?: AgentsLook;
+  makeItYoursLook?: MakeItYoursLook;
+  /** The network state to draw instead of the webview's own (the gallery and tests). */
+  online?: boolean;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const browserOnline = useOnline();
+  const online = onlineOverride ?? browserOnline;
+  // The agents step's in-place sign-in, from the host's `signInReadiness` (none: as before).
+  const readiness = useOnboardingReadiness(store, state);
   useEffect(() => {
     document.title = windowTitle(strings, state);
   }, [strings, state]);
@@ -127,7 +168,13 @@ export function OnboardingPage({
             <ComputerUseStep computerUse={state.computerUse} />
           ) : null
         ) : (
-          <Scaffold state={state} agentsLook={agentsLook} />
+          <Scaffold
+            state={state}
+            agentsLook={agentsLook}
+            makeItYoursLook={makeItYoursLook}
+            readiness={readiness}
+            online={online}
+          />
         )}
       </div>
     </OnboardingContext.Provider>

@@ -18,7 +18,7 @@
  * Reads only. Both database handles go through `selectOnly`, which refuses any statement that is not a
  * single SELECT, and nothing here takes a MySQL writer: the full pass never repairs, whatever the primary is.
  */
-import { NUMERIC_KEYS, PROJECTION_TABLES, TEAM_COLUMN, rowHash, shapeRow, sharedColumns, type MyLike, type PgLike } from "./projection-compare.ts"
+import { isDevBuildRow, NUMERIC_KEYS, PROJECTION_TABLES, TEAM_COLUMN, rowHash, shapeRow, sharedColumns, type MyLike, type PgLike } from "./projection-compare.ts"
 
 type Row = Record<string, unknown>
 type Key = ReadonlyArray<string | number>
@@ -199,7 +199,8 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
   const columns = [...new Set([...spec.key, ...(teamColumn ? [teamColumn] : []), ...shared])]
   const junk = new Set(options.excludeTeams)
   // As pgScope/myScope in projection-compare.ts: a row of a junk team is left out, a row with no team stays.
-  const keep = (r: Row) => !teamColumn || r[teamColumn] === null || r[teamColumn] === undefined || !junk.has(String(r[teamColumn]))
+  // A dev build's row (build-space-projection.ts) is Postgres only: never a difference.
+  const keep = (r: Row) => !isDevBuildRow(table, r) && (!teamColumn || r[teamColumn] === null || r[teamColumn] === undefined || !junk.has(String(r[teamColumn])))
   const keyOf = (r: Row): Key =>
     spec.key.map((k) => {
       if (!NUMERIC_KEYS.has(k)) return String(r[k])

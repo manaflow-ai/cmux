@@ -52,6 +52,18 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
+    /// The shadow the surface casts along its own shape, on every material (the tooltip's,
+    /// ``Glass/makeTooltipGlass(cornerRadius:interactive:)``); nil casts none, as the overlays whose
+    /// window or owner draws it.
+    public var castShadow: Elevation? {
+        didSet { if castShadow != oldValue { applyShadow() } }
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if castShadow != nil { applyShadow() }
+    }
+
     /// The vibrancy fallback blurs what is behind the window instead of the window's own
     /// content: set it for a surface that is the whole content of a clear window of its own
     /// (a hover card), where a blur within the window has nothing under it. Liquid Glass and
@@ -98,6 +110,14 @@ public final class OverlaySurfaceView: NSView {
 
     /// Whether the surface draws no material now (``standsOnWindow`` on a non-opaque material).
     public var drawsNoMaterial: Bool { standsOnWindow && material != .opaque }
+
+    /// Whether the surface is real Liquid Glass (`NSGlassEffectView`), which casts its own soft shadow and
+    /// edge: a host that drew the popup shadow too laid a second, black one around it, a dark ring on a dark
+    /// theme (Leo 2026-11-22, the tab hover card: "has a black border... no cohesiveness"; "doubled up
+    /// glass/wack looking glass all over the place").
+    public var castsSystemGlassShadow: Bool {
+        !drawsNoMaterial && (materialView as? GlassPanelView)?.isLiquidGlass == true
+    }
 
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
@@ -225,6 +245,8 @@ public final class OverlaySurfaceView: NSView {
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
         installRim()
+        // A host that draws the popup shadow skips it on Liquid Glass (``castsSystemGlassShadow``).
+        superview?.needsLayout = true
         if let focused, let window = focused.window { FocusRoute(.system, "an overlay rebuilt: keep its focused view").moveKeyboard(in: window, to: focused) }
         applyShape()
         applyTheme()
@@ -250,7 +272,23 @@ public final class OverlaySurfaceView: NSView {
         rimView = rim
     }
 
+    private func applyShadow() {
+        guard let layer else { return }
+        guard let shadow = castShadow else {
+            layer.shadowOpacity = 0
+            layer.shadowPath = nil
+            return
+        }
+        layer.masksToBounds = false
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = Float(shadow.alpha)
+        layer.shadowRadius = shadow.layerRadius
+        layer.shadowOffset = shadow.layerOffset(flipped: isFlipped)
+        layer.shadowPath = CGPath(roundedRect: bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+    }
+
     private func applyShape() {
+        if castShadow != nil { applyShadow() }
         rimView?.cornerRadius = cornerRadius
         // The content takes the surface's shape on every material. The blur and the solid
         // surface clip it already (their layer masks to bounds), but `NSGlassEffectView` never

@@ -27,7 +27,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab chosen on this screen. When it disappears (a new workspace
     /// whose placeholder tab became the Mac's real tab), the active tab
     /// falls back to the workspace's opening tab.
-    private var selectedTabID: String?
+    var selectedTabID: String? {
+        // Every path that changes the active tab while the grid shows (a tap, the active
+        // tab closed there, a Mac publish dropping it): the new one holds its frame too.
+        didSet { if freezesStreams, selectedTabID != oldValue { freezeStreams(true) } }
+    }
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
     public var activeTabID: String? {
@@ -36,6 +40,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
     /// The workspace's opening tab as of the last `refreshTabs()`.
     private var openingTabID: String?
+    /// The selected tab as last published, and where: kept on screen through a Mac publish that
+    /// leaves it out (WorkspaceTabsSource+StickySelection.swift).
+    @ObservationIgnored var heldTab: (tab: WorkspaceTab, index: Int)?
+    /// The hold's clock: runs only while the Mac link is up; done means the tab is gone for good.
+    @ObservationIgnored var heldGraceTask: Task<Void, Never>?
+    @ObservationIgnored var heldGraceDone = false
+    /// Tabs this screen itself removed (closed, moved, archived, closed by the Mac's group close):
+    /// never held.
+    @ObservationIgnored var removedHere: Set<String> = []
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory
@@ -46,9 +59,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
+    /// Each chat tab's composer draft, kept across rebuilds and launches (nil: not kept).
+    @ObservationIgnored var drafts: ComposerDraftStore? = .shared
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
+    /// Tab groups this phone's own edit (Ungroup, Close, Remove) emptied: their page goes at once,
+    /// not after the reconnect grace (`groupStaysGone`).
+    @ObservationIgnored var groupsEmptiedHere: Set<String> = []
     /// The View Only chat this phone had the Mac open for a terminal's session (`macID|harness|session`).
     var openedTerminalChats: [String: String] = [:]
     /// Macs whose acpmux makes no View Only chat for a phone (`remote.adopt_refused`): asked once.
@@ -96,6 +114,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // `opened()`, which the screen calls when it appears.
         if let workspace = store.workspace(id: workspaceID), let tab = store.openingTab(for: workspace) {
             selectedTabID = tab.id
+            // The tab the person was on, missing from a list the Mac sent while its link came back
+            // (a lag, a redial, a refresh): this screen stays on it, shows the opening tab only
+            // until it is listed again, and never takes the stand-in as the person's choice (Leo,
+            // 2026-11-21: "it brought me out of the terminal tab and into a browser tab").
+            if let chosen = store.chosenTab(for: workspace), !workspace.tabs.contains(where: { $0.id == chosen }) {
+                selectedTabID = chosen
+            }
         }
         focusOnOpen = store.wantsFocusOnOpen(workspaceID)
         screenSharingTabOpen = Self.screenSharingTabs.contains(workspaceID)
@@ -118,7 +143,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// keyboard on the next page shown).
     public func opened() {
         hasAppeared = true
-        if let activeTabID, activeTabID != Self.screenSharingTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
+        // Only a listed choice is remembered: a stand-in shown while the chosen tab is missing
+        // (a partial list after a lag) would replace it for good.
+        if let selectedTabID, selectedTabID != Self.screenSharingTabID, isListed(selectedTabID) {
+            store.noteOpened(tabID: selectedTabID, in: workspaceID)
+        }
         // `init` already opened on the requested tab: the next open starts where this screen is left.
         store.takeRequestedTab(workspaceID)
         _ = store.takeFocusOnOpen(workspaceID)
@@ -232,9 +261,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         listGeneration += 1
         listStale = false
         let generation = listGeneration
-        let (workspace, opening) = withObservationTracking {
+        let (published, opening, linked) = withObservationTracking {
             let workspace = store.workspace(id: workspaceID)
-            return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id })
+            // The link is read too: the held tab (`holdSelectedTab`) is let go only while it is up.
+            return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id },
+                    workspace.map { store.macConnection[$0.macID] == .connected } ?? false)
         } onChange: { [weak self] in
             // The store is main-actor isolated: its changes, and so this call, run on main.
             MainActor.assumeIsolated {
@@ -246,18 +277,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 self.refreshTabs()
             }
         }
-        workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
         // A request that arrives while the screen is up is taken here only when the tab on screen
         // is gone (a new workspace's placeholder tab became the Mac's real one). Otherwise it is
         // for the next screen of this workspace (a notification or Feed item rebuilds the page),
         // which opens on it and takes it in `opened()`.
-        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
-           !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
+        if hasAppeared, let published, let opening, store.requestedTabByWorkspace[published.id] == opening,
+           !published.tabs.contains(where: { $0.id == selectedTabID }) {
             selectedTabID = opening
             // Taken outside this rebuild (an action), so the next open starts where this screen is left.
-            Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
+            Task { @MainActor [store] in store.takeRequestedTab(published.id) }
         }
+        let workspace = holdSelectedTab(in: published, linked: linked)
+        workspaceSnapshot = workspace
+        warmSnapshots()
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
                                                          screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
@@ -593,14 +626,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
-        let next = store.removeTab(id, from: workspaceID)
+        let next = removeTabHere(id)
         // The kit reads `tabs` as soon as this returns (Safari's timing).
         refreshTabs()
+        dropDraft(id)
         surfaces[id] = nil
         browsers[id] = nil
+        if let macID = store.workspace(id: workspaceID)?.macID, let key = snapshots.key(macID: macID, tabID: id) {
+            snapshots.remove(key)
+        }
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
-        if selectedTabID == id || !isListed(selectedTabID) {
+        // Only the closed tab moves the choice: one that is only missing for now (a partial
+        // list) comes back on screen when it is listed again.
+        if selectedTabID == id || selectedTabID == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
@@ -941,9 +980,21 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The opening tab of a workspace this phone is creating (`WorkspaceCreator.placeholder`).
     nonisolated static func placeholderTabID(of workspaceID: String) -> String { "\(workspaceID)-t1" }
 
+    /// A tab closed or archived: its draft goes with it.
+    func dropDraft(_ id: String) {
+        guard let drafts, let macID = store.workspace(id: workspaceID)?.macID else { return }
+        drafts.clear(ComposerDraftStore.key(macID: macID, tabID: id))
+    }
+
     func surface(_ id: String) -> AgentChatSurface {
         if let surface = surfaces[id] { return surface }
         let surface = AgentChatSurface()
+        // The draft outlives the page: a rebuild, a reconnect, the app killed in the background.
+        if let drafts, let macID = store.workspace(id: workspaceID)?.macID {
+            let key = ComposerDraftStore.key(macID: macID, tabID: id)
+            surface.text = drafts.text(for: key) ?? ""
+            surface.onTextChange = { [weak drafts] text in drafts?.save(text, for: key) }
+        }
         // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
         surface.tabActions = AgentChatTabActions(
             fork: { [weak self] in await self?.fork(id) },
@@ -1072,6 +1123,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
     }
 
+    /// A card is one accessibility element ("build, tab"), so its split map's
+    /// "Pane 1 of 2 in a split" is the card's value, not the badge's own label.
+    public func cardAccessibilityValue(for id: TabsKitTab.ID) -> String? {
+        guard TabSplitMapBadge.isEnabled, let map = listedWorkspace?.layout?.splitMap(ofTab: id) else { return nil }
+        return TabSplitMapBadge.label(map)
+    }
+
     public func accessory(for kit: TabsKitTab, context: TabsKitContentContext) -> some View {
         WorkspaceTabAccessory(source: self, tabID: kit.id, context: context)
     }
@@ -1170,11 +1228,70 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The card's feed (made with the card: a lookup after that).
     func cardFeed(_ tab: WorkspaceTab, _ workspace: Workspace) -> AgentCardFeed {
         let store = chatStore(tab, workspace)
-        if let feed = cardFeeds[tab.id], feed.store === store { return feed }
+        if let feed = cardFeeds[tab.id], feed.store === store {
+            if feed.snapshotKey == nil { feed.snapshotKey = snapshots.key(macID: workspace.macID, tabID: tab.id) }
+            return feed
+        }
         let feed = AgentCardFeed(store: store)
         feed.onStale = { [weak self] in self?.chatChanged() }
+        feed.snapshotKey = snapshots.key(macID: workspace.macID, tabID: tab.id)
         cardFeeds[tab.id] = feed
         return feed
+    }
+
+    // MARK: Last-known pictures
+
+    /// Every card's last-known picture, kept across launches (`TabCardSnapshots`).
+    @ObservationIgnored var snapshots = TabCardSnapshots.shared
+    /// What each Mac pushes of its tabs: title, favicon, picture, terminal screen.
+    @ObservationIgnored var macCards = MacTabCards.shared
+    /// The Mac's own account of `tabID` (its favicon and terminal screen), for its card.
+    func macCardEntry(_ tabID: String) -> MacCardEntry? {
+        guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID else { return nil }
+        return snapshots.key(macID: macID, tabID: tabID).map { macCards.entry($0) }
+    }
+    /// The tabs whose pictures were last asked of the disk, in grid order.
+    @ObservationIgnored private var warmedTabs: [String] = []
+
+    /// The tab's last-known picture (nil: signed out, or no workspace yet).
+    func snapshotEntry(_ tabID: String) -> TabSnapshotEntry? {
+        guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID else { return nil }
+        return snapshots.key(macID: macID, tabID: tabID).map { snapshots.entry($0) }
+    }
+
+    /// Reads the tabs' last-known pictures from disk, nearest the active tab
+    /// first, once per tab list: when the workspace is first listed, long
+    /// before the grid opens, so its first frame has them.
+    private func warmSnapshots() {
+        guard let workspace = workspaceSnapshot ?? listedWorkspace else { return }
+        let ids = workspace.tabs.map(\.id)
+        guard ids != warmedTabs else { return }
+        let active = workspace.tabs.firstIndex { $0.id == activeTabID } ?? 0
+        let keys = workspace.tabs.enumerated()
+            .sorted { abs($0.offset - active) < abs($1.offset - active) }
+            .compactMap { snapshots.key(macID: workspace.macID, tabID: $0.element.id) }
+        // Signed out: asked again once an account is.
+        guard !keys.isEmpty || ids.isEmpty else { return }
+        warmedTabs = ids
+        snapshots.warm(keys)
+        // What the Mac pushed of these tabs in an earlier launch, and its blobs asked for
+        // nearest the active tab first.
+        macCards.warm(macID: workspace.macID)
+        macCards.near?(keys.map(\.tabID), workspace.macID)
+    }
+
+    /// A page's snapshot just taken becomes the tab's last-known picture, at a card's resolution.
+    private func keepSnapshots(of model: any BrowserTabState, tab id: String) {
+        let keep: @MainActor (UIImage) -> Void = { [weak self] image in
+            guard let self, let macID = (self.workspaceSnapshot ?? self.listedWorkspace)?.macID,
+                  let key = self.snapshots.key(macID: macID, tabID: id) else { return }
+            self.snapshots.put(image, for: key, pixelWidth: (image.size.width * image.scale * self.cardScale).rounded(.up))
+        }
+        if let model = model as? BrowserTabModel {
+            model.onSnapshot = keep
+        } else if let model = model as? StreamedBrowserModel {
+            model.onSnapshot = { keep(UIImage(cgImage: $0)) }
+        }
     }
 
     private func setCardsFollow(shown: Bool? = nil, scrolling: Bool? = nil) {
@@ -1193,17 +1310,77 @@ public final class WorkspaceTabsSource: TabsDataSource {
         holdActiveTranscript(true)
         let inactive = (workspace?.tabs ?? []).filter { $0.kind == .terminal && $0.id != activeTabID }
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
-        guard let id = activeTabID else { return }
-        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
-        if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
+        warmSnapshots()
+        guard let id = activeTabID else { freezeStreams(true); return }
+        let active = workspaceTab(id)
+        if let tab = active, tab.kind == .browser { keepSnapshots(of: browser(tab), tab: id) }
+        if let tab = active, tab.kind == .simulator, let model = simulator(tab) { keepSnapshots(of: model, tab: id) }
+        // A streamed page holds still from the first shrinking frame; its snapshot
+        // below is the held frame, kept as the tab's last-known picture.
+        freezeStreams(true)
+        if let tab = active, tab.kind == .browser { browser(tab).takeSnapshot() }
+        if let tab = active, tab.kind == .simulator, let model = simulator(tab) { model.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
+    /// The streamed pages held on one frame while the grid shows.
+    @ObservationIgnored private var frozenStreams: [StreamedBrowserModel] = []
+    /// The grid is showing (from the page's first shrinking frame until a page
+    /// settles): a tab activated meanwhile is held too.
+    @ObservationIgnored private var freezesStreams = false
+
+    /// Safari's still tab frame: from the moment the page starts shrinking into
+    /// its card, through the grid, until a page has grown back and settled, the
+    /// active streamed page (a browser tab or a simulator) holds the picture it
+    /// showed. A playing video or a scrolling page never moves inside the moving
+    /// card. The chat's equivalent is `holdActiveTranscript`.
+    private func freezeStreams(_ freeze: Bool) {
+        freezesStreams = freeze
+        guard freeze else {
+            for model in frozenStreams { model.freeze(false) }
+            frozenStreams = []
+            return
+        }
+        // A model the directory replaced (a new link) is let go: the active tab's current one holds.
+        frozenStreams.removeAll { model in
+            guard model.isClosed else { return false }
+            model.freeze(false)
+            return true
+        }
+        guard let id = activeTabID, let tab = workspaceTab(id), let model = streamModel(tab),
+              !frozenStreams.contains(where: { $0 === model }) else { return }
+        model.freeze(true)
+        frozenStreams.append(model)
+    }
+
+    /// The tab's page streamed from the Mac (a browser tab not opened on this
+    /// iPhone, or a simulator), nil for every other page.
+    private func streamModel(_ tab: WorkspaceTab) -> StreamedBrowserModel? {
+        switch tab.kind {
+        case .browser: nativeBrowser(tab) == nil ? streamedBrowser(tab) : nil
+        case .simulator: simulator(tab)
+        case .agent, .terminal: nil
+        }
+    }
+
+    /// A streamed browser page with nothing drawn of its own yet stays under
+    /// its card's frozen frame (the page as last seen) until the stream draws,
+    /// as Safari keeps a tab's last frame while it loads: opening it shows that
+    /// frame growing, not a black "Loading browser session…".
+    public func isContentReady(_ id: TabsKitTab.ID) -> Bool {
+        guard let tab = workspaceTab(id), tab.kind == .browser, let model = streamModel(tab) else { return true }
+        return !model.coversWithSnapshot
+    }
+
     public func overviewVisibilityChanged(_ visible: Bool) {
+        #if DEBUG
+        TabCardFaceProbe.gridVisible(visible)
+        #endif
         setCardsFollow(shown: visible)
         if !visible {
             gridIdle = false
             holdActiveTranscript(false)
+            freezeStreams(false)
             followCards(false)
             flushHeldTabRefreshes()
         }
@@ -1260,6 +1437,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The app went to the background (false) or came back (true): `WorkspaceScreen`'s
     /// scene phase. The grid's view stays "visible" while the app is in the background.
+    /// The workspace screen went away: TabsView sends no `overviewVisibilityChanged(false)`
+    /// when it is removed with the grid up, and the streamed models outlive this source
+    /// (the shared directory), so the next screen of the tab must not find it frozen.
+    public func screenDisappeared() {
+        freezeStreams(false)
+    }
+
     public func sceneActiveChanged(_ active: Bool) {
         guard active != sceneActive else { return }
         sceneActive = active
@@ -1270,8 +1454,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
             followCards(cardsFollowChats)
         } else {
             prefetchPrograms(false)
-            // Programs may change unheard while away: only the Mac's answer counts after.
-            programCache = TabProgramCache()
+            // Programs may change unheard while away: what is known stays, marked
+            // stale, until the grid reads the Mac again on return.
+            programCache.markStale(at: Self.uptime)
             followCards(false)
         }
     }
@@ -1281,6 +1466,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // Chats that changed during the scroll catch up when it ends.
         if !scrolling, cardsFollowChats { followCards(true) }
         terminal.overviewScrollingChanged(scrolling)
+    }
+
+    /// A browser tab's favicon as the Mac sent it, kept across launches (`MacTabCards`).
+    public func icon(for id: TabsKitTab.ID) -> UIImage? {
+        guard workspaceTab(id)?.kind == .browser else { return nil }
+        let favicon = macCardEntry(id)?.favicon
+        #if DEBUG
+        TabCardFaceProbe.recordFavicon(shown: favicon != nil, tab: id)
+        #endif
+        return favicon
     }
 
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
@@ -1614,7 +1809,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         do {
             let landed = try await creator.backend.moveTab(tab, from: workspace, toWorkspace: destination)
             if landed?.id == workspaceID { return }
-            let next = store.removeTab(id, from: workspaceID)
+            let next = removeTabHere(id)
             refreshTabs()
             // The mock keeps tabs in its own store; a live Mac's list already moved it.
             if let landed, store.workspace(id: landed.id)?.tabs.contains(where: { $0.id == id }) == false {
@@ -1660,6 +1855,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             guard await confirmClose(members, in: workspace) else { return }
         }
         let before = workspace.tabs
+        if edit == .ungroup || edit == .close || edit == .remove, let group = tab.group { groupsEmptiedHere.insert(group.id) }
         apply(edit, to: tab)
         refreshTabs()
         do {
@@ -1691,8 +1887,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Tabs the Mac closed (a tab group, a screen): gone here too, with their pages; the
     /// workspace leaves when none is left.
     func dropClosedTabs(_ ids: [String]) {
+        let shownIndex = workspace?.tabs.firstIndex { $0.id == selectedTabID }
         for id in ids {
-            _ = store.removeTab(id, from: workspaceID)
+            _ = removeTabHere(id)
+            dropDraft(id)
             surfaces[id] = nil
             browsers[id] = nil
             streamed.drop(tab: id)
@@ -1700,7 +1898,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         // `workspaceTab` reads the listed copy: list the removals before reading it.
         refreshTabs()
-        if !isListed(selectedTabID) { selectedTabID = workspace?.tabs.first?.id }
+        // The neighbour of the tab that went (Safari's close), not the first tab: that is often a browser.
+        // Only a closed choice moves: one only missing for now (a partial list) comes back when listed.
+        if selectedTabID.map(ids.contains) ?? true { selectedTabID = Self.neighbour(at: shownIndex ?? 0, in: workspace?.tabs ?? [])?.id }
         if workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -1745,8 +1945,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard canEditTabs else { return [] }
         return [
             // The Mac's Fork Conversation destinations (AgentActionCatalog): beside the chat,
-            // in a new tab, or in a new workspace.
-            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: "arrow.triangle.branch") { [weak self] in
+            // in a new tab, or in a new workspace. Its glyph is the pack's agent.fork split arrow, as on the Mac.
+            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: CmuxSymbol.fork,
+                            symbolBundle: CmuxSymbol.bundle) { [weak self] in
                 self?.forkingTab = tab
             },
             TabsKitMenuItem(title: "Archive", systemImage: "archivebox") { [weak self] in Task { await self?.archive(tab.id) } },
@@ -1810,10 +2011,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         } catch {
             return show(error, doing: "archive", tab.title)
         }
-        let next = store.removeTab(id, from: workspaceID)
+        let next = removeTabHere(id)
         refreshTabs()
+        dropDraft(id)
         surfaces[id] = nil
-        if selectedTabID == id || !isListed(selectedTabID) { selectedTabID = next?.id }
+        if selectedTabID == id || selectedTabID == nil { selectedTabID = next?.id }
         if self.workspace?.tabs.isEmpty ?? true { exit() }
     }
 
@@ -2349,7 +2551,8 @@ struct WorkspaceTabPage: View {
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
             } else if let model = source.browser(tab) as? StreamedBrowserModel {
-                StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
+                StreamedBrowserPage(model: model, insets: insets, lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage,
+                                    reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })
@@ -2496,10 +2699,15 @@ struct WorkspaceTabCard: View {
                 // in page points so it reads like the card's title.
                 // Under the group chip: which of the Mac's screens the tab is on, when the workspace
                 // has more than one (the card shows only the top of the page).
+                // Under those, gallery variant (off by default): where the tab sits among its screen's
+                // splits. Here, not top-trailing: the kit's close button covers that corner.
                 .overlay(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 8) {
                         if let group = tab.group { TabGroupChip(group: group) }
                         if let screen = workspace.screenLabel(ofTab: tab.id) { ScreenChip(title: screen) }
+                        if TabSplitMapBadge.isEnabled, let map = workspace.layout?.splitMap(ofTab: tab.id) {
+                            TabSplitMapBadge(map: map)
+                        }
                     }
                     .padding(.leading, 16).padding(.top, 14)
                 }
@@ -2517,21 +2725,29 @@ struct WorkspaceTabCard: View {
                 // A picture of the preview once drawn (`AgentCardRasterizer`), the live preview until then.
                 AgentTabCard(feed: source.cardFeed(tab, workspace), rasterizer: source.rasterizer, cardScale: source.cardScale,
                              page: CGSize(width: source.pageWidth, height: source.pageHeight), topInset: insets.top + 8,
-                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface))
+                             bottomInset: WorkspaceTabPage.bottomInset(surface: surface),
+                             snapshot: source.snapshotEntry(tab.id))
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
+                // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
+                let lastKnown = source.snapshotEntry(tab.id)?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id)
                 } else if let model = source.streamedBrowser(tab) {
-                    StreamedBrowserCard(model: model)
+                    // Laid out as its page is: the card covers an opening page (`isContentReady`).
+                    StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
-                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets)
+                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown, tabID: tab.id)
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
-                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true)
+                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true,
+                                        lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage)
+                } else if let image = source.snapshotEntry(tab.id)?.image {
+                    ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
+                        .accessibilityHidden(true)
                 } else {
                     Image(systemName: "iphone").font(.system(size: 72, weight: .light)).foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2584,6 +2800,10 @@ final class AgentCardFeed {
     @ObservationIgnored private(set) var pulls = 0
     /// The chat went stale (once per copy): the source schedules a catch-up.
     @ObservationIgnored var onStale: (@MainActor () -> Void)?
+    /// Whose tab this is in `TabCardSnapshots` (nil: signed out, nothing is kept).
+    @ObservationIgnored var snapshotKey: TabSnapshotKey?
+    /// No turns yet because the chat's history is still loading: not an empty chat.
+    var awaitingHistory: Bool { turns.isEmpty && store.isLoadingHistory }
 
     init(store: AgentChatStore) {
         self.store = store
@@ -2631,27 +2851,22 @@ struct TabGroupChip: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
-            .background(Self.color(group.color), in: .capsule)
+            .background(Self.fill(group.color), in: .capsule)
             .accessibilityLabel("In tab group \(group.displayName)")
     }
 
-    /// The nine Mac group colors, or a custom `#RRGGBB`.
+    /// The nine Mac group colors (its vibrant palette, light or dark), or a custom `#RRGGBB`:
+    /// dots and swatches, as the Workspaces list draws them. SwiftUI's system yellow and red did
+    /// not match the Mac's group, and grey was not a case (it fell back to `Color.gray`).
     static func color(_ token: String) -> Color {
-        switch token {
-        case "blue": return Color.blue
-        case "red": return Color.red
-        case "yellow": return Color.yellow
-        case "green": return Color.green
-        case "pink": return Color.pink
-        case "purple": return Color.purple
-        case "cyan": return Color.cyan
-        case "orange": return Color.orange
-        default:
-            if token.hasPrefix("#"), token.count == 7, let value = UInt32(token.dropFirst(), radix: 16) {
-                return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
-            }
-            return Color.gray
-        }
+        WorkspaceSwatch.color(stored: token) ?? WorkspaceSwatch.color(.grey)
+    }
+
+    /// The chip's background, carrying white text over a card: the Mac's dark chip fill. Raw
+    /// system yellow (or a light custom color) left the white name unreadable.
+    static func fill(_ token: String) -> Color {
+        let rgb = WorkspaceColor(stored: token)?.vibrant(dark: true) ?? WorkspaceSwatch.hex(token) ?? WorkspaceColor.grey.vibrant(dark: true)
+        return Color(uiColor: WorkspaceSwatch.rgb(WorkspaceColor.darkFill(rgb)))
     }
 }
 #endif

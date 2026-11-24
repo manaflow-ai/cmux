@@ -11,6 +11,7 @@ use serde_json::Value;
 use crate::cache::{read_cache, write_cache};
 use crate::domains::Domains;
 use crate::fsio::{publish, read_source, resolve_symlinks, write_atomic};
+use crate::history::{self, HistoryEntry, HistoryLog};
 use crate::location::team_policy_path;
 use crate::managed::{ManagedReader, TeamPolicyLayer};
 use crate::refusal::Refusal;
@@ -35,6 +36,11 @@ pub struct ConfigStore {
     /// first write then creates `config_path` from that text.
     seed_path: Option<PathBuf>,
     state_dir: Option<PathBuf>,
+    /// `<state_dir>/settings-history.jsonl`; `None` without a state directory.
+    history: Option<HistoryLog>,
+    /// The file text the last time it parsed: what a change out of a file
+    /// that did not parse is recorded against.
+    last_good: Option<String>,
     reader: Box<dyn ManagedReader>,
 }
 
@@ -75,9 +81,71 @@ impl ConfigStore {
         {
             state = state.with_revision(revision + 1);
         }
-        let store = ConfigStore { state, config_path, seed_path, state_dir, reader };
+        let history = state_dir.as_deref().map(HistoryLog::new);
+        // Revisions continue past the history's too (a lost cache must not
+        // reuse a revision an entry already names).
+        if let Some(newest) = history.as_ref().and_then(HistoryLog::newest_revision)
+            && newest > state.revision()
+        {
+            state = state.with_revision(newest);
+        }
+        let mut store = ConfigStore {
+            state,
+            config_path,
+            seed_path,
+            state_dir,
+            history,
+            last_good: None,
+            reader,
+        };
+        store.catch_up();
+        store.migrate_once();
+        store.note_good();
         store.write_cache();
         store
+    }
+
+    /// Moves a key cmux has renamed to its new name in the person's own file,
+    /// once per rename: each one is recorded in the ledger
+    /// (`migrations::once`), so a later open never runs it again. Needs a
+    /// state directory for the ledger and a settings file of the person's
+    /// own (a classic seed is not theirs to rewrite). A broken file, or a
+    /// write that fails, records nothing: the next open tries again.
+    fn migrate_once(&mut self) {
+        use crate::migrations::once::{Ledger, pending};
+        let Some(dir) = self.state_dir.clone() else { return };
+        if self.state.file_problem.is_some()
+            || std::fs::symlink_metadata(&self.config_path).is_err()
+        {
+            return;
+        }
+        let mut ledger = Ledger::read(&dir);
+        let due = pending(&self.state.file_root, &ledger);
+        if due.is_empty() {
+            return;
+        }
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        for migration in due {
+            let moved = match migration.edit {
+                None => false,
+                Some(edit) => {
+                    let meta =
+                        store::WriteMeta { origin: store::Origin::App, ..Default::default() };
+                    match self.apply(Op::Edit { edits: vec![edit], meta }).result {
+                        Ok(_) => true,
+                        // Not this open's to finish: the file is broken or unwritable.
+                        Err(Refusal::FileUnreadable { .. } | Refusal::Io { .. }) => break,
+                        // The new row refuses the value (a managed key, a bad value): the file
+                        // keeps the old key, which the table still reads.
+                        Err(_) => false,
+                    }
+                }
+            };
+            ledger.record(migration.id, moved, at);
+        }
+        let _ = ledger.write(&dir);
     }
 
     pub fn state(&self) -> &State {
@@ -107,29 +175,135 @@ impl ConfigStore {
         standardized(file) == standardized(&self.config_path)
     }
 
+    /// The settings history, newest first (at most
+    /// [`crate::history::HISTORY_CAPACITY`] entries); empty without a state
+    /// directory.
+    pub fn history(&self) -> Vec<HistoryEntry> {
+        let mut entries = self.history.as_ref().map(HistoryLog::read).unwrap_or_default();
+        entries.reverse();
+        entries
+    }
+
+    /// Records a change of the file made while no owner ran: the text last
+    /// seen parsing differs from the file's now. One entry (origin `file`),
+    /// under a new revision, so undo takes back that change alone.
+    fn catch_up(&mut self) {
+        if self.state.file_problem().is_some() {
+            return;
+        }
+        let Some(log) = self.history.as_mut() else { return };
+        let Some(before) = log.last_text() else { return };
+        if before == self.state.source() {
+            return;
+        }
+        let revision = self.state.revision().saturating_add(1);
+        self.state = self.state.clone().with_revision(revision);
+        log.append(&HistoryEntry {
+            revision,
+            at: history::now_ms(),
+            origin: crate::Origin::File.as_str().to_string(),
+            keys: Vec::new(),
+            before,
+            undoes: None,
+        });
+    }
+
+    /// Remembers the file text while it parses (see `last_good`).
+    fn note_good(&mut self) {
+        if self.state.file_problem().is_some() {
+            return;
+        }
+        let text = self.state.source();
+        if self.last_good.as_deref() == Some(text) {
+            return;
+        }
+        self.last_good = Some(text.to_string());
+        if let Some(log) = &self.history {
+            log.save_last_text(text);
+        }
+    }
+
+    /// Records a published change of the file whose text was `before`. A
+    /// change that left the file text alone (managed values, a theme file)
+    /// or that came from a file which did not parse is no setup to go back
+    /// to, and is not recorded.
+    /// A change out of a file that did not parse is recorded against the
+    /// text it last parsed with, so the change into the broken text and the
+    /// one out of it undo as one.
+    fn record(&mut self, change: &Change, before: &str, before_broken: bool, undoes: Option<u64>) {
+        let before = if before_broken {
+            match self.last_good.clone() {
+                Some(good) => good,
+                None => return,
+            }
+        } else {
+            before.to_string()
+        };
+        if before == self.state.source() {
+            return;
+        }
+        let Some(log) = self.history.as_mut() else { return };
+        log.append(&HistoryEntry {
+            revision: change.revision,
+            at: history::now_ms(),
+            origin: change.origin.as_str().to_string(),
+            keys: change.keys.clone(),
+            before,
+            undoes,
+        });
+        self.note_good();
+    }
+
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
+    /// Every published change of the file is recorded in the history.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
         let team_before = self.state.team().clone();
-        let writes =
-            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
+        let writes = matches!(
+            op,
+            Op::Set { .. }
+                | Op::Reset { .. }
+                | Op::ResetAll { .. }
+                | Op::Edit { .. }
+                | Op::Undo { .. }
+                | Op::Restore { .. }
+                | Op::ResetGroup { .. }
+        );
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
         if writes {
             // Fresh managed values too: macOS sends no notification for a new
             // MDM profile, so the watcher may not have seen it yet.
+            let before = self.state.source().to_string();
+            let broken = self.state.file_problem().is_some();
             let (refreshed, change) = self.state.reload(self.read_file(), self.reader.read());
             self.state = refreshed;
+            if let Some(change) = &change {
+                self.record(change, &before, broken, None);
+            }
             changes.extend(change);
         }
-        let result = match store::apply(&self.state, op) {
+        let history = match &op {
+            Op::Undo { .. } | Op::Restore { .. } => {
+                self.history.as_ref().map(HistoryLog::read).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
+        let before = self.state.source().to_string();
+        let broken = self.state.file_problem().is_some();
+        let result = match store::apply_with_history(&self.state, op, &history) {
             Err(refusal) => Err(refusal),
             Ok(applied) => {
                 match applied.write.as_deref().map(|text| publish(&self.config_path, text)) {
                     Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
-                    _ => {
+                    published => {
                         self.state = applied.state;
+                        if published.is_some() {
+                            for change in &applied.changes {
+                                self.record(change, &before, broken, applied.undoes);
+                            }
+                        }
                         changes.extend(applied.changes);
                         Ok(applied.outcome)
                     }
@@ -148,6 +322,7 @@ impl ConfigStore {
         if !changes.is_empty() {
             self.write_cache();
         }
+        self.note_good();
         ApplyResult { changes, result }
     }
 
@@ -155,14 +330,18 @@ impl ConfigStore {
     /// A change only when the effective settings changed.
     pub fn reload(&mut self) -> Option<Change> {
         let config_dir = self.config_dir();
+        let before = self.state.source().to_string();
+        let broken = self.state.file_problem().is_some();
         let (next, change) =
             self.state.reload_with_theme(self.read_file(), self.reader.read(), |name| {
                 Some(read_theme(&config_dir, name))
             });
         self.state = next;
-        if change.is_some() {
+        if let Some(change) = &change {
+            self.record(change, &before, broken, None);
             self.write_cache();
         }
+        self.note_good();
         change
     }
 

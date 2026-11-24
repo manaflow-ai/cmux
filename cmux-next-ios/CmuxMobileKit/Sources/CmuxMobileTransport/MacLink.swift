@@ -65,6 +65,10 @@ public enum LinkState: Equatable, Sendable {
     /// The media session beside a WireGuard link changed.
     case media(VideoMediaState)
     case disconnected(reason: String)
+    /// The link heard nothing for `silentMillis` after a ping (Rust
+    /// `Link::suspect_state`). Still open; the next `connected` says it
+    /// answered again. Only `disconnected` ends it.
+    case suspect(silentMillis: UInt32)
 }
 
 /// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`
@@ -83,12 +87,25 @@ public protocol MacLink: AnyObject, Sendable {
     /// nil when other frames from the Mac came first (the pong trails a busy
     /// queue: alive), a throw only when nothing came back at all.
     func probe(timeout: Duration) async throws -> UInt32?
+    /// How long a probe of this link may wait for its pong: `floor`, or
+    /// longer on a link whose measured round trip needs it (the Rust link:
+    /// three smoothed round trips, at most 5 s).
+    func probeTimeout(floor: Duration) -> Duration
+    /// The app is in the foreground with a terminal or chat on screen, or
+    /// not. The Rust link probes more often while it is (every 3 s on its
+    /// datagram lane); a link without one ignores it.
+    func setForegroundProbe(_ on: Bool)
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
     /// it as connected at once instead of waiting a main-actor turn for the
     /// state stream (verify/perf-latency.md).
     var connectedPath: LinkPathKind? { get }
+    /// Where a direct path's peer address is, as the Rust link names it
+    /// (`cmux_mobile_link::dial::peer_scope`): `lan`, `tailnet` (a Tailscale or
+    /// CGNAT address), `wan`, or empty on a relayed path, before a route, or
+    /// when the link cannot say. The DEBUG hand-off receipt names it.
+    var peerScope: String { get }
     /// How long ago the link last received any frame from the Mac (a pong,
     /// channel data, a control frame), measured where frames arrive, not where
     /// a channel's reader takes them; nil when the link cannot say. Any frame
@@ -100,12 +117,33 @@ public protocol MacLink: AnyObject, Sendable {
     /// is idle: with Align Keepalives on, the heartbeat probes it on the
     /// keepalive beat (``KeepaliveBeat``).
     var trafficAgo: Duration? { get }
+    /// The WireGuard static public keys this link's tunnel handshook with
+    /// (nil: not a tunnel). The phone's `auth` signs them and checks the Mac's
+    /// identity proof over them (``TunnelKeys``).
+    var tunnelKeys: TunnelKeys? { get }
+}
+
+/// The two WireGuard static public keys of a tunnel (base64, as in `wg-init`
+/// and `wg-resp`): the dialer's (this phone's) and the answerer's (the Mac's).
+/// A v2 `auth`'s identity proofs cover them (cmux-mobile-host `pairing.rs`).
+public struct TunnelKeys: Sendable, Equatable {
+    public var dialer: String
+    public var answerer: String
+
+    public init(dialer: String, answerer: String) {
+        self.dialer = dialer
+        self.answerer = answerer
+    }
 }
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+    public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public var tunnelKeys: TunnelKeys? { nil }
+    public func probeTimeout(floor: Duration) -> Duration { floor }
+    public func setForegroundProbe(_ on: Bool) {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {
@@ -115,6 +153,20 @@ extension MacLink {
     public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         try await openChannel(service: service, args: args)
     }
+}
+
+/// A link the Mac can hold while the app is suspended (PROTOCOL.md "Parked
+/// link"): a WireGuard link to a Mac that knows parking.
+public protocol ParkableMacLink: MacLink {
+    /// Before the OS suspends the app: ask the Mac to hold the link for up to
+    /// `hold` while the phone is silent. `true`: parked, and nothing on the
+    /// link wakes the phone until ``resumeParked()``. `false`: an older Mac,
+    /// no answer within `timeout`, or a transport that cannot be held.
+    func park(hold: Duration, timeout: Duration) async -> Bool
+    /// Back in front: `true` when the link was parked and its hold has not
+    /// passed. The tunnel then moves onto a fresh socket; probe it, and the
+    /// first frame back ends the park on both sides.
+    func resumeParked() -> Bool
 }
 
 /// One multiplexed channel inside a link.
@@ -152,8 +204,8 @@ extension LinkError: LocalizedError {
     /// and a sentence for alerts and failure states.
     private var known: (reason: String, sentence: String)? {
         switch code {
-        case "timeout":
-            return (reason: "the Mac didn't answer in time", sentence: "Your Mac didn't answer in time. Try again.")
+        case _ where isTimeout:
+            return (reason: LinkError.timeoutReason, sentence: LinkError.timeoutSentence)
         case "not_admitted":
             return (reason: "the Mac refused this phone",
                     sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac, then try again.")
@@ -166,8 +218,19 @@ extension LinkError: LocalizedError {
         }
     }
 
-    /// The Mac's or the link's own message, when it reads as a sentence for a person.
+    /// A request or write that ran out of time (the link's, the daemon's or acpmux's deadline).
+    /// Its raw message is a diagnostic; a person reads only the fixed, calm copy below, which
+    /// says what to do (Leo 2026-11-21: no "didn't answer in time").
+    public var isTimeout: Bool { ["timeout", "reply_timeout", "write_timeout"].contains(code) }
+    /// A status line's fragment for a timeout: the connection is being re-established.
+    public static let timeoutReason = "reconnecting to the Mac"
+    /// A failure state's sentence for a timeout that outlasted the quiet retries.
+    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open, then try again."
+
+    /// The Mac's or the link's own message, when it reads as a sentence for a person (never
+    /// for a timeout: that message is a diagnostic).
     private var proseMessage: String? {
+        guard !isTimeout else { return nil }
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count <= 240, text.contains(" "), let first = text.unicodeScalars.first,
               CharacterSet.uppercaseLetters.contains(first) else { return nil }

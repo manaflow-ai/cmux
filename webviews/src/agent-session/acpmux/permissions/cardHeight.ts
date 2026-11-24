@@ -29,7 +29,7 @@ const padding = gridLength("cards-padding");
 /// The face the card is drawn in, `--font-ui`: the chat's Interface Font (chatUiFont.ts) as the
 /// canvas can measure it, the macOS system stack by default. A canvas can't read CSS variables.
 export function cardFont(): string {
-  return chatUiMeasureStack(chatDisplay().uiFont);
+  return chatUiMeasureStack(chatDisplay().uiFont, chatDisplay().uiFamily);
 }
 
 /// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
@@ -38,7 +38,8 @@ export function cardFont(): string {
 /// token when it isn't the size's own: the buttons draw body-size labels with detail's tracking.
 export function cardLetterSpacing(size: number, step?: string): number {
   const name = step ?? typeScale.steps.find((entry) => entry.size === size)?.name;
-  return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
+  // A font pack's family draws at its designed spacing (chatUiFontVariables).
+  return name && !chatDisplay().uiFamily ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
 }
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
@@ -112,11 +113,10 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   return height;
 }
 
-// PermissionCard's frame (styles.css, .acpmux-permission-*): the request block is 16px around its
-// title and description lines 4px apart; the details band adds 12px above the command and scope,
-// 8px apart; the button row is 12px above and 16px below rows of 28px buttons, 8px apart.
+// PermissionCard's frame (a Surface role="ask", ui/surface, the --surface-ask-* variables): 16px
+// padding all round, the header row, the body, the command and scope, the edits and the answers as
+// siblings 8px apart; the body's lines 4px apart; the answers rows of 28px buttons, 8px apart.
 const EDGE = 16;
-const BAND = 12;
 const GAP = 8;
 const CONTROL_ROW = 28;
 /// The width of the chevron segment a plan's Approve plan is joined to (styles.css `.acpmux-plan-build-chevron`).
@@ -131,13 +131,16 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   const plan = permission.plan;
   let height = 2 * EDGE + body.lineHeight;
   const description = external ? translate("permission.external.detail") : permissionDetail(permission);
-  if (description) height += 4 + textHeight(description, room, body.size, body.lineHeight);
+  // The body slot is drawn only with a line or a plan in it; its lines are 4px apart.
+  const lines: number[] = [];
+  if (description) lines.push(textHeight(description, room, body.size, body.lineHeight));
   // The plan's Markdown, inset 8 by 12 and scrolled past 320px.
-  if (plan) height += 4 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
+  if (plan) lines.push(Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5)));
+  if (lines.length) height += GAP + lines.reduce((sum, line) => sum + line, 0) + 4 * (lines.length - 1);
   const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
   const command = permissionCommand(permission);
   const scoped = !external && Boolean(permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways)));
-  if (command || scoped) height += BAND;
+  if (command || scoped) height += GAP;
   if (command) {
     const preview = commandPreview(command);
     const line = detail.size * 1.5;
@@ -166,7 +169,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   const button = (label: string, weight = 400) => textWidth(label, body.size, weight, "detail");
   const widths = labels.map(
     (label, index) =>
-      button(label, allowOnce && index === 0 ? 500 : 400) +
+      button(label, allowOnce && index === 0 ? 600 : 400) +
       24 +
       (plan && allowOnce && index === 0 ? PLAN_BUILD_CHEVRON : 0),
   );
@@ -177,7 +180,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     widths.push(Math.min(button(label), 14 * button("0")) + 24);
   }
   const rows = wrappedRows(widths, room, GAP);
-  height += BAND + EDGE + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;
+  height += GAP + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;
   return height * scale;
 }
 
@@ -193,7 +196,7 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     const by = answer.respondent;
     const display = chatDisplay();
     const metrics = chatMetrics(display);
-    const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
+    const tracking = chatUiFontVariables(display.uiFont, display.uiFamily)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
     if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
     // The bubble's 16 px sides and 10 px block padding (conversation.css .cv-user__bubble).

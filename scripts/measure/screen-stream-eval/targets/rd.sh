@@ -63,6 +63,11 @@ host_start() {
   host_flags=()
   [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
+  # A variant target's own host flags (rd-ladder.sh), space-separated.
+  if [[ -n "${EVAL_RD_HOST_FLAGS:-}" ]]; then
+    read -ra extra <<<"$EVAL_RD_HOST_FLAGS"
+    host_flags+=("${extra[@]}")
+  fi
   : >"$EVAL_STATE/timing.jsonl"
   rm -f "$EVAL_STATE/timing.offset"
   mkdir -p "$EVAL_STATE/quality"
@@ -124,7 +129,12 @@ bench() {
     bench_port=$netem_port
     eval_flags+=(--eval-netem-relay 1)
   fi
-  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench "${eval_flags[@]}" --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
+  # A variant target's own viewer flags (rd-ladder.sh), space-separated.
+  if [[ -n "${EVAL_RD_BENCH_FLAGS:-}" ]]; then
+    read -ra extra <<<"$EVAL_RD_BENCH_FLAGS"
+    eval_flags+=("${extra[@]}")
+  fi
+  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench ${eval_flags[@]+"${eval_flags[@]}"} --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
@@ -182,8 +192,8 @@ if os.path.exists(sys.argv[4]):
         except ValueError:
             pass
     open(sys.argv[5], "w").write(str(start + len(whole)))
-def pct(values):
-    values = sorted(v for v in values if v is not None and v >= 0)
+def pct(values, signed=False):
+    values = sorted(v for v in values if v is not None and (signed or v >= 0))
     if not values:
         return None
     return {"n": len(values), "p50": round(values[len(values) // 2], 3), "p95": round(values[min(len(values) - 1, int(len(values) * 0.95))], 3)}
@@ -191,13 +201,45 @@ def span(f, a, b):
     return (f[b] - f[a]) / 1000 if f.get(a) is not None and f.get(b) is not None else None
 after_input = [f for f in frames if f.get("input_us") is not None]
 # Where input-to-capture goes, for the first frame after each injected input: render (the input until
-# the display showed the change: the app and the window server), sck (ScreenCaptureKit handing the
-# frame over), pickup (the session loop seeing its damage), gate (the frame gate holding it until
-# its interval allows), each as p50/p95 ms on the host's own clock.
-parts = {name: pct(span(f, a, b) for f in after_input) for name, a, b in (
+# the vsync the window server composited the change for: ScreenCaptureKit's display time), sck
+# (signed: the frame reaching the capture callback after that vsync; negative when it arrives before
+# the vsync, which is usual), to_arrived (the input until the callback: app, window server and
+# ScreenCaptureKit together), pickup (the session loop seeing its damage), gate (the frame gate
+# holding it until its interval allows), arrived_to_release (pickup and gate: the callback until the
+# encode starts), each as p50/p95 ms on the host's own clock.
+signed_parts = {"sck_ms"}
+parts = {name: pct((span(f, a, b) for f in after_input), name in signed_parts) for name, a, b in (
     ("render_ms", "input_us", "shown_us"), ("sck_ms", "shown_us", "arrived_us"),
+    ("to_arrived_ms", "input_us", "arrived_us"),
     ("pickup_ms", "arrived_us", "damage_us"), ("gate_ms", "damage_us", "release_us"),
+    ("arrived_to_release_ms", "arrived_us", "release_us"),
     ("encode_ms", "release_us", "encoded_us"))}
+# The same display-to-arrival offset over every frame, not only the first after an input.
+parts["sck_all_frames_ms"] = pct((span(f, "shown_us", "arrived_us") for f in frames), signed=True)
+# The marker's own draw commits (`commit COUNTER T_US`, protocol clock) split render in two: draw
+# (the input until the marker committed its redraw: event delivery and the app's draw) and
+# commit_to_vsync (signed: that commit until the frame's display time; negative when the frame
+# predates the commit, counted in frame_before_commit). Each input's commit is the first one after
+# it, within 100 ms.
+commits, refresh_hz = [], None
+marker_log = os.environ.get("EVAL_MARKER_LOG")
+if marker_log and os.path.exists(marker_log):
+    for line in open(marker_log, errors="replace"):
+        words = line.split()
+        if len(words) == 3 and words[0] == "commit" and words[2].isdigit():
+            commits.append(int(words[2]))
+        elif len(words) == 2 and words[0] == "refresh-hz" and words[1].isdigit():
+            refresh_hz = int(words[1])
+commits.sort()
+import bisect
+for f in after_input:
+    i = bisect.bisect_left(commits, f["input_us"])
+    if i < len(commits) and commits[i] - f["input_us"] <= 100_000:
+        f["commit_us"] = commits[i]
+parts["draw_ms"] = pct(span(f, "input_us", "commit_us") for f in after_input)
+parts["commit_to_vsync_ms"] = pct((span(f, "commit_us", "shown_us") for f in after_input), signed=True)
+parts["frame_before_commit"] = sum(1 for f in after_input if (span(f, "commit_us", "shown_us") or 0) < 0)
+parts["refresh_hz"] = refresh_hz
 g2g, cap, dec = raw.get("g2g_ms") or {}, raw.get("same_clock_capture_to_decoded_ms") or {}, raw.get("decode_ms") or {}
 encode = (raw.get("host_stats_last") or {}).get("encode_ms_p50")
 def p50(d): return d.get("p50") if d else None

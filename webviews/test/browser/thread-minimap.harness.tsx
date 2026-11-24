@@ -4,7 +4,10 @@
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { PromptHeads } from "../../src/agent-session/acpmux/promptHeads";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { messagesRows } from "../../src/agent-session/acpmux/conversation/messagesRows";
+import { PresentationContext } from "../../src/agent-session/acpmux/conversation/presentationContextModel";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
@@ -36,6 +39,9 @@ import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 // The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map, and
 // `?wave=stepped` (or another wave.experiment.ts arm) picks the hover wave's shape.
 const query = new URLSearchParams(location.search);
+/// `?presentation=messages` draws the rows as the Messages page does (Home, Chief and a chat set to
+/// Messages: App.tsx `chatPresentation`), speakers only, through messagesRows.
+const messages = query.get("presentation") === "messages";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
   "thread-minimap-layout": query.get("layout") === "full" ? "full" : "compact",
   ...(query.get("wave") ? { "thread-minimap-wave": query.get("wave")! } : {}),
@@ -57,6 +63,14 @@ let olderPage: (() => Promise<void>) | undefined;
 /// `promptCount`): a test hands them with the rows (`window.__showRows(rows, extra)`).
 type Extra = { earlier?: AcpmuxRow[]; promptCount?: number };
 let shownExtra: Extra = {};
+/// The pane's index of `earlier` (the snapshot holds it as columns, promptHeads.ts), one per list handed in.
+const headsOf = new WeakMap<AcpmuxRow[], PromptHeads>();
+const earlierOf = (rows: AcpmuxRow[] | undefined) => {
+  if (!rows) return undefined;
+  const heads = headsOf.get(rows) ?? PromptHeads.fromRows(rows);
+  headsOf.set(rows, heads);
+  return heads;
+};
 /// A rail click on a prompt not held calls this (`window.__setLoadThrough`), as the pane's client does.
 let loadThrough: ((seq: number) => Promise<boolean>) | undefined;
 /// A hover or click on a pending tick asks for the prompt index through this (`window.__setPromptIndex`).
@@ -72,20 +86,22 @@ const actions = {
     shownRows = rows;
     shownExtra = extra;
     view.render(
-      <TurnActionsContext.Provider value={actions}>
-        <VirtualTranscript
-          rows={turnView(rows, new Set())}
-          sessionId="minimap-session"
-          earlier={shownExtra.earlier}
-          promptCount={shownExtra.promptCount}
-          loadThrough={loadThrough}
-          loadPromptIndex={loadPromptIndex}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-          canLoadOlder={olderPage !== undefined}
-          onLoadOlder={olderPage}
-        />
-      </TurnActionsContext.Provider>,
+      <PresentationContext.Provider value={messages ? "messages" : "transcript"}>
+        <TurnActionsContext.Provider value={actions}>
+          <VirtualTranscript
+            rows={messages ? messagesRows(rows) : turnView(rows, new Set())}
+            sessionId="minimap-session"
+            earlier={earlierOf(shownExtra.earlier)}
+            promptCount={shownExtra.promptCount}
+            loadThrough={loadThrough}
+            loadPromptIndex={loadPromptIndex}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            canLoadOlder={olderPage !== undefined}
+            onLoadOlder={olderPage}
+          />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     );
   })();
 

@@ -110,8 +110,8 @@ public nonisolated struct SidebarPullRequestItem: Hashable, Sendable, Codable {
     }
 }
 
-/// What the session tree draws: which workspace's agent started each workspace's agent (one level,
-/// as acpmux keeps `spawnedBy`), and each workspace's pull requests.
+/// What the session tree draws: which workspace's agent started each workspace's agent (as acpmux
+/// keeps `spawnedBy`), and each workspace's pull requests.
 public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     /// A child workspace to the workspace whose session started it.
     public var parents: [WorkspaceID: WorkspaceID]
@@ -121,84 +121,156 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     public var states: [WorkspaceID: SidebarAgentState]
     /// Parents whose subtree the user folded: their descendants draw as the parent's roll-up.
     public var collapsed: Set<WorkspaceID>
+    /// Parents below the top level the user opened (`foldsDeep` folds the others).
+    public var opened: Set<WorkspaceID>
+    /// Lineage nesting's default (Leo 2026-10-21, "didn't need to show up on the side by default"):
+    /// a parent drawn below the top level starts folded, so a coordinator shows its lanes and each
+    /// lane's own sessions wait in its roll-up until opened.
+    public var foldsDeep: Bool
 
     public init(parents: [WorkspaceID: WorkspaceID] = [:], pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:],
-                states: [WorkspaceID: SidebarAgentState] = [:], collapsed: Set<WorkspaceID> = []) {
+                states: [WorkspaceID: SidebarAgentState] = [:], collapsed: Set<WorkspaceID> = [],
+                opened: Set<WorkspaceID> = [], foldsDeep: Bool = false) {
         self.parents = parents
         self.pullRequests = pullRequests
         self.states = states
         self.collapsed = collapsed
+        self.opened = opened
+        self.foldsDeep = foldsDeep
     }
 
-    /// Whether a folded ancestor hides `id` (its roll-up counts it).
-    public func hidesInFold(_ id: WorkspaceID) -> Bool {
-        guard !collapsed.isEmpty else { return false }
+    /// Whether the parent `id`, drawn at `depth`, folds its subtree: the user folded it, or it is
+    /// below the top level (`foldsDeep`) and the user did not open it.
+    public func isFolded(_ id: WorkspaceID, depth: Int) -> Bool {
+        collapsed.contains(id) || (foldsDeep && depth > 0 && !opened.contains(id))
+    }
+
+    /// The ancestors `id` draws under in one list, nearest first, as `SidebarLayout.treeChildren` nests it: the
+    /// chain of parents `inList` holds; a parent outside the list ends it (that row is a root there). A chain that
+    /// runs into a cycle draws no nesting at all: empty.
+    public func drawnAncestors(of id: WorkspaceID, inList: (WorkspaceID) -> Bool) -> [WorkspaceID] {
         var seen: Set<WorkspaceID> = [id]
+        var ancestors: [WorkspaceID] = []
         var current = id
-        while let parent = parents[current], seen.insert(parent).inserted {
-            if collapsed.contains(parent) { return true }
+        while let parent = parents[current], inList(parent) {
+            guard seen.insert(parent).inserted else { return [] } // a cycle: every row of it is a root
+            ancestors.append(parent)
             current = parent
         }
-        return false
+        return ancestors
+    }
+
+    /// Whether a folded ancestor hides `id` (its roll-up counts it) in one of `lists`, each a membership test of
+    /// one list that lists `id` (the sidebar model's `listsHolding`: a workspace may be listed twice).
+    public func hidesInFold(_ id: WorkspaceID, lists: [(WorkspaceID) -> Bool]) -> Bool {
+        guard !collapsed.isEmpty || foldsDeep else { return false }
+        return lists.contains { list in
+            let ancestors = drawnAncestors(of: id, inList: list)
+            // The last ancestor is the root (depth 0); each one before it is one deeper.
+            return ancestors.enumerated().contains { isFolded($0.element, depth: ancestors.count - 1 - $0.offset) }
+        }
     }
 
     /// Whether a patch from `old` to `new` changes a folded ancestor's roll-up: `new` hides in a fold
     /// and its counted state moved. A hidden session's step, title or preview (many a second while
-    /// it works) changes nothing drawn, so it lays nothing out (ask-268456b5a0).
-    public func patchChangesRollUp(from old: SidebarWorkspace?, to new: SidebarWorkspace) -> Bool {
-        guard hidesInFold(new.id) else { return false }
+    /// it works) changes nothing drawn, so it lays nothing out (ask-268456b5a0). `lists` as ``hidesInFold(_:lists:)``
+    /// takes them; by default one list holding every row.
+    public func patchChangesRollUp(from old: SidebarWorkspace?, to new: SidebarWorkspace,
+                                   lists: [(WorkspaceID) -> Bool] = [{ _ in true }]) -> Bool {
+        guard hidesInFold(new.id, lists: lists) else { return false }
         guard let old else { return true }
         let lane = states[new.id]
         return SidebarAgentState.of(old, lane: lane) != SidebarAgentState.of(new, lane: lane)
     }
 
     /// What the order and the Command-numbers need: the parents and the folds.
-    public var shape: SidebarSessionTreeState { SidebarSessionTreeState(parents: parents, collapsed: collapsed) }
+    public var shape: SidebarSessionTreeState {
+        SidebarSessionTreeState(parents: parents, collapsed: collapsed, opened: opened, foldsDeep: foldsDeep)
+    }
 }
 
-/// The session tree's live state; nil while `sidebar.sessionTree` is off, so the list draws as
-/// before. The app's feed (`SidebarSessionTreeFeed`) writes it; the list and Command-number order read it.
+/// The session tree's live state; nil while both `sidebar.sessionTree` and lineage nesting
+/// (`SidebarTunables.lineageNesting`) are off, so the list draws as before. The app's feed (`SidebarSessionTreeFeed`) writes it; the list and Command-number order read it.
 @Observable @MainActor
 public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
     public var state: SidebarSessionTreeState?
+    /// The lineage drawn last while acpmux's lanes were live (child to parent), kept across launches: the last run's,
+    /// then this run's. While the lanes are not live (a launch before the watch's first page, a watch gap) the feed
+    /// keeps these parents, so the rows nest from the first frame as they were and nothing un-nests and nests again
+    /// when the lanes land (Leo, 2026-11-22, after a relaunch: "the sidebar re-rendered/re-ordered with some
+    /// animations").
+    @ObservationIgnored public var savedParents: [WorkspaceID: WorkspaceID] = [:] {
+        didSet {
+            guard savedParents != oldValue else { return }
+            defaults.set(Dictionary(uniqueKeysWithValues: savedParents.map { ($0.key.rawValue, $0.value.rawValue) }),
+                         forKey: Self.lineageKey)
+        }
+    }
     /// Every row's pull request badge, with the tree on or off.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>
+    /// The parents below the top level the user opened (they start folded), kept across launches.
+    public private(set) var opened: Set<WorkspaceID>
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
+        opened = Set((defaults.stringArray(forKey: Self.openedKey) ?? []).map(WorkspaceID.init))
+        savedParents = Dictionary(((defaults.dictionary(forKey: Self.lineageKey) as? [String: String]) ?? [:])
+            .map { (WorkspaceID($0.key), WorkspaceID($0.value)) }) { first, _ in first }
+        // The first frame nests its rows as the last run drew them.
+        if !savedParents.isEmpty, SidebarTunables.lineageNesting.value { state = SidebarSessionTreeState(parents: savedParents) }
     }
 
-    /// What the list draws: the live state with the user's folds; nil while the tree is off.
+    /// Forgets the saved lineage, and the tree it seeded if no feed pass replaced it (no acpmux here: no lanes will).
+    public func dropSavedLineage() {
+        if let seeded = state, seeded == SidebarSessionTreeState(parents: savedParents) { state = nil }
+        savedParents = [:]
+    }
+
+    /// What the list draws: the live state with the user's folds, a parent below the top level
+    /// folded until opened; nil while the tree is off.
     public var drawn: SidebarSessionTreeState? {
         state.map { live in
             var drawn = live
-            drawn.collapsed = collapsed
+            (drawn.collapsed, drawn.opened, drawn.foldsDeep) = (collapsed, opened, true)
             return drawn
         }
     }
 
-    /// Folds or opens the subtree under `id`.
-    public func toggle(_ id: WorkspaceID) {
-        if collapsed.remove(id) == nil { collapsed.insert(id) }
-        save()
+    /// Folds or opens the subtree under `id`. `folded`: whether its row draws it folded now (a
+    /// parent below the top level starts folded); nil reads the user's own fold. `keeping`: the rows
+    /// that are parents of subagents (a chat's subagents nest under its row, `SidebarSubagentStrip`),
+    /// whose folds stay though no session lists under them.
+    public func toggle(_ id: WorkspaceID, folded: Bool? = nil, keeping: Set<WorkspaceID> = []) {
+        if folded ?? collapsed.contains(id) {
+            collapsed.remove(id)
+            opened.insert(id)
+        } else {
+            collapsed.insert(id)
+            opened.remove(id)
+        }
+        save(keeping: keeping)
     }
 
-    /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
-    public func reveal(_ id: WorkspaceID) {
-        var seen: Set<WorkspaceID> = [id]
-        var current = id, opened = collapsed
-        while let parent = state?.parents[current], seen.insert(parent).inserted {
-            opened.remove(parent)
-            current = parent
+    /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to) in each of `lists`
+    /// (`hidesInFold`): only the parents it draws under there, so a parent in another list, or a cycle, opens nothing.
+    public func reveal(_ id: WorkspaceID, lists: [(WorkspaceID) -> Bool]) {
+        guard let state else { return }
+        var folds = collapsed, opens = opened
+        for list in lists {
+            let ancestors = state.drawnAncestors(of: id, inList: list)
+            for (n, parent) in ancestors.enumerated() {
+                folds.remove(parent)
+                if n < ancestors.count - 1 { opens.insert(parent) } // a parent below the top level
+            }
         }
-        guard opened != collapsed else { return }
-        collapsed = opened
+        guard folds != collapsed || opens != opened else { return }
+        (collapsed, opened) = (folds, opens)
         save(pruning: false)
     }
 
@@ -207,13 +279,17 @@ public final class SidebarSessionTree {
     /// prunes only on the user's own fold while the tree has parents: before the first pass every
     /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
     /// may still be loading) never prunes.
-    private func save(pruning: Bool = true) {
+    private func save(pruning: Bool = true, keeping: Set<WorkspaceID> = []) {
         if pruning, let parents = state?.parents, !parents.isEmpty {
-            let live = Set(parents.values)
+            let live = Set(parents.values).union(keeping)
             collapsed = collapsed.filter(live.contains)
+            opened = opened.filter(live.contains)
         }
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
+        defaults.set(opened.map(\.rawValue).sorted(), forKey: Self.openedKey)
     }
 
     static let collapsedKey = "sidebar.sessionTree.collapsed"
+    static let openedKey = "sidebar.sessionTree.opened"
+    static let lineageKey = "sidebar.sessionTree.savedLineage"
 }

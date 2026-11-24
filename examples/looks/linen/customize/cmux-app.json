@@ -1,0 +1,18 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "Linen sidebar" },
+  "version": "1.0.0",
+  "description": "Linen's hover card and sidebar rows: a message-preview card (title and age, then a gray preview) and plain history rows with a thin spinner.",
+  "engines": { "cmux": "^2.0" },
+  "repository": "https://github.com/local/customize",
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.hovercard/1": { "export": "renderCard" },
+    "cmux.sidebar.rows/1": { "export": "decorateRows" }
+  },
+  "scopes": { "workspace:read": "Name the rows to decorate." },
+  "activation": ["onInterface:cmux.hovercard/1", "onInterface:cmux.sidebar.rows/1"],
+  "files": ["main.js"]
+}

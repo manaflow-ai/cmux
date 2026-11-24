@@ -42,10 +42,19 @@ pub(crate) fn run() -> anyhow::Result<()> {
         let _ = records::write(&records::dir(&home), &record);
     }
     let command = match helper::resolve(&home) {
-        Ok(resolved) => serve_command(resolved.executable),
+        Ok(resolved) => {
+            // The helper's own grants, read in its process before it captures: `cmux
+            // remote-host grants` names the item that captures, never a stale null.
+            helper::read_grants(&home, &resolved.executable);
+            serve_command(resolved.executable)
+        }
         Err(why) => {
             eprintln!("{LOG}: session {}: no helper: {why}", ticket.session_id);
-            if let Err(e) = hub.end(&ticket.session_id, "failed") {
+            // The viewer's card says why (a helper that failed its signature check, none
+            // installed), with this user's home folder written as `~`.
+            let reason =
+                session::failed_reason(&no_helper_reason(&why, dirs::home_dir().as_deref()));
+            if let Err(e) = hub.end(&ticket.session_id, &reason) {
                 eprintln!("{LOG}: end not sent: {e}");
             }
             records::remove_if(&records::dir(&home), &ticket.session_id, std::process::id());
@@ -90,11 +99,22 @@ pub(crate) fn serve_one(
         cmux_hub_host::printable(&ticket.peer_name)
     );
     let ended = session::serve(hub, ticket, view_only, command, stop);
-    if let Some(reason) = ended.tell_hub
+    if let Some(reason) = ended.tell_hub.as_deref()
         && let Err(e) = hub.end(&ticket.session_id, reason)
     {
         eprintln!("{LOG}: end not sent: {e}");
     }
     records::remove_if(dir, &ticket.session_id, std::process::id());
     ended
+}
+
+/// The `/end` text for a share with no helper that may run: `no Screen Sharing helper: <why>`,
+/// where `why` names each helper refused and its reason (`helper::resolve`), with `home` (this
+/// user's folder, in a staging path) written as `~` so the hub's record names no account.
+pub(crate) fn no_helper_reason(why: &str, home: Option<&Path>) -> String {
+    let why = match home.and_then(Path::to_str).filter(|h| h.len() > 1) {
+        Some(home) => why.replace(home, "~"),
+        None => why.to_owned(),
+    };
+    format!("no Screen Sharing helper: {why}")
 }

@@ -3,17 +3,22 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?},
-//!    gatesQueueApproval?}`: the chat stops
-//!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
-//!    `interrupt`), and its bundle (`transfer.rs` export) is made. A turn `interrupt` stops goes
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, atToolBoundary?, afterTurn?, to?:
+//!    {socket, ssh?, host?}, gatesQueueApproval?}`: the chat stops
+//!    taking prompts and starting queued ones (a running turn refuses the move, stops with
+//!    `interrupt`, or with `atToolBoundary` stops once no tool call of it runs and until then
+//!    answers `transfer.tool_in_flight`: [`TurnCut`]; with `afterTurn` the begin first waits,
+//!    unfrozen, for the turn to end on its own), and its bundle (`transfer.rs` export) is
+//!    made. A turn the move stops goes
 //!    on: its continuation is queued first (`restart_resume.rs`, reason `moved`), so it runs where
 //!    the chat lands, or here when the move is aborted. Answers `{schema, transferId,
 //!    sessionId, files: [{path, size}], session, continues?}` (`continues`: that continuation's
 //!    prompt id): the manifest the target takes. `to` names the
 //!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
 //!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`);
-//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move.
+//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move. With
+//!    `hub` (no `socket`), the target is a machine only the team hub reaches, by its hub
+//!    `daemonId`: it pulls the pages itself (`transfer_pull.rs`), and only it may.
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -101,8 +106,53 @@ pub(super) fn sweep_transfers(moving: &[String]) {
     }
 }
 
+/// How `transfer_begin` treats a running turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::hub) enum TurnCut {
+    /// Refuses the move (`transfer.busy`): no `interrupt`, no `atToolBoundary`.
+    Refuse,
+    /// Cuts it now (`interrupt`), a tool call in flight or not.
+    Now,
+    /// Cuts it only while no tool call of it runs (`atToolBoundary`): between a tool's result and
+    /// the model's next step, or while it waits on the person's permission, when nothing it
+    /// started is under way. Else `transfer.tool_in_flight`, and the client asks again. Every tool
+    /// result so far is in the agent's transcript, which the bundle carries, and the turn's
+    /// continuation (`restart_resume.rs` `Cut::Move`) goes on from it on the target. Leo,
+    /// 2026-11-21: "you're supposed to be able to move shit while it's running. that's teh whole
+    /// point."
+    AtToolBoundary,
+}
+
+/// The `transfer.` code of a begin that waits for a tool call to end ([`TurnCut::AtToolBoundary`]).
+pub(crate) const TOOL_IN_FLIGHT: &str = "tool_in_flight";
+
+/// Whether a tool call `doing` holds in flight runs: one that only waits on the person's answer to
+/// a permission request in `pending` (`Session::pending_permissions`) has not started.
+pub(in crate::hub) fn tool_runs(
+    doing: &super::activity::TurnActivity,
+    pending: &[(String, Value)],
+) -> bool {
+    if doing.open_past_cap > 0 {
+        return true;
+    }
+    let asked: std::collections::BTreeSet<&str> = pending
+        .iter()
+        .filter_map(|(_, r)| r.pointer("/toolCall/toolCallId").and_then(Value::as_str))
+        .collect();
+    doing.open_tools.iter().any(|id| !asked.contains(id.as_str()))
+}
+
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
+}
+
+/// Claim the one move lease while its caller holds `Session::moving`.
+fn claim_transfer(moving: &mut Option<String>, transfer_id: &str) -> bool {
+    if moving.is_some() {
+        return false;
+    }
+    *moving = Some(transfer_id.to_owned());
+    true
 }
 
 /// Reads the fencing epoch persisted beside an outgoing transfer. Old bundles have no marker and
@@ -212,9 +262,53 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
 }
 
+/// Where a move's begin token is kept, in its bundle folder.
+const BEGIN_TOKEN_FILE: &str = "begin-token";
+
+/// A client's begin token: 1 to 128 of `[A-Za-z0-9_-]`.
+fn is_begin_token(token: &str) -> bool {
+    (1..=128).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The begin token the client that began move `transfer_id` gave, if it gave one: a
+/// `transfer.moving` refusal hands it back, so that client alone can tell the move is its own.
+pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
+    if !names_a_move(transfer_id) {
+        return None;
+    }
+    let dir = inside(&transfers_dir(), transfer_id).ok()?;
+    let token = std::fs::read_to_string(dir.join(BEGIN_TOKEN_FILE)).ok()?;
+    let token = token.trim();
+    is_begin_token(token).then(|| token.to_owned())
+}
+
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_history.rs"]
+pub(super) mod transfer_history;
+#[path = "transfer_live.rs"]
+pub(super) mod transfer_live;
+#[path = "transfer_precopy.rs"]
+pub(super) mod transfer_precopy;
+
+/// The longest a move that waits for the running turn (`afterTurn`) waits for it to end. The
+/// turn lock is fair, so a prompt queued before the move runs first; the queue's later prompts
+/// move with the chat.
+const AFTER_TURN_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// How often a move that waits for the running turn looks again for a turn that holds no lock.
+const AFTER_TURN_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// How long a `transfer_begin` with `afterTurn` waits for the running turn: its
+/// `afterTurnTimeoutMs` (the mover's `--timeout`), at most [`AFTER_TURN_WAIT`]; that when absent.
+pub(super) fn after_turn_wait(params: &Value) -> std::time::Duration {
+    params
+        .get("afterTurnTimeoutMs")
+        .and_then(Value::as_u64)
+        .map(std::time::Duration::from_millis)
+        .map_or(AFTER_TURN_WAIT, |d| d.min(AFTER_TURN_WAIT))
+}
 
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
@@ -251,11 +345,75 @@ impl Hub {
                 }
                 let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
                 let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
+                // A machine only the team hub reaches: its hub `daemonId`, which alone may pull
+                // the move's pages (`transfer_pull.rs`).
+                let hub = to.and_then(|to| to.get("hub")).and_then(Value::as_str);
+                if let Some(hub) = hub {
+                    let plain = (8..=128).contains(&hub.len())
+                        && hub.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b));
+                    if !plain || socket.is_some() || ssh.is_some() {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `to.hub` needs a plain hub daemon id, and no socket or ssh",
+                        ));
+                    }
+                }
                 // The client hands the bundle only to a receiver whose own `initialize` listed
                 // queue approval when it carries approved prompts that still wait.
                 let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, socket, ssh, host, gates).await
+                // A pre-copied move (`transfer_precopy.rs`): the bundle holds only what follows.
+                let precopy = match (params.get("prepareId"), params.get("afterSeq")) {
+                    (None, None) => None,
+                    (Some(Value::String(id)), Some(after)) if after.is_u64() => {
+                        Some((id.as_str(), after.as_u64().unwrap_or(0)))
+                    }
+                    _ => {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `prepareId` and `afterSeq` go together",
+                        ));
+                    }
+                };
+                // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
+                let after_turn =
+                    !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
+                // A running turn is cut only between its tool calls (`transfer_begin`).
+                let at_boundary =
+                    params.get("atToolBoundary").and_then(Value::as_bool) == Some(true);
+                let cut = match (interrupt, at_boundary) {
+                    (true, _) => TurnCut::Now,
+                    (false, true) => TurnCut::AtToolBoundary,
+                    (false, false) => TurnCut::Refuse,
+                };
+                // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
+                let turn_wait = after_turn.then(|| after_turn_wait(params));
+                // The client's own mark for this begin, handed back by a `transfer.moving`
+                // refusal of the move it began (`begin_token`).
+                let token = params.get("beginToken").and_then(Value::as_str);
+                if token.is_some_and(|t| !is_begin_token(t)) {
+                    return Err(RpcError::invalid_params(
+                        "transfer: `beginToken` must be 1 to 128 of [A-Za-z0-9_-]",
+                    ));
+                }
+                let to = (socket, ssh, host, hub);
+                self.transfer_begin(&session, (cut, turn_wait), to, gates, token, precopy).await
             }
+            "hub" => self.transfer_hub(params).await,
+            "prepare" => {
+                // `historyLater: {keepTurns}`: the history follows the chat (`transfer_history.rs`).
+                let keep = params.get("historyLater").filter(|l| !l.is_null());
+                let keep = keep.map(|l| l.get("keepTurns").and_then(Value::as_u64).unwrap_or(1));
+                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"), keep)
+            }
+            "history_have" => self.transfer_history_have(params),
+            "history_export" => {
+                self.transfer_history_export(&self.resolve(text("sessionId"))?, params)
+            }
+            "history" => self.transfer_history(&self.resolve(text("sessionId"))?, params),
+            "base" => self.transfer_base(params),
+            "stage" => self.transfer_stage(params),
+            "stage_finish" => self.transfer_stage_finish(params),
+            "digest" => self.transfer_digest(params),
+            "end_stale" => self.transfer_end_stale(params).await,
+            "progress" => self.transfer_progress(params),
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
@@ -280,11 +438,14 @@ impl Hub {
             "commit" => {
                 let session = self.resolve(text("sessionId"))?;
                 let to = params.get("to").cloned().unwrap_or(Value::Null);
+                // What the client measured of the freeze (`{ms, bytes}`), for the receipt.
+                let freeze = params.get("freeze").filter(|f| f.is_object()).cloned();
                 self.transfer_commit_with_epoch(
                     &session,
                     text("transferId"),
                     to,
                     parse_epoch(params.get("epoch"))?,
+                    freeze,
                 )
                 .await
             }
@@ -297,6 +458,7 @@ impl Hub {
                     parse_epoch(params.get("epoch"))?,
                 )
             }
+            "preflight" => self.transfer_preflight(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
@@ -305,15 +467,21 @@ impl Hub {
         }
     }
 
-    /// Freezes the chat for its move and makes its bundle.
+    /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
+    /// running turn is neither refused nor stopped: the move first waits (that long) for the
+    /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
+    /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle. With
+    /// `precopy` (a prepare and its last seq), the bundle holds the log past that seq alone, once
+    /// the prefix is checked (`transfer_precopy.rs`).
+    #[allow(clippy::too_many_arguments)]
     async fn transfer_begin(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        interrupt: bool,
-        to: Option<&str>,
-        to_ssh: Option<&str>,
-        to_host: Option<&str>,
+        (cut, after_turn): (TurnCut, Option<std::time::Duration>),
+        (to, to_ssh, to_host, to_hub): (Option<&str>, Option<&str>, Option<&str>, Option<&str>),
         gates_receiver: bool,
+        begin_token: Option<&str>,
+        precopy: Option<(&str, u64)>,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
@@ -326,21 +494,95 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
+        // Taken before the freeze, so nothing is refused while the turn finishes: its
+        // permission answers, steering and new prompts go in as usual.
+        // The lock alone is not the turn: a turn an agent host runs (a chat whose host is
+        // another build's, `hosts.rs`) or one recovered from it holds no lock, so the wait is
+        // for both the lock and no turn (2026-11-22: `--after-turn` refused a coordinator's move
+        // at once with "a turn is running").
+        let early = if let Some(wait) = after_turn {
+            let deadline = tokio::time::Instant::now() + wait;
+            let busy = || {
+                let why = format!(
+                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    wait.as_secs()
+                );
+                transfer_error("busy", why)
+            };
+            loop {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                let Ok(guard) = tokio::time::timeout(left, session.turn_lock.lock()).await else {
+                    return Err(busy());
+                };
+                if session.turn().is_none() {
+                    break Some(guard);
+                }
+                drop(guard);
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(busy());
+                }
+                tokio::time::sleep(AFTER_TURN_POLL).await;
+            }
+        } else {
+            None
+        };
+        // The wait may have outlasted the chat's stay here (another move took it meanwhile).
+        if let Some(to) = session.meta().moved_to {
+            return Err(moved_error(&to));
+        }
+        self.refuse_while_history_awaited(session)?;
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
+        // The freeze begins when the chat is marked moving, just below: its length to this
+        // begin's answer is `frozenMs`, the share of a move's freeze this daemon can time.
+        let frozen_at = std::time::Instant::now();
         // This begin holds the move's watch until it starts it, below: a watch that ran now
         // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
         // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
-        let watch = {
-            let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(other) = moving.as_ref() {
-                let e = transfer_error("moving", "this chat is already being moved");
-                return Err(e.with_data(json!({"transferId": other})));
+        // If the old driver stopped heartbeating before it read the bundle to its end, abort
+        // that fenced move first. The target cannot have finished such a bundle, so retrying
+        // cannot create a second chat or lose the original.
+        let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
+        let watch = loop {
+            let other = session.moving();
+            let Some(other) = other else {
+                let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+                if claim_transfer(&mut moving, &transfer_id) {
+                    let watch = self.claim_move_watch(&transfer_id);
+                    break watch;
+                }
+                continue;
+            };
+            let old_dir = transfers_dir().join(&other);
+            let idle = super::transfer_watch::idle_for(&old_dir);
+            let fully_read = super::transfer_watch::fully_read(&old_dir);
+            if super::transfer_watch::takeover_allowed(idle, fully_read, lease) {
+                let epoch =
+                    transfer_epoch_marker(&old_dir)?.or_else(|| Some(session.ownership_epoch()));
+                if self
+                    .transfer_abort_with_epoch(session, &other, Some("stalled_driver"), epoch)
+                    .is_ok()
+                {
+                    continue;
+                }
             }
-            let watch = self.claim_move_watch(&transfer_id);
-            *moving = Some(transfer_id.clone());
-            watch
+            let age = idle.map_or_else(|| "an unknown time".to_owned(), |d| format!("{d:?} ago"));
+            let e = transfer_error(
+                "moving",
+                format!(
+                    "this chat is already being moved by transfer {other} (last heartbeat {age}); retry after the {}-second lease to take it over",
+                    lease.as_secs()
+                ),
+            );
+            let mut data = json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"});
+            if let Some(token) = moving_begin_token(&other) {
+                data.set("beginToken", json!(token));
+            }
+            return Err(e.with_data(data));
         };
+        // The move fence is the freeze boundary. It is taken only after an optional
+        // `--after-turn` wait and before cancelling a running turn or exporting its bundle.
+        let freeze_started_at_ms = crate::store::now_ms();
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -358,8 +600,11 @@ impl Hub {
         };
         // No turn may run while the bundle is made: one that runs stops only if asked.
         if let Some(running) = session.turn().map(|t| t.turn_id) {
-            if !interrupt {
-                return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
+            match cut {
+                TurnCut::Refuse => {
+                    return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
+                }
+                TurnCut::AtToolBoundary | TurnCut::Now => {}
             }
             // A Stop while Claude compacts withdraws the person's queued prompts (`cancel.rs`):
             // the move waits for the compaction instead of losing them.
@@ -370,7 +615,33 @@ impl Hub {
                 let e = transfer_error("busy", "the chat is compacting; move it once that ends");
                 return Err(unfreeze(e, None));
             }
-            carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
+            // `TurnCut::AtToolBoundary`: the turn's tool calls are read fresh here, after the
+            // last await before the Stop is sent, so the window is the agent's own step from
+            // here to the Stop. A call it starts in that window is cut with the turn, as
+            // `interrupt` cuts it, and the continuation names it (`restart_resume.rs`); only a
+            // harness that stops at a boundary on its own could close it.
+            if cut == TurnCut::AtToolBoundary
+                && session
+                    .turn()
+                    .is_some_and(|t| tool_runs(&t.doing, &session.pending_permissions()))
+            {
+                let e = transfer_error(
+                    TOOL_IN_FLIGHT,
+                    "a tool call of the running turn is in flight; the move cuts the turn once it ends",
+                );
+                return Err(unfreeze(e, None));
+            }
+            // At a tool boundary with no background work of the turn's, nothing was cut short:
+            // the continuation says so, and Claude Code goes on from its own transcript with no
+            // prompt of acpmux's (`claude_stdio/resume_cut.rs`). `--interrupt`, or a turn with a
+            // background shell or subagent (which did not come along and must be told so), keeps
+            // the continuation's text.
+            let how = if cut == TurnCut::AtToolBoundary && !self.runs_background_work(session) {
+                super::auto_resume::Cut::MoveAtBoundary
+            } else {
+                super::auto_resume::Cut::Move
+            };
+            carried = self.log_continuation(session, &running, how);
             // Its place at the head, as a record of its own: a guarded target drops the
             // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
             if let Some(id) = &carried {
@@ -392,15 +663,32 @@ impl Hub {
             }
         }
         let carried = carried.as_deref();
-        let wait = std::time::Duration::from_secs(if interrupt { 20 } else { 2 });
-        let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
-            return Err(unfreeze(transfer_error("busy", "the running turn did not stop"), carried));
+        let guard = match early {
+            Some(guard) => guard,
+            None => {
+                let wait =
+                    std::time::Duration::from_secs(if cut == TurnCut::Refuse { 2 } else { 20 });
+                let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
+                    let e = transfer_error("busy", "the running turn did not stop");
+                    return Err(unfreeze(e, carried));
+                };
+                guard
+            }
         };
         // A turn recovered from an agent host runs before its task takes the lock (`hosts.rs`).
         if session.turn().is_some() {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
+        // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
+        let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
+            Some(Err(error)) => {
+                drop(guard);
+                return Err(unfreeze(error, carried));
+            }
+            Some(Ok(prefix)) => Some(prefix),
+            None => None,
+        };
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -410,11 +698,22 @@ impl Hub {
                 carried,
             ));
         }
+        // A history-later prepare folded its prefix and copied the agent's files: the freeze
+        // reads only what came after (`transfer_precopy.rs` `PrefixFold`).
+        let mut folded = prefix.as_mut().and_then(|p| p.folded.take());
+        let grown = folded.as_ref().map(|f| (f.native_dir.as_path(), &f.native));
         let made = self
-            .export(session, &dir)
+            .export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let approved_waiting = self.held_prompts(&bundle)?;
+                let approved_waiting = match folded.as_mut() {
+                    Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
+                    None => {
+                        let prefix_seq =
+                            prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                        self.held_prompts_with(prefix_seq, &bundle)?
+                    }
+                };
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),
@@ -438,7 +737,13 @@ impl Hub {
                 return Err(if logged { unfreeze(error, carried) } else { error });
             }
         };
-        if let Err(error) = self.restore_ownership_epoch(session) {
+        let restored = match (&folded, &prefix) {
+            (Some(f), Some(p)) => self
+                .ownership_epoch_after(&session.id, p.after_seq, f.epoch)
+                .map(|epoch| session.restore_ownership_epoch(epoch)),
+            _ => self.restore_ownership_epoch(session),
+        };
+        if let Err(error) = restored {
             drop(guard);
             return Err(unfreeze(
                 transfer_error("store", format!("ownership epoch unreadable: {error}")),
@@ -478,8 +783,24 @@ impl Hub {
         if let Some(host) = to_host {
             let _ = crate::home_fs::write(dir.join("to-host"), host);
         }
+        // Written before the begin answers: no page is served before it names the target.
+        if let Some(daemon) = to_hub
+            && let Err(error) =
+                crate::home_fs::write(dir.join(super::transfer_pull::TO_HUB), daemon)
+        {
+            tracing::warn!(session = %session.id, transfer_id = %transfer_id, "recording a hub move's target: {error}");
+        }
         if let Some(id) = carried {
             let _ = crate::home_fs::write(dir.join("continues"), id);
+        }
+        // Beside the bundle, which a restart keeps while the log says the move runs
+        // (`queue_restore.rs`), and written only once the move is begun: a client that lost
+        // this answer ends only a move whose begin is done.
+        if let Some(token) = begin_token {
+            let _ = crate::home_fs::write(dir.join(BEGIN_TOKEN_FILE), token);
+        }
+        if let Some(prefix) = &prefix {
+            let _ = crate::home_fs::write(dir.join("prepared"), &prefix.prepare_id);
         }
         let _ = crate::home_fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
@@ -500,9 +821,16 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "freezeStartedAtMs": freeze_started_at_ms,
+            "frozenMs": u64::try_from(frozen_at.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        if let Some(p) = prefix {
+            let named =
+                json!({"prepareId": p.prepare_id, "afterSeq": p.after_seq, "token": p.token});
+            answer.set("prefix", named);
         }
         // The receiver refuses the bundle unless it understands them (`transfer_in.rs`), and the
         // client hands it only to one that listed queue approval.
@@ -593,6 +921,7 @@ impl Hub {
         transfer_id: &str,
         to: Value,
         epoch: Option<u64>,
+        freeze: Option<Value>,
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
         let current = require_valid_epoch(session)?;
@@ -622,13 +951,15 @@ impl Hub {
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        self.append(
-            session,
-            "mux",
-            "transferred",
-            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
-        );
+        let mut moved =
+            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()});
+        if let Some(freeze) = freeze {
+            moved.set("freeze", freeze);
+        }
+        self.append(session, "mux", "transferred", moved);
         self.kill(session, false).await?;
+        self.note_shipped(session, transfer_id);
+        transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
@@ -756,6 +1087,20 @@ mod fencing_tests {
     use super::*;
 
     #[test]
+    fn a_tool_call_runs_unless_it_only_waits_on_a_permission() {
+        let mut doing = super::super::activity::TurnActivity::default();
+        assert!(!tool_runs(&doing, &[]), "no tool call: a move may stop the turn");
+        doing.open_tools.insert("t-1".into());
+        assert!(tool_runs(&doing, &[]), "a call in flight runs");
+        let asked = json!({"toolCall": {"toolCallId": "t-1"}});
+        assert!(!tool_runs(&doing, &[("r".into(), asked.clone())]), "it waits on the person");
+        doing.open_tools.insert("t-2".into());
+        assert!(tool_runs(&doing, &[("r".into(), asked)]), "another call runs beside it");
+        let past = super::super::activity::TurnActivity { open_past_cap: 1, ..Default::default() };
+        assert!(tool_runs(&past, &[]), "a call past the id cap runs");
+    }
+
+    #[test]
     fn a_delayed_owner_is_rejected_for_every_transfer_write_path() {
         // The four protocol operations all use the same fencing predicate. Keep this table
         // explicit so a new endpoint cannot silently accept an old host's epoch.
@@ -794,5 +1139,39 @@ mod fencing_tests {
         assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
         assert!(parse_epoch(Some(&json!("7"))).is_err());
         assert!(parse_epoch(Some(&json!(null))).is_err());
+    }
+
+    #[test]
+    fn concurrent_transfer_claims_have_one_winner() {
+        use std::sync::{Arc, Mutex};
+        let moving = Arc::new(Mutex::new(None));
+        let mut threads = Vec::new();
+        for id in ["first", "second"] {
+            let moving = moving.clone();
+            threads.push(std::thread::spawn(move || {
+                let mut moving = moving.lock().unwrap();
+                claim_transfer(&mut moving, id)
+            }));
+        }
+        let winners = threads.into_iter().filter_map(|t| t.join().ok()).filter(|won| *won).count();
+        assert_eq!(winners, 1);
+    }
+}
+
+#[cfg(test)]
+mod after_turn_wait_tests {
+    use super::{AFTER_TURN_WAIT, after_turn_wait};
+    use serde_json::json;
+    use std::time::Duration;
+
+    /// Item C: the mover's `--timeout` bounds the daemon's wait for the turn, never past 15 min.
+    #[test]
+    fn the_movers_timeout_bounds_the_wait_for_the_turn() {
+        assert_eq!(after_turn_wait(&json!({})), AFTER_TURN_WAIT);
+        assert_eq!(
+            after_turn_wait(&json!({"afterTurnTimeoutMs": 30_000})),
+            Duration::from_secs(30)
+        );
+        assert_eq!(after_turn_wait(&json!({"afterTurnTimeoutMs": u64::MAX})), AFTER_TURN_WAIT);
     }
 }

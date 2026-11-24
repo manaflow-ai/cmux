@@ -25,6 +25,12 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         /// The active theme file sets the key, over cmux-next.json's value (`ThemeFileOverlay`).
         /// Settings says so at the row; no toast.
         case setByThemeFile
+        /// The active theme file sets the key, and the person's own value applies over it
+        /// (`appearance.themeFileExceptions`). Settings says so at the row; no toast.
+        case overThemeFile
+        /// `ui.reducedBackgrounds` is on, so the window background keys do not draw
+        /// (`ReducedBackgroundsSetting`). Settings says so at the row; no toast.
+        case plainBackgrounds
     }
     public let kind: Kind
     /// Dotted key path of the offending entry.
