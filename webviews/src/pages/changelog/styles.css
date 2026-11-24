@@ -786,3 +786,121 @@ html[data-cmux-page="changelog"] {
 }
 /* Grid: an area's rows in two columns once each can be 360px wide. */
 .cls-grid .cls-rows { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); column-gap: var(--ds-space-5); }
+
+/* ---------- The sheet as a release log (Lawrence 2026-11-23, with Conductor's and Linear's changelogs:
+   "drastically improve") ----------
+   Each day is a release post: a rail on the left with a dot, the date (sticky while its day scrolls)
+   and its quiet Versions, and the post beside it: the day's headline large, its picture, then its
+   changes under their app area. A hairline rail joins the dots; days are spaced as posts, with a rule
+   between. The column stays readable (about 76 characters) instead of the pane's whole width. */
+.cls {
+  --cls-rail: 176px;
+  --cls-post: 760px;
+  --cls-column: calc(var(--cls-rail) + var(--ds-space-6) + var(--cls-post));
+  padding-block: var(--ds-space-6) calc(var(--ds-space-6) * 3);
+}
+.cls-masthead {
+  display: grid;
+  grid-template-columns: var(--cls-rail) minmax(0, var(--cls-post));
+  column-gap: var(--ds-space-6);
+  margin-bottom: var(--ds-space-6);
+}
+.cls-title {
+  grid-column: 2;
+  margin: 0;
+  font-size: 2em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: start;
+}
+.cls .cls-day {
+  display: grid;
+  grid-template-columns: var(--cls-rail) minmax(0, var(--cls-post));
+  column-gap: var(--ds-space-6);
+  position: relative;
+  margin: 0;
+  padding-block: var(--ds-space-6);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--page-border, var(--ds-color-separator));
+}
+.cls .cls-day:first-of-type { border-top: 0; padding-top: 0; }
+.cls-rail {
+  position: sticky;
+  top: var(--ds-space-4);
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-1);
+}
+.cls-rail .cls-date {
+  margin: 0;
+  gap: var(--ds-space-2);
+  align-items: center;
+  color: var(--page-text);
+  font-size: var(--text-body);
+  font-weight: 400;
+}
+.cls-dot {
+  flex: none;
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--page-text-3);
+}
+.cls-dot[data-installed] { background: var(--cmux-accent, var(--page-text)); }
+.cls-rail .cl-installed,
+.cls-rail .cls-versions-toggle { margin-inline-start: var(--ds-space-4); }
+.cls-rail .cl-installed {
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--page-hover);
+  color: var(--page-text-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.cls-rail .cls-versions-toggle { height: auto; padding: 0; color: var(--page-text-3); font-weight: 400; }
+.cls-body { min-width: 0; }
+.cls-body > .cls-builds { padding-inline-start: 0; margin-bottom: var(--ds-space-4); }
+.cls-headline {
+  margin: 0 0 var(--ds-space-4);
+  color: var(--page-text);
+  font-size: 1.6em;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.cls-hero-media { margin: 0 0 var(--ds-space-5); border-radius: var(--ds-radius-xl); overflow: hidden; }
+.cls-body .cls-area { margin-top: var(--ds-space-5); }
+.cls-body .cls-area:first-child,
+.cls-headline + .cls-area,
+.cls-hero-media + .cls-area { margin-top: 0; }
+.cls-body .cls-area-head {
+  margin-bottom: var(--ds-space-2);
+  font-size: 1.15em;
+  font-weight: 600;
+}
+.cls-body .cls-area-head .cls-icon { color: var(--page-text-2); }
+/* Each change a bulleted line: its kind's mark in the gutter (New, Fixed, Security), else a dot. */
+.cls-body .cls-rows { row-gap: var(--ds-space-2); line-height: 1.5; }
+.cls-body .cls-row { position: relative; }
+.cls-body .cls-row:not(:has(.cls-kind))::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(-1 * (var(--cls-line) + var(--ds-space-2)) + 8px);
+  top: 0.62em;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--page-text-3);
+}
+.cls-body .cls-row-title { font-weight: 600; }
+.cls-body .cls-row-line { color: var(--page-text-2); }
+/* A narrow pane folds the rail over the post. */
+@media (max-width: 760px) {
+  .cls-masthead,
+  .cls .cls-day { grid-template-columns: minmax(0, 1fr); }
+  .cls-title { grid-column: 1; }
+  .cls-rail { position: static; flex-direction: row; align-items: center; margin-bottom: var(--ds-space-3); }
+  .cls-rail .cl-installed,
+  .cls-rail .cls-versions-toggle { margin-inline-start: 0; }
+}

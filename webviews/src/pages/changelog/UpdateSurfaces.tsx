@@ -53,12 +53,35 @@ import type {
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries } from "./updatedPreview";
-import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
-import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
-import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
+import {
+  PREVIEW_CLOSE_MS,
+  PreviewIntent,
+  plainEntries,
+  previewEntries,
+} from "./updatedPreview";
+import {
+  parsePreviewMode,
+  type UpdatedPreviewMode,
+} from "./updatedPreviewMode";
+import {
+  pressCard,
+  SHIPPED_DRAG_FEEL,
+  type CardDragFeel,
+  type CardDragHost,
+  type CardRow,
+} from "./updatedCardDrag";
+import {
+  PREVIEW_MAX_PX,
+  UpdatedCardPreview,
+  type PreviewLayout,
+  type PreviewTarget,
+} from "./UpdatedCardPreview";
 export type { PreviewLayout } from "./UpdatedCardPreview";
-import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
+import {
+  summarizeHighlights,
+  summarizeUpdate,
+  type SummaryRow,
+} from "./updateSummary";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
  * (UpdateChangelog.cardVersion): every nightly is 1.0.0. Any other version reads as itself. */
@@ -114,7 +137,11 @@ export function CopyVersion({
   useEffect(() => () => clearTimeout(timer.current), []);
   const copy = (event: MouseEvent) => {
     // A pointer click that ends a selection drag selects; Return or Space (detail 0) always copies.
-    if (event.detail !== 0 && globalThis.getSelection?.()?.isCollapsed === false) return;
+    if (
+      event.detail !== 0 &&
+      globalThis.getSelection?.()?.isCollapsed === false
+    )
+      return;
     void copyVersion(version).then(
       () => {
         onCopied(true);
@@ -138,9 +165,19 @@ export function CopyVersion({
 
 /** "What's new in nightly 3845050": the version copies the full build (CopyVersion), then the
  * heading says "· Copied" after it for a moment (2026-10-31: it had the full build in a tooltip). */
-function PopoverTitle({ id, version, strings }: { id: string; version: string; strings: Strings }) {
+function PopoverTitle({
+  id,
+  version,
+  strings,
+}: {
+  id: string;
+  version: string;
+  strings: Strings;
+}) {
   const [copied, setCopied] = useState(false);
-  const [before, after] = strings.format("updates.popover.title", "\u0000").split("\u0000");
+  const [before, after] = strings
+    .format("updates.popover.title", "\u0000")
+    .split("\u0000");
   return (
     <div className="wn-pop-title" id={id}>
       {before}
@@ -148,7 +185,9 @@ function PopoverTitle({ id, version, strings }: { id: string; version: string; s
         {cardVersion(version)}
       </CopyVersion>
       {after}
-      <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
+      <span aria-live="polite">
+        {copied && ` · ${strings.t("updates.card.copied")}`}
+      </span>
     </div>
   );
 }
@@ -156,7 +195,10 @@ function PopoverTitle({ id, version, strings }: { id: string; version: string; s
 /** `text` cut at each mark, the marks kept as parts of their own, in the order the text has them. */
 function splitAtMarks(text: string, marks: string[]): string[] {
   return marks.reduce<string[]>(
-    (parts, mark) => parts.flatMap((part) => part.split(mark).flatMap((piece, i) => (i ? [mark, piece] : [piece]))),
+    (parts, mark) =>
+      parts.flatMap((part) =>
+        part.split(mark).flatMap((piece, i) => (i ? [mark, piece] : [piece])),
+      ),
     [text],
   );
 }
@@ -176,8 +218,12 @@ function PopoverHead({
   strings: Strings;
 }) {
   const [copied, setCopied] = useState(false);
-  if (!from) return <PopoverTitle id={id} version={version} strings={strings} />;
-  const parts = splitAtMarks(strings.format("updates.popover.span", "\u0000", "\u0001"), ["\u0000", "\u0001"]);
+  if (!from)
+    return <PopoverTitle id={id} version={version} strings={strings} />;
+  const parts = splitAtMarks(
+    strings.format("updates.popover.span", "\u0000", "\u0001"),
+    ["\u0000", "\u0001"],
+  );
   return (
     <div className="wn-pop-title wn-pop-span" id={id}>
       {parts.map((part, index) =>
@@ -186,14 +232,22 @@ function PopoverHead({
             {cardVersion(from)}
           </span>
         ) : part === "\u0001" ? (
-          <CopyVersion key={index} version={version} className="wn-pop-span-to" strings={strings} onCopied={setCopied}>
+          <CopyVersion
+            key={index}
+            version={version}
+            className="wn-pop-span-to"
+            strings={strings}
+            onCopied={setCopied}
+          >
             {cardVersion(version)}
           </CopyVersion>
         ) : (
           part
         ),
       )}
-      <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
+      <span aria-live="polite">
+        {copied && ` · ${strings.t("updates.card.copied")}`}
+      </span>
     </div>
   );
 }
@@ -284,10 +338,17 @@ export function UpdatedCard({
   const doodle = (decoration === undefined ? themed : decoration) === "doodle";
   const themedMode = parsePreviewMode(useDecoration("updated-card-preview"));
   const mode = previewMode ?? themedMode;
-  const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
+  const summary = span
+    ? summarizeUpdate(span, strings.language)
+    : summarizeHighlights(readableUpdate(data));
   const top = summary.rows[0];
-  const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
-  const titleKey = data.delivery === "background" ? "updates.card.updatedBehind" : "updates.card.updatedTo";
+  const name = /^[^-]+-nightly\.\d+$/.test(data.version)
+    ? strings.t("updates.card.nightly")
+    : data.version;
+  const titleKey =
+    data.delivery === "background"
+      ? "updates.card.updatedBehind"
+      : "updates.card.updatedTo";
   const [before, after] = strings.format(titleKey, "\u0000").split("\u0000");
   // Every layout opens and closes on the card's curve, with the host's native glass (Leo 2026-11-08).
   const preview = useHoverPreview({
@@ -338,11 +399,17 @@ export function UpdatedCard({
   const title = (
     <div className="wn-card-title" id={titleId}>
       {before}
-      <CopyVersion version={data.version} strings={strings} onCopied={setCopied}>
+      <CopyVersion
+        version={data.version}
+        strings={strings}
+        onCopied={setCopied}
+      >
         {name}
       </CopyVersion>
       {after}
-      <span aria-live="polite">{copied && ` · ${strings.t("updates.card.copied")}`}</span>
+      <span aria-live="polite">
+        {copied && ` · ${strings.t("updates.card.copied")}`}
+      </span>
     </div>
   );
   const close = closeButton && actions.dismiss && (
@@ -370,16 +437,25 @@ export function UpdatedCard({
         </button>
       </p>
     ) : notesLoading ? (
-      <NoteLoading look={loadingLook} label={strings.t("updates.card.loadingNotes")} />
+      <NoteLoading
+        look={loadingLook}
+        label={strings.t("updates.card.loadingNotes")}
+      />
     ) : (
       <p className="wn-card-note">
         {top ? (
           <>
-            <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
+            <span className="wn-card-area">
+              {strings.format("updates.card.areaLabel", rowLabel(top, strings))}
+            </span>{" "}
             {top.phrases[0]}
           </>
         ) : (
-          strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
+          strings.t(
+            span
+              ? "changelog.page.maintenance"
+              : "updates.card.whatsNewInBuild",
+          )
         )}
       </p>
     );
@@ -396,11 +472,18 @@ export function UpdatedCard({
           data-composer-material=""
           ref={doodleRef}
         >
-          <DoodleHeadline version={cardVersion(data.version)} strings={strings} />
+          <DoodleHeadline
+            version={cardVersion(data.version)}
+            strings={strings}
+          />
           {title}
           {close}
           {note}
-          <DoodleActions strings={strings} whatsNew={whatsNew} onGotIt={actions.dismiss} />
+          <DoodleActions
+            strings={strings}
+            whatsNew={whatsNew}
+            onGotIt={actions.dismiss}
+          />
         </section>
       </Doodle>
     );
@@ -430,12 +513,25 @@ export function UpdatedCard({
         />
       )}
       <div className="wn-card-rest" ref={restRef}>
+        {/* The update's mark (Lawrence 2026-11-23, "drastically improve" the What's New toast): a
+            sparkle on an accent tile leads the card, so it reads as news at a glance, not as one
+            more row of the sidebar. */}
+        <span className="wn-card-badge" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14">
+            <path d="M8 1.5l1.6 4.2 4.4 1.3-4.4 1.3L8 12.5 6.4 8.3 2 7l4.4-1.3z" />
+            <path d="M13 11l.6 1.4 1.4.6-1.4.6L13 15l-.6-1.4-1.4-.6 1.4-.6z" />
+          </svg>
+        </span>
         <div className="wn-card-head">
           {title}
           {/* The shipped title line is the title alone (Lawrence 2026-11-07: "Updated to ..." was cut
               to fit What's New beside it); What's New leads the open preview. */}
           {placement === "top-right" && (
-            <button type="button" className="wn-card-link" onClick={openWhatsNew}>
+            <button
+              type="button"
+              className="wn-card-link"
+              onClick={openWhatsNew}
+            >
               {strings.t("changelog.page.title")}
               <span aria-hidden="true"> ↗</span>
             </button>
@@ -444,8 +540,12 @@ export function UpdatedCard({
         {close}
         {note}
         {/* Open, the card's second line is the full version, in the note's place and height. */}
-        {preview.shown && name !== data.version && <p className="wn-card-version">{data.version}</p>}
-        {placement === "button" && <div className="wn-card-actions">{whatsNew}</div>}
+        {preview.shown && name !== data.version && (
+          <p className="wn-card-version">{data.version}</p>
+        )}
+        {placement === "button" && (
+          <div className="wn-card-actions">{whatsNew}</div>
+        )}
       </div>
     </section>
   );
@@ -457,13 +557,24 @@ export function UpdatedCard({
     the ellipsis glyph (`glyph`), a bar one line tall that a light crosses (`bar`), and the words
     (`words`). */
 export type NoteLoadingLook = "dots" | "glyph" | "bar" | "words";
-export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "glyph", "bar", "words"];
+export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = [
+  "dots",
+  "glyph",
+  "bar",
+  "words",
+];
 export const SHIPPED_NOTE_LOADING: NoteLoadingLook = "dots";
 
 /** The change line while the update's notes load: the note's own box (its font, line height and
     margin), so the words that replace it take exactly its room. VoiceOver reads "Loading what's new"
     (a clipped label); the marks are hidden from it. */
-function NoteLoading({ look, label }: { look: NoteLoadingLook; label: string }) {
+function NoteLoading({
+  look,
+  label,
+}: {
+  look: NoteLoadingLook;
+  label: string;
+}) {
   return (
     <p className="wn-card-note wn-card-note-loading" data-loading={look}>
       {look === "words" ? (
@@ -501,10 +612,16 @@ function useCardDrag(
 ): (element: HTMLElement | null) => void {
   const latest = useRef({ drag, feel, onStart });
   latest.current = { drag, feel, onStart };
-  const attached = useRef<{ element: HTMLElement; press: (event: PointerEvent) => void } | null>(null);
+  const attached = useRef<{
+    element: HTMLElement;
+    press: (event: PointerEvent) => void;
+  } | null>(null);
   useEffect(
     () => () => {
-      attached.current?.element.removeEventListener("pointerdown", attached.current.press);
+      attached.current?.element.removeEventListener(
+        "pointerdown",
+        attached.current.press,
+      );
       attached.current = null;
     },
     [],
@@ -512,13 +629,17 @@ function useCardDrag(
   return useCallback(
     (element: HTMLElement | null) => {
       if (attached.current?.element === element) return;
-      attached.current?.element.removeEventListener("pointerdown", attached.current.press);
+      attached.current?.element.removeEventListener(
+        "pointerdown",
+        attached.current.press,
+      );
       attached.current = null;
       if (!element) return;
       // A card without a host to drag it ignores the press (`drag` is read at the press).
       const press = (event: PointerEvent) => {
         const { drag, feel, onStart } = latest.current;
-        if (drag && rest.current) pressCard(rest.current, event, drag, feel, onStart);
+        if (drag && rest.current)
+          pressCard(rest.current, event, drag, feel, onStart);
       };
       element.addEventListener("pointerdown", press);
       attached.current = { element, press };
@@ -552,7 +673,12 @@ function useHoverPreview({
   /** The preview opens and closes on a height run (`header-bottom`); else it is simply there. */
   runsHeight: boolean;
 }) {
-  const entries = enabled ? plainEntries(previewEntries(data, span, strings.language), strings.language).entries : [];
+  const entries = enabled
+    ? plainEntries(
+        previewEntries(data, span, strings.language),
+        strings.language,
+      ).entries
+    : [];
   const forced = previewOpen !== undefined;
   const [warm, setWarm] = useState(previewOpen === true);
   const [wanted, setWanted] = useState(false);
@@ -604,8 +730,12 @@ function useHoverPreview({
       setWarm(true);
       return;
     }
-    const rest = list.current?.closest(".wn-updated")?.querySelector<HTMLElement>(".wn-card-rest");
-    const target = Math.ceil((rest?.getBoundingClientRect().height ?? 0) + height);
+    const rest = list.current
+      ?.closest(".wn-updated")
+      ?.querySelector<HTMLElement>(".wn-card-rest");
+    const target = Math.ceil(
+      (rest?.getBoundingClientRect().height ?? 0) + height,
+    );
     if (forced || !sized.current || height === 0) {
       setShown(height > 0);
       return;
@@ -657,7 +787,8 @@ function useHoverPreview({
     // card, so the key never passes through it (review F2 of #37615).
     const doc = element.ownerDocument;
     const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || !isOpen.current) return;
+      if (event.key !== "Escape" || event.isComposing || !isOpen.current)
+        return;
       event.preventDefault();
       intent.current?.close();
     };
@@ -727,20 +858,30 @@ export function UpdateReadyHighlights({
   const readable = withSpan(readableUpdate(data), span, strings.language);
   const items = readable.items;
   const rest = readable.rest ?? null;
-  useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [items.length, rest?.length]);
+  useEffect(
+    () => (scroller.current ? installScrollEdges(scroller.current) : undefined),
+    [items.length, rest?.length],
+  );
   // Keys pressed while nothing in the page has the focus scroll the list (the hover card's page
   // gets the keys once a click made its window key, before any Tab).
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const list = scroller.current;
-      if (!list || event.defaultPrevented || event.target !== list.ownerDocument.body) return;
+      if (
+        !list ||
+        event.defaultPrevented ||
+        event.target !== list.ownerDocument.body
+      )
+        return;
       const step = SCROLL_KEYS[event.key];
       if (step === undefined) return;
       event.preventDefault();
       const page = list.clientHeight * 0.9;
       if (step === "start") list.scrollTop = 0;
       else if (step === "end") list.scrollTop = list.scrollHeight;
-      else list.scrollTop += step === "page" ? page : step === "-page" ? -page : step;
+      else
+        list.scrollTop +=
+          step === "page" ? page : step === "-page" ? -page : step;
     };
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
@@ -749,9 +890,16 @@ export function UpdateReadyHighlights({
   // is as wide as its lines (at most the menu width) and the link sits with them, with no rule and
   // no far edge to push it to. The host sizes the popover to the width this page reports.
   if (items.length === 0 && (rest?.length ?? 0) === 0) {
-    const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
+    const from =
+      data.fromVersion && data.fromVersion !== data.version
+        ? data.fromVersion
+        : null;
     const link = (
-      <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
+      <button
+        type="button"
+        className="wn-pop-all"
+        onClick={() => actions.openChangelog()}
+      >
         {strings.t("updates.popover.seeReleaseNotes")}
         <span aria-hidden="true"> →</span>
       </button>
@@ -779,14 +927,20 @@ export function UpdateReadyHighlights({
             )}
           </div>
         )}
-        {(briefLayout === "stacked" || (briefLayout === "inline" && !from)) && link}
+        {(briefLayout === "stacked" || (briefLayout === "inline" && !from)) &&
+          link}
         {data.moreCount > 0 && (
-          <div className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</div>
+          <div className="wn-pop-more">
+            {strings.format("updates.card.more", String(data.moreCount))}
+          </div>
         )}
       </section>
     );
   }
-  const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
+  const from =
+    data.fromVersion && data.fromVersion !== data.version
+      ? data.fromVersion
+      : null;
   const all = [...items, ...(rest ?? [])];
   const groups =
     layout === "flat"
@@ -798,7 +952,12 @@ export function UpdateReadyHighlights({
         }));
   return (
     <section className="wn-pop" data-layout={layout} aria-labelledby={titleId}>
-      <PopoverHead id={titleId} version={data.version} from={from} strings={strings} />
+      <PopoverHead
+        id={titleId}
+        version={data.version}
+        from={from}
+        strings={strings}
+      />
       <div
         className="wn-pop-scroll"
         ref={scrollerRef}
@@ -811,7 +970,12 @@ export function UpdateReadyHighlights({
         {items.length > 0 && (
           <ul className="wn-pop-list">
             {items.map((item) => (
-              <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
+              <PopRow
+                key={item.id}
+                item={item}
+                layout={layout}
+                onOpen={() => actions.openChangelog()}
+              />
             ))}
           </ul>
         )}
@@ -819,11 +983,20 @@ export function UpdateReadyHighlights({
           <div className="wn-pop-rest">
             {groups.map(({ key, label, items }) =>
               items.length === 0 ? null : (
-                <section key={key} className="wn-pop-rest-group" aria-label={label ?? undefined}>
+                <section
+                  key={key}
+                  className="wn-pop-rest-group"
+                  aria-label={label ?? undefined}
+                >
                   {label && <h4>{label}</h4>}
                   <ul>
                     {items.map((item) => (
-                      <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
+                      <PopRow
+                        key={item.id}
+                        item={item}
+                        layout={layout}
+                        onOpen={() => actions.openChangelog()}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -834,10 +1007,20 @@ export function UpdateReadyHighlights({
       </div>
       <div className="wn-pop-foot">
         {!rest && data.moreCount > 0 && (
-          <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
+          <span className="wn-pop-more">
+            {strings.format("updates.card.more", String(data.moreCount))}
+          </span>
         )}
-        <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
-          {strings.t(all.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
+        <button
+          type="button"
+          className="wn-pop-all"
+          onClick={() => actions.openChangelog()}
+        >
+          {strings.t(
+            all.length > 0
+              ? "updates.popover.seeAll"
+              : "updates.popover.seeReleaseNotes",
+          )}
           <span aria-hidden="true"> →</span>
         </button>
       </div>
@@ -849,13 +1032,25 @@ export function UpdateReadyHighlights({
  * the quiet color only what its line adds, on one line under it, each cut at the popover's edge as
  * the What's New sheet's rows are (`line` and `flat` put both on one line). A picture is a small
  * thumbnail at the row's end; a click on it opens the change's notes. */
-function PopRow({ item, layout, onOpen }: { item: UpdateHighlightItem; layout: ReadyLayout; onOpen: () => void }) {
+function PopRow({
+  item,
+  layout,
+  onOpen,
+}: {
+  item: UpdateHighlightItem;
+  layout: ReadyLayout;
+  onOpen: () => void;
+}) {
   const line = item.summary ? distinctSummary(item.title, item.summary) : "";
   return (
     <li className="wn-pop-row">
       <span className="wn-pop-text">
         <span className="wn-pop-item">
-          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+          {item.pr ? (
+            <ChangePullRequest pr={item.pr} title={item.title} />
+          ) : (
+            item.title
+          )}
         </span>
         {line && (
           <>
@@ -873,7 +1068,9 @@ function PopRow({ item, layout, onOpen }: { item: UpdateHighlightItem; layout: R
     the line between them, never inside a time or cuts it off. */
 /** A row's name: the area ("Sidebar"), else the category its changes share ("Fixed"). */
 function rowLabel(row: SummaryRow, strings: Strings): string {
-  return row.area ? strings.t(`updates.area.${row.area}`) : strings.t(`changelog.group.${row.category ?? "improved"}`);
+  return row.area
+    ? strings.t(`updates.area.${row.area}`)
+    : strings.t(`changelog.group.${row.category ?? "improved"}`);
 }
 
 /** The rest of an update reads as Conductor's release pages do: New, Improved, Fixed, Security. */
@@ -882,37 +1079,60 @@ const REST_ORDER = ["new", "improved", "fixed", "security"] as const;
 /** A change's picture at the popover's width, in the theme's scheme; a click opens the change's
  * notes, where it shows at the page's width. Only `data:` pictures reach it (the host inlines
  * and checks each file, ReleaseMediaStore). */
-function PopMedia({ media, onOpen }: { media: UpdateHighlightMedia; onOpen: () => void }) {
-  const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
+function PopMedia({
+  media,
+  onOpen,
+}: {
+  media: UpdateHighlightMedia;
+  onOpen: () => void;
+}) {
+  const scheme = useSyncExternalStore(
+    subscribeColorScheme,
+    getColorScheme,
+    () => "light" as const,
+  );
   const src = scheme === "dark" ? media.dark : media.light;
   // Anything but an inlined picture (a remote or relative URL) never loads here.
   if (!src.startsWith("data:image/")) return null;
   return (
-    <button type="button" className="wn-pop-media" onClick={onOpen} aria-label={media.alt}>
+    <button
+      type="button"
+      className="wn-pop-media"
+      onClick={onOpen}
+      aria-label={media.alt}
+    >
       <img key={src} src={src} alt="" decoding="async" />
     </button>
   );
 }
 
 /** The list's scroll keys while the page has no focused control: a line, a page or an end. */
-const SCROLL_KEYS: Record<string, number | "page" | "-page" | "start" | "end"> = {
-  ArrowDown: 40,
-  ArrowUp: -40,
-  PageDown: "page",
-  PageUp: "-page",
-  " ": "page",
-  Home: "start",
-  End: "end",
-};
+const SCROLL_KEYS: Record<string, number | "page" | "-page" | "start" | "end"> =
+  {
+    ArrowDown: 40,
+    ArrowUp: -40,
+    PageDown: "page",
+    PageUp: "-page",
+    " ": "page",
+    Home: "start",
+    End: "end",
+  };
 
 /** The update with every change of the builds it spans (`span`, newest first, the page's notes):
  * the staged build's own items first, then each other build's readable changes once, so an
  * update across several nightlies lists all of them (Leo 2026-11-05: "i can't even scroll
  * through the changes from that preview!"). Without notes, the host's items as they are. */
-function withSpan(data: UpdateHighlights, span: ReleaseNotes[] | undefined, language: string): UpdateHighlights {
+function withSpan(
+  data: UpdateHighlights,
+  span: ReleaseNotes[] | undefined,
+  language: string,
+): UpdateHighlights {
   if (!span || span.length === 0) return data;
   const view = mergedView(span, language);
-  const spanned = [view.hero, ...view.groups.flatMap((group) => group.items)].flatMap((item) =>
+  const spanned = [
+    view.hero,
+    ...view.groups.flatMap((group) => group.items),
+  ].flatMap((item) =>
     item
       ? [
           {
@@ -926,7 +1146,9 @@ function withSpan(data: UpdateHighlights, span: ReleaseNotes[] | undefined, lang
         ]
       : [],
   );
-  const seen = new Set([...data.items, ...(data.rest ?? [])].map((item) => titleKey(item.title)));
+  const seen = new Set(
+    [...data.items, ...(data.rest ?? [])].map((item) => titleKey(item.title)),
+  );
   const extra = spanned.filter((item) => {
     const key = titleKey(item.title);
     if (seen.has(key)) return false;
