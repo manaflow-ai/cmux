@@ -74,7 +74,7 @@ pub struct Session {
     pub(super) seq: AtomicU64,
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
-    pub(super) append_lock: StdMutex<()>,
+    pub(super) append_lock: crate::worker_lock::Mutex<()>,
     /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
     pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
@@ -137,6 +137,9 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Orders prompt setup before it reaches `queue_slot`: an upload read or another slow setup
+    /// step must not let a later prompt claim the chat first. Held only until queue admission.
+    pub(crate) prompt_admission: std::sync::Arc<tokio::sync::Mutex<()>>,
     /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
     /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
     /// (its `queued` record, its turn) goes between the restore's check and its settle.

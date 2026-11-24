@@ -93,6 +93,9 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - Keep valid JSONC, no duplicate keys.
 - `cmux settings reload-configuration` when the app is running.
 - Confirm the exact user-facing result: action title, shortcut, or palette entry.
+- `cmux customize doctor` (MCP `customize_doctor`) before and after: a file that does not load, a key no setting
+  has, a theme that overrides a setting, a file in the wrong folder, or a `pr-N` layer left on. The app shows the
+  same findings as a notice; a fix (`doctor fix ID off|remove`) is the person's to choose.
 
 ## Rules
 
@@ -225,8 +228,9 @@ The other verbs:
   in manaflow-ai/cmux-extensions: [theme-recipes.md](../../docs/cmux-next/theme-recipes.md#share-a-theme-so-people-find-it).
 - `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
   The exported file's `$schema` already points at it.
-- A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not
-  a look. Install it with `cmux theme import scheme.yaml`, then
+- A base16, iTerm2, Windows Terminal, VS Code color theme (`.json`, comments allowed) or
+  Ghostty color scheme is a terminal theme, not a look. Install it with
+  `cmux theme import scheme.yaml` (or `theme.json`), then
   `cmux theme set appearance.theme "<its name>"`.
 - Add `--json` to any of these for output a script can read.
 
