@@ -98,7 +98,13 @@ function run(job: Job): Promise<PreparedImage | Thumb | undefined> {
         resolve(onPage && fallback ? here(fallback) : value);
       },
     });
-    started.postMessage({ ...job, id });
+    try {
+      started.postMessage({ ...job, id });
+    } catch {
+      waiting.delete(id);
+      clearTimeout(deadline);
+      resolve(undefined);
+    }
   });
 }
 

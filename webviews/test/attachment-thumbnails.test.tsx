@@ -46,6 +46,7 @@ const { SentImages } = await import("../src/agent-session/acpmux/conversation/Us
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+const { localImagePreview } = await import("../src/agent-session/acpmux/composer/imagePool");
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { imageLabel } = await import("../src/agent-session/acpmux/imageLabel");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
@@ -138,6 +139,42 @@ try {
         finish({ src: SRC });
       });
       expect(host.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe(SRC);
+      expect(chip).not.toHaveProperty("data");
+    } finally {
+      setChipHost(undefined);
+    }
+  });
+
+  test("a fresh local image displays its worker thumbnail and loads the original only on expand", async () => {
+    const path = "/tmp/fresh.png";
+    const thumb = { url: "data:image/png;base64,AQ==", width: 800, height: 600 };
+    const chip = {
+      id: "fresh-photo",
+      kind: "link" as const,
+      name: "fresh.png",
+      mimeType: "image/png",
+      size: 12,
+      path,
+      [localImagePreview]: async () => thumb,
+    };
+    const requests: unknown[] = [];
+    setChipHost(async (method, params) => {
+      requests.push([method, params]);
+      return { src: SRC };
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <ImageViewerContext.Provider value={(src, alt) => opened.push({ src, alt })}>
+            <AttachmentStrip attachments={[chip]} onRemove={() => {}} />
+          </ImageViewerContext.Provider>,
+        );
+      });
+      expect(host.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe(thumb.url);
+      expect(requests).not.toContainEqual(["image.load", { src: path }]);
+      await act(async () => (host.querySelector(".acpmux-attachment-open") as HTMLElement).click());
+      expect(requests).toContainEqual(["image.load", { src: path }]);
+      expect(opened.at(-1)).toEqual({ src: SRC, alt: "fresh.png" });
       expect(chip).not.toHaveProperty("data");
     } finally {
       setChipHost(undefined);
