@@ -119,8 +119,11 @@ const RESIZE_SETTLE: Duration = Duration::from_secs(1);
 /// failed write.
 const STORE_RETRY_MIN: Duration = Duration::from_secs(1);
 const STORE_RETRY_MAX: Duration = Duration::from_secs(30);
-/// Snapshot mode keeps the screen plus about this many recent lines.
-pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 2_000;
+/// Snapshot mode targets this many lines when sizing a replay request. The
+/// replay is ultimately bounded by `MAX_SNAPSHOT_REPLAY_BYTES`, so terminals
+/// with long lines keep fewer rows while short-line terminals retain much
+/// older scrollback.
+pub(crate) const SNAPSHOT_HISTORY_LINES: usize = 100_000;
 /// Snapshot mode: total disk across terminals; the oldest terminals go first.
 pub(crate) const SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES: u64 = 50 * 1024 * 1024;
 /// Full mode: segment bytes per terminal; the oldest segments go first.
