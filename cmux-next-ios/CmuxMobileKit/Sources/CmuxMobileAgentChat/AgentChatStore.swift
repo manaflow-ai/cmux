@@ -384,18 +384,18 @@ public final class AgentChatStore {
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
     /// The chat's one quiet status line by the composer: nil while live and for the first
-    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
-    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
-    /// instead (``AgentChatLoadingState``).
+    /// ``QuietStatusGate/threshold`` of an outage (the kept rows show meanwhile), then what it
+    /// waits for. A catch-up says nothing: the kept rows show and the new ones arrive. A chat
+    /// with nothing kept shows its loading state instead (``AgentChatLoadingState``).
     public var connectionLine: String? {
-        guard quietStatus.isShown, hasTurns else { return nil }
-        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
-        return isLoadingHistory ? "Updating…" : nil
+        guard quietStatus.isShown, hasTurns, summary.status == .disconnected else { return nil }
+        return "Connecting to \(summary.macName)…"
     }
 
-    /// Feeds ``quietStatus`` from the link and history state.
+    /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -404,7 +404,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
