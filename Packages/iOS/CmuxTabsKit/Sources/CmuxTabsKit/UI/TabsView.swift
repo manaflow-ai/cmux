@@ -421,6 +421,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             pageSize: size,
             safeAreaInsets: EdgeInsets(top: top ? barInset : safeTop, leading: 0, bottom: top ? safeBottom : barInset, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
+            isOnPage: zoomState.pageInteractive,
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,
             onScroll: { dy in chrome.pageDragged(dy, theme) })
