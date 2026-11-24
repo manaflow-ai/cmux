@@ -15,10 +15,10 @@ struct BrowserMoreMenuLayoutTests {
         "tabGroup.create", "tabGroup.addTab", "openSettings", "browser.profile.choose",
     ]
 
-    private static func menu(buttons: [ContextMenuEntry] = []) -> NSMenu {
+    private static func menu(buttons: [ContextMenuEntry] = [], toolsFooter: [NSMenuItem] = []) -> NSMenu {
         let registry = ActionRegistry.standard()
         for id in bound { registry.bind(id) {} }
-        return registry.makeBrowserMoreMenu(tabKey: "tab-1", buttons: buttons, chromium: true) { _ in
+        return registry.makeBrowserMoreMenu(tabKey: "tab-1", buttons: buttons, chromium: true, toolsFooter: toolsFooter) { _ in
             NSMenuItem(title: "Zoom", action: nil, keyEquivalent: "")
         }
     }
@@ -46,13 +46,16 @@ struct BrowserMoreMenuLayoutTests {
     }
 
     @Test func rarelyUsedRowsAndHiddenButtonsLiveInTools() throws {
-        let menu = Self.menu(buttons: [.action("browser.profile.choose")])
+        let footer = NSMenuItem(title: "Show in Toolbar", action: nil, keyEquivalent: "")
+        let menu = Self.menu(buttons: [.action("browser.profile.choose")], toolsFooter: [footer])
         let top = Self.outline(menu)
         #expect(!top.contains("Choose Browser Profile…"), "a hidden toolbar button is a top-level row")
+        #expect(!top.contains("Show in Toolbar"))
         let tools = try #require(menu.items.first { $0.title == "Tools" }?.submenu)
         let titles = tools.items.map(\.title)
-        for title in ["Choose Browser Profile…", "Screenshot Page", "Bookmark Manager"] {
+        for title in ["Choose Browser Profile…", "Screenshot Page", "Bookmark Manager", "Show in Toolbar"] {
             #expect(titles.contains(title), "Tools has no \(title)")
         }
+        #expect(tools.items.last === footer, "Show in Toolbar is not Tools' last row")
     }
 }
