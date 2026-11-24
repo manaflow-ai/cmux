@@ -9,6 +9,7 @@
 //
 //   bun scripts/fold-fuzz.ts [--seeds 500] [--from 1] [--look fade[,snapshot,...]] [--jobs 6] [--out DIR]
 //     [--gallery 10 --before fade --after snapshot] [--ffmpeg PATH] [--only 12,40,...] [--resume] [--drift PX]
+//     [--baseline test/transcript-motion-baseline.json]
 //
 // Every seed, from its turn's `turn_end` to the last frame, is flagged for:
 //   (a) grow: a row's (or block's) drawn height rises and then falls, or the transcript's whole height rises
@@ -29,6 +30,13 @@ import { spawnSync } from "node:child_process";
 import type { Browser, Page } from "playwright";
 import { fuzzSpec, SPLITS, type FuzzSpec } from "../test/browser/fold-fuzz.scenario";
 import { openRecorder, recordLook } from "./fold-variants-record";
+import {
+  countFlags,
+  stepClass,
+  transcriptMoves,
+  type MotionFlag,
+  type MotionRecord,
+} from "../test/support/transcriptMotion";
 
 const PAGE = "/test/browser/fold-variants.html";
 
@@ -41,7 +49,30 @@ export type FuzzRun = {
   view: number;
   overflowAnchor: string;
   foldAt: number;
+  /** The transcript motion detector's frames (test/support/transcriptMotion.ts). */
+  motion?: MotionRecord;
 };
+
+/** The detector's verdict on one run: counts by kind, by the step each came after, and the first few. */
+export function motionVerdict(record: MotionRecord | undefined) {
+  if (!record) return undefined;
+  const flags = transcriptMoves(record);
+  const byStep: Record<string, number> = {};
+  for (const flag of flags) byStep[stepClass(flag)] = (byStep[stepClass(flag)] ?? 0) + 1;
+  // The worst first: the biggest jump of each element, then by size.
+  const worst = new Map<string, MotionFlag>();
+  for (const flag of flags) {
+    const id = `${flag.kind}:${flag.key}`;
+    if ((worst.get(id)?.px ?? -1) < flag.px) worst.set(id, flag);
+  }
+  return {
+    ...countFlags(flags),
+    frames: record.frames.length,
+    byStep,
+    first: [...worst.values()].sort((a, b) => b.px - a.px).slice(0, 6),
+  };
+}
+export type MotionVerdict = NonNullable<ReturnType<typeof motionVerdict>>;
 
 /** Below this a move or a height change is layout rounding, not motion (px). */
 const STILL_PX = 0.5;
@@ -57,6 +88,13 @@ const FOLLOW_SLACK_PX = 4;
 const seen = (row: Row) => row[3] > SEEN_INK;
 const shownTop = (row: Row) => row[4] ?? row[1];
 const shownHeight = (row: Row) => row[5] ?? row[2];
+/** The band of a row the reader sees: what its clip shows (the sampler reads a clipped row's inside the
+ *  view), else its box, cut to the view (`view`, its height): a clip coming off a row past the view's edge,
+ *  or a row growing past it, moves nothing on screen. */
+const seenBand = (row: Row, view: number) => {
+  const top = Math.min(view, Math.max(0, shownTop(row)));
+  return { top, height: Math.min(view, Math.max(0, shownTop(row) + shownHeight(row))) - top };
+};
 const round = (value: number) => Math.round(value * 10) / 10;
 /** Fold copies and replace snapshots are drawn for the fold only; they are never an anchor. */
 const transient = (key: string) => key.startsWith("ghost-") || key.startsWith("snap:") || key === "fold-card";
@@ -82,15 +120,18 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
   const moved: number[] = [];
   for (let index = from; index < samples.length; index += 1) {
     const prior = new Map(samples[index - 1]?.rows.map((row) => [row[0], row]) ?? []);
+    const view = samples[index]!.view;
     let most = 0;
     for (const row of samples[index]!.rows) {
       const was = prior.get(row[0]);
       if (!was || !seen(row) || !seen(was)) continue;
+      const band = seenBand(row, view);
+      const before = seenBand(was, samples[index - 1]!.view);
       most = Math.max(
         most,
         Math.abs(row[1] - was[1]),
-        Math.abs(shownTop(row) - shownTop(was)),
-        Math.abs(shownHeight(row) - shownHeight(was)),
+        Math.abs(band.top - before.top),
+        Math.abs(band.height - before.height),
       );
     }
     moved.push(most);
@@ -131,7 +172,7 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
         heights.set(row[0], list);
       }
     for (const [key, list] of heights) {
-      const lowAfter: number[] = new Array(list.length);
+      const lowAfter: number[] = Array.from({ length: list.length }, () => 0);
       for (let index = list.length - 1, low = Infinity; index >= 0; index -= 1)
         lowAfter[index] = low = Math.min(low, list[index]!.h);
       let lowBefore = Infinity;
@@ -219,6 +260,7 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
     anchorDriftPx: round(drift),
     endDriftPx: endDrift === undefined ? undefined : round(endDrift),
     overflowAnchor: run.overflowAnchor,
+    motion: motionVerdict(run.motion),
   };
 }
 
@@ -236,6 +278,12 @@ export function flagsOf(n: Ok, driftPx: number, control?: number) {
     // Phases of the fold's own: the ones the person's next message set off are counted apart.
     phases: n.phases.filter((phase) => !phase.person).length > 1,
     drift: Math.abs(n.anchorDriftPx - (control ?? 0)) > driftPx,
+    /** The detector: an untouched element moved or resized more than 1 px in a frame. */
+    jump: !!n.motion && n.motion.move + n.motion.resize > 0,
+    /** The detector: the view snapped (scrolled with no input) in one frame. */
+    scrollStep: !!n.motion && n.motion["scroll-step"] > 0,
+    /** The detector: an animated move off the house easing or past its ceiling. */
+    offCurve: !!n.motion && n.motion["off-curve"] > 0,
   };
 }
 
@@ -272,6 +320,9 @@ function median(values: number[]) {
   return sorted[Math.floor(sorted.length / 2)]!;
 }
 
+/** Each page's DevTools session, to slow its CPU for the `load` axis. */
+const cdpOf = new WeakMap<Page, Promise<import("playwright").CDPSession>>();
+
 type FoldWindow = { __fold: { run(look: string, name: string): Promise<unknown>; size(w: number, h: number): void } };
 
 /** A page of the recorder's harness, kept for many seeds: loading it is the slow part, not playing one. */
@@ -285,8 +336,12 @@ async function openPage(browser: Browser, port: number) {
 
 /** Plays one seed with one look on `page` at the seed's split size, and returns its frames. */
 async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun> {
-  const { width, height } = SPLITS[fuzzSpec(seed).split];
+  const spec = fuzzSpec(seed);
+  const { width, height } = SPLITS[spec.split];
   await page.setViewportSize({ width, height });
+  // The `load` axis: the page's CPU slowed (1: as fast as the runner).
+  if (!cdpOf.has(page)) cdpOf.set(page, page.context().newCDPSession(page));
+  await (await cdpOf.get(page)!).send("Emulation.setCPUThrottlingRate", { rate: spec.axes.load });
   return (await page.evaluate(
     ([look, name, width, height]) => {
       const fold = (window as unknown as FoldWindow).__fold;
@@ -298,7 +353,7 @@ async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun
 }
 
 /** One seed with one look; `control` is the same seed's drift with no fold, when `none` ran too. */
-type Result = {
+export type Result = {
   seed: number;
   look: string;
   spec: FuzzSpec;
@@ -308,7 +363,7 @@ type Result = {
 };
 
 /** Every seed of every look, `jobs` pages at a time; a run with late frames plays again alone. */
-async function fuzz(
+export async function fuzz(
   browser: Browser,
   port: number,
   looks: string[],
@@ -330,7 +385,9 @@ async function fuzz(
     if (file && resume && !again && existsSync(file))
       return analyze(JSON.parse(readFileSync(file, "utf8")), fuzzSpec(seed));
     const run = await playSeed(await pageOf(slot), look, seed).catch(async (error: unknown) => {
-      console.error(`seed ${seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}; again`);
+      console.error(
+        `seed ${seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}; again`,
+      );
       // A fresh page: the old one may be the trouble.
       await slot.page?.close().catch(() => {});
       slot.page = undefined;
@@ -351,7 +408,10 @@ async function fuzz(
   };
   await Promise.all(slots.map(worker));
   // Late frames: the machine, not the fold. Play those again with nothing else running.
-  const lateRuns = results.filter((result) => !ok(result.numbers) || result.numbers.lateFrames > 0.05);
+  // A seed on the `load` axis is slowed on purpose: its late frames are the case, not the machine.
+  const lateRuns = results.filter(
+    (result) => !ok(result.numbers) || (result.numbers.lateFrames > 0.05 && result.spec.axes.load === 1),
+  );
   if (lateRuns.length) console.log(`${lateRuns.length} runs with late frames or errors: again, one at a time`);
   for (const result of lateRuns) {
     result.numbers = await one(result, slots[0]!, true).catch(
@@ -363,10 +423,76 @@ async function fuzz(
   return results.sort((a, b) => a.look.localeCompare(b.look) || a.seed - b.seed);
 }
 
-const describe = (spec: FuzzSpec) =>
-  `${spec.calls} calls, ${spec.ending} end${spec.recap ? `, recap ${spec.recap}` : ""}${
+const describe = (spec: FuzzSpec) => {
+  const { axes } = spec;
+  const extra = [
+    axes.send && `send ${axes.send.lines} lines${axes.send.attach ? " + images" : ""} (${axes.send.at})`,
+    axes.tailTools && `${axes.tailTools} tail calls`,
+    axes.tail !== "plain" && axes.tail,
+    axes.notice !== "none" && axes.notice,
+    axes.background && "background",
+    axes.load > 1 && `load x${axes.load}`,
+  ].filter(Boolean);
+  return `${spec.calls} calls, ${spec.ending} end${spec.recap ? `, recap ${spec.recap}` : ""}${
     spec.steers.length ? `, steers ${spec.steers.join("+")}` : ""
-  }${spec.subagents ? `, ${spec.subagents} subagent` : ""}${spec.chatter ? ", chatter" : ""}, ${spec.viewport}, ${spec.split}`;
+  }${spec.subagents ? `, ${spec.subagents} subagent` : ""}${spec.chatter ? ", chatter" : ""}, ${spec.viewport}, ${spec.split}${
+    extra.length ? `, ${extra.join(", ")}` : ""
+  }`;
+};
+
+/** The steps a detector flag is counted under, in the table's order. */
+const STEP_CLASSES = [
+  "turn-end",
+  "stream",
+  "tool",
+  "steer",
+  "send",
+  "notice",
+  "compaction",
+  "subagent",
+  "scroll",
+  "other",
+  "no step",
+] as const;
+
+/** The detector's table: per look, the seeds it flags and its flags by kind and by the step before them. */
+export function detectorTable(results: Result[], looks: string[]) {
+  const lines = [
+    "### The motion detector (test/support/transcriptMotion.ts): every element, every frame",
+    "",
+    "A `move` or `resize` is an element no step touched and no animation moves, drawn more than 1 px from its last frame; `off-curve` is a geometry animation off the house easing or past 240 ms. A `scroll-step` is a frame where the page, not the reader, moved the scroller more than 1 px at once and the rows rode it (the follow snapping instead of gliding).",
+    "",
+    `| look | seeds | seeds with a jump (move or resize) | seeds with a scroll step | seeds off-curve | move flags | scroll-step frames | resize flags | off-curve animations | ${STEP_CLASSES.map((name) => `after ${name}`).join(" | ")} |`,
+    `|---|---|---|---|---|---|---|---|---|${STEP_CLASSES.map(() => "---").join("|")}|`,
+  ];
+  for (const look of looks) {
+    const verdicts = results
+      .filter((r) => r.look === look && ok(r.numbers))
+      .map((r) => (r.numbers as Ok).motion)
+      .filter((v): v is MotionVerdict => !!v);
+    const sum = (pick: (v: MotionVerdict) => number) => verdicts.reduce((total, v) => total + pick(v), 0);
+    lines.push(
+      `| ${look} | ${verdicts.length} | ${verdicts.filter((v) => v.move + v.resize > 0).length} | ${
+        verdicts.filter((v) => v["scroll-step"] > 0).length
+      } | ${verdicts.filter((v) => v["off-curve"] > 0).length} | ${sum((v) => v.move)} | ${sum((v) => v["scroll-step"])} | ${sum((v) => v.resize)} | ${sum((v) => v["off-curve"])} | ${STEP_CLASSES.map(
+        (name) => sum((v) => v.byStep[name] ?? 0),
+      ).join(" | ")} |`,
+    );
+  }
+  return lines;
+}
+
+/** Each seed's detector counts for one look: what the CI ratchet (transcript-motion-baseline.json) holds. */
+export function seedFlags(results: Result[], look: string) {
+  const flags: Record<string, ReturnType<typeof countFlags>> = {};
+  for (const r of results) {
+    if (r.look !== look || !ok(r.numbers) || !(r.numbers as Ok).motion) continue;
+    const v = (r.numbers as Ok).motion!;
+    if (v.move + v["scroll-step"] + v.resize + v["off-curve"] > 0)
+      flags[r.seed] = { move: v.move, "scroll-step": v["scroll-step"], resize: v.resize, "off-curve": v["off-curve"] };
+  }
+  return flags;
+}
 
 /** The markdown: per look the flag counts, the drift spread, and the worst seeds. */
 export function report(results: Result[], looks: string[], driftPx: number, worst = 10) {
@@ -406,6 +532,7 @@ export function report(results: Result[], looks: string[], driftPx: number, wors
       } |`,
     );
   }
+  lines.push("", ...detectorTable(results, looks));
   for (const look of looks) {
     const ranked = results
       .filter((r) => r.look === look && ok(r.numbers))
@@ -519,6 +646,9 @@ if (import.meta.main) {
           grow: flags.filter((f) => f.grow).length,
           phases: flags.filter((f) => f.phases).length,
           drift: flags.filter((f) => f.drift).length,
+          jump: flags.filter((f) => f.jump).length,
+          scrollStep: flags.filter((f) => f.scrollStep).length,
+          offCurve: flags.filter((f) => f.offCurve).length,
         },
       ];
     }),
@@ -539,32 +669,71 @@ if (import.meta.main) {
     ),
   );
   writeFileSync(path.join(out, "fuzz.md"), table);
+  // Per look, each flagged seed's detector counts (the CI ratchet's shape).
+  writeFileSync(
+    path.join(out, "flags.json"),
+    JSON.stringify(Object.fromEntries(looks.map((look) => [look, seedFlags(results, look)])), null, 1),
+  );
+  // `--baseline PATH`: the CI ratchet (test/transcript-motion-fuzz-browser.test.ts) for the first look.
+  const baselinePath = value("--baseline");
+  if (baselinePath)
+    writeFileSync(
+      baselinePath,
+      `${JSON.stringify({ look: looks[0], seeds: seeds.length, flagged: seedFlags(results, looks[0]!) }, null, 1)}\n`,
+    );
   console.log(table);
   if (gallery) {
     const before = value("--before") ?? looks[0]!;
     const after = value("--after") ?? looks.at(-1)!;
+    // Ranked on `--rank` (the after look by default: what ships), worst first, a seed whose flags the control
+    // (`none`, no fold) shares counting below one the fold alone sets off.
+    const rank = value("--rank") ?? after;
+    const controlRun = new Map(
+      results.filter((r) => r.look === "none" && ok(r.numbers)).map((r) => [r.seed, r.numbers as Ok]),
+    );
+    const own = (r: Result) => {
+      const theirs = controlRun.get(r.seed);
+      const mine = flagsOf(r.numbers as Ok, driftPx, r.control);
+      const base = theirs && flagsOf(theirs, driftPx);
+      return !base || (mine.grow && !base.grow) || (mine.phases && !base.phases) || mine.drift ? 1 : 0;
+    };
     const worst = results
-      .filter((r) => r.look === before && ok(r.numbers))
-      .sort((a, b) => severity(b.numbers as Ok, driftPx, b.control) - severity(a.numbers as Ok, driftPx, a.control))
-      .slice(0, gallery);
+      .filter((r) => r.look === rank && ok(r.numbers))
+      .map((r) => ({ r, score: own(r) * 10_000 + severity(r.numbers as Ok, driftPx, r.control) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, gallery)
+      .map((x) => x.r);
     const dir = path.join(out, "gallery");
     mkdirSync(dir, { recursive: true });
     for (const r of worst) {
       const { width, height } = SPLITS[r.spec.split];
+      const target = path.join(dir, `seed-${r.seed}-${before}-vs-${after}.mp4`);
+      if (args.includes("--resume") && existsSync(target)) continue;
       const clips: string[] = [];
       for (const look of [before, after]) {
-        const { clip } = await recordLook(recorder.browser, recorder.port, {
-          look,
-          scenario: `fuzz:${r.seed}`,
-          width,
-          height,
-          out: dir,
-          name: `seed-${r.seed}-${look}`,
-          ffmpeg,
-        });
-        if (clip) clips.push(clip);
+        const record = () =>
+          recordLook(recorder.browser, recorder.port, {
+            look,
+            scenario: `fuzz:${r.seed}`,
+            width,
+            height,
+            out: dir,
+            name: `seed-${r.seed}-${look}`,
+            ffmpeg,
+          });
+        // A fresh page sometimes never loads on a busy machine: once more, then the seed goes without a clip.
+        const made = await record()
+          .catch(record)
+          .catch((error: unknown) => {
+            console.error(
+              `gallery: seed ${r.seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
+            );
+            return undefined;
+          });
+        if (made?.clip) clips.push(made.clip);
       }
-      if (clips.length === 2) sideBySide(ffmpeg, clips, path.join(dir, `seed-${r.seed}-${before}-vs-${after}.mp4`));
+      if (clips.length === 2) sideBySide(ffmpeg, clips, target);
       console.log(`gallery: seed ${r.seed} (${describe(r.spec)})`);
     }
   }

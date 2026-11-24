@@ -4,10 +4,12 @@
 # again warm (the state folder kept), and one line per run with its phases.
 #   cmux-ci test --setup none -- scripts/measure/hot-apply-dry-run.sh SHA...
 #   scripts/measure/hot-apply-dry-run.sh SHA...       (a checkout with SHA and its parent)
+#   triple=aarch64-apple-darwin SHA...  fetch that target's build (a Mac's) instead of this host's
 # Prints `HAD <sha> <cold|warm> <seconds> <exit> <phases json>` per run. Nothing outside the
 # temporary state folders changes: no app is read (--base) and none is touched.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
+if [[ "${1:-}" == triple=* ]]; then export CMUX_HOT_APPLY_TRIPLE="${1#triple=}"; shift; fi
 [[ $# -gt 0 ]] || { echo "give one or more commit shas" >&2; exit 2; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/hot-apply-dry-run.XXXXXX")"
 trap 'rm -rf "$work"' EXIT

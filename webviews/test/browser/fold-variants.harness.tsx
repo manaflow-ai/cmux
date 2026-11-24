@@ -23,6 +23,7 @@ import {
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { fuzzScenario } from "./fold-fuzz.scenario";
+import { defineTranscriptMotion, TRANSCRIPT_MOTION } from "../support/transcriptMotion";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, sim, type SimScenario, SIM_START } from "../../src/agent-session/acpmux/sim/script";
@@ -248,7 +249,7 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
   return bigClaudeTurn({ recap: name.includes("recap"), subagent: name.includes("subagent") });
 }
 
-/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows.
+/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows in the view.
 type Sample = {
   t: number;
   folding: boolean;
@@ -295,14 +296,20 @@ function sampleFrame(): Sample {
     )?.[1];
     all.push([key, box.top - threadTop, box.height, opens ? "opener" : (kind ?? "?")]);
     if (!view || box.bottom < view.top || box.top > view.bottom || box.height === 0) continue;
-    // Ink is the opacity times the share of the box its clip leaves drawn (`wipe` and its kin replace
-    // rows by clipping, not fading).
+    // Ink is the opacity times the share its clip leaves drawn of the part of the box in the view (`wipe`
+    // and its kin replace rows by clipping, not fading). The band the clip shows is read inside the view
+    // too: a clip changing on the part of a row past the view's edge is nothing the reader sees.
     const style = getComputedStyle(element);
     const inset = style.clipPath === "none" ? undefined : insetOf(style.clipPath);
-    const shown = inset ? Math.max(0, box.height - inset.top - inset.bottom) : box.height;
-    const ink = Number(style.opacity) * (shown / box.height);
-    if (inset) rows.push([key, box.top - view.top, box.height, ink, box.top - view.top + inset.top, shown]);
-    else rows.push([key, box.top - view.top, box.height, ink]);
+    const opacity = Number(style.opacity);
+    if (inset) {
+      const from = Math.max(box.top, view.top);
+      const to = Math.min(box.bottom, view.bottom);
+      const shownTop = Math.min(to, Math.max(from, box.top + inset.top));
+      const shown = Math.max(0, Math.min(to, box.bottom - inset.bottom) - shownTop);
+      const ink = to > from ? opacity * (shown / (to - from)) : 0;
+      rows.push([key, box.top - view.top, box.height, ink, shownTop - view.top, shown]);
+    } else rows.push([key, box.top - view.top, box.height, opacity]);
   }
   // `morph`'s card, as the band its clip shows.
   for (const element of thread?.querySelectorAll<HTMLElement>(`:scope > .${TURN_END_CARD}`) ?? []) {
@@ -373,13 +380,15 @@ async function run(
       }
       if (index === sampleFrom && !sampling) {
         sampling = true;
+        window.__transcriptMotion!.start();
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
       if (step.type === "reader") {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const reader = step.reader;
-        if (scroller)
+        // An `open` reader action (opening a "Worked for") does not scroll.
+        if (scroller && !("open" in reader))
           scroller.scrollTop =
             "scrollBy" in reader
               ? scroller.scrollTop + reader.scrollBy
@@ -387,7 +396,11 @@ async function run(
                 ? 0
                 : scroller.scrollHeight;
       }
-      if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
+      if (sampling) {
+        marks.push({ step: index, t: performance.now(), label: step.label });
+        // The reader's scroll is input: the detector takes it out of the rows' moves.
+        window.__transcriptMotion!.mark(step.type === "reader" ? `input:${step.label}` : step.label);
+      }
       if (index < fastUntil) {
         // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.
         if (index % 50 === 0) await sleep(0);
@@ -404,11 +417,21 @@ async function run(
   // fixed-wait: the frames after the turn's end are the fold being recorded, for a set time.
   await sleep(tailMs);
   sampling = false;
+  const motion = window.__transcriptMotion!.stop();
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   const view = scroller?.clientHeight ?? 0;
   // The scroll-anchoring arm in force: the browser's own (`overflow-anchor`) or the transcript's alone.
   const overflowAnchor = scroller ? getComputedStyle(scroller).overflowAnchor : "";
-  const result = { look, samples, marks, startedAt: performance.timeOrigin, view, overflowAnchor, foldAt: lastEnd };
+  const result = {
+    look,
+    samples,
+    marks,
+    startedAt: performance.timeOrigin,
+    view,
+    overflowAnchor,
+    foldAt: lastEnd,
+    motion,
+  };
   marks = [];
   return result;
 }
@@ -423,6 +446,7 @@ Object.assign(root.style, {
   flexDirection: "column",
 });
 createRoot(root).render(<Pane />);
+defineTranscriptMotion(TRANSCRIPT_MOTION);
 /// Resizes the pane in place (the fold fuzzer reuses one page across seeds and split sizes).
 function size(width: number, height: number) {
   Object.assign(root.style, { width: `${width}px`, height: `${height}px` });

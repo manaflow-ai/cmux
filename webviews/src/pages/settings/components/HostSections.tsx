@@ -11,6 +11,7 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces } from "../cardRows";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -300,8 +301,7 @@ function MachineVmHost({ row }: { row: HostListRow }) {
   );
 }
 
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
+export { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces };
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

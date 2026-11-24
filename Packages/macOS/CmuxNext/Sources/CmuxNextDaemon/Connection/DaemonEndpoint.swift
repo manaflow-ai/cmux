@@ -169,6 +169,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     case terminalReap = "terminal-reap-v1"
+    /// `set-terminal-tail-pin`: a terminal's last output line under its workspace in the
+    /// sidebar (Show Last Line in Sidebar, `cmux terminal <term> pin-tail on|off`).
+    case terminalTailPin = "terminal-tail-pin-v1"
     /// `terminal-resume-command`: a person's resume command for one terminal,
     /// typed on the new prompt when the daemon respawns it.
     case resumeCommand = "resume-command"
@@ -618,6 +621,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// release's widths and ratios) are one commit, every value or none. Without it each value goes
     /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
     case layoutSizesBatch = "layout-sizes-batch-v1"
+    /// `language_packs.ensure`: the home daemon downloads the app's pinned pack for the person's
+    /// language on first use, checks its sha256 and unpacks it (`LanguagePacksClient`, CMUX-570).
+    case languagePacks = "language-packs-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -643,7 +649,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
-             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
+             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .terminalTailPin, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
@@ -668,7 +674,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks:
             return .optional
         }
     }
