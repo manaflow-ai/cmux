@@ -6170,7 +6170,17 @@
           "title": "Site Engines",
           "help": "Sites that always open in chromium or webkit, such as spotify.com.",
           "kind": "string_map",
-          "default": {},
+          "default": {
+            "amazon.com/gp/video": "webkit",
+            "disneyplus.com": "webkit",
+            "hulu.com": "webkit",
+            "max.com": "webkit",
+            "music.apple.com": "webkit",
+            "netflix.com": "webkit",
+            "primevideo.com": "webkit",
+            "spotify.com": "webkit",
+            "tv.apple.com": "webkit"
+          },
           "group": "Engine"
         },
         {
