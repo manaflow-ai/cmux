@@ -1,3 +1,6 @@
+import CmuxNextAgentPane
+import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextRemote
 import Foundation
 import Testing
@@ -72,6 +75,68 @@ struct CloudApprovalsPrepareTests {
         }
         #expect(prepared)
         #expect(await starts.read() == 0)
+    }
+
+    /// A start that finds another's preparation in flight (a warm spare's key-ahead) waits its budget, not the preparation.
+    @Test func aJoinerWaitsOnlyItsBudgetOnAnotherPreparation() async {
+        let machine = "cloud-approvals-join-\(UUID().uuidString)"
+        let slow = Task { await RemoteApprovalPreparations.shared.run(machine: machine, keepBusy: false) { try? await Task.sleep(for: .seconds(3)); return true } }
+        try? await Task.sleep(for: .milliseconds(100))
+        let began = ContinuousClock.now
+        let joined = await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: true, held: false, joinBudget: .milliseconds(200), idle: { true }, restart: { true })
+        #expect(!joined)
+        #expect(ContinuousClock.now - began < .seconds(2))
+        #expect(await slow.value) // the owner's preparation was not cancelled
+    }
+
+    /// A start gave up on a preparation still reading status: that preparation restarts nothing after (the chat is on it).
+    @Test func aPreparationAStartGaveUpOnDoesNotRestart() async {
+        let machine = "cloud-approvals-gaveup-\(UUID().uuidString)"
+        let restarts = Counter()
+        let owner = Task { await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false,
+            idle: { try? await Task.sleep(for: .seconds(1)); return true }, restart: { await restarts.increment(); return true }) }
+        try? await Task.sleep(for: .milliseconds(100))
+        let joined = await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, joinBudget: .milliseconds(200),
+                                                                     idle: { true }, restart: { true })
+        #expect(!joined)
+        #expect(await owner.value == false)
+        #expect(await restarts.read() == 0)
+    }
+
+    /// A start that joins a preparation already in its keyed restart waits it out: a chat started then would die with the daemon.
+    @Test func aStartWaitsOutARestartThatBegan() async {
+        let machine = "cloud-approvals-restarting-\(UUID().uuidString)"
+        let owner = Task { await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: true, held: false,
+            idle: { true }, restart: { try? await Task.sleep(for: .seconds(1)); return true }) }
+        try? await Task.sleep(for: .milliseconds(100))
+        let joined = await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: true, held: false, joinBudget: .milliseconds(200),
+                                                                     idle: { true }, restart: { true })
+        #expect(joined)
+        #expect(await owner.value)
+    }
+
+    @Test func aStatusReadPastItsBudgetGivesNoAnswer() async {
+        let idle: Bool? = await RemoteApprovalPreparations.bounded(.milliseconds(100)) { try? await Task.sleep(for: .seconds(5)); return true }
+        #expect(idle == nil)
+        let quick: Bool? = await RemoteApprovalPreparations.bounded(.seconds(5)) { true }
+        #expect(quick == true)
+    }
+
+    /// The daemon refuses a keyed start as safe to restart: a Cloud start (`restartsInStart` false) goes unkeyed with no 15 s restart.
+    @Test(arguments: [false, true])
+    func aCloudStartNeverRunsTheKeyedRestartInTheStartStep(restartsInStart: Bool) async throws {
+        let prepared = Counter(), starts = Counter()
+        let machine = "cloud-approvals-coordinator-\(UUID().uuidString)"
+        let approvals = AgentPaneRemoteApprovals(machineID: machine, label: "m", restart: { nil }, prepare: { _ in await prepared.increment(); return true })
+        let started: String = try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: true, restartsInStart: restartsInStart)
+            .keyedStart(nil, nil, nil, proceed: {}, start: { _, _, _, key in
+                await starts.increment()
+                if key != nil { throw AgentRemoteStartRefusal(code: AgentSessionAttachError.needsKeyedStart, machine: machine, keyedRestartSafe: true) }
+                return "unkeyed"
+            })
+        #expect(started == "unkeyed")
+        #expect(await prepared.read() == (restartsInStart ? 1 : 0))
+        #expect(await starts.read() == 2)
     }
 
     private actor Prep {

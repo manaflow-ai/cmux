@@ -106,6 +106,17 @@ With the cmux app running, `machine ls` also lists its Cloud machines
 (`kind: cloud`, `target: vm:<id>`); without it a note says they are missing.
 ";
 
+/// `cmux machine ls --help` (and `machine list`): the catalog verb's own help, not the overview.
+pub(super) const MACHINE_LS_HELP: &str = "\
+usage: cmux machine ls [--catalog]
+       cmux machine list [--catalog]
+
+Lists the machine catalog: this machine and the machines it reaches, with the ids
+`cmux chat --on` takes. `--catalog` also lists the routes the app published.
+With the cmux app running it also lists its Cloud machines (`kind: cloud`,
+`target: vm:<id>`); without it a note on stderr says they are missing.
+";
+
 /// Where a `machine` help sends a person for VMs: `vm` is the one noun that makes them (CMUX-43).
 pub(super) const VM_POINTER: &str = "\
 Cloud VMs (new, run, show, pause, resume, rm, exec, key, access) are `cmux vm`:

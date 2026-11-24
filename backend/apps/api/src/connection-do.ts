@@ -16,6 +16,7 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
+import * as ghUser from "./integrations/github-user-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
@@ -69,6 +70,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createFallbackTable(sql)
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
+    ghUser.createGithubUserTokenTable(sql)
     createListenerTable(sql)
     createConfigurePageTable(sql)
   }
@@ -202,6 +204,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
     if (c.provider === "github") {
+      // The linking person's sealed refresh token goes with the connection.
+      ghUser.forgetUserTokens(this.ctx.storage.sql, c.id)
       // Mark the revoked connection's issued tokens before returning; the alarm
       // completes provider DELETE even if this isolate stops during the first try.
       const marked = ghTokens.markConnectionTokensRevoked(this.ledger(), c.id, Date.now())
@@ -454,6 +458,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       throw new ProviderError("integration.state_invalid", rej.message)
     }
     const active = this.boundEngine!.currentState.connections[c.id]!
+    // The person's own GitHub token, so what they start posts as them; a failure keeps the App identity.
+    if (approved.user_grant) {
+      await ghUser.storeUserGrant(this.ctx.storage.sql, this.env, this.http, c.id, principal.user, approved.user_grant, Date.now()).catch((e) =>
+        console.error(JSON.stringify({ msg: "github user token store failed", connection: c.id, error: e instanceof Error ? e.name : "unknown" })))
+    }
     // Gmail push for new-mail triggers (G3); a failure here retries from the alarm, never fails the link.
     await startWatchSafely(this.watchHost(), active, Date.now())
     this.scheduleAlarm()
@@ -576,7 +585,12 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       checkScopes(this.usableFor(current, op, params).c)
     } : undefined
     try {
-      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params, beforeEffect)
+      const user = principal.user
+      const asUser = provider === "github" && user ? {
+        token: () => ghUser.userAccessToken(this.ctx.storage.sql, this.env, this.http, c.id, user, Date.now()),
+        refused: (token: string) => ghUser.dropAccessToken(c.id, user, token)
+      } : undefined
+      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params, beforeEffect, asUser)
       return r.value
     } catch (e) {
       if (e instanceof ProviderError && e.code === "needs_reauth") {
