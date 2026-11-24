@@ -257,6 +257,20 @@ export function computerUseLine(strings: Strings, pane: string): string {
   );
 }
 
+/** The Screenshots row's note after Screen Recording was allowed here (`confirmsCapture`): macOS asks
+ * once more the first time the helper captures. Null for any other row or state. */
+export function computerUseCaptureNote(
+  strings: Strings,
+  pane: string,
+  confirmsCapture: boolean,
+): { confirm: string; detail: string } | null {
+  if (pane !== "screenRecording" || !confirmsCapture) return null;
+  return {
+    confirm: strings.t("onboarding.computerUse.screenshots.confirm"),
+    detail: strings.t("onboarding.computerUse.screenshots.confirmDetail"),
+  };
+}
+
 /** The window's title for the Window menu and VoiceOver. */
 export function windowTitle(strings: Strings, state: OnboardingState | null): string {
   if (state?.step === "importData") return strings.t("onboarding.import.title2");
