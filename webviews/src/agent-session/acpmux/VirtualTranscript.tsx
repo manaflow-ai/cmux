@@ -92,9 +92,9 @@ import { rowsWithLiveOutput } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
 import {
   FIELD_GROWTH_EVENT,
+  growthPendingIn,
   growthTranslate,
   type FieldGrowthEvent,
-  growthPendingIn,
 } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -241,8 +241,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
