@@ -46,7 +46,9 @@ pub(super) fn shot(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Res
         if !super::automation_webhook::hook_event_ok(event) {
             return usage(m.webhook_bad_hook_event.replace("{value}", event));
         }
-        body["event"] = json!(event);
+        if let Some(fields) = body.as_object_mut() {
+            fields.insert("event".into(), json!(event));
+        }
     }
     let body = serde_json::to_vec(&body).unwrap_or_default();
     if body.len() > MAX_BODY_BYTES {

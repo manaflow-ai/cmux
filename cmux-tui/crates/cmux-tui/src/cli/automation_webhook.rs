@@ -285,10 +285,11 @@ fn parse_match(text: &str, hook: bool) -> Result<Value, Failure> {
         (">", "gt"),
         ("<", "lt"),
     ];
-    let Some(&(sign, op)) = OPS.iter().find(|(sign, _)| rest.starts_with(sign)) else {
+    let Some((op, value)) =
+        OPS.iter().find_map(|&(sign, op)| rest.strip_prefix(sign).map(|value| (op, value.trim())))
+    else {
         return bad();
     };
-    let value = rest[sign.len()..].trim();
     match op {
         "gt" | "gte" | "lt" | "lte" => match value.parse::<i64>() {
             Ok(n) => Ok(json!({"path": path, "op": op, "value": n})),
@@ -345,7 +346,7 @@ pub(super) fn hook_event_ok(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()
         && bytes.len() <= 64
-        && bytes[0].is_ascii_alphanumeric()
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
         && bytes.iter().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(b))
 }
 
@@ -441,11 +442,13 @@ fn trigger_body(plan: &Plan, fork: &str) -> Value {
         },
         "guardrails": {"cooldownSeconds": plan.cooldown_seconds, "maxRunsPerDay": plan.max_runs},
     });
-    if plan.source == "webhook" {
-        body["source"] = json!("webhook");
-    }
-    if !plan.conditions.is_empty() {
-        body["conditions"] = Value::Array(plan.conditions.clone());
+    if let Some(fields) = body.as_object_mut() {
+        if plan.source == "webhook" {
+            fields.insert("source".into(), json!("webhook"));
+        }
+        if !plan.conditions.is_empty() {
+            fields.insert("conditions".into(), Value::Array(plan.conditions.clone()));
+        }
     }
     body
 }
