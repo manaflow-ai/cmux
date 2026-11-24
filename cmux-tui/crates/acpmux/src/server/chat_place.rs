@@ -67,7 +67,7 @@ pub(super) async fn set(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
 /// "this-mac"|"cloud"|"machine"|"nowhere", hybrid?, id?}, why, chip, local: {name, busy, room,
 /// ramFree}}`.
 pub(super) async fn read(hub: &Hub, params: &Value) -> Value {
-    let verdict = super::place::place(hub, &json!({})).await;
+    let verdict = super::place::place(hub, &json!({"hubHealth": false})).await;
     answer(params, &verdict, &hub.peers())
 }
 
@@ -84,7 +84,7 @@ fn answer(params: &Value, verdict: &Value, peers: &[Value]) -> Value {
         .unwrap_or_default();
     let machines = peers
         .iter()
-        .filter(|row| crate::placement::peer_down(row).is_none())
+        .filter(|row| crate::placement::link_down(row).is_none())
         .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
         .collect();
     let facts = Facts { local: place_mode::local_of(verdict), account, machines };
