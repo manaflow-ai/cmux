@@ -226,6 +226,7 @@ public final class AgentPaneModel {
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
     @ObservationIgnored public var remoteChat = false
+    @ObservationIgnored var repositoryClone = AgentPaneRepositoryClone()
     /// The origin the pane's page is served from, which its granted media URLs use (the page's CSP
     /// plays media only from its own origin): the pane's own host, or the shared page host's
     /// (``AgentPaneMediaGrants/pageOrigin``), set by the view that hosts the page there.
@@ -997,6 +998,8 @@ public final class AgentPaneModel {
             return await beginSendUpload(stage, ticket: ticket)
         case .gitHub(.checkout(let repo, let candidates, let key)):
             return await AgentPaneGitWriteReply.gitHubCheckout(repo: repo, candidates: candidates, key: key, userGesture: userGesture, in: self)
+        case .gitHub(.cloneURL(let url, let key)):
+            return await AgentPaneRepositoryClone.reply(url: url, key: key, userGesture: userGesture, in: self)
         case .gitHub(let request): return await request.reply(gitHub) { userGesture || transport.gestures.consume() }
         case .unsupported(let method): return Self.unsupported(method)
         }
