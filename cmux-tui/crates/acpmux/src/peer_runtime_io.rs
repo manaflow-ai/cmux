@@ -925,8 +925,9 @@ impl Peer {
         let mut handshake_ended = false;
         let mut health_asked: Option<tokio::time::Instant> = None;
         // Holds until the link is ready and its list is in (`listed`), also a list read after
-        // ready. Moved on by each page of a list read in pages, up to `HANDSHAKE_MOST` in all: a
-        // peer that paces its lists still links, one that stops answering does not hold it.
+        // ready. Moved on by each page of a list read in pages, with no cap in all: a peer that
+        // paces its lists still links however long the list, one that stops answering for a
+        // whole `timings.handshake` does not hold it.
         let handshake_started = tokio::time::Instant::now();
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
@@ -1007,8 +1008,7 @@ impl Peer {
                         // More pages: the handshake asks for them.
                         Ok(Some(_)) => {
                             paged = Some((rows, held));
-                            let until = (tokio::time::Instant::now() + timings.handshake)
-                                .min(handshake_started + HANDSHAKE_MOST.max(timings.handshake));
+                            let until = tokio::time::Instant::now() + timings.handshake;
                             handshake_deadline.as_mut().reset(until);
                         }
                         // A bad cursor: the handshake fails and the link drops.
