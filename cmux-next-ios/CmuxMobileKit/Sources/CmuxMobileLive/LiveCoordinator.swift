@@ -101,6 +101,9 @@ public final class LiveCoordinator {
     public internal(set) var relayAvailable: Bool?
     /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
     @ObservationIgnored let appearance = MacAppearanceFeed()
+    /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
+    /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
+    @ObservationIgnored public let tabs = MacTabsFeed()
     /// The focused Mac's Feed source.
     public var feed: LiveFeed { focused.feed }
     /// The focused Mac's terminal agents' events in the Feed.
