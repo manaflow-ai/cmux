@@ -141,8 +141,10 @@ fn looks_like_path(p: &str) -> bool {
     // A bare file name: `name.ext`, the extension short and plain.
     match p.rsplit_once('.') {
         Some((stem, ext)) => {
+            // "e.g" is no file; "main.c" and "x.py" are.
             !stem.is_empty()
                 && (1..=8).contains(&ext.len())
+                && (ext.len() >= 2 || stem.chars().count() >= 2)
                 && ext.chars().all(|c| c.is_ascii_alphanumeric())
                 && ext.chars().any(|c| c.is_ascii_alphabetic())
         }
