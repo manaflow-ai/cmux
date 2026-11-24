@@ -13,6 +13,7 @@ import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
 import { useSettingsState, useRowState, useStore } from "../context";
 import type { TailnetVMReply } from "../ops";
 import { TAILNET_KEY, tailnetQuery } from "../sectionQueries";
+import "../tailnetJoin.css";
 import { t } from "../strings";
 import { TAILNET_SETTLE_WAITS_MS, tailnetSettling, tailnetView, tailnetWaits, type TailnetView } from "../tailnet";
 import { ActionRow } from "./ActionRow";
@@ -277,6 +278,12 @@ function tailnetFacts(reply: TailnetVMReply): string {
   return facts.join(" · ");
 }
 
+/** Tailscale OAuth client secrets and API keys outlive one join; a single-use auth key does not. */
+function tailnetKeyLooksReusable(key: string, oauth: boolean): boolean {
+  const text = key.trim();
+  return oauth || text.startsWith("tskey-client-") || text.startsWith("tskey-api-");
+}
+
 function TailnetJoinDialog({
   machines,
   vm,
@@ -303,13 +310,27 @@ function TailnetJoinDialog({
   const [key, setKey] = useState("");
   const [oauth, setOAuth] = useState(false);
   const [switchTailnet, setSwitchTailnet] = useState(false);
+  const [allowHttp, setAllowHttp] = useState(false);
+  const loginServer = options.loginServer.trim();
+  // A plain-http login server sends the key unencrypted: the CLI refuses it without --allow-http,
+  // so the person ticks it for this server, in this sheet, every time.
+  const plainHttp = /^http:\/\//i.test(loginServer);
+  const reusable = tailnetKeyLooksReusable(key, oauth);
+  const ready = vm.trim() !== "" && key !== "" && (!plainHttp || allowHttp);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = async () => {
-    if (!vm.trim() || !key || busy) return;
+    if (!ready || busy) return;
     setBusy(true);
     setError(null);
-    const reply = await store.joinTailnetVM({ vm: vm.trim(), key, oauth, ...options, switch: switchTailnet });
+    const reply = await store.joinTailnetVM({
+      vm: vm.trim(),
+      key,
+      oauth,
+      ...options,
+      allowHttp: plainHttp && allowHttp,
+      switch: switchTailnet,
+    });
     setBusy(false);
     if (reply.ok) {
       setKey("");
@@ -332,7 +353,7 @@ function TailnetJoinDialog({
       className="tailnet-join-sheet"
     >
       <form
-        className="accounts-form tailnet-join-content"
+        className="tailnet-join-content"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -340,10 +361,11 @@ function TailnetJoinDialog({
       >
         <DialogTitle>{t("settingsPage.tailnet.join")}</DialogTitle>
         <DialogDescription>{t("settingsPage.tailnet.cloudHelp")}</DialogDescription>
-        <label>
+        <label className="tailnet-join-field">
           {t("settingsPage.tailnet.machine")}
           <input
             list="tailnet-machines"
+            data-tailnet-join-vm=""
             value={vm}
             onChange={(event) => setVM(event.target.value)}
             autoComplete="off"
@@ -356,36 +378,48 @@ function TailnetJoinDialog({
             ))}
           </datalist>
         </label>
-        <label>
+        <label className="tailnet-join-field">
           {t("settingsPage.tailnet.credential")}
           <input
             type="password"
+            data-tailnet-join-key=""
             value={key}
             onChange={(event) => setKey(event.target.value)}
             autoComplete="off"
             spellCheck={false}
           />
         </label>
-        <div className="row-help">{t("settingsPage.tailnet.keyHelp")}</div>
-        <label>
-          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />{" "}
-          {t("settingsPage.tailnet.oauthMode")}
+        <p>{t("settingsPage.tailnet.keyHelp")}</p>
+        {reusable && (
+          <p className="tailnet-join-warning" role="alert" data-tailnet-key-reusable="">
+            {t("settingsPage.tailnet.reusableWarning")}
+          </p>
+        )}
+        {plainHttp && (
+          <label className="tailnet-join-check" data-tailnet-allow-http="">
+            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
+          </label>
+        )}
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.oauthMode")}</span>
         </label>
-        <label>
-          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />{" "}
-          {t("settingsPage.tailnet.switch")}
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.switch")}</span>
         </label>
         {error && (
-          <div className="row-help" role="alert">
+          <p className="tailnet-join-error" role="alert">
             {t("settingsPage.tailnet.joinError", error)}
-          </div>
+          </p>
         )}
-        {error?.includes("another tailnet") && <div className="row-help">{t("settingsPage.tailnet.switchHelp")}</div>}
+        {error?.includes("another tailnet") && <p>{t("settingsPage.tailnet.switchHelp")}</p>}
         <div className="accounts-buttons">
           <Button type="button" className="button" onClick={onClose}>
             {t("settingsPage.cancel")}
           </Button>
-          <Button type="submit" className="button" disabled={busy || !vm.trim() || !key}>
+          <Button type="submit" className="button" data-tailnet-join-submit="" disabled={busy || !ready}>
             {busy ? t("settingsPage.tailnet.joining") : t("settingsPage.tailnet.join")}
           </Button>
         </div>

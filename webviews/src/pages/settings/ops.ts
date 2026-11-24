@@ -2133,6 +2133,8 @@ export type SettingsOps = {
       ssh?: boolean;
       ephemeral?: boolean;
       servePorts?: string[];
+      /** The person ticked "Allow plain HTTP" for an http:// login server (`--allow-http`). */
+      allowHttp?: boolean;
       switch?: boolean;
     },
     TailnetVMReply,

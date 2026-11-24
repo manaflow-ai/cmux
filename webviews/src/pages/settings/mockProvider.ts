@@ -658,6 +658,14 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.joinVM": (params) => {
         const vm = String((params as { vm?: unknown }).vm ?? "");
         this.tailnetSteps.push(`joinVM:${vm}`);
+        if (String((params as { key?: unknown }).key ?? "").includes("OTHER")) {
+          return {
+            ok: false,
+            vm,
+            error:
+              "the VM is already on another tailnet (https://headscale.other.example); nothing changed. Run again with --switch to add yours as a second profile.",
+          };
+        }
         return {
           ok: true,
           vm,

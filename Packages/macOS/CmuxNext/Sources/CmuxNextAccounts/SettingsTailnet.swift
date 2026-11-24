@@ -60,7 +60,13 @@ public final class SettingsTailnet: PageProvider {
             arguments += ["--key-stdin"]
             if params["oauth"]?.boolValue == true { arguments.append("--oauth") }
             if let value = params["loginServer"]?.stringValue, !value.isEmpty { arguments += ["--login-server", value] }
-            if let value = params["hostname"]?.stringValue, !value.isEmpty { arguments += ["--hostname", value] }
+            if let value = params["loginServer"]?.stringValue, !value.isEmpty, params["allowHttp"]?.boolValue == true {
+                arguments.append("--allow-http")
+            }
+            // The setting is a template: {vm} names the Cloud machine being joined.
+            if let value = params["hostname"]?.stringValue, !value.isEmpty {
+                arguments += ["--hostname", value.replacingOccurrences(of: "{vm}", with: vm)]
+            }
             for tag in params["tags"]?.arrayValue?.compactMap(\.stringValue) ?? [] where !tag.isEmpty { arguments += ["--tag", tag] }
             if params["ssh"]?.boolValue == true { arguments.append("--ssh") }
             if params["ephemeral"]?.boolValue == true { arguments.append("--ephemeral") }
@@ -70,7 +76,7 @@ public final class SettingsTailnet: PageProvider {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
                                                  timeout: .seconds(240), outputTailBytes: 64 * 1024, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
-        if let line = lines.last(where: { !$0.allSatisfy { $0.isWhitespace } }), let answer = try? JSONValue.parse(Data(line.utf8)) {
+        if let line = lines.last(where: { (line: Substring) -> Bool in !line.allSatisfy { (character: Character) -> Bool in character.isWhitespace } }), let answer = try? JSONValue.parse(Data(line.utf8)) {
             return answer
         }
         let detail = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
