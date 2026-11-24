@@ -1181,10 +1181,10 @@ mod tests {
     }
 
     /// A process that works in `dir` (its cwd, or `TMPDIR` only), killed at drop.
-    struct Worker(std::process::Child);
+    struct Worker(cmux_process::Child);
     impl Worker {
         fn new(cwd: &Path, tmpdir: Option<&Path>) -> Self {
-            let mut cmd = std::process::Command::new("sleep");
+            let mut cmd = cmux_process::Command::new("sleep");
             cmd.arg("60").current_dir(cwd);
             if let Some(t) = tmpdir {
                 cmd.env("TMPDIR", t);
