@@ -401,6 +401,11 @@ fn service_restart() -> ServiceRestart {
         let Some(label) = std::env::var("XPC_SERVICE_NAME").ok() else {
             return ServiceRestart::Unmanaged;
         };
+        if !is_acpmux_launchd_label(&label) {
+            // Terminal and GUI applications also export XPC_SERVICE_NAME. Only an acpmux
+            // LaunchAgent/LaunchDaemon label proves that launchd owns this daemon.
+            return ServiceRestart::Unmanaged;
+        }
         // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() };
         let pid = std::process::id();
@@ -412,6 +417,12 @@ fn service_restart() -> ServiceRestart {
     }
     #[cfg(not(target_os = "macos"))]
     ServiceRestart::Unmanaged
+}
+
+/// Whether an XPC marker names one of acpmux's launchd jobs.
+fn is_acpmux_launchd_label(label: &str) -> bool {
+    label == crate::cli::daemon_service::LAUNCHD_LABEL
+        || label.starts_with(crate::daemon::login_placement::LABEL_PREFIX)
 }
 
 /// Resolve a launchd-owned daemon before choosing its manager restart command.
@@ -481,6 +492,14 @@ mod tests {
         );
         assert_eq!(launchd_job_pid(&Some("state = running\npid = 419\n".into())), Some(419));
         assert_eq!(launchd_job_pid(&None), None);
+    }
+
+    #[test]
+    fn only_acpmux_launchd_labels_are_supervised() {
+        assert!(is_acpmux_launchd_label("com.acpmux.daemon"));
+        assert!(is_acpmux_launchd_label("com.cmux.acpmux.daemon.077f602dcb3c3936"));
+        assert!(!is_acpmux_launchd_label("0"));
+        assert!(!is_acpmux_launchd_label("application.com.cmux.cmux"));
     }
 
     #[test]

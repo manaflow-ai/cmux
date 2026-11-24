@@ -4,6 +4,9 @@
 use super::super::*;
 use super::*;
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
 #[test]
 fn a_peer_gets_the_binary_for_its_os_and_architecture() {
     assert_eq!(uname_target("Linux x86_64"), Some("x86_64-unknown-linux-musl"));
