@@ -422,6 +422,8 @@ export type CloudPageVariant = VariantBase & {
   surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
   paymentPastDue?: boolean | "fail";
+  /** This month's usage (`cloud.usage.current`); "fail" fails the read, "hold" keeps it loading; absent: not served. */
+  usage?: import("../pages/cloud/ops").CloudUsage | "fail" | "hold";
   /** The plan the account panel names (`cloud.plan.get` `plan_id`), when not the sample plan's. */
   planId?: string;
   machines: CloudMachine[];
