@@ -295,10 +295,12 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
 
   // prod 2026-11-24: Stack unread (no pace token, or its read failed) refused a member's own team as auth.forbidden on
   // every mint, and the failed read was kept for the window. Unread is retryable; the next mint with Stack readable succeeds.
-  it.each([
-    ["no pace token", { listUserTeams: async () => [] as string[] }, async () => false],
-    ["a Stack read that fails", { listUserTeams: async (): Promise<string[]> => { throw new Error("stack 503") } }, async () => true],
-  ] as const)("%s answers a retryable owner.unreachable, never auth.forbidden, and the next readable mint succeeds", async (_, stack, pace) => {
+  type Unread = readonly [string, { listUserTeams: (u: string) => Promise<string[]> }, () => Promise<boolean>]
+  const unread: Unread[] = [
+    ["no pace token", { listUserTeams: async (): Promise<string[]> => [] }, async (): Promise<boolean> => false],
+    ["a Stack read that fails", { listUserTeams: async (): Promise<string[]> => { throw new Error("stack 503") } }, async (): Promise<boolean> => true],
+  ]
+  it.each(unread)("%s answers a retryable owner.unreachable, never auth.forbidden, and the next readable mint succeeds", async (_, stack, pace) => {
     const s = await setup("Unread Stack")
     await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack, pace, now: () => Date.now() }))
     const mint = await macInstall(s)
