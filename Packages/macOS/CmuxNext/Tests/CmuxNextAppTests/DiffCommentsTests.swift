@@ -326,12 +326,19 @@ struct DiffCommentsTests {
             "repoRoot": .string(Self.repository), "id": "c1", "reply": "I will check", "resolved": true,
         ]), context: PageCallContext(page: "cmux.diff", opid: "diff-thread-1", userGesture: true))
         #expect(thread["comment"]?["id"]?.stringValue == "c1")
-        #expect(git.threadChanges.map { ($0.id, $0.reply, $0.resolved, $0.key) } == [("c1", "I will check", true, "diff-thread-1")])
+        // Arrays of tuples are not Equatable: compare each field.
+        #expect(git.threadChanges.map(\.id) == ["c1"])
+        #expect(git.threadChanges.map(\.reply) == ["I will check"])
+        #expect(git.threadChanges.map(\.resolved) == [true])
+        #expect(git.threadChanges.map(\.key) == ["diff-thread-1"])
 
         let sent = try await provider.call("cmux.diff.comments", params: comments("comments.send", [
             "repoRoot": .string(Self.repository), "ids": ["c1"], "threads": true,
         ]), context: PageCallContext(page: "cmux.diff", opid: "diff-thread-send-1", userGesture: true))
-        #expect(git.threadedSends.map { ($0.session, $0.ids, $0.text, $0.key) } == [("acp-cloud-threads", ["c1"], nil, "diff-thread-send-1")])
+        #expect(git.threadedSends.map(\.session) == ["acp-cloud-threads"])
+        #expect(git.threadedSends.map(\.ids) == [["c1"]])
+        #expect(git.threadedSends.map(\.text) == [nil])
+        #expect(git.threadedSends.map(\.key) == ["diff-thread-send-1"])
         #expect(sent["threads"]?.arrayValue?.compactMap(\.stringValue) == ["c1"])
         #expect(git.comments[Self.repository]?.count == 1)
         await provider.close()
