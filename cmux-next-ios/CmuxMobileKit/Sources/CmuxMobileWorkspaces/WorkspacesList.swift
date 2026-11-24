@@ -51,8 +51,6 @@ public struct WorkspacesList: View {
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
-    /// A refresh has taken long enough to say so.
-    @State private var showsUpdating = false
     /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
     /// over from them at once.
     @State private var placeholdersShown = false
@@ -168,8 +166,6 @@ public struct WorkspacesList: View {
         store.tracksMacData ? WorkspaceInbox.ListState(store.macDataPhase(macID)) : .live
     }
 
-    /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
-    private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
 
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
@@ -207,15 +203,6 @@ public struct WorkspacesList: View {
             // own placeholder rows that replace them (a Mac line arrived) skip their show delay.
             .onChange(of: pageShowsPlaceholder || inbox.isLoading, initial: true) { _, loading in
                 placeholdersShown = loading && (placeholdersShown || pageShowsPlaceholder)
-            }
-            .task(id: isRefreshing) {
-                // Say "Updating…" only when a refresh is slow, not on every one.
-                guard isRefreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
             }
             .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in
                 Button("OK", role: .cancel) {}
@@ -293,12 +280,8 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac and its presence. Else "Updating…" for a slow
-    /// refresh, "2 need you", or with several Macs how many are online.
-    /// A failed refresh says nothing here: the rows stay and the list retries
-    /// on its own; the phone being offline is the connection chip's (Leo,
-    /// 2026-11-16: "this needs to shut up"; the iOS release bar read-back's
-    /// "Workspaces stale: no connection text").
+    /// Filtered: the Mac and its presence. Else the rows' last-known note, "2 need you", or with
+    /// several Macs how many are online. Never that a refresh runs.
     private var subtitle: String {
         if let mac = scopedMac {
             let now = MinuteClock.shared.now
@@ -313,8 +296,13 @@ public struct WorkspacesList: View {
             return "\(displayName(mac)) · " + line
         }
         let state = launchState
-        // One loading indicator at a time: over the placeholder rows the page already says it loads.
-        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        // A refresh over rows the list has says nothing, however long it takes: the rows change in
+        // place when the Mac's differ (Leo, 2026-11-24: "they dont need to know that it's updating
+        // before they KNOW it's updating"). Over placeholders the page itself says it loads.
+        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
+        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
+        }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }

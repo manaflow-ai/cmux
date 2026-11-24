@@ -40,8 +40,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The filtered list, built once per change of the rows or the search.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
-    /// When Home started showing kept rows while its list loads (the "Updating" chip's wait).
-    @State private var updatingSince: Date?
     @State private var homeRetries = 0
     /// The New Chief name prompt is up.
     @State private var namingChief = false
@@ -126,7 +124,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var autoRetriedFor: String?
 
     /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
-    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
+    /// "Reconnecting…" until the retry answers: reconnecting clears the offline state first.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
         homeRetries += 1
@@ -403,7 +401,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                 identifier: "home.note.connecting")
                 case .loading:
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
-                case .updating, .none:
+                case .none:
                     EmptyView()
                 }
             }
@@ -443,19 +441,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(CmuxMobileBackdrop().ignoresSafeArea())
-        // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes), as the one-word connection chip (Leo, 2026-11-21:
-        // "a symbol or short thing, not a sentence. stop layout shifting").
-        .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
-                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: updatingSince ?? ConnectionChip.justDropped)
-                    .padding(.bottom, 8)
-                    .accessibilityIdentifier("home.note.updating")
-            }
-        }
-        .onChange(of: listNote(searching: searching) == .updating, initial: true) { _, updating in
-            updatingSince = ConnectionChip.nextDownSince(updatingSince, down: updating, now: Date())
-        }
+        // Kept rows show while the Mac's list loads, and say nothing: the rows change in place
+        // when the Mac's differ (Leo, 2026-11-24: "they dont need to know that it's updating
+        // before they KNOW it's updating").
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
@@ -664,7 +652,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// What Home says while the Mac's list is not in (``HomeListNote``).
     private func listNote(searching: Bool) -> HomeListNote {
-        HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: homeMacID,
+        HomeListNote.make(rows: feed.rows, homeMacID: homeMacID,
                           macsMayExist: store.activeTeam == nil || !macs.isEmpty,
                           searching: searching, failing: feed.problem != nil || homeIsOffline)
     }
