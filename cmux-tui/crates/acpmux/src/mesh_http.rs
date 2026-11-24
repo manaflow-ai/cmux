@@ -128,6 +128,45 @@ impl HttpHub {
         self.call(reqwest::Method::GET, "/v1/machines/credentials/self", None, CALL_WAIT).await
     }
 
+    /// A bound web device's challenge (RFD 0083, "Known gap: the device credential is a bearer";
+    /// cmux-platform `POST /v1/machines/credentials/self/challenge`): a single-use nonce for the
+    /// browser's key to sign, asked with the device's own credential. That credential reads
+    /// nothing else on a hub that bound it.
+    pub(crate) async fn device_challenge(&self) -> Result<Value, HubError> {
+        if !self.device {
+            return Err(HubError::refused("only a web device proves a key"));
+        }
+        self.call(
+            reqwest::Method::POST,
+            "/v1/machines/credentials/self/challenge",
+            Some(&json!({})),
+            CALL_WAIT,
+        )
+        .await
+    }
+
+    /// Trades the browser's signature of the challenge for a session credential
+    /// (`POST /v1/machines/credentials/self/session`): `{credential, machineId, binding,
+    /// expiresAt}`. The nonce is spent whatever the hub answers.
+    pub(crate) async fn device_session(
+        &self,
+        nonce: &str,
+        binding: &str,
+        signature: &str,
+    ) -> Result<Value, HubError> {
+        if !self.device {
+            return Err(HubError::refused("only a web device proves a key"));
+        }
+        let body = json!({"nonce": nonce, "binding": binding, "signature": signature});
+        self.call(
+            reqwest::Method::POST,
+            "/v1/machines/credentials/self/session",
+            Some(&body),
+            CALL_WAIT,
+        )
+        .await
+    }
+
     /// Why the hub refused this client's device credential, as the browser is told:
     /// `device.revoked` (`machine.revoked`) or `device.unauthorized` (`mesh.unauthorized`). None
     /// while the hub takes it.

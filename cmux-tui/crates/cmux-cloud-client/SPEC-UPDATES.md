@@ -11,6 +11,13 @@ The next full `scripts/update-spec.sh` refresh supersedes these entries.
   fields and redeem endpoint already match that contract. Browser enrollment
   sends `platform: "web"` and `capabilities: []`; it does not request vault
   access, replacement privileges, or a daemon identity.
+- `JoinRedeem.properties.deviceKey`: copied from `manaflow-ai/cmux-platform`
+  `openapi.json` at `77262e46f95b` (branch
+  `lane/rfd-0083-0089-0125-build-bound-credential`, RFD 0083 bound device
+  credential). Browser enrollment sends it only when the browser made a
+  device key; the hub then binds the credential to that key. The proof routes
+  (`/v1/machines/credentials/self/challenge` and `/session`) are called by hand
+  in `acpmux/src/mesh_http.rs` with the device's own credential.
 
 `tests/web_redeem.rs` exercises the generated client's actual HTTP request,
 success response, old-hub refusals and redirects. A merged platform schema is
