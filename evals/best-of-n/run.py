@@ -16,7 +16,10 @@ Each attempt's worktree is then scored on the hidden tests here, with no model i
     run.py score --work DIR [--wait SECONDS] [--out FILE]
 
 `start` must run inside an authenticated acpmux agent session: the races' parent is a sub-session of it that works in
-DIR/repo. `score` waits for every race to end (or its deadline) and writes the results (schema best-of-n-results/v1).
+DIR/repo. Put DIR under a folder the person trusts by rule (`agents.trust.projectRoots`, such as ~/scratch): the
+candidates' worktree starts are made from DIR/repo, and a folder with no trust decision raises one trust card per
+candidate on the parent, which only the person can answer (`hub/trust_wait.rs`); /tmp hangs the same way.
+`score` waits for every race to end (or its deadline) and writes the results (schema best-of-n-results/v1).
 """
 from __future__ import annotations
 
