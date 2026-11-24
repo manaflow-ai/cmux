@@ -245,7 +245,8 @@ describe("one subtle elevation scale", () => {
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",
       "--elevation-2",
     ],
-    ["agent-session/acpmux/newtab/screen.css", ".nt-box", "--elevation-1"],
+    // New Tab's composer box (NewTabScreen.tsx `nt-composer-surface nt-box`): its glass names the drop.
+    ["agent-session/acpmux/newtab/screen.css", ".nt-composer-surface", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-box", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-kind.is-selected", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],
@@ -271,10 +272,14 @@ describe("one subtle elevation scale", () => {
     layers(value).flatMap((layer) => {
       const call = tokenCall(layer);
       if (!call) return [];
-      const [, name] = call;
+      const [, name, fallback] = call;
       if ((ELEVATIONS as readonly string[]).includes(name)) return [name];
       if (seen.includes(name)) return [];
-      return (definitions.get(name) ?? []).slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
+      // A token no sheet defines (a look's --menu-shadow, set only by a look's stylesheet) casts its
+      // fallback, today's step.
+      const defined = definitions.get(name) ?? [];
+      if (!defined.length) return fallback ? steps(fallback, seen) : [];
+      return defined.slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
     });
 
   for (const [file, selector, token] of surfaces) {
