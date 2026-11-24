@@ -105,8 +105,13 @@ async fn open_liveness(
                 datagram = out.recv() => {
                     // The link closed.
                     let Some(datagram) = datagram else { return };
-                    let sent = if datagram.first() == Some(&crate::classes::DATAGRAM_CLASS) {
-                        socket.send_to(&datagram, peer, cmux_wg::Priority::Interactive).await
+                    let class = match datagram.first() {
+                        Some(&crate::classes::DATAGRAM_CLASS) => Some(cmux_wg::Priority::Interactive),
+                        Some(&crate::classes::DATAGRAM_SCREEN) => Some(cmux_wg::Priority::Screen),
+                        _ => None,
+                    };
+                    let sent = if let Some(class) = class {
+                        socket.send_to(&datagram, peer, class).await
                     } else {
                         let answer = crate::link::is_liveness_answer(&datagram);
                         socket.send_liveness(&datagram, peer, answer).await
@@ -624,7 +629,7 @@ fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     match send_class(datagram) {
         SendClass::Control if !cmux_wg::is_ultra_parity(datagram) => SendClass::Control,
         _ => match priority {
-            cmux_wg::Priority::Interactive => SendClass::Input,
+            cmux_wg::Priority::Interactive | cmux_wg::Priority::Screen => SendClass::Input,
             cmux_wg::Priority::Bulk => SendClass::Bulk,
             cmux_wg::Priority::Media => SendClass::Media,
         },
@@ -2355,7 +2360,7 @@ pub(super) fn dial_wireguard<'a>(
                 }
             }
         }
-        let (public_key, peer_endpoints, overlay_ip, lanes, peer_relayed, peer_relayed_tls, peer_version) =
+        let (answer_key, peer_endpoints, overlay_ip, lanes, peer_relayed, peer_relayed_tls, peer_version) =
             answer?;
         let ip: Ipv4Addr =
             overlay_ip.parse().map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
@@ -2365,7 +2370,7 @@ pub(super) fn dial_wireguard<'a>(
             classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
         let video_agreed = options.video_lane && super::video_lane_listed(&lanes);
         let webrtc_media_agreed = video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
-        let (peer_key, peer_ip) = (parse_key(&public_key)?, ip);
+        let (peer_key, peer_ip) = (parse_key(&answer_key)?, ip);
         if peer_ip == DIALER_OVERLAY {
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
@@ -2389,6 +2394,7 @@ pub(super) fn dial_wireguard<'a>(
         }
         let turn_missed = late_turn.is_none() && missed_turn(true, turn.as_ref(), options);
         let announce_turn = trickle && turn.is_some();
+        let tunnel_keys = super::TunnelKeys { dialer: b64(&public_key), answerer: b64(&peer_key) };
         let spec = TunnelSpec {
             session_id,
             peer_device: mac,
@@ -2477,6 +2483,7 @@ pub(super) fn dial_wireguard<'a>(
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         Ok(Dialed {
+            tunnel_keys: Some(tunnel_keys),
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
             path: tunnel.path,
@@ -2558,6 +2565,7 @@ impl Dialer for WireGuardDialer {
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
             let (private_key, own_public) = keypair();
+            let tunnel_keys = super::TunnelKeys { dialer: b64(&peer_key), answerer: b64(&own_public) };
             let spec = TunnelSpec {
                 session_id: &first.session_id,
                 peer_device: &first.from,
@@ -2668,6 +2676,7 @@ impl Dialer for WireGuardDialer {
             });
             let webrtc_media = webrtc_media_wanted && media.is_some();
             Ok(Dialed {
+                tunnel_keys: Some(tunnel_keys),
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
                 path: tunnel.path,
