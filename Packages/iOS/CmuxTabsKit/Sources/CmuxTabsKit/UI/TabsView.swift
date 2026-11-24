@@ -145,7 +145,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     private var toolbarLayout: ToolbarLayout {
-        ToolbarLayout.make(metrics: theme.metrics, size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
+        ToolbarLayout.make(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                            editing: chrome.editing, splitBack: activeTab?.navigation.canGoForward == true, labelWidth: 69,
                            noBack: activeTab?.features.contains(.history) != true)
     }
@@ -297,7 +297,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     // never the held one.
                     .id(tab.id)
                 }
-                .padding(.bottom, keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8)
+                // A top bar leaves the bottom to the accessory: it rests on the home indicator's inset.
+                .padding(.bottom, keyboard > 0 ? keyboard
+                         : theme.metrics.barEdge == .top ? safeBottom : size.height - layout.capsule.minY + 8)
                 .frame(width: size.width, height: size.height)
                 .scaleEffect(z.scale, anchor: .topLeading)
                 .offset(x: z.origin.x, y: z.origin.y)
@@ -309,7 +311,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Out of the hierarchy on the settled grid (invisible there, and
             // accessibility tools list hidden views too).
             if zoomState.phase != .overview {
-            TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeBottom: safeBottom, keyboard: keyboard,
+            TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: keyboard,
                         history: source.providesHistoryMenus ? { direction in
                             activeID.map { source.history(direction, for: $0) } ?? []
                         } : nil,
@@ -333,7 +335,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if !overviewVisible, activeTab != nil {
                 PageMenu(groups: menuGroups,
                          origin: CGRect(x: layout.capsule.minX, y: layout.capsule.minY, width: theme.metrics.control, height: theme.metrics.control),
-                         capsule: layout.capsule, topLimit: safeTop + 8, expanded: menuExpanded, contentVisible: menuContent,
+                         capsule: layout.capsule, topLimit: safeTop + 8,
+                         bottomLimit: theme.metrics.barEdge == .top ? size.height - max(keyboard, safeBottom) - 8 : nil,
+                         expanded: menuExpanded, contentVisible: menuContent,
                          onDismiss: closeMenu, onSelect: { item in
                              closeMenu()
                              item.action()
@@ -352,7 +356,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .padding(.vertical, 10)
                     .glassEffect(.regular, in: .rect(cornerRadius: 20))
                     .padding(.horizontal, 24)
-                    .padding(.top, safeTop + 8)
+                    // Under a top bar, not over it.
+                    .padding(.top, theme.metrics.barEdge == .top ? layout.capsule.maxY + 8 : safeTop + 8)
                     .frame(width: size.width, alignment: .top)
                     .onTapGesture { source.clearNotice() }
                     // Reduce Motion: a fade, no slide.
@@ -409,12 +414,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page
 
     private var contentContext: TabsKitContentContext {
-        let expanded = ToolbarLayout.make(metrics: theme.metrics, size: size, safeBottom: safeBottom, keyboard: 0, bar: .expanded,
-                                          editing: false, splitBack: false, labelWidth: 69)
+        let barInset = ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
+        let top = theme.metrics.barEdge == .top
         let chrome = chrome, theme = theme
         return TabsKitContentContext(
             pageSize: size,
-            safeAreaInsets: EdgeInsets(top: safeTop, leading: 0, bottom: max(0, size.height - expanded.capsule.minY + 8), trailing: 0),
+            safeAreaInsets: EdgeInsets(top: top ? barInset : safeTop, leading: 0, bottom: top ? safeBottom : barInset, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,

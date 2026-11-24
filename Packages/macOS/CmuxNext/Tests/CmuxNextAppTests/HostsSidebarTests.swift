@@ -73,6 +73,33 @@ struct HostsSidebarTests {
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
     }
 
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A machine's row said
+    /// "Connecting…" with a spinner from the first frame of every launch connect and redial, with nothing to press
+    /// and no bound. It now says nothing for ``NoticeTiming/connectionQuiet``; a connect that lasts says so, and a
+    /// resume the person started still says "Resuming…" at once.
+    @Test func aConnectSaysNothingUntilItLastsTheBound() async throws {
+        let machines = [Self.machine("connecting", "Joining", connected: false, connecting: true),
+                        Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud)]
+        let quiet = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
+        defer { quiet.stop() }
+        let first = quiet.rows()
+        let joining = try #require(first.first { $0.item.id.rawValue.hasSuffix("connecting") })
+        #expect(joining.info.caption == nil && joining.info.activity == .idle, "no words and no spinner inside the bound")
+        #expect(first.first { $0.item.id.rawValue.hasSuffix("resuming") }?.info.caption == "Resuming…")
+
+        let lasting = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }),
+                                   connectQuiet: .milliseconds(1))
+        defer { lasting.stop() }
+        _ = lasting.rows()
+        var said: SidebarTransientItem?
+        for _ in 0..<200 {
+            said = lasting.rows().first { $0.item.id.rawValue.hasSuffix("connecting") }
+            if said?.info.caption == "Connecting…" { break }
+            try await Task.sleep(for: .milliseconds(5)) // wakeup-allow: bounded test wait for the 1 ms hold
+        }
+        #expect(said?.info.caption == "Connecting…" && said?.info.activity == .working, "a connect that lasts says so")
+    }
+
     @Test func addAndHostClicksUseTheSharedMachineRows() throws {
         let machine = Self.machine("m1", "Desk", kind: .server)
         var added = false
@@ -125,16 +152,17 @@ struct HostsSidebarTests {
         #expect(dialed == "m1" && connected == nil)
     }
 
-    @Test func meshOnlyJoinedNonMacsStayClosed() {
+    @Test func meshOnlyJoinedLinuxDialsAndOfflineJoinedStaysClosed() {
         let joined = JoinedMachine(id: "linux-1", name: "Builder", state: .online, platform: "linux")
-        let row = MachineSectionRow.joined(joined, health: nil)
+        let offline = JoinedMachine(id: "linux-2", name: "Asleep", state: .offline, platform: "linux")
         var connected: String?
-        var dialed: String?
-        let host = HostsSidebar.Host(rows: { [row] }, add: {}, openConnected: { connected = $0 }, openJoined: { dialed = $0.id })
+        var dialed: [String] = []
+        let host = HostsSidebar.Host(rows: { [] }, add: {}, openConnected: { connected = $0 }, openJoined: { dialed.append($0.id) })
 
-        host.open(row)
+        host.open(MachineSectionRow.joined(joined, health: nil))
+        host.open(MachineSectionRow.joined(offline, health: nil))
         #expect(connected == nil)
-        #expect(dialed == nil)
+        #expect(dialed == ["linux-1"])
     }
 
     @Test func boundHostRefreshesAndOwnsJoinedMachineAging() async {

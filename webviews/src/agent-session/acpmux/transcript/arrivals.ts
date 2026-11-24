@@ -64,6 +64,20 @@ export function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
   return undefined;
 }
 
+/// The rows that came at the tail bring none of the reply's text: a send's or a steer's own rows (the
+/// prompt, its date, the live line). The steady arm moves those at once and lets the reply drift.
+/// O(rows that came).
+export function noReplyCame(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  const first = Math.max(0, before.length - ARRIVAL_TAIL);
+  const known = new Set<string>();
+  for (let index = first; index < before.length; index += 1) known.add(before[index]!.id);
+  for (let index = first; index < after.length; index += 1) {
+    const row = after[index]!;
+    if (!known.has(row.id) && row.kind === "assistant") return false;
+  }
+  return true;
+}
+
 /// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
 /// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
 /// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
