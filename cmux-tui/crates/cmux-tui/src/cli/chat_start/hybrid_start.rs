@@ -6,6 +6,7 @@
 //! it there with the app's own Move to Cloud. Every decision is cmux-cloud-start-core's
 //! [`hybrid::step`]; this file only runs its effects.
 //!
+//! On for a Pro plan, `CMUX_HYBRID_START=1`, or cmux-next.json `cloud.autoCloud: true` with no env.
 //! Off (no Pro plan, `CMUX_HYBRID_START=0`, `hybrid-chat-start` disabled, signed out, or no agent
 //! here the chat could start with: [`local_harness`]), or a start the chat here cannot take
 //! ([`takes`]), the Cloud start runs exactly as before.
@@ -113,6 +114,7 @@ fn flag() -> Option<bool> {
     crate::feature_flags::hybrid_chat_start_flag(
         &|name| std::env::var(name).ok(),
         &crate::feature_flags::disables,
+        &cmux_tui_core::user_settings::auto_cloud,
     )
 }
 

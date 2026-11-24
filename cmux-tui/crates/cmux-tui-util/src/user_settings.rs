@@ -285,6 +285,52 @@ pub fn agent_share_idle_minutes() -> u64 {
     }
 }
 
+/// The dotted settings key of AutoCloud (schemas/settings/source/machines.json, a hidden toggle,
+/// default off): Auto may start a chat on a Cloud machine, and the hybrid chat start is on
+/// (`cmux-tui` `feature_flags::hybrid_chat_start_flag`).
+pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
+
+/// `cloud.autoCloud` of a settings file, flat (`"cloud.autoCloud"`) or nested
+/// (`{"cloud": {"autoCloud": …}}`), under what an administrator set
+/// ([`cmux_config::managed::applied_to`]): `Some` of a boolean, a `false` in either form winning
+/// over a `true` in the other; None when no form holds a boolean or the file does not parse.
+pub fn auto_cloud_from_config_text(text: &str) -> Option<bool> {
+    auto_cloud_applied(auto_cloud_file_value(text))
+}
+
+fn auto_cloud_file_value(text: &str) -> Option<Value> {
+    let text = text.trim_start_matches('\u{feff}');
+    let document = serde_json::from_str::<Value>(&strip_jsonc(text)).ok()?;
+    let flat = document.get(AUTO_CLOUD_KEY).and_then(Value::as_bool);
+    let nested = document.pointer("/cloud/autoCloud").and_then(Value::as_bool);
+    match (flat, nested) {
+        (Some(false), _) | (_, Some(false)) => Some(Value::Bool(false)),
+        (flat, nested) => flat.or(nested).map(Value::Bool),
+    }
+}
+
+fn auto_cloud_applied(file: Option<Value>) -> Option<bool> {
+    cmux_config::managed::applied_to(AUTO_CLOUD_KEY, file).as_ref().and_then(Value::as_bool)
+}
+
+/// [`auto_cloud_from_config_text`] of the settings file at `path`; without a readable file, only
+/// what an administrator set.
+pub fn auto_cloud_from_config_file(path: &Path) -> Option<bool> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => auto_cloud_from_config_text(&text),
+        Err(_) => auto_cloud_applied(None),
+    }
+}
+
+/// [`auto_cloud_from_config_file`] of the app's settings file ([`config_path`]), read at each call
+/// so a change applies to the next chat start with no reload; always None in unit tests.
+pub fn auto_cloud() -> Option<bool> {
+    if cfg!(test) {
+        return None;
+    }
+    auto_cloud_from_config_file(&config_path())
+}
+
 /// Settings-file `agents.cmuxMcp` ("Give Agents cmux’s Tools"): whether
 /// agents cmux starts get its `cmux` MCP server (which carries cmux Computer
 /// Use): a Claude Code or Codex typed into a cmux terminal (the `claude` and
@@ -607,6 +653,43 @@ mod tests {
             15,
             "unit tests never read the developer's file"
         );
+    }
+
+    #[test]
+    fn auto_cloud_is_the_files_boolean_flat_or_nested_and_false_wins() {
+        use super::auto_cloud_from_config_text as auto_cloud;
+        assert_eq!(auto_cloud(""), None);
+        assert_eq!(auto_cloud("{}"), None);
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": true}}"#), Some(true));
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": false}}"#), Some(false));
+        assert_eq!(auto_cloud(r#"{"cloud.autoCloud": true}"#), Some(true), "flat key");
+        assert_eq!(
+            auto_cloud("{\n  // AutoCloud\n  \"cloud\": {\"autoCloud\": true,},\n}"),
+            Some(true)
+        );
+        assert_eq!(auto_cloud("\u{feff}{\"cloud\": {\"autoCloud\": true}}"), Some(true), "a BOM");
+        assert_eq!(
+            auto_cloud(r#"{"cloud.autoCloud": true, "cloud": {"autoCloud": false}}"#),
+            Some(false),
+            "a false in either form wins"
+        );
+        assert_eq!(auto_cloud(r#"{"cloud": {"autoCloud": "yes"}}"#), None, "not a boolean");
+        assert_eq!(auto_cloud(r#"{"cloud": {"plan": "pro"}}"#), None);
+        assert_eq!(auto_cloud("{not json"), None);
+        assert_eq!(super::auto_cloud(), None, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn auto_cloud_reads_the_file_again_at_each_call() {
+        use super::auto_cloud_from_config_file as read;
+        let path =
+            std::env::temp_dir().join(format!("cmux-auto-cloud-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"cloud": {"autoCloud": true}}"#).unwrap();
+        assert_eq!(read(&path), Some(true));
+        std::fs::write(&path, r#"{"cloud": {"autoCloud": false}}"#).unwrap();
+        assert_eq!(read(&path), Some(false));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(read(&path), None, "no file: no value");
     }
 
     #[test]
