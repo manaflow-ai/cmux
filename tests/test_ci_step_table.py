@@ -969,6 +969,16 @@ class EnsureBun(unittest.TestCase):
 
 
 
+class BunInstallLockTest(unittest.TestCase):
+    def test_every_bun_install_holds_the_job_lock(self) -> None:
+        # Parallel steps share bun's global cache; two installs at once failed copying from it (ENOENT).
+        for name, step in ci_steps.load().steps.items():
+            for line in step.run.splitlines():
+                if re.search(r"\bbun (install|i)\b", line) and not line.lstrip().startswith("#"):
+                    with self.subTest(step=name, line=line.strip()):
+                        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install', line)
+
+
 class WebBrowserStepsTest(unittest.TestCase):
     """The web-browser job's steps: ci-web.yml's browser jobs on a feat-cmux-next pull request, routed by their
     web subarea (web_subareas.py), which their globs cover and their first line narrows."""

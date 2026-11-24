@@ -45,6 +45,9 @@ python3 -m venv --system-site-packages "$CI_TOOLS"
 # cache, which a persistent runner keeps, so its next job downloads nothing).
 [tools]
 # The version every workflow that moved here pinned for oven-sh/setup-bun; only that exact version passes.
+# Steps run at once and every `bun install` shares bun's one global cache: two at a time failed copying from it
+# (ENOENT, #53426's first run). Each step's install holds "$CI_TOOLS/bun-install.lock" (flock), so the later ones find
+# the cache filled and finish fast; tests/test_ci_step_table.py says every install does.
 bun = 'scripts/ci/ensure-bun.sh 1.4.4 "$CI_TOOLS/bin"'
 # The `24.22.1` the repository's other workflows pin for setup-node (the moved one asked for `24`).
 node = '''
@@ -378,7 +381,7 @@ needs = ["bun"]
 inputs = ["mux/**"]
 run = '''
 cd mux
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 bun test
 '''
 
@@ -414,7 +417,7 @@ inputs = [
 ]
 run = '''
 cd web
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts
 '''
 
@@ -499,7 +502,7 @@ inputs = [
 ]
 run = '''
 cd workers/cmux-vm/sdk
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 status=0
 bun run generate
 if [[ -n "$(git status --porcelain -- .)" ]]; then
@@ -622,7 +625,7 @@ if head="$(git rev-parse -q --verify 'HEAD^2')"; then
   export FIXIT_COMPILE_HEAD_SHA="$head"
 fi
 cd web
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 status=0
 bun tools/generate-managed-iroh-relay-catalog.ts --check || status=1
 log="$(mktemp "$RUNNER_TEMP/web-typecheck.XXXXXX.log")"
@@ -1086,7 +1089,7 @@ inputs = [
 run = '''
 python3 -I scripts/ci/web_subareas.py has instant || exit 0
 cd web
-bun install --frozen-lockfile
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 # Its last line names the pinned headless shell the tests launch (test/support/systemChrome.ts reads it).
 log="$(mktemp)"
 bash ../scripts/ci/ensure-system-chrome.sh | tee "$log"
@@ -1142,7 +1145,7 @@ inputs = [
 run = '''
 python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
 root="$PWD"
-(cd webviews && bun install --frozen-lockfile)
+(cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
 cd cmux-tui
 cargo build --locked -p acpmux --bin acpmux
 # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
