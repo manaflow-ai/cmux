@@ -74,7 +74,10 @@ pub fn parse_pointer(bytes: &[u8]) -> Option<Pointer> {
 
 /// Where the LFS store keeps an object under `lfs_dir` (`.git/lfs`).
 pub fn object_path(lfs_dir: &Path, oid: &str) -> PathBuf {
-    lfs_dir.join("objects").join(&oid[0..2]).join(&oid[2..4]).join(oid)
+    let (Some(first), Some(second)) = (oid.get(0..2), oid.get(2..4)) else {
+        return lfs_dir.join("objects").join(oid);
+    };
+    lfs_dir.join("objects").join(first).join(second).join(oid)
 }
 
 fn holds(lfs_dir: &Path, pointer: &Pointer) -> bool {
@@ -94,15 +97,16 @@ fn scan_inner(top: &Path, lfs_dir: &Path, commit: &str) -> Result<Vec<LfsFile>, 
     let mut candidates: Vec<(String, String)> = Vec::new();
     for entry in listing.split(|b| *b == 0).filter(|entry| !entry.is_empty()) {
         let Some(tab) = entry.iter().position(|b| *b == b'\t') else { continue };
-        let meta = String::from_utf8_lossy(&entry[..tab]);
+        let (Some(head), Some(name)) = (entry.get(..tab), entry.get(tab + 1..)) else { continue };
+        let meta = String::from_utf8_lossy(head);
         let fields: Vec<&str> = meta.split_whitespace().collect();
-        let [mode, kind, oid, size] = fields[..] else { continue };
+        let [mode, kind, oid, size] = fields.as_slice() else { continue };
+        let (mode, kind, oid, size) = (*mode, *kind, *oid, *size);
         if kind != "blob" || mode == "120000" {
             continue;
         }
         if size.parse::<usize>().is_ok_and(|size| size <= POINTER_MAX) {
-            candidates
-                .push((oid.to_owned(), String::from_utf8_lossy(&entry[tab + 1..]).into_owned()));
+            candidates.push((oid.to_owned(), String::from_utf8_lossy(name).into_owned()));
         }
     }
     if candidates.is_empty() {
@@ -126,8 +130,9 @@ fn scan_inner(top: &Path, lfs_dir: &Path, commit: &str) -> Result<Vec<LfsFile>, 
     let mut files = Vec::new();
     let mut at = 0;
     for (_, path) in candidates {
-        let Some(nl) = out[at..].iter().position(|b| *b == b'\n') else { break };
-        let header = String::from_utf8_lossy(&out[at..at + nl]).into_owned();
+        let Some(rest) = out.get(at..) else { break };
+        let Some(nl) = rest.iter().position(|b| *b == b'\n') else { break };
+        let header = String::from_utf8_lossy(rest.get(..nl).unwrap_or_default()).into_owned();
         at += nl + 1;
         let Some(len) = header.split(' ').nth(2).and_then(|len| len.parse::<usize>().ok()) else {
             continue; // `<oid> missing`: no body follows
