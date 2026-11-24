@@ -101,3 +101,34 @@ import Testing
         #expect(!store.awaitsFirstPrompt)
     }
 }
+
+/// iOS release bar read-back, 2026-11-22, shot 14: an existing chat whose history came late said
+/// "Loading chat…" under its spinner at once. Its words now wait out the quiet threshold; a start
+/// still says "Starting <agent>…" at once.
+@MainActor
+@Suite struct LoadingWordsWaitTests {
+    final class Slow: AgentSessionSource {
+        let summary = AgentSessionSummary(id: "t", name: "Chat", harness: "claude", agentName: "Claude", cwd: "~/p",
+                                          workspaceTitle: "w", macName: "Mac")
+        var starting = false
+        var isStarting: Bool { starting }
+        var loadsHistory: Bool { true }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {}
+    }
+
+    @Test func aSlowHistoryShowsOnlyItsSpinnerUntilTheThreshold() {
+        let store = AgentChatStore(source: Slow(), quietStatus: QuietStatusGate(delay: .seconds(3600)))
+        #expect(store.loadingText == "Loading chat…")
+        #expect(!store.loadingTextShows)
+        #expect(AgentChatStore(source: Slow(), quietStatus: QuietStatusGate(delay: .zero)).loadingTextShows)
+    }
+
+    @Test func aStartSaysSoAtOnce() {
+        let source = Slow()
+        source.starting = true
+        let store = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .seconds(3600)))
+        #expect(store.loadingText == "Starting Claude…")
+        #expect(store.loadingTextShows)
+    }
+}

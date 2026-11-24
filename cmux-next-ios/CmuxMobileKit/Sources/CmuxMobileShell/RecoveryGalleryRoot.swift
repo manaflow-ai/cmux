@@ -35,6 +35,8 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `stills`: what a tab card's picture draws for math, a running tool's spinner and a menu, A (the
+///   app's), B and C, each through `ImageRenderer` (`StillPictureGallery`).
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
 /// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
 ///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
@@ -59,7 +61,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "stills"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -102,6 +104,14 @@ public struct RecoveryGalleryRoot: View {
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "stills":
+                // `stills-mocha`, `stills-solarized`: the same under a Mac's dark or light theme.
+                StillPictureGallery()
+                    .onAppear {
+                        guard let fixture = variant == "mocha" ? MacThemeGallery.mocha : variant == "solarized" ? MacThemeGallery.solarized : nil else { return }
+                        CmuxMobileMacTheme.shared.matchesMac = true
+                        CmuxMobileMacTheme.shared.apply(fixture, chatWallpaper: nil)
+                    }
             case "lastsent":
                 TerminalLastSentGallery()
             default:

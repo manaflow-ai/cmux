@@ -11,6 +11,9 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "live")
 
@@ -98,6 +101,10 @@ public final class LiveCoordinator {
     public internal(set) var relayAvailable: Bool?
     /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
     @ObservationIgnored let appearance = MacAppearanceFeed()
+    #if canImport(CmuxMobileLinkFFI)
+    /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
+    public let pairRequests = MacPairRequests()
+    #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
     @ObservationIgnored public let tabs = MacTabsFeed()
@@ -125,6 +132,10 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// UIKit's `willEnterForeground` already resumed the links for this return
+    /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
+    @ObservationIgnored private var foregroundedEarly = false
+    @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -1156,6 +1167,7 @@ public final class LiveCoordinator {
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
+        foregroundedEarly = false
         backgroundedAt = ContinuousClock.now
         incidents.appActive(false)
         // A call's link may have been opened since the call started.
@@ -1163,6 +1175,9 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.background) }
         discovery.pause()
         presence?.backgrounded = true
+        #if canImport(CmuxMobileLinkFFI)
+        pairRequests.background()
+        #endif
     }
 
     /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
@@ -1170,6 +1185,30 @@ public final class LiveCoordinator {
     public func followApplicationState() {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
+        followForegroundNotification()
+    }
+
+    /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before
+    /// the first frame is drawn, not at SwiftUI's `scenePhase == .active` after it. Leo,
+    /// 2026-11-24, back from another app: "The like multi-second long reattach where like the
+    /// entire thing is somehow grayed out and I can't interact with anything at all."
+    func followForegroundNotification() {
+        #if canImport(UIKit)
+        guard foregroundObserver == nil else { return }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.willEnterForeground() }
+        }
+        #endif
+    }
+
+    /// Back from the background: the links resume now; the scene's `.active` that follows is
+    /// then a repeat (``foreground()``).
+    func willEnterForeground() {
+        guard isBackgrounded else { return }
+        foreground()
+        foregroundedEarly = true
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.
@@ -1188,6 +1227,11 @@ public final class LiveCoordinator {
 
     /// App foreground: keep the links a short suspend left alive, replace stale ones, refresh presence.
     public func foreground() {
+        // `willEnterForeground` already resumed this return.
+        if foregroundedEarly {
+            foregroundedEarly = false
+            return
+        }
         let away = backgroundedAt.map { ContinuousClock.now - $0 }
         backgroundedAt = nil
         foreground(after: away)
@@ -1206,6 +1250,9 @@ public final class LiveCoordinator {
         discovery.resume()
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
+        #if canImport(CmuxMobileLinkFFI)
+        pairRequests.foreground()
+        #endif
     }
 
 }
