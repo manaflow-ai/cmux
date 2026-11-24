@@ -232,6 +232,32 @@
             "tool",
             "card"
           ]
+        },
+        {
+          "key": "experiments.attachmentTypeIcons",
+          "note": "Taste prototype: while the App looks up a dropped or pasted file's local path, its composer chip shows a file or image icon instead of the loading mark, and an image keeps its image icon until its thumbnail arrives (webviews experimentSwitchOn(\"attachmentTypeIcons\"), composer/attachmentIntakeModel.ts resolvingPath). Off by default; off keeps the loading mark. The path-first attach itself is not behind this switch.",
+          "title": {
+            "key": "settings.experiments.attachmentTypeIcons",
+            "text": "Attachment Type Icons"
+          },
+          "help": {
+            "key": "settings.experiments.attachmentTypeIcons.help",
+            "text": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "attachment",
+            "attachments",
+            "icon",
+            "file",
+            "image",
+            "loading",
+            "chip"
+          ]
         }
       ]
     }

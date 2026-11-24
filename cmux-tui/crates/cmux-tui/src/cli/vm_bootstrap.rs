@@ -377,10 +377,10 @@ pub(super) fn set_up(guest: &mut dyn Guest, setup: &Setup) -> (Value, bool) {
 }
 
 /// The VM API as a [`Guest`] for one VM, each call on `runtime`.
-struct ApiGuest<'a> {
-    runtime: &'a tokio::runtime::Runtime,
-    guest: cmux_vm::guest::Guest,
-    vm_id: String,
+pub(super) struct ApiGuest<'a> {
+    pub(super) runtime: &'a tokio::runtime::Runtime,
+    pub(super) guest: cmux_vm::guest::Guest,
+    pub(super) vm_id: String,
 }
 
 impl Guest for ApiGuest<'_> {

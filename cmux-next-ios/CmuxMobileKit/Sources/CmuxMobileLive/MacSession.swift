@@ -55,6 +55,8 @@ final class MacSession {
     /// When this link last stopped being connected (nil: connected or idle).
     var linkDownSince: ContinuousClock.Instant?
     var offlineTask: Task<Void, Never>?
+    /// Looks again when a redial reaches ``LiveCoordinator/macStallAfter`` (cmux#52200).
+    var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
     var daemonError: String?

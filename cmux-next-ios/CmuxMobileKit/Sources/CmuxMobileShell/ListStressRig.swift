@@ -106,6 +106,10 @@ final class ListStressRig: NSObject {
             store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
             store.requestOpen(tabID: "t-g0", in: ws.id)
             shell.tab = .workspaces
+            if settings.macCards {
+                let seeded = ws.tabs, macID = ws.macID
+                Task { await ListStressMacCards.seed(tabs: seeded, macID: macID) }
+            }
             try? await Task.sleep(for: .seconds(1))
             // Opening the workspace from the list (the push and its first page).
             FrameIntervalLog.shared.begin("tabs-push")

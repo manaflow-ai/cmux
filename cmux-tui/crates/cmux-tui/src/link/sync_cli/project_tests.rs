@@ -74,6 +74,77 @@ fn what_a_server_serves_reads_back_as_written() {
     assert_eq!(ServerRecord::decode(&unnamed.encode()), Some(unnamed));
 }
 
+fn git_in(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+        .args(args)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
+}
+
+/// RFD 0007, "Tracked files the skip rules keep home": in a folder of repositories, a secret a
+/// repository tracks is listed with its real stat and why, and its bytes are refused; an untracked
+/// secret is still not listed at all.
+#[test]
+fn a_tracked_secret_below_a_folder_of_repos_is_listed_with_its_stat_and_never_served() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(folder.path()).unwrap();
+    let repo = root.join("kubernetes");
+    std::fs::create_dir_all(repo.join("test/fixtures")).unwrap();
+    std::fs::create_dir_all(repo.join("web/node_modules/x")).unwrap();
+    std::fs::write(repo.join("web/package.json"), "{}\n").unwrap();
+    std::fs::write(repo.join("main.go"), "package main\n").unwrap();
+    std::fs::write(repo.join("test/fixtures/server.key"), "PRIVATE KEY BYTES\n").unwrap();
+    std::fs::write(repo.join("web/node_modules/x/index.js"), "x\n").unwrap();
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["add", "-f", "."]);
+    git_in(&repo, &["commit", "-qm", "init"]);
+    std::fs::write(repo.join("untracked.pem"), "OTHER KEY\n").unwrap();
+
+    let listed = list(&root).unwrap();
+    let manifest = &listed.manifest;
+    let key = manifest.resolve("kubernetes/test/fixtures/server.key").expect("the key is listed");
+    let meta = std::fs::metadata(repo.join("test/fixtures/server.key")).unwrap();
+    let entry = manifest.entry(key).unwrap();
+    assert_eq!(entry.size, meta.len());
+    assert_eq!(entry.mtime_ns, mtime_ns(&meta));
+    assert_eq!(entry.mode, 0o644);
+    assert_eq!(manifest.kept(key), Some("secret: key files are shared only on purpose"));
+    let heavy = manifest.resolve("kubernetes/web/node_modules/x/index.js").unwrap();
+    assert_eq!(manifest.kept(heavy), Some("a heavy folder rebuilt on the machine"));
+    assert_eq!(manifest.kept_count(), 2);
+    assert_eq!(manifest.resolve("kubernetes/untracked.pem"), None);
+    let main = manifest.resolve("kubernetes/main.go").unwrap();
+    assert_eq!(manifest.kept(main), None);
+
+    // No byte of it is served, whole or by range.
+    assert_eq!(Source::whole(&listed, key), Part::status(wire::REFUSED));
+    assert_eq!(Source::read(&listed, key, 0, 4096), Part::status(wire::REFUSED));
+    assert_eq!(Source::whole(&listed, main), Part::ok(b"package main\n".to_vec()));
+    // And the wire carries the mark.
+    let decoded = Manifest::decode(&manifest.encode().unwrap()).unwrap();
+    assert_eq!(decoded.kept(key), manifest.kept(key));
+}
+
+/// A repository folder itself lists every tracked file with its bytes (tracked secrets were
+/// committed on purpose): nothing is kept.
+#[test]
+fn a_repository_folder_keeps_nothing_home() {
+    let folder = tempfile::tempdir().unwrap();
+    let repo = std::fs::canonicalize(folder.path()).unwrap();
+    std::fs::write(repo.join("server.key"), "TEST KEY\n").unwrap();
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["add", "-f", "."]);
+    git_in(&repo, &["commit", "-qm", "init"]);
+    let listed = list(&repo).unwrap();
+    let key = listed.manifest.resolve("server.key").unwrap();
+    assert_eq!(listed.manifest.kept(key), None);
+    assert_eq!(listed.manifest.kept_count(), 0);
+}
+
 /// A stand-in machine socket at `path`: each dial's ask is counted, then answered `ok`.
 fn answering(path: &Path) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
     use std::sync::atomic::Ordering;
@@ -165,4 +236,19 @@ fn a_quiet_refusal_is_a_failed_dial_and_the_redial_waits_half_a_second_flat() {
         [200, 400, 800, 1600, 3200, 6400, 10_000, 10_000],
         "the main socket backs off"
     );
+}
+
+#[test]
+fn the_ready_line_splits_the_gate_into_listing_encoding_and_mount() {
+    let timing = ready_timing(21_592, 900, 950, 2_000_000, 2_100, Some(400));
+    assert_eq!(timing["entries"], 21_592);
+    assert_eq!(timing["listed_ms"], 900);
+    assert_eq!(timing["encoded_ms"], 950);
+    assert_eq!(timing["manifest_bytes"], 2_000_000);
+    assert_eq!(timing["ready_ms"], 2_100);
+    assert_eq!(timing["mount_ms"], 400);
+    // An older machine's answer has no mount time.
+    assert!(ready_timing(2, 1, 1, 10, 5, None)["mount_ms"].is_null());
+    // One line in the log, for the start matrix to read back.
+    assert!(!timing.to_string().contains('\n'));
 }

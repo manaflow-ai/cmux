@@ -91,7 +91,8 @@ Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-ho
   link (a web or daemon change: `cmux app try <PR>`, a build only when `hot-verify.py plan` needs one or the
   person asks), the fleet simulator evidence and the iPhone install result
   ([finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md)). A docs-only change gives the
-  file path instead.
+  file path instead. `cmux-next-ios/scripts/review.sh` points both apps at the tag's own backend stack by
+  default (`--backend dev` for the shared dev Workers).
 
 ## CI, review and merge
 
