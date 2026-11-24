@@ -132,13 +132,6 @@ pub trait Underlay: Send + 'static {
         self.send(datagram);
     }
 
-    /// Whether data datagrams go on `path` now, so a probe sent there
-    /// arrives among them, in counter order, and needs no off-path note
-    /// (`crate::ultra_auto`). False keeps the note: always safe.
-    fn carries_data(&self, _path: PathId) -> bool {
-        false
-    }
-
     /// Probes due at `now`. The driver calls this only while the session
     /// carries traffic; a carrier with one path never probes.
     /// Hold routine path probes until `floor`, or lift the hold

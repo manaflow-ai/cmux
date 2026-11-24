@@ -1825,12 +1825,6 @@ impl Underlay for HybridUnderlay {
         }
     }
 
-    /// Data goes on the confirmed direct route alone; unconfirmed, it is
-    /// sprayed, so a probe's counter may arrive out of order.
-    fn carries_data(&self, path: PathId) -> bool {
-        self.direct_only() && self.direct == self.paths.route_of(path)
-    }
-
     fn hold_routine_probes(&mut self, floor: Option<Instant>) {
         self.paths.hold_routine(floor);
     }

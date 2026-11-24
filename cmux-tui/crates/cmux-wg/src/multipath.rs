@@ -482,12 +482,6 @@ impl Underlay for Multipath {
         }
     }
 
-    /// Data goes on the current path alone; while it is suspect (no
-    /// current path) it goes on every path, out of counter order.
-    fn carries_data(&self, path: PathId) -> bool {
-        lock(&self.shared).selector.current() == Some(path)
-    }
-
     fn hold_routine_probes(&mut self, floor: Option<Instant>) {
         for slot in &mut lock(&self.shared).slots {
             slot.watch.hold_routine(floor);
