@@ -112,11 +112,23 @@ final class GooPlanner {
 }
 
 extension GooSpring {
+    /// The spring the C ABI hands back.
+    init(_ ffi: CmuxGooSpring) { self.init(response: ffi.response, dampingFraction: ffi.damping_fraction) }
+
     /// The spring as the C ABI takes it.
     var ffi: CmuxGooSpring { CmuxGooSpring(response: response, damping_fraction: dampingFraction) }
 }
 
 extension GooTuning {
+    /// The tuning the C ABI hands back, field for field.
+    init(_ ffi: CmuxGooTuning) {
+        self.init(select: GooSpring(ffi.select), open: GooSpring(ffi.open), close: GooSpring(ffi.close),
+                  reorder: GooSpring(ffi.reorder), snap: GooSpring(ffi.snap), absorb: GooSpring(ffi.absorb),
+                  wobble: GooSpring(ffi.wobble), stretch: ffi.stretch, lean: ffi.lean, feetScale: ffi.feet_scale,
+                  k: ffi.k, breakDistance: ffi.break_distance, captureDistance: ffi.capture_distance,
+                  wobbleAmplitude: ffi.wobble_amplitude)
+    }
+
     /// The tuning as the C ABI takes it, field for field.
     var ffi: CmuxGooTuning {
         CmuxGooTuning(select: select.ffi, open: open.ffi, close: close.ffi, reorder: reorder.ffi, snap: snap.ffi,

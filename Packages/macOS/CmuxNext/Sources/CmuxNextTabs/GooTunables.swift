@@ -1,3 +1,4 @@
+import CCmuxMotionFFI
 public import CmuxNextDesign
 public import CmuxNextDesignTokens
 
@@ -39,41 +40,8 @@ public nonisolated struct GooTuning: Sendable, Equatable {
         self.wobbleAmplitude = wobbleAmplitude
     }
 
-    // The defaults per level, from the contract's Levels table (subtle: damping 0.86 to 0.9, stretch 0.12, about
-    // 1 pt of wobble, a short neck that snaps early; full: damping 0.55 to 0.7, stretch 0.45, 2 to 4 pt of wobble,
-    // wider fillets, a long neck). A later step reads them from the FFI `cmux_goo_tuning_for_level` instead.
-
-    /// Off: critically damped, no stretch, lean, neck or wobble (the strip keeps its motion tokens).
-    // default: Rust GooTuning::for_level
-    static let critical = GooSpring(response: 0.3, dampingFraction: 1) // motion: allow a goo tuning default, not a token
-    // default: Rust GooTuning::for_level
-    public static let off = GooTuning(
-        select: critical, open: critical, close: critical, reorder: critical, snap: critical, absorb: critical, wobble: critical,
-        stretch: 0, lean: 0, feetScale: 1, k: 0, breakDistance: 0, captureDistance: 0, wobbleAmplitude: 0)
-
-    // default: Rust GooTuning::for_level
-    public static let subtle = GooTuning(
-        select: GooSpring(response: 0.3, dampingFraction: 0.88), // motion: allow a goo tuning default, not a token
-        open: GooSpring(response: 0.32, dampingFraction: 0.9), // motion: allow a goo tuning default, not a token
-        close: GooSpring(response: 0.26, dampingFraction: 0.9), // motion: allow a goo tuning default, not a token
-        reorder: GooSpring(response: 0.28, dampingFraction: 0.88), // motion: allow a goo tuning default, not a token
-        snap: GooSpring(response: 0.22, dampingFraction: 0.86), // motion: allow a goo tuning default, not a token
-        absorb: GooSpring(response: 0.3, dampingFraction: 0.86), // motion: allow a goo tuning default, not a token
-        wobble: GooSpring(response: 0.36, dampingFraction: 0.86), // motion: allow a goo tuning default, not a token
-        stretch: 0.12, lean: 0.04, feetScale: 1, k: 4, breakDistance: 16, captureDistance: 10, wobbleAmplitude: 1)
-
-    // default: Rust GooTuning::for_level
-    public static let full = GooTuning(
-        select: GooSpring(response: 0.38, dampingFraction: 0.62), // motion: allow a goo tuning default, not a token
-        open: GooSpring(response: 0.4, dampingFraction: 0.65), // motion: allow a goo tuning default, not a token
-        close: GooSpring(response: 0.32, dampingFraction: 0.7), // motion: allow a goo tuning default, not a token
-        reorder: GooSpring(response: 0.34, dampingFraction: 0.66), // motion: allow a goo tuning default, not a token
-        snap: GooSpring(response: 0.26, dampingFraction: 0.55), // motion: allow a goo tuning default, not a token
-        absorb: GooSpring(response: 0.4, dampingFraction: 0.58), // motion: allow a goo tuning default, not a token
-        wobble: GooSpring(response: 0.45, dampingFraction: 0.55), // motion: allow a goo tuning default, not a token
-        stretch: 0.45, lean: 0.18, feetScale: 1.4, k: 10, breakDistance: 48, captureDistance: 28, wobbleAmplitude: 3)
-
-    /// The default tuning of `level` (Rust's `GooTuning::for_level`, until the FFI replaces these constants).
+    /// The default tuning of `level`: Rust's `GooTuning::for_level` (cmux-motion), read once per level over the
+    /// C ABI, so the levels' springs and geometry live in one place (plans/cmux-next/gooey-tabs.md, "Levels").
     public static func defaults(for level: GooeyTabs) -> GooTuning {
         switch level {
         case .off: off
@@ -81,6 +49,11 @@ public nonisolated struct GooTuning: Sendable, Equatable {
         case .full: full
         }
     }
+
+    /// Off: critically damped, no stretch, lean, neck or wobble (the strip keeps its motion tokens).
+    public static let off = GooTuning(cmux_goo_tuning_for_level(0))
+    public static let subtle = GooTuning(cmux_goo_tuning_for_level(1))
+    public static let full = GooTuning(cmux_goo_tuning_for_level(2))
 }
 
 /// The gooey tabs' knobs (plans/cmux-next/gooey-tabs.md, "Knobs"): every goo spring and goo parameter of each level as
