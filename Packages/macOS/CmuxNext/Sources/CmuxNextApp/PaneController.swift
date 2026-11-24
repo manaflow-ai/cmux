@@ -293,7 +293,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab),
                                               harnessIcons: daemon.isLocal ? services.harnessIconLookup : .none)
         if daemon.isLocal, tab.kind == .pty, tab.remote == nil {
-            item.terminalHistoryKey = TerminalHistoryPage.chatKey(tab.agent)
+            item.terminalHistoryKey = TerminalHistorySource.chatKey(tab.agent)
         }
         // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
         // content, when the app becomes available after the tree arrived.

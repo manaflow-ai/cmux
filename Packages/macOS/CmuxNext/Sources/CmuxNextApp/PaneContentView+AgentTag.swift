@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
@@ -29,5 +30,27 @@ extension PaneContentView {
         let occupied = terminalHistoryButton?.place(in: host, top: top, trailing: trailing) ?? trailing
         guard !agentTag.isHidden, !isBandActive else { agentTag.frame = .zero; return }
         agentTag.place(in: host, top: top, trailing: occupied)
+    }
+}
+
+extension PaneController {
+    func showTerminalHistoryLink(in content: TabContent?) {
+        let key = stripModel.selectedID.flatMap(stripModel.tab)?.terminalHistoryKey
+        guard case .terminal = content, let key else {
+            view.terminalHistoryButton?.discard()
+            view.terminalHistoryButton = nil
+            return
+        }
+        let source = TerminalHistorySource(key: key, cwd: selectedTab?.cwd)
+        guard view.terminalHistoryButton?.source != source else { return }
+        view.terminalHistoryButton?.discard()
+        let button = TerminalHistoryButton(source: source, environment: QuitAgents.environment(services)) { [weak self] in
+            guard let self, let id = stripModel.selectedID, currentTabKey == id.rawValue,
+                  stripModel.tab(id)?.terminalHistoryKey == source.key else { return }
+            WebPageTab.openTerminalHistory(source, in: self)
+        }
+        view.terminalHistoryButton = button
+        view.addSubview(button, positioned: .above, relativeTo: view.agentTag)
+        view.needsLayout = true
     }
 }

@@ -19,6 +19,7 @@ final class WebPageTab: InternalPageProvider {
     let title: String
     private let make: (_ key: String, _ route: String?) -> NSView?
     private var pages: [String: NSView] = [:]
+    private var localPages: [String: PageWebView] = [:] // pages bound to a capability in this app only
     /// What each tab of a routed page shows (its `#/...` route), so a restored or reopened tab shows it again.
     private var routes: [String: String] = [:]
     /// A page's report of what it drew (the GitHub page's `shown`: an address, and whether it had its
@@ -45,7 +46,7 @@ final class WebPageTab: InternalPageProvider {
     }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let view = make(key, routes[key]) else { return NSView() }
+        guard let view = localPages[key] ?? make(key, routes[key]) else { return NSView() }
         pages[key] = view
         return view
     }
@@ -61,6 +62,7 @@ final class WebPageTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         (pages.removeValue(forKey: key) as? PageWebView)?.close()
+        localPages[key] = nil
         routes[key] = nil
     }
 }
@@ -148,5 +150,31 @@ extension WebPageTab {
             return services.pages.openStoreTab(.github, in: pane, window: window, focus: placed == nil, key: key, created: created,
                                                requiresSurface: placed != nil) != nil
         }
+    }
+}
+
+
+extension WebPageTab {
+    /// The grant to read this terminal's transcript stays in the app. The page cannot supply a
+    /// path or grant itself another session by restoring a route sent from a daemon.
+    static func openTerminalHistory(_ source: TerminalHistorySource, in pane: PaneController) {
+        let id = InternalPageID(rawValue: "terminal-history"), pages = pane.services.pages
+        let tab: WebPageTab
+        if let registered = pages.provider(id) as? WebPageTab { tab = registered }
+        else {
+            tab = WebPageTab(id, symbol: "clock.arrow.circlepath", title: String(localized: "terminalHistory.tab", defaultValue: "Earlier history", bundle: .module)) { nil }
+            pages.register(tab)
+        }
+        if let existing = pages.tabIDs(in: pane.paneKey).first(where: { tab.route(for: $0) == source.key }) {
+            pages.reveal(existing, in: pane)
+            return
+        }
+        let key = LocalPageTab.makeKey(id), services = pane.services
+        tab.localPages[key] = source.page(environment: QuitAgents.environment(services), host: services.agentTabs.localSessionHost ?? services.agentTabs.host)
+        tab.routes[key] = source.key
+        pages.open(id, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
+                   window: services.windowController(showing: pane), key: key)
+        pane.apply(pane.snapshot())
+        pages.reveal(key, in: pane)
     }
 }
