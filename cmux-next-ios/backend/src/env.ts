@@ -1,5 +1,6 @@
 import type { LinkRelay } from "./link-relay.ts"
 import type { TeamHub } from "./team-hub.ts"
+import type { ChunkCache } from "./chunk-cache.ts"
 
 export interface Env {
   readonly ENVIRONMENT: string
@@ -13,6 +14,8 @@ export interface Env {
   readonly TEAM_HUB: DurableObjectNamespace<TeamHub>
   /** The link's WebSocket relay (src/link-relay.ts): one object per link session. */
   readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
+  /** Per-pair sealed chunk cache (PROTOCOL.md "Sealed chunk cache"). */
+  readonly CHUNK_CACHE: DurableObjectNamespace<ChunkCache>
   /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
   readonly LINK_RELAY_MODE?: string
   /** Absent in tests: the memory store is used instead. */
