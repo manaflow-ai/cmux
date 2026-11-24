@@ -306,6 +306,76 @@ test("with no run mode and the chat not on Cloud, the list offers no Cloud row t
   expect(connects).toEqual([]);
 });
 
+// Auto (autoWhereModel.ts; Leo, 2026-11-22: "the selection for auto as an environment choice between
+// cloud/local/whatever is the whole point"): a new chat's first row when the page offers it.
+function autoChat(picked: boolean, log: string[], mode: RunMode = "persistent") {
+  return {
+    runMode: {
+      mode,
+      onMode: (next: RunMode) => void log.push(`mode:${next}`),
+      auto: { picked, onPick: (on: boolean) => void log.push(`auto:${on}`), look: "orbit" as const },
+    },
+  };
+}
+
+test("Auto heads a new chat's list only when the page offers it", async () => {
+  const offered = await renderDevices(DEVICES, autoChat(false, []));
+  await open(offered.container);
+  expect(optionRows().map(rowLabel)).toEqual([
+    translate("composer.auto"),
+    translate("composer.thisMac"),
+    translate("composer.cloud"),
+    translate("composer.otherDevices"),
+  ]);
+  const row = document.querySelector('.acpmux-env-popover [data-kind="auto"]')!;
+  expect(row.getAttribute("data-auto-look")).toBe("orbit");
+  expect(row.querySelector('.acpmux-auto-icon[data-look="orbit"]')).not.toBeNull();
+  expect(row.querySelector("[data-current]")).toBeNull();
+});
+
+test("the list has no Auto row without the page's offer", async () => {
+  const { container } = await renderDevices(DEVICES, NEW_CHAT);
+  await open(container);
+  expect(optionRows().map(rowLabel)).not.toContain(translate("composer.auto"));
+});
+
+test("picking Auto turns it on, closes the list and focuses the prompt", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoChat(false, log));
+  await open(container);
+  await choose('[data-kind="auto"]');
+  expect(log).toEqual(["auto:true"]);
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("textarea"));
+});
+
+test("Auto picked is the one checked row, and the chip carries its look", async () => {
+  const { container } = await renderDevices(DEVICES, autoChat(true, []));
+  expect(container.querySelector(".acpmux-location-picker")?.getAttribute("data-auto-look")).toBe("orbit");
+  await open(container);
+  const checked = [...document.querySelectorAll(".acpmux-env-popover .acpmux-env-row[data-current]")];
+  expect(checked.map((row) => row.getAttribute("data-kind"))).toEqual(["auto"]);
+});
+
+test("with Auto picked, This Mac turns Auto off and the chat stays here", async () => {
+  const local: string[] = [];
+  const here = await renderDevices(DEVICES, autoChat(true, local));
+  await open(here.container);
+  await choose('[data-kind="local"]');
+  expect(local).toEqual(["auto:false"]);
+  // This Mac was already the machine: no machine pick, the prompt takes focus.
+  expect(here.picks).toEqual([]);
+  expect(document.activeElement).toBe(here.container.querySelector("textarea"));
+});
+
+test("with Auto picked, Cloud turns Auto off and makes Cloud the mode", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoChat(true, log));
+  await open(container);
+  await choose('[data-mode="cloud"]');
+  expect(log).toEqual(["auto:false", "mode:cloud"]);
+});
+
 // A started chat's Move to… list opens on where the chat runs now, checked: the person sees what
 // they are moving from. Picking that row moves nothing and closes the list.
 test("Move to… lists where the chat runs now, checked, before its targets; picking it moves nothing", async () => {
