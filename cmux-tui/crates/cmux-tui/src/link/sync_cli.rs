@@ -507,7 +507,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 1;
     }
     if action == Action::Pull {
-        return finish_pull(pull::pull(&socket, &local, &remote));
+        return finish_pull(pull::pull_per_file(&socket, &local, &remote));
     }
     match push(&socket, &local, &remote) {
         Ok(summary) => {
@@ -876,9 +876,10 @@ pub(super) fn delete_remote(socket: &Path, path: &str) -> anyhow::Result<()> {
 /// Prints a pull's answer line and returns its exit code.
 fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
     let line = match pulled {
+        // A per-file pull with a conflict applied the rest and says `"ok":false`.
         Ok(pull::Pulled::Done(summary)) => {
             println!("{summary}");
-            return 0;
+            return if summary["ok"] == json!(false) { 1 } else { 0 };
         }
         Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(
