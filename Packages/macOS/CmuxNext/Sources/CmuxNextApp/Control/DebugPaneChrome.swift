@@ -48,7 +48,7 @@ enum DebugPaneChrome {
                 ]
                 // What the pane shows now (in-tree D8, a new-tab burst that showed a bare pane): its content view, whether
                 // it is installed and drawn, a paint hold's kept view, and the content host's subviews bottom to top.
-                func shown(_ v: NSView) -> JSONValue {
+                @MainActor func shown(_ v: NSView) -> JSONValue {
                     .object(["class": .string(String(describing: type(of: v))), "hidden": .bool(v.isHidden),
                              "alpha": .number(Double(v.alphaValue)), "frame": rect(topLeft(v.convert(v.bounds, to: nil)))])
                 }
