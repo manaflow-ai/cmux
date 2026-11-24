@@ -17,6 +17,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
+import { setEffectKeyframes } from "./conversation/keyframeKinds";
 import { dockClearSpans, dockClearStops } from "./conversation/dockClear";
 import { KeptLayouts } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
@@ -435,14 +436,14 @@ function holdUnderStack(
       : Math.max(0, ...rows.map((each) => each.getBoundingClientRect().bottom - hostTop));
     stack.held = still.map((each) => each.animate(hold, { ...timing, composite: "add" }));
     stack.cuts = new Map();
-  } else for (const held of stack.held ?? []) (held.effect as KeyframeEffect).setKeyframes(hold);
+  } else for (const held of stack.held ?? []) setEffectKeyframes(held.effect as KeyframeEffect, hold);
   const heldRows = new Set(stack.held?.map((held) => (held.effect as KeyframeEffect).target));
   for (const each of rows) {
     if (heldRows.has(each)) continue;
     // A row rising with the thread moves as one with it, so its box reads its settled place there.
     const frames = pushUpCut(each.getBoundingClientRect().bottom - hostTop - stack.line, stack.from);
     const cut = stack.cuts?.get(each);
-    if (cut) (cut.effect as KeyframeEffect).setKeyframes(frames);
+    if (cut) setEffectKeyframes(cut.effect as KeyframeEffect, frames);
     else if (frames.length) {
       const animation = each.animate(frames, timing);
       animation.currentTime = time;
@@ -1877,6 +1878,21 @@ function TranscriptView({
   // One entry per row drawn, kept as a layered map: a measured row changes its layer, not a copy of
   // every row's entry (conversation/layeredMap.ts).
   const [drawn, setDrawn] = useState(LayeredMap.empty<DrawnHeight>);
+  /// The last update asked of `drawn` from an effect or a callback: whether React ran it yet, and what it
+  /// gave. Ran, and what it gave is what is drawn, nothing asked waits: a report equal to what is
+  /// drawn changes nothing, so `flushDrawn` asks nothing (`askDrawn`).
+  const drawnAsk = useRef<{ ran: boolean; result?: DrawnHeights }>({ ran: false });
+  /// `setDrawn(update)`, noted in `drawnAsk`.
+  const askDrawn = useCallback((update: (current: DrawnHeights) => DrawnHeights) => {
+    const ask: { ran: boolean; result?: DrawnHeights } = { ran: false };
+    drawnAsk.current = ask;
+    setDrawn((current) => {
+      const next = update(current);
+      ask.ran = true;
+      ask.result = next;
+      return next;
+    });
+  }, []);
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
@@ -2014,11 +2030,17 @@ function TranscriptView({
       currentRange?.focusId,
       presenceHints.current,
     );
-    setActiveRowId((current) => (current && presence.active ? current : rows[0]?.id));
-    setTranscriptRange((current) => {
-      if (!current) return current;
-      return presence.anchor && presence.focus ? current : undefined;
-    });
+    // Asked only when the answer moves: an updater that hands back the current value still costs a
+    // render React throws away, and a commit, on every rows change (0.9 a streamed delta in a long
+    // chat, bench/render-counts.bench.ts STARTS `TranscriptView bailed`).
+    const active = activeRowRef.current;
+    if (!(active && presence.active) && active !== rows[0]?.id)
+      setActiveRowId((current) => (current && presence.active ? current : rows[0]?.id));
+    if (currentRange && !(presence.anchor && presence.focus))
+      setTranscriptRange((current) => {
+        if (!current) return current;
+        return presence.anchor && presence.focus ? current : undefined;
+      });
   }, [rows, sessionChanged, sessionKey, tookSession]);
   useEffect(() => {
     const clearHiddenEntrances = () => {
@@ -2294,9 +2316,15 @@ function TranscriptView({
     foldRide.current?.release();
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
+    // Every report the same as what is drawn, with nothing asked still waiting: no update. One asked
+    // anyway was a sync render of the whole transcript that changed nothing, after every commit that
+    // re-measured a row at its height (each tool call's start and end; bench/render-counts.bench.ts
+    // `STARTS`, `(nothing)`).
+    const ask = drawnAsk.current;
+    if (ask.ran && ask.result === drawnRef.current && !changesDrawn(drawnRef.current, updates)) return;
     // An equal report can correct a different height still queued at a lower priority.
     // Compare in the updater, against the state React rebases it onto, not drawnRef.
-    setDrawn((current) => {
+    askDrawn((current) => {
       let changes: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         if (sameDrawn(current.get(id), entry)) continue;
@@ -2306,7 +2334,7 @@ function TranscriptView({
       }
       return changes ? current.with(changes) : current;
     });
-  }, []);
+  }, [askDrawn]);
   /// Where a flowing drag's rows hang from (`FLOW_CLASS`). A view that follows the latest row shows
   /// what it shows once the width holds: the rows hang from the end of a box that ends where the
   /// latest row rests when the chat fills the view, and a strut above them takes the box's free
@@ -2735,8 +2763,8 @@ function TranscriptView({
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
-    setDrawn((current) => current.retain((id) => ids.has(id)));
-  }, [rows, queuedTail]);
+    askDrawn((current) => current.retain((id) => ids.has(id)));
+  }, [rows, queuedTail, askDrawn]);
   useLayoutEffect(() => {
     // Child layout effects enqueue; all sibling DOM writes finish before this parent effect.
     // Read the dirty rows together, then apply the existing pre-paint placement correction.
@@ -2761,7 +2789,7 @@ function TranscriptView({
     for (const row of rowsRef.current) if (row.incoming?.kind === "message") incoming.add(row.id);
     if (!incoming.size) return;
     for (const id of incoming) pendingDrawn.current.delete(id);
-    setDrawn((current) => {
+    askDrawn((current) => {
       let changes: Map<string, undefined> | undefined;
       for (const id of incoming) {
         if (!current.has(id)) continue;
@@ -2771,7 +2799,7 @@ function TranscriptView({
       }
       return changes ? current.with(changes) : current;
     });
-  }, [chatLook.minimal]);
+  }, [chatLook.minimal, askDrawn]);
   const didOpenAtLatest = useRef(false);
   /// The sends this chat's view has taken in (`sends`): a new one puts the view at the latest message.
   const seenSends = useRef(sends);
@@ -4501,7 +4529,7 @@ function TranscriptView({
           // displacement to its current transform without restarting the original animation clock.
           if (typeof progress === "number" && progress < 1) {
             stack.from += (delta - stack.delta) / (1 - progress);
-            effect.setKeyframes([{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
+            setEffectKeyframes(effect, [{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
             // What grew late grew above the held rows: their line moves down the thread with it.
             if (stack.line !== undefined) stack.line += delta - stack.delta;
             holdUnderStack(host, stack, effect.getTiming(), stack.animation.currentTime);
@@ -7136,6 +7164,10 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
+    // A followed view's offset is not where its rows draw until the placement pass runs: none is
+    // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
+    viewTop: shownTop,
+    viewHeight: renderFollowing ? 0 : height,
     frameKey,
     registry,
     setSizeRef,
@@ -7247,6 +7279,7 @@ function TranscriptView({
     sinceKey,
     onJumpToSince,
     sinceRow,
+    sinceHasNews,
     clearTop,
     sinceIndex,
     jumpUp,
