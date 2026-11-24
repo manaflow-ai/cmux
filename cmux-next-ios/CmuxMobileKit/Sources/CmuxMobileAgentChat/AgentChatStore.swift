@@ -591,6 +591,11 @@ public final class AgentChatStore {
     /// `denyingPermission`: the message is "Reply instead" for the pending
     /// permission (SPEC 6.5): deny it so the agent goes on, and send the
     /// message as guidance. A plain message while a permission waits queues.
+    /// The composer's attachments changed: the source may start sending files ahead of Send.
+    public func composerAttachmentsChanged(_ attachments: [AgentAttachment]) {
+        source.prestageAttachments(attachments)
+    }
+
     public func send(prompt: String, attachments: [AgentAttachment] = [], steer: Bool = false, denyingPermission: Bool = false) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
