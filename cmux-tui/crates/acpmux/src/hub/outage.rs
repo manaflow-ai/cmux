@@ -53,6 +53,9 @@ pub(crate) fn classify(text: &str) -> Option<Outage> {
 /// host of a URL, else one of [`KNOWN_HOSTS`].
 fn host_in(text: &str) -> Option<String> {
     let word = |w: &str| {
+        // A URL names its host between the scheme and the port or path.
+        let w = w.split_once("://").map_or(w, |(_, rest)| rest);
+        let w = w.split(['/', ':']).next().unwrap_or("");
         let w = w.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '-'));
         let hostish = w.contains('.')
             && w.chars().any(|c| c.is_ascii_alphabetic())
@@ -136,6 +139,8 @@ mod tests {
         let known = classify("Unable to connect to API; is api.anthropic.com up?").unwrap();
         assert_eq!(known.host.as_deref(), Some("api.anthropic.com"));
         assert_eq!(classify("connect ECONNREFUSED").unwrap().host, None);
+        let port = classify("connect ECONNREFUSED api.openai.com:443").unwrap();
+        assert_eq!(port.host.as_deref(), Some("api.openai.com"));
     }
 
     #[test]
