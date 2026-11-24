@@ -372,7 +372,9 @@ final class RemoteTmuxControlConnection {
     }
 
     var isAwaitingCredentials: Bool {
-        guard !enterReceived else { return false }
+        guard !enterReceived, !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderrBuffer) else {
+            return false
+        }
         if sawUnansweredCredentialPrompt { return true }
         // The tail is not in the buffer yet: a prompt is written without a newline, which is what makes
         // it a prompt, so it lives only in the parser until one arrives.
@@ -386,8 +388,12 @@ final class RemoteTmuxControlConnection {
     /// nothing else is coming, and leaving it to the attach deadline means the user
     /// stares at a frozen mirror for the length of the timeout and then gets an error
     /// about the host instead of the login that would have worked.
+    ///
+    /// Not when the master refused this attempt: the login would be refused the same way. ssh reports
+    /// the refusal before it starts the fresh connection that could prompt.
     private func noteCredentialPromptIfSeen() {
-        guard !enterReceived, !sawUnansweredCredentialPrompt else { return }
+        guard !enterReceived, !sawUnansweredCredentialPrompt,
+              !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderrBuffer) else { return }
         guard RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
             preControlOutputBuffer + parser.unterminatedTail) else { return }
         sawUnansweredCredentialPrompt = true

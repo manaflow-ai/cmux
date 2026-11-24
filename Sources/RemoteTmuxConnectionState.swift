@@ -33,6 +33,12 @@ enum RemoteTmuxReconnectDisposition: Sendable, Equatable {
             || decoding.controlOutputIndicatesSessionGone(preControlOutput) {
             return .sessionGone
         }
+        // A busy master's refusal decides the attempt. When ssh falls back to a fresh connection, a
+        // transport that signs in by itself can leave a prompt ahead of control mode too, and the
+        // login it asks for would be refused by the same master.
+        if RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderr) {
+            return .transient
+        }
         if RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
             return .authRequired
         }
