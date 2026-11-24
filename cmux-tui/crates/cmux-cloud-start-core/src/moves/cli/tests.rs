@@ -281,6 +281,14 @@ fn each_verb_carries_its_arguments() {
         ]
     );
     assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    // The hybrid start's move never stops a turn; the app's answer without the field still does.
+    assert!(agent_move_flags_at_boundary(&[], false, None, None).is_empty());
+    let hybrid = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "interrupt": false}));
+    assert_eq!(hybrid.args[11..], ["--vm-kind", "owner"]);
+    let today = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner"}));
+    assert_eq!(today.args[11..], ["--interrupt", "--vm-kind", "owner"]);
     // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
     let relay =
         call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",

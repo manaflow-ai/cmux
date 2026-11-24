@@ -256,11 +256,11 @@ fn parse_resource_envelope(message: &str) -> Result<RequestEnvelope, ResourceErr
 /// Envelope rules and the operation's catalog params, on an envelope that
 /// is already parsed (it is moved into the request, never parsed again).
 pub(crate) fn validate_resource_envelope(
-    envelope: RequestEnvelope,
+    mut envelope: RequestEnvelope,
     actor: crate::workspace_registry::Actor,
 ) -> Result<ParsedResourceRequest, ResourceError> {
     envelope.validate()?;
-    let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
+    let (selectors, fields) = validate_catalog_params(envelope.operation, &mut envelope.params)?;
     Ok(ParsedResourceRequest { envelope, selectors, fields, actor })
 }
 
