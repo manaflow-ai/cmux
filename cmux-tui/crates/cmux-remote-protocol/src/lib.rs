@@ -22,6 +22,7 @@
 
 mod frame;
 mod relay;
+mod request_capabilities;
 mod rpc;
 
 pub use frame::{
