@@ -3597,12 +3597,13 @@ function TranscriptView({
       canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
         ? roomGone
         : undefined;
-    // What is left once the room went keeps the short tail's end where it was then (`giveRoomNearTop`), not a
-    // number of pixels: rows that draw shorter than their estimate get the difference back above them. A fixed
-    // room let a tail 13 px under the view's height fall back to the top, and the view then followed the latest
-    // row down those 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream).
+    // What is left once the room went: rows that draw shorter than they were then (`giveRoomNearTop`) get the
+    // difference back above them, so the short tail's end stays at the view's foot. A fixed room let a tail
+    // 13 px under the view's height fall back to the top, and the view then followed the latest row down those
+    // 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream). Rows that grow
+    // keep the room as it was: taken from it, each streamed token moved every row above it (workspace_switch).
     const reserved = gone
-      ? { reserve: Math.max(0, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
+      ? { reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
       : olderReserve(olderRoom.current, {
           sessionId,
           rows,
