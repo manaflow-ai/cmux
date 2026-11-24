@@ -71,7 +71,7 @@ extension DaemonLanePolicy {
         "move-workspace-group": ["group", "index"],
         "move-workspace-to-group": ["expected_generation", "expected_revision", "group", "index", "key", "mutation_id", "origin", "workspace"],
         "new-browser-tab": ["cols", "pane", "rows", "url"],
-        "new-conversation-tab": ["agent_session", "cols", "conversation", "mutation_id", "origin", "owner", "page", "pane", "place", "route", "rows", "split", "transaction", "workspace"],
+        "new-conversation-tab": ["agent_session", "cols", "conversation", "dock", "mutation_id", "origin", "owner", "page", "pane", "place", "route", "rows", "split", "transaction", "width", "workspace"],
         "new-pane": ["cols", "keep", "pane", "pane_id", "rows", "tab_id", "terminal_id"],
         "new-pane-right": ["cols", "keep", "kind", "pane", "pane_id", "rows", "side", "tab_id", "terminal_id", "url", "width"],
         "new-screen": ["color", "cols", "group", "icon", "index", "pinned", "rows", "screen_name", "terminal_id", "workspace"],

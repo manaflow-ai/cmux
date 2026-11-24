@@ -51,8 +51,9 @@ REVIEWED_FIELDS = {
                                          "c7e82d092e3ba83a"),
     ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",
                                                 "d7e14019f9227131"),
-    ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column",
-                                     "1b92a6de6fe0171a"),
+    ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column, and an optional "
+                                     "pinned flag (pinned-dock-v1) that marks it the pinned Home dock; layout only",
+                                     "c8704c8b701da7b7"),
     ("resize-attached-view", "identity"): ("SizingIdentity: whose size lease this is",
                                            "603297ce84b828a2"),
     ("set-host-size-policy", "policy"): ("HostSizePolicyRequest: a mode name and a list of device tokens; the "
@@ -70,6 +71,10 @@ REVIEWED_FIELDS = {
                                         "an existing split's numeric id (around) for placing the tab in a "
                                         "new pane",
                                         "d7e4b99608f964b9"),
+    # Refused by this lane like the rest of new-conversation-tab; the same ColumnPin move-tab-to-column takes.
+    ("new-conversation-tab", "dock"): ("ColumnPin: the edge, mode, role and pinned flag the new tab's column "
+                                       "docks at (as move-tab-to-column dock); layout only",
+                                       "c8704c8b701da7b7"),
 }
 
 
