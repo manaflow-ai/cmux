@@ -59,7 +59,7 @@ public actor ParakeetModelStore {
 
     /// The loaded model, downloading it first when it is not on disk.
     /// Cancelling the calling task does not cancel a shared download; ``cancel()`` does.
-    public func models() async throws -> AsrModels {
+    func models() async throws -> AsrModels {
         if let loaded { return loaded }
         let task = download ?? start()
         return try await withTaskCancellationHandler {
@@ -83,9 +83,10 @@ public actor ParakeetModelStore {
 
     private func start() -> Task<AsrModels, any Error> {
         let directory = directory
-        let task = Task<AsrModels, any Error> { [weak self] in
+        // The task holds the store only while it downloads; it ends, so no cycle stays.
+        let task = Task<AsrModels, any Error> {
             try await AsrModels.downloadAndLoad(to: directory, version: .v3) { progress in
-                Task { await self?.report(progress) }
+                Task { await self.report(progress) }
             }
         }
         download = task
