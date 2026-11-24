@@ -141,7 +141,7 @@ fn main() {
     line("pinned-old-identity", time(pinned(current), runs));
     line("pinned-old", time(pinned(old), runs));
     // The reply's serialization, for scale: what the daemon already spends per reply.
-    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(body).unwrap();
     line(
         "serialize-reply (scale)",
         time(|| drop(black_box(serde_json::to_vec(black_box(&value)).unwrap())), runs),
