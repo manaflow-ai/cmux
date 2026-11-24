@@ -184,7 +184,7 @@ extension HomeService {
     private func readLocalChiefRunning() async -> Bool {
         chiefRunningReads += 1
         let read = chiefRunningReads
-        let running = await Self.localChiefRuns(chief.home)
+        let running = await Self.localChiefRuns(chief.home, canStart: HomeBrainHost.canStart(), gaveUp: brain.hasGivenUp)
         guard Self.publishes(read: read, published: chiefRunningPublished) else { return false }
         chiefRunningPublished = read
         if localChiefRunning != running { localChiefRunning = running }
@@ -196,8 +196,8 @@ extension HomeService {
     /// after it would put a stale answer back.
     static func publishes(read: Int, published: Int) -> Bool { read > published }
 
-    @concurrent nonisolated static func localChiefRuns(_ home: ChiefHome) async -> Bool {
-        ChiefHostStop.runningHostPID(home: home) != nil
+    @concurrent nonisolated static func localChiefRuns(_ home: ChiefHome, canStart: Bool, gaveUp: Bool) async -> Bool {
+        home.isOn(canStart: canStart, gaveUp: gaveUp)  // between two hosts (an update) is still on
     }
 
     // MARK: Teleport: Home follows this Mac's Chief wherever `cmux chief move` took it, with no step
