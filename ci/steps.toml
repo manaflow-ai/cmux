@@ -348,6 +348,36 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# Transport lockstep (cmux-tui/crates/cmux-wire-lockstep): each wire protocol's manifest (cmux-tui/spec/wire/*.json,
+# printed by the protocol's own snapshot test) at this merge commit against the base's (HEAD^1). Red on a message one
+# side would send that the other never said it knows: a new name not behind a new capability, a capability whose
+# contract changed under the same id, a capability or legacy name dropped unretired, a hard version an old peer can no
+# longer decode. Leo, 2026-11-24: "of course acpmux/cmux protocols need to be able to work in lockstep with these".
+[step.wire-lockstep]
+job = "linux"
+timeout = 300
+title = "Wire protocols stay in lockstep, old against new"
+about = "every message acpmux, cmux-mobile-link or cmux-remote adds is behind a new capability negotiated in the handshake, so an old peer and a new one still talk in both directions"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/spec/wire/**",
+  "cmux-tui/crates/cmux-wire-lockstep/**",
+  "cmux-tui/crates/acpmux/spec/**",
+  "cmux-tui/crates/acpmux/src/capabilities.rs",
+  "cmux-tui/crates/acpmux/src/protocol/**",
+  "cmux-tui/crates/acpmux/src/peer_*.rs",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-remote/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+  "cmux-next-ios/PROTOCOL.md",
+]
+run = '''
+cd cmux-tui
+cargo test --locked -p cmux-wire-lockstep
+cargo run --locked -q -p cmux-wire-lockstep --bin wire-lockstep-check -- --root .. --base HEAD^1 --export-base "$RUNNER_TEMP/wire-base"
+'''
+
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
 # push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
