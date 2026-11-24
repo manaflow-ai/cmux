@@ -8,9 +8,8 @@
 // Each file below is attached to a chat's composer, one after another, while its upload is still
 // running, and the composer must stay usable:
 // - its tile shows at once, typed keys land within a frame, and the main thread never stalls;
-// - the + menu opens and closes; a message sent while the file uploads leaves the composer at once,
-//   waits for it and goes with it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent"; cmux#45759),
-//   and one with nothing attached goes at once;
+// - the + menu opens and closes; a message sent while the file uploads waits for it and goes with it
+//   (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent"), and one with nothing attached goes at once;
 // - the tile's × takes it away, stops its upload (no chunk after it, `chat.upload.cancel` sent),
 //   and the page's memory falls back; nothing ever holds a whole big file in the page's heap;
 // - a screen recording reaches the agent (the prompt's blocks name it).
@@ -26,9 +25,8 @@
 // this Mac. Prints a table of the numbers per file.
 // Then three ways a file can still go wrong (Codex review of #25191/#25192):
 // - a held send: Enter pressed while a pasted recording is still being read (the host takes 1 s to
-//   say where it is) never goes without the file the moment its upload starts; it leaves the
-//   composer at once (cmux#45759), waits for the upload and carries its link, and a second prompt
-//   sent meanwhile goes after it, never before;
+//   say where it is) never goes without the file the moment its upload starts; it waits for the
+//   upload and carries its link, or the tile's × sends it without the file;
 // - a pasted screenshot is its preview chip while its original still streams: that chip's × stops
 //   the original's upload (no chunk after it, `chat.upload.cancel` for its token);
 // - a JPEG whose APP segments run past 64 KiB before its frame header (12000 x 9000) is never
@@ -37,6 +35,7 @@
 // may end with one open.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { attachmentWithoutCwd } from "./support/attachmentWithoutCwd";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
@@ -72,7 +71,7 @@ type BigFile = {
   jpeg?: { width: number; height: number; app: number };
 };
 /// A case with steps of its own (the three ways a file still went wrong), instead of the usual ones.
-type Scenario = "held-wait" | "held-order" | "staged-x" | "jpeg-app";
+type Scenario = "held-wait" | "held-x" | "staged-x" | "jpeg-app";
 type Case = {
   id: string;
   file?: BigFile;
@@ -86,6 +85,7 @@ type Case = {
   chunkMs?: number;
   /// How long the host takes to answer `chat.attach.dropped`.
   droppedMs?: number;
+  noCwd?: boolean;
 };
 type Block = { type: string; name?: string; uri?: string; mimeType?: string; text?: number; data?: number };
 type Row = {
@@ -179,8 +179,6 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   /// ms against a 26 ms limit, alone on the runner (run 43386568736). KEY_MAX_MS still bounds the
   /// slowest key, so a real freeze fails either way.
   const TYPED = "hello while loading! every key lands while the file attaches";
-  /// The prompt sent while the first still waits for its file (5b).
-  const SECOND = "and then this one";
   // The editor itself, not an attachment atom placed in it (contenteditable="false").
   const PROMPT = COMPOSER_EDITOR;
   setDefaultTimeout(900_000);
@@ -231,6 +229,15 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const TEXT_BYTES = 100 * MB;
   const CASES: Case[] = [
     { id: "baseline: nothing attached", way: "none", mode: "remote", heapBudget: 300 * MB },
+    {
+      id: "local disk path without a session cwd",
+      way: "drop",
+      mode: "local",
+      file: MOV,
+      heapBudget: 300 * MB,
+      finish: true,
+      noCwd: true,
+    },
     ...(["local", "remote"] as const).flatMap((mode) =>
       (["drop", "paste", "menu"] as const).map((way): Case => ({
         id: `0 .mov 300 MB ${way} ${mode}`,
@@ -267,7 +274,7 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
     ...(
       [
         ["held-wait", "the upload finishes"],
-        ["held-order", "a second prompt"],
+        ["held-x", "the tile's ×"],
       ] as const
     ).map(([scenario, then]): Case => ({
       id: `5 held send, then ${then}: .mov paste remote`,
@@ -396,6 +403,7 @@ os.replace(path + ".part", path)
     jpeg(JPEG);
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      plugins: [attachmentWithoutCwd],
       server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
       logLevel: "error",
     });
@@ -537,7 +545,13 @@ os.replace(path + ".part", path)
     });
     // The page replaces its actions map as its chat connects (App.tsx): count each chat.send in it.
     type Actions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
-    let actions: Actions | undefined = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+    let actions: Actions | undefined = {
+      ready: async () => ({
+        protocolVersion: 1,
+        transport: "mock",
+        ...(location.search.includes("noCwd") ? { sessionId: "mock-session" } : {}),
+      }),
+    };
     Object.defineProperty(window, "cmuxAcpmuxActions", {
       configurable: true,
       get: () => actions,
@@ -819,23 +833,6 @@ os.replace(path + ".part", path)
   }
 
   const PENDING = ".acpmux-composer .acpmux-attachment-pending";
-  /// The prompt left the composer within LEFT_MS of its Enter: its words and its loading tile gone.
-  const LEFT_MS = 1_000;
-  const composerLeft = (page: Page) =>
-    page
-      .waitForFunction(
-        ({ pending, prompt }) => {
-          if (document.querySelector(pending)) return false;
-          const field = document.querySelector(prompt);
-          return !field?.textContent?.replace(/[\s￼]/g, "");
-        },
-        { pending: PENDING, prompt: PROMPT },
-        { polling: 20, timeout: LEFT_MS },
-      )
-      .then(
-        () => true,
-        () => false,
-      );
   /// When `session/prompt` number `count` went (the page's clock), or undefined after `ms`.
   const promptAfter = (page: Page, count: number, ms: number) =>
     page
@@ -935,7 +932,7 @@ os.replace(path + ".part", path)
           timeout: STEP_MS - 1000,
         }),
       );
-    if (c.scenario === "held-wait" || c.scenario === "held-order") {
+    if (c.scenario === "held-wait" || c.scenario === "held-x") {
       // 5. Enter while the pasted recording is still being read (the host takes `droppedMs` to say
       // where it is): the prompt waits for it, never going without it the moment its upload starts.
       await page.keyboard.type("what is in this recording");
@@ -971,11 +968,6 @@ os.replace(path + ".part", path)
         if (!row.sentBlocks || !uploadedLink(row.sentBlocks, name)) await nextPrompt(page, row, problem, name);
         return;
       }
-      // 5b. (cmux#45759) The prompt leaves the composer at once and its file follows it, so no tile
-      // is left for a × after Enter. A second prompt sent while the first still waits for its file
-      // goes after it, never before (Leo, 2026-11-17: "WHEN I SEND A MESSAGE AND IT GETS QUEUED,
-      // THE NEXT ONE SHOULD NOT GO BEFORE THE PREVIOUS").
-      if (!(await composerLeft(page))) problem("the held prompt waited in the composer for its file");
       const begun = await page
         .waitForFunction(() => (window as unknown as BigWindow).__big.begins.length > 0, undefined, {
           polling: 20,
@@ -986,42 +978,34 @@ os.replace(path + ".part", path)
           () => false,
         );
       if (!begun) problem("its upload never began");
-      await step("the prompt for the second send", prompt.click());
-      await page.keyboard.type(SECOND);
-      await step("pressing Enter for the second prompt", page.keyboard.press("Enter"));
-      if (!(await composerLeft(page))) problem("the second prompt waited in the composer");
-      // Neither goes while the first one's file still uploads: the first never without it, the
-      // second never before the first.
+      // A prompt let go as the upload starts goes at once; this one must still be held.
       const early = await promptAfter(page, before, 1_500);
       const begin = (await probes(page)).begun.find((entry) => entry.name === name);
       if (early !== undefined) {
         row.sentBlocks = await promptBlocks(page, before);
-        row.send = `a prompt went ${(early - (begin?.at ?? enter)).toFixed(0)} ms after the upload began, before it finished`;
-        problem(row.send);
+        row.send = `went without the file ${(early - (begin?.at ?? enter)).toFixed(0)} ms after its upload began`;
+        problem(`the held prompt ${row.send}`);
       }
-      // The upload finishes (the host answers at once from here): both go, the first with its link.
-      await page.evaluate(() => ((window as unknown as BigWindow).__big.chunkMs = 0));
-      const second = await promptAfter(page, before + 1, 240_000);
-      const first = await promptAfter(page, before, 1);
-      if (first === undefined || second === undefined) {
-        row.send = first === undefined ? "held; never went" : "the second prompt never went";
-        problem(row.send);
+      const loading = page.locator(PENDING).first();
+      if (!(await loading.count())) {
+        problem("no loading tile left to take away");
         return;
       }
-      row.sentBlocks = await promptBlocks(page, before);
-      row.nextBlocks = await promptBlocks(page, before + 1);
-      row.send = `held ${((first - enter) / 1000).toFixed(1)} s; the second went ${(second - first).toFixed(0)} ms after it`;
-      if (!uploadedLink(row.sentBlocks, name))
-        problem(`the first prompt went without its file: ${blocksText(row.sentBlocks)}`);
-      // The second prompt is its words alone (a text block is logged by its length).
-      if (
-        uploadedLink(row.nextBlocks, name) ||
-        !row.nextBlocks.some((block) => block.type === "text" && block.text === SECOND.length)
-      )
-        problem(`the second prompt to go was not the second sent: ${blocksText(row.nextBlocks)}`);
-      const probe = await probes(page);
-      const finished = begin ? probe.finishedAt[begin.token] : undefined;
-      if (finished === undefined || first < finished) problem("the held prompt went before its upload finished");
+      await step("the tile's ×", loading.locator(".acpmux-attachment-remove").click());
+      row.cancel = (await page.locator(PENDING).count()) ? "loading tile stayed" : "loading tile gone";
+      if (early === undefined) {
+        const went = await promptAfter(page, before, SEND_MS);
+        if (went === undefined) {
+          row.send = "held; the tile's × did not send it";
+          problem(row.send);
+        } else {
+          row.sentBlocks = await promptBlocks(page, before);
+          row.send = `held; the tile's × sent it without the file in ${(went - (await probes(page)).clickAt).toFixed(0)} ms`;
+          if (row.sentBlocks.some((block) => names(block, name)))
+            problem("the prompt the × sent still carried the file");
+        }
+      }
+      await uploadStopped(page, row, problem, begin?.token);
       return;
     }
     if (c.scenario === "staged-x") {
@@ -1118,7 +1102,7 @@ os.replace(path + ".part", path)
     try {
       await cdp.send("Performance.enable");
       const { port } = vite!.httpServer!.address() as { port: number };
-      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.goto(`http://127.0.0.1:${port}/${c.noCwd ? "?mock&noCwd" : ""}`);
       await page.locator(PROMPT).waitFor();
       // These cases measure the strip's tiles (loading, ×, the prompt's typed words): the strip view
       // (Settings), as inline placement became the default (#26545).
@@ -1293,14 +1277,9 @@ os.replace(path + ".part", path)
       }
       await step("the prompt before Enter", prompt.click());
       const before = await sentPrompts(page);
-      // Whether its file still loads at Enter: read before it, since the send takes the loading tile
-      // with it out of the composer (cmux#45759: the prompt leaves at once, its file follows it).
-      const stillLoading = attaching && (await page.locator(PENDING).count()) > 0;
       const pressed = Date.now();
       await step("pressing Enter", page.keyboard.press("Enter"));
-      // Leo, 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS ... JUST MAKE IT LOOK LIKE
-      // IT'S SENT OR JUST SEND IT": a send never waits in the composer for its file.
-      if (stillLoading && !(await composerLeft(page))) problem("the send waited in the composer for its file");
+      const stillLoading = attaching && (await page.locator(PENDING).count()) > 0;
       const early = await promptAfter(page, before, stillLoading ? 1_500 : SEND_MS);
       if (!stillLoading) {
         if (early !== undefined) row.send = `sent in ${Date.now() - pressed} ms`;
@@ -1379,6 +1358,12 @@ os.replace(path + ".part", path)
           blocks = went ? await promptBlocks(page, count) : [];
         }
         row.videoBlocks = blocks.filter((block) => names(block, name));
+        if (c.mode === "local") {
+          const uri = `file:///Users/dev/Desktop/${encodeURIComponent(name)}`;
+          if (!row.videoBlocks.some((block) => block.type === "resource_link" && block.uri === uri))
+            problem("the local prompt did not carry the original file URL");
+          if ((await probes(page)).begins > 0) problem("the local attachment opened an upload");
+        }
         if (!row.videoBlocks.length)
           problem(`the recording never reached the agent: the prompt carried ${JSON.stringify(blocks)}`);
       }

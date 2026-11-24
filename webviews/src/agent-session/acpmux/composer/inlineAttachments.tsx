@@ -19,6 +19,7 @@ import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { AttachmentChip, InstantPreview, PendingChip, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
+import { localDraftShape, useDraftRatio } from "./draftMediaShape";
 import { videoShapeStyle } from "./videoShape";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
@@ -161,13 +162,9 @@ export function useInlineAttachments(options: Options) {
   };
   /// The nodes in the text the last edit left, or the value from outside put there, by id.
   const placedNow = useRef<string[]>([]);
-  /// Whether `id` went with a prompt and has not been put back. A file that went loading with its
-  /// prompt and failed is the composer's loading chip again (attachmentIntakeModel.ts `release`): its
-  /// node, back with the prompt's text, is its failed tile with Retry, never removed as sent.
+  /// Whether `id` went with a prompt and has not been put back.
   const isSent = (id: string) =>
-    sentIds.current.has(id) &&
-    !live.current.attachmentsRef.current.some((attachment) => attachment.id === id) &&
-    !live.current.pending.some((chip) => chip.id === id);
+    sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
 
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images, videos, files,
@@ -379,7 +376,10 @@ export function useInlineAttachments(options: Options) {
       if (before !== shape) changed = dom;
     }
     shapes.current = next;
-    changed?.dispatchEvent(new CustomEvent(TILE_SHAPE_EVENT, { bubbles: true }));
+    if (!changed) return;
+    // The tile's own window builds the event, so a tile in another document (a test's DOM) can carry it.
+    const Custom = changed.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+    changed.dispatchEvent(new Custom(TILE_SHAPE_EVENT, { bubbles: true }));
   }, [views, options.pending, options.attachments]);
 
   const chips = [...views].map(([id, dom]) =>
@@ -433,20 +433,22 @@ const InlineChip = memo(function InlineChip({
   const t = useT();
   const language = usePaneLanguage();
   const look = usePasteLoadingLook();
+  const ratio = useDraftRatio(attachment?.[localDraftShape] ?? pending?.[localDraftShape]);
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
   // Sticky state set in render (not a ref read in render): it flips once, the first time it holds.
   const [loaded, setLoaded] = useState(false);
   // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
-  if (!loaded && pending && !pending.failed && !pending.sizing) setLoaded(true);
+  if (!loaded && pending && !pending.resolvingPath && !pending.failed && !pending.sizing && ratio !== 0)
+    setLoaded(true);
   /// Whether its loading tile already showed its own picture: the chip then just stays, with no
   /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
   const [pictured, setPictured] = useState(false);
   if (!pictured && pending?.preview && pending.image && !pending.failed) setPictured(true);
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
-  if (!attachment && !pending) return null;
-  if (!attachment && pending && !pending.image && !pending.video)
+  if ((!attachment && !pending) || ratio === 0) return null;
+  if (!attachment && pending && ((!pending.image && !pending.video) || pending.resolvingPath))
     return (
       <span className="acpmux-md-inline-chip" data-chip="strip">
         <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
@@ -471,11 +473,11 @@ const InlineChip = memo(function InlineChip({
         {...(pending!.failed ? {} : { "data-paste-look": look })}
         // A loading image is the shape its thumbnail will be (its header's size), so the picture
         // arriving moves nothing.
-        {...(!pending!.failed && pending!.image && pending!.size
-          ? { "data-sized": "", style: imageShape(pending!.size) }
+        {...(!pending!.failed && pending!.image && (ratio || pending!.size)
+          ? { "data-sized": "", style: imageShape(ratio ? { width: ratio, height: 1 } : pending!.size) }
           : {})}
         // A video is the box its chip, poster and sent tile keep (videoShape.ts), loading or failed.
-        {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(pending!.videoShape) } : {})}
+        {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(ratio ?? pending!.videoShape) } : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}

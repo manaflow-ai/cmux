@@ -3,7 +3,7 @@
 // with that text, the bubble showed pages of base64 and the chat's compaction failed. A pasted image
 // is an attachment atom: only its thumbnail is rendered, its data never becomes prompt text
 // (it goes as an ACP image block), and a bubble never draws the data URI as text.
-import { afterAll, afterEach, beforeAll, expect, test, setSystemTime } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type ComponentProps, type RefObject } from "react";
 import type { Root } from "react-dom/client";
@@ -281,20 +281,10 @@ test("overlapping drops with twin screenshots and folders keep each drop's nativ
     read.resolve(firstBytes);
   });
   const attachments = () => composer.current!.wakeState().attachments ?? [];
-  await until(() => attachments().length >= 4, "both screenshots and folders");
-  expect(
-    attachments()
-      .filter((chip) => chip.kind === "image")
-      .map((chip) => chip.originalPath ?? "")
-      .sort((a, b) => a.localeCompare(b)),
-  ).toEqual(directories.map((directory) => `${directory}/image.png`));
-  expect(
-    attachments()
-      .filter((chip) => chip.kind === "link")
-      .map((chip) => chip.path ?? "")
-      .sort((a, b) => a.localeCompare(b)),
-  ).toEqual(directories.map((directory) => `${directory}/assets`));
-  expect(attachments()).toHaveLength(4);
+  await until(() => attachments().length === 6, "both sets of files and folders");
+  expect(attachments().map((chip) => chip.path)).toEqual(
+    directories.flatMap((directory) => names.map((name) => `${directory}/${name}`)),
+  );
 });
 
 /// A host that keeps each gesture's record of where its files are, dated by the wall clock, and
@@ -372,13 +362,10 @@ test("two fast pastes with twin screenshots each keep their own native paths", a
     setSystemTime();
   }
   const attachments = () => composer.current!.wakeState().attachments ?? [];
-  await until(() => nativePaths(attachments()).images.filter(Boolean).length === 2, "both screenshots' paths");
-  await until(() => nativePaths(attachments()).links.length === 2, "both folders");
-  expect(nativePaths(attachments())).toEqual({
-    images: directories.map((directory) => `${directory}/image.png`),
-    links: directories.map((directory) => `${directory}/assets`),
-  });
-  expect(attachments()).toHaveLength(4);
+  await until(() => attachments().length === 6, "both sets of paths");
+  expect(nativePaths(attachments()).links).toEqual(
+    directories.flatMap((directory) => names.map((name) => `${directory}/${name}`)),
+  );
 });
 
 // cmux#48809 follow-up: a host answer with fewer paths than files used to drop every path, and the
@@ -615,6 +602,25 @@ test("attachment intake wires local link deduplication through its hook state", 
   });
   await act(async () => {});
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
+});
+
+test("a picker keeps both selected images when their bytes match and the host has no paths", async () => {
+  const uploads: string[][] = [];
+  await openComposer([], {
+    localPaths: async () => undefined,
+    upload: async (files) => {
+      uploads.push(files.map((file) => file.name));
+      return { paths: files.map((file) => `/saved/${file.name}`) };
+    },
+  });
+  const names = ["first.png", "second.png"];
+  const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+  Object.defineProperty(input, "files", { value: names.map((name) => new File([PNG], name, { type: "image/png" })) });
+  await act(async () => {
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await until(() => uploads.length > 0, "the picked files' upload");
+  expect(uploads).toEqual([names]);
 });
 
 test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
@@ -1261,14 +1267,14 @@ test("deleting a placed attachment with its token pasted as text beside it takes
 // hold a send; it stays for the next prompt (attachmentIntake.tsx useSendWhenAttached). The send's
 // clear took its node out of the text as an edit, and the edit cancelled it: its upload was dropped
 // and the next prompt went without it. A node the person deletes is still cancelled.
-async function withUploadingFile(onSend?: ComposerProps["onSend"], extra: Partial<ComposerProps> = {}) {
+async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
   let finish: ((paths: string[]) => void) | undefined;
   const upload = () =>
     new Promise<{ paths: string[] }>((resolve) => {
       finish = (paths) => resolve({ paths });
     });
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}), ...extra });
+  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}) });
   await act(async () => composer.current!.restore("see", []));
   await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
@@ -1300,86 +1306,6 @@ test("a prompt sent while its file still uploads waits for it, then goes once wi
   await upload.finish(["/tmp/notes.bin"]);
   await until(() => sent.length === 1, "the held send");
   expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
-});
-
-/// A chat that takes a prompt before its files (the agent pane, `sendsBeforeFiles`): `calls` are
-/// the sends as they leave the composer, `delivered` each prompt's files once they are chips, and
-/// `failures` the waits that failed. A failed one comes back to the composer, as the pane's
-/// queue gives it back (startingSends.ts).
-function takesBeforeFiles(handle: () => RefObject<ComposerHandle | null> | undefined) {
-  const calls: string[] = [];
-  const delivered: ComposerAttachment[][] = [];
-  const failures: unknown[] = [];
-  const onSend: ComposerProps["onSend"] = (text, attachments, _steer, _gesture, filesReady) => {
-    calls.push(text);
-    if (!filesReady) delivered.push(attachments ?? []);
-    else
-      void filesReady.then(
-        (chips) => delivered.push(chips),
-        (error: { attachments?: ComposerAttachment[] }) => {
-          failures.push(error);
-          handle()?.current?.restore(text, error.attachments ?? []);
-        },
-      );
-    return true;
-  };
-  return { calls, delivered, failures, extra: { sendsBeforeFiles: true, onSend } satisfies Partial<ComposerProps> };
-}
-
-// cmux#45759 (Leo, 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS ... JUST MAKE IT
-// LOOK LIKE IT'S SENT OR JUST SEND IT"): in a chat that takes a prompt before its files, the
-// prompt leaves the composer at once; the guarantee above holds there too: it goes once, with the file.
-test("a prompt sent before its file is uploaded leaves the composer at once, then goes once with the file", async () => {
-  const chat = takesBeforeFiles(() => opened);
-  const upload = await withUploadingFile(undefined, chat.extra);
-  await act(async () => upload.composer.current!.send());
-  await settleTurns();
-  expect(chat.calls).toHaveLength(1);
-  expect(chat.calls[0]).toContain("see");
-  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
-  expect(markdownField().value().trim()).toBe("");
-  // Never without its file.
-  expect(chat.delivered).toEqual([]);
-  await upload.finish(["/tmp/notes.bin"]);
-  await until(() => chat.delivered.length === 1, "the file following its prompt");
-  expect(chat.delivered[0]!.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
-  expect(chat.calls).toHaveLength(1);
-  // The chip is the prompt's: none lands back in the composer.
-  expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
-});
-
-// The guarantee of "a send with a failed attachment waits until its x takes it away" in a chat that
-// takes a prompt before its files: a failed file is never dropped. The send tries it again; when it
-// fails again the prompt comes back, its failed file a tile with its Retry, and nothing went.
-test("a prompt sent with a failed upload never goes without it: it comes back with the failed tile and its Retry", async () => {
-  const upload = async () => ({ error: "The disk is full.", final: true });
-  const chat = takesBeforeFiles(() => opened);
-  const composer = await openComposer([], { upload, ...chat.extra });
-  await act(async () => composer.current!.restore("look", []));
-  await until(() => field().textContent?.includes("look") === true, "the prompt");
-  await act(async () => markdownField().setCaret("look".length));
-  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clipboardData", {
-    value: {
-      files: [new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" })],
-      types: ["Files"],
-      getData: () => "",
-    },
-  });
-  await act(async () => {
-    field().dispatchEvent(event);
-  });
-  const failed = () => host.querySelector('[data-state="failed"], .acpmux-attachment-failed');
-  await until(() => Boolean(failed()), "the failed tile");
-  await act(async () => composer.current!.send());
-  await until(() => chat.failures.length === 1, "the prompt's file failing again");
-  const { SendFilesFailed } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
-  expect(chat.failures[0]).toBeInstanceOf(SendFilesFailed);
-  expect(chat.delivered).toEqual([]);
-  await settleTurns();
-  expect(field().textContent).toContain("look");
-  await until(() => Boolean(failed()), "the failed tile back in the composer");
-  expect(host.querySelector(".acpmux-md-inline-retry, .acpmux-attachment-retry")).not.toBeNull();
 });
 
 test("a file still uploading whose node the person deletes is cancelled", async () => {

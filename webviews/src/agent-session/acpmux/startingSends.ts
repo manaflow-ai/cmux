@@ -19,7 +19,7 @@ export type StartingSend = {
   at: number;
   sentIn: StartingPlace;
   /// Drawn as a sent row of the transcript from the send, not as a queued row: a prompt sent to a
-  /// chat whose agent is idle that waits only for its own files or for acpmux to connect (Leo,
+  /// chat whose agent is idle that waits only for acpmux to connect (Leo,
   /// 2026-11-17: "make it look like it's sent or just send it").
   asSent?: boolean;
 };
@@ -42,16 +42,7 @@ export function startingQueueEntry(row: Pick<StartingSend, "id" | "text" | "atta
 }
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
 /// `gesture`: the Enter or click the composer bound to it while it held it for its files.
-/// `ready`: the prompt's attachments once the files it waits for are chips; it goes then.
-type Item = StartingSend & {
-  going: boolean;
-  lost?: string;
-  gesture?: SendGesture;
-  ready?: Promise<ComposerAttachment[]>;
-};
-/// A rejection of `ready` may name the attachments the prompt comes back with instead of those it
-/// was added with, the stand-ins for files that never became chips (composer `SendFilesFailed`).
-export type ReadyFailure = { attachments?: ComposerAttachment[] };
+type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
 /// Sends a queued prompt, with the gesture its send bound, if any.
 type Go = (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) => Promise<unknown>;
 
@@ -111,16 +102,14 @@ export class StartingSends {
    */
   /// `id`: the prompt id its send goes with, so the chat's own row for it keeps the row drawn here
   /// (`withStartingPrompt`).
-  /// `waits`: `ready`, the prompt's attachments once its files are chips (the ones given stand in
-  /// for them on its row meanwhile; a rejection refuses it as a refused send is), and `asSent`,
-  /// whether its row is the transcript's (`StartingSend`).
+  /// `waits.asSent`: whether its row is the transcript's (`StartingSend`).
   add(
     text: string,
     attachments: ComposerAttachment[],
     go: Go,
     gesture?: SendGesture,
     id?: string,
-    waits: { ready?: Promise<ComposerAttachment[]>; asSent?: boolean } = {},
+    waits: { asSent?: boolean } = {},
   ) {
     const item: Item = {
       id: id ?? `starting-${crypto.randomUUID()}`,
@@ -130,11 +119,8 @@ export class StartingSends {
       sentIn: this.place(),
       going: false,
       ...(gesture ? { gesture } : {}),
-      ...(waits.ready ? { ready: waits.ready } : {}),
       ...(waits.asSent ? { asSent: true } : {}),
     };
-    // Its files are read beside the prompts before it; a failure is its run's, never unhandled.
-    item.ready?.catch(() => undefined);
     this.items.push(item);
     this.emit();
     this.tail = this.tail.then(() => this.run(item, go));
@@ -170,19 +156,6 @@ export class StartingSends {
     // Removed, or given back with a refused prompt before it.
     if (!this.items.includes(item)) return;
     try {
-      if (item.ready) {
-        const attachments = await item.ready.catch((error: unknown) => {
-          // Its files' failure names what comes back in place of the stand-ins (`ReadyFailure`).
-          const back = (error as ReadyFailure | null)?.attachments;
-          if (Array.isArray(back)) item.attachments = back;
-          throw error;
-        });
-        // Removed (its row's Remove) or given back while its files were read.
-        if (!this.items.includes(item)) return;
-        item.attachments = attachments;
-        delete item.ready;
-        this.emit();
-      }
       item.going = true;
       await go(item.text, item.attachments, item.gesture);
     } catch (error) {

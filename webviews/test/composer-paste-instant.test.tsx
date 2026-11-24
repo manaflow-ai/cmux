@@ -335,70 +335,6 @@ test("a prompt held for its screenshot never goes to the chat the composer moved
   expect(sent).toHaveLength(0);
 });
 
-/// A chat that takes a prompt before its files (the agent pane, `sendsBeforeFiles`): `calls` are the
-/// sends as they leave the composer, `delivered` each prompt's files once they are chips.
-function takesBeforeFiles() {
-  const calls: string[] = [];
-  const delivered: ComposerAttachment[][] = [];
-  const onSend: ComponentProps<typeof ComposerView>["onSend"] = (text, attachments, _steer, _gesture, filesReady) => {
-    calls.push(text);
-    if (!filesReady) delivered.push(attachments ?? []);
-    else void filesReady.then((chips) => delivered.push(chips));
-    return true;
-  };
-  return { calls, delivered, extra: { sendsBeforeFiles: true, onSend } };
-}
-
-// cmux#45759 (Leo, 2026-11-17: "JUST MAKE IT LOOK LIKE IT'S SENT OR JUST SEND IT"): in the agent
-// pane the prompt leaves the composer at once and its screenshot follows it, once, with it.
-test("a prompt sent before its screenshot is read leaves the composer at once, and the image follows it once", async () => {
-  const chat = takesBeforeFiles();
-  await openComposer([], "chat-a", chat.extra);
-  const shot = slowScreenshot();
-  await paste([shot.file]);
-  act(() => {
-    field().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  });
-  expect(chat.calls).toHaveLength(1);
-  expect(placeholders()).toHaveLength(0);
-  // Not without the image.
-  expect(chat.delivered).toEqual([]);
-  shot.release();
-  await until(() => chat.delivered.length > 0, "the image following its prompt");
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(chat.calls).toHaveLength(1);
-  expect(chat.delivered.map((chips) => chips.map((chip) => chip.kind))).toEqual([["image"]]);
-  expect(chips()).toHaveLength(0);
-});
-
-// The composer-side half of "never goes to the chat the composer moved to" in the agent pane: the
-// screenshot read after the composer moved is its prompt's, never a chip of either chat. The pane
-// sends that prompt to the chat it was sent in only (App.tsx `sendInTurn`, `expectedSessionId`).
-test("a screenshot its prompt went with is that prompt's after the composer moved, never a chip of either chat", async () => {
-  const chat = takesBeforeFiles();
-  const { chats, store } = keptStore();
-  await openComposer([], "chat-a", { keptAttachments: store, ...chat.extra });
-  const shot = slowScreenshot();
-  await paste([shot.file]);
-  act(() => {
-    field().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  });
-  expect(chat.calls).toHaveLength(1);
-  const onB = await openComposer([], "chat-b", { keptAttachments: store, ...chat.extra });
-  shot.release();
-  await until(() => chat.delivered.length > 0, "the image following its prompt");
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(chat.delivered.map((chips) => chips.map((chip) => chip.kind))).toEqual([["image"]]);
-  expect(chats.get("chat-a") ?? []).toEqual([]);
-  expect(onB.current!.wakeState().attachments ?? []).toEqual([]);
-  expect(chips()).toHaveLength(0);
-  expect(chat.calls).toHaveLength(1);
-});
-
 test("a screenshot still being read when the composer moves to another chat goes to the chat it was pasted in", async () => {
   const { chats, store } = keptStore();
   await openComposer([], "chat-a", { keptAttachments: store });
@@ -746,7 +682,7 @@ test("a send resumed after its screenshot asks the hold again as a late check", 
   await paste([shot.file]);
   act(() => composer.current!.restore("open Notes with @computer-use", [], true));
   act(() => {
-    composer.current!.send();
+    host.querySelector<HTMLButtonElement>(".acpmux-send")!.click();
   });
   // Computer Use stops while the screenshot is still being read.
   ready = false;
