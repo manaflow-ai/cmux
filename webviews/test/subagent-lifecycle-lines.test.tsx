@@ -78,8 +78,11 @@ for (const harness of ["claude-opus-5-5", "codex"])
     const opened = turnView(completed, new Set([`${WORKED}-${prompt.id}`]), { agentFamily: harness, now: 10_000 });
     for (const view of [closed, opened]) {
       expect(view.filter((entry) => entry.kind === SUBAGENT_STARTED)).toHaveLength(1);
-      expect(view.filter((entry) => entry.kind === SUBAGENT_DONE)).toHaveLength(2);
     }
+    // A finished subagent's end is the turn's work, like a tool call's end: it folds with the turn and
+    // opens with it (steeredHarnessEvents.test.tsx).
+    expect(closed.filter((entry) => entry.kind === SUBAGENT_DONE)).toHaveLength(0);
+    expect(opened.filter((entry) => entry.kind === SUBAGENT_DONE)).toHaveLength(2);
     expect(closed.some((entry) => entry.id === call.id)).toBe(false);
     expect(opened.some((entry) => entry.id === call.id)).toBe(true);
     const replay = new SubagentFold();

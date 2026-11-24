@@ -206,7 +206,7 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its

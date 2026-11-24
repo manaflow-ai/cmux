@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 import CMUXMobileCore
 public import Foundation
 
@@ -88,7 +88,7 @@ public actor CmxConnectivityInvalidationSubscriber {
     public init(
         serviceBaseURL: URL,
         accessToken: @escaping AccessTokenProvider,
-        session: sending URLSession = .shared,
+        session: sending URLSession = CmuxEgress.shared(site: "CmuxIrohTransport.CmxConnectivityInvalidationSubscriber"),
         backoff: CmxIrohReconnectBackoff = CmxIrohReconnectBackoff(),
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
             try await Task<Never, Never>.sleep(for: .seconds($0))

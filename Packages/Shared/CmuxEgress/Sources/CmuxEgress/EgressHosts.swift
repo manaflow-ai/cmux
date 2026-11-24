@@ -4,6 +4,7 @@ enum EgressHosts {
     static let patterns: [String] = [
         "*.*.wdev.cmux.dev",
         "*.atlassian.net",
+        "*.r2.cloudflarestorage.com",
         "accounts.google.com",
         "api-staging.chatmux.dev",
         "api.*.wdev.cmux.dev",

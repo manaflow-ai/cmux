@@ -54,6 +54,10 @@ FORMS = {
     ".swift": {
         "urlsession": r"\bURLSession\((?:configuration|\))",
         "urlsession-shared": r"\bURLSession\.shared\b",
+        # A defaulted parameter or stored property: `session: URLSession = .shared` is the shared session too.
+        "urlsession-default": r"\bURLSession\s*=\s*\.shared\b",
+        # The shared session passed by its short name: `Client(session: .shared)`.
+        "urlsession-shared-arg": r"\b[sS]ession:\s*\.shared\b",
         "nwconnection": r"\bNWConnection\(",
         "websocket-task": r"\.webSocketTask\(",
     },
@@ -172,6 +176,11 @@ class Matcher(unittest.TestCase):
               'session.webSocketTask(with: u)\n')
         self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
                          {"urlsession": 1, "urlsession-shared": 1, "nwconnection": 1, "websocket-task": 1})
+        # The shared session by its short name: a defaulted parameter, a stored property, an argument.
+        sw = ('init(session: URLSession = .shared) {}\nvar session: URLSession = .shared\n'
+              'func f(session: sending URLSession = .shared) {}\nlet c = Client(session: .shared)\n')
+        self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
+                         {"urlsession-default": 3, "urlsession-shared-arg": 1})
 
     def test_comments_and_test_modules_are_skipped(self):
         self.assertEqual(sites_in("// reqwest::Client::new()\n#[cfg(test)]\nmod tests {\n fn t() { "

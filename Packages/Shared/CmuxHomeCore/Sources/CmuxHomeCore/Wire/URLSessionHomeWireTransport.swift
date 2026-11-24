@@ -1,4 +1,4 @@
-import CmuxEgress
+public import CmuxEgress
 public import Foundation
 
 /// The production ``HomeWireHTTP`` and ``HomeWireSocketConnecting`` over one

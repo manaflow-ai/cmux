@@ -18,8 +18,8 @@
   "cmux-next-ios/rust/crates/cmux-mobile-link/src/signaling.rs": {
    "ws-connect": 1
   },
-  "cmux-tui/crates/acpmux/src/managed_codex.rs": {
-   "reqwest-get": 1
+  "cmux-tui/crates/acpmux/src/range_fetch.rs": {
+   "reqwest-client": 1
   },
   "cmux-tui/crates/chatmux-relay/src/journal_forwarder.rs": {
    "reqwest-client": 1

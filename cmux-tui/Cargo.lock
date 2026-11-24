@@ -40,6 +40,7 @@ dependencies = [
  "cmux-egress",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1423,6 +1424,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1921,6 +1930,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-file-lock"
 version = "0.1.0"
 dependencies = [
@@ -2309,6 +2325,7 @@ dependencies = [
  "cmux-process",
  "flate2",
  "fuser",
+ "ignore",
  "libc",
  "reqwest",
  "rustls",
@@ -2360,12 +2377,17 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "windows",
  "windows-sys 0.61.2",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2418,6 +2440,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2760,6 +2783,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"

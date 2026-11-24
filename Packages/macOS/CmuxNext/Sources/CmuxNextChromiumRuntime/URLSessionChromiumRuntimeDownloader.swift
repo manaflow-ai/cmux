@@ -30,8 +30,6 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
         if existing > 0 { request.setValue("bytes=\(existing)-", forHTTPHeaderField: "Range") }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = idleTimeout
-        // The pin's host is not a docs/privacy.md row yet: list it there, then drop this line.
-        CmuxEgress.allowNamed(url)
         let handle: FileHandle
         do { handle = try FileHandle(forWritingTo: file) } catch { throw .filesystem(error.localizedDescription) }
         defer { try? handle.close() }

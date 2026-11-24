@@ -103,6 +103,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
+| `*.r2.cloudflarestorage.com` | connects | a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
 | `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime |
 | `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
@@ -370,7 +371,11 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | Host | Kind | What for |
 |---|---|---|
 | `command.io` | not-a-host | an error code for a custom command's file error |
+| `cmux.app` | not-a-host | the app bundle name `cmux app try` builds and copies |
+| `failed.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap fails |
 | `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
+| `replaced.app` | not-a-host | the app bundle `cmux app try` sets aside when it replaces a copy |
+| `undone.app` | not-a-host | the app bundle `cmux app try undo` sets aside |
 | `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
 | `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
 | `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
