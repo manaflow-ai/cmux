@@ -14,14 +14,22 @@
 // customize their name potentially if they wanted to"); anyone else types a name as before. The
 // redeem's `role` decides the composer: `talk` (a signed-in guest on a talk link) may send.
 import "./guest.css";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { AvatarContext } from "../../pages/home-channels/avatars";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
 import { Face, PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
-import { GuestComposer, GuestMessages } from "./GuestComposer";
+import { GuestComposer, GuestMessages, GuestQueue, runsAfterTurn } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
 import {
@@ -207,7 +215,11 @@ export function JoinPage({
       setError(failed);
     });
   };
-  const message = !hasSecret ? t("guest.join.badLink") : error ? <JoinError error={error} /> : undefined;
+  const message = !hasSecret ? (
+    t("guest.join.badLink")
+  ) : error ? (
+    <JoinError error={error} />
+  ) : undefined;
   return (
     <main className="guest-card">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
@@ -224,7 +236,11 @@ export function JoinPage({
           disabled={!hasSecret}
           onChange={(event) => setTyped(event.target.value)}
         />
-        <button className="guest-join__button" type="submit" disabled={!name || joining || !hasSecret}>
+        <button
+          className="guest-join__button"
+          type="submit"
+          disabled={!name || joining || !hasSecret}
+        >
           {joining ? t("guest.join.joining") : t("guest.join.button")}
         </button>
       </form>
@@ -381,7 +397,9 @@ export function LiveChat({
     () =>
       new GuestSendQueue(
         prompts,
-        (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false,
+        (prompt) =>
+          socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ??
+          false,
       ),
     [prompts],
   );
@@ -389,7 +407,10 @@ export function LiveChat({
   const ended = useRef(onEnded);
   ended.current = onEnded;
   const mine = useSyncExternalStore(prompts.subscribe, prompts.list);
-  const typing = useMemo(() => new TypingSignal((on) => socket.current?.send({ t: "typing", on }) ?? false), []);
+  const typing = useMemo(
+    () => new TypingSignal((on) => socket.current?.send({ t: "typing", on }) ?? false),
+    [],
+  );
   useEffect(() => () => typing.dispose(), [typing]);
 
   // The socket opens on the first commit; the records it brings wait for the transcript's chunk,
@@ -402,7 +423,8 @@ export function LiveChat({
     let stopped = false;
     let client: GuestFeed | undefined;
     const waiting: ((client: GuestFeed) => void)[] = [];
-    const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
+    const withClient = (run: (client: GuestFeed) => void) =>
+      client ? run(client) : waiting.push(run);
     // A failed chunk load (a dropped connection) tries again until it lands or the chat goes away.
     // The browser may keep a failed module fetch for the page's life, so a Retry that fails again
     // reloads the page (this tab's join is in sessionStorage, so it opens the chat again).
@@ -439,7 +461,11 @@ export function LiveChat({
       client?.dispose();
     };
     const room = new ShareSocket(
-      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
+      {
+        url: socketUrl,
+        unresolved: () => prompts.held(),
+        ...(openSocket ? { open: openSocket } : {}),
+      },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -505,7 +531,10 @@ export function LiveChat({
 
   const owner = ownerOf(people);
   const ownerName = owner?.name ?? t("guest.live.owner");
-  const named = participant(guestId, people.find((person) => isMe(person.id, guestId))?.name ?? name);
+  const named = participant(
+    guestId,
+    people.find((person) => isMe(person.id, guestId))?.name ?? name,
+  );
   const me: Participant = named
     ? { ...named, ...(avatar && !named.avatar ? { avatar } : {}) }
     : { id: guestId, name: t("guest.you") };
@@ -518,6 +547,10 @@ export function LiveChat({
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
+  // This guest's own approved message is the "Sent" line below already.
+  const waiting = (snapshot?.queue ?? []).filter(
+    (entry) => runsAfterTurn(entry) && !(entry.author && isMe(entry.author.id, guestId)),
+  );
   return (
     // Faces and chips ask no owner's avatar service (GuestTranscript's boundary does the same).
     <AvatarContext.Provider value={undefined}>
@@ -530,7 +563,9 @@ export function LiveChat({
             <h1 className="guest-live__title">
               {snapshot || chat.title ? (displayName(chat.title) ?? t("guest.live.untitled")) : ""}
             </h1>
-            <p className="guest-live__owner">{owner ? t("guest.live.sharedBy", { owner: owner.name }) : ""}</p>
+            <p className="guest-live__owner">
+              {owner ? t("guest.live.sharedBy", { owner: owner.name }) : ""}
+            </p>
           </div>
           <PresenceStack viewing={viewing} />
         </header>
@@ -550,14 +585,20 @@ export function LiveChat({
           {loadFailed ? (
             <div className="guest-live__notice guest-live__notice--failed" role="alert">
               {t("guest.live.loadFailed")}{" "}
-              <button className="guest-live__retry" type="button" onClick={() => retryLoad.current?.()}>
+              <button
+                className="guest-live__retry"
+                type="button"
+                onClick={() => retryLoad.current?.()}
+              >
                 {t("retry.action")}
               </button>
             </div>
           ) : (
             connection !== "live" && (
               <output className="guest-live__notice">
-                {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+                {t(
+                  connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting",
+                )}
               </output>
             )
           )}
@@ -565,10 +606,13 @@ export function LiveChat({
         {snapshot?.permission && (
           <output className="guest-live__ask">
             {t("guest.live.waitingAnswer", { owner: ownerName })}
-            {snapshot.permission.title && <span className="guest-live__ask-title">{snapshot.permission.title}</span>}
+            {snapshot.permission.title && (
+              <span className="guest-live__ask-title">{snapshot.permission.title}</span>
+            )}
           </output>
         )}
         <div className="guest-live__dock">
+          <GuestQueue queue={waiting} owner={owner} />
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
@@ -607,7 +651,12 @@ export type GuestPageProps = {
   /** The role this tab's invitee joined with (redeem.ts joinedRole). */
   role?: GuestRole;
   /** Called once the redeem or accept worked (redeem.ts rememberJoined); an invite has no typed name. */
-  onJoined?: (guestId: string, name: string | undefined, role: GuestRole | undefined, via: JoinedVia) => void;
+  onJoined?: (
+    guestId: string,
+    name: string | undefined,
+    role: GuestRole | undefined,
+    via: JoinedVia,
+  ) => void;
   /** Where this tab keeps its own messages (sessionStorage in the page). */
   storage: Storage;
   socketUrl: string;
@@ -706,10 +755,12 @@ export function GuestPage({
     return result.error;
   };
   if (ended) return <EndedPage reason={ended} />;
-  if (!guestId && invite) return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
+  if (!guestId && invite)
+    return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
   // Nothing until the room says who this is (at most WHOAMI_WAIT_MS), so the join never swaps.
   if (!guestId && !who) return <main className="guest-card" aria-busy="true" />;
-  if (!guestId && who?.signedIn) return <JoinAsPage account={who} editing={editName} onJoin={join} />;
+  if (!guestId && who?.signedIn)
+    return <JoinAsPage account={who} editing={editName} onJoin={join} />;
   if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
   return (
     <LiveChat

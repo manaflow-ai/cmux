@@ -4,7 +4,11 @@
 // the agent's reasoning, a test run with its output, and a second run, either still going or
 // waiting on the owner's answer. `fakeRoom` plays frames to the page as the room would.
 import type { EventRecord } from "../../acpmux/direct";
-import { AVATAR_PNG, GUEST_INITIALS, GUEST_WITH_AVATAR } from "../../acpmux/multiplayer/people.fixtures";
+import {
+  AVATAR_PNG,
+  GUEST_INITIALS,
+  GUEST_WITH_AVATAR,
+} from "../../acpmux/multiplayer/people.fixtures";
 import type { GuestPrompt } from "../guestPrompts";
 import type { ShareSocketLike } from "../shareSocket";
 
@@ -28,7 +32,12 @@ const run = (toolCallId: string, command: string) => ({
 });
 
 const WORKING: Step[] = [
-  [3 * MINUTE, "mux", "user_message", { text: "The upload retry test is flaky on CI. Find out why and fix it." }],
+  [
+    3 * MINUTE,
+    "mux",
+    "user_message",
+    { text: "The upload retry test is flaky on CI. Find out why and fix it." },
+  ],
   [3 * MINUTE - 500, "mux", "turn_started", {}],
   [
     3 * MINUTE - 4_000,
@@ -41,7 +50,12 @@ const WORKING: Step[] = [
       },
     }),
   ],
-  [2 * MINUTE, "in", "tool_call", update("tool_call", run("run-1", "bun test src/upload.test.ts --rerun-each 5"))],
+  [
+    2 * MINUTE,
+    "in",
+    "tool_call",
+    update("tool_call", run("run-1", "bun test src/upload.test.ts --rerun-each 5")),
+  ],
   [
     MINUTE + 20_000,
     "in",
@@ -80,7 +94,12 @@ const ASK = {
 export const workingRecords = (): EventRecord[] =>
   records([
     ...WORKING,
-    [20_000, "in", "tool_call", update("tool_call", run("run-2", "bun test src/upload.test.ts --rerun-each 20"))],
+    [
+      20_000,
+      "in",
+      "tool_call",
+      update("tool_call", run("run-2", "bun test src/upload.test.ts --rerun-each 20")),
+    ],
   ]);
 
 /** The second run waits on the owner's answer to its permission ask. */
@@ -112,15 +131,41 @@ export const guestMessageRecords = (): EventRecord[] =>
       4 * MINUTE,
       "mux",
       "user_message",
-      guestPrompt("How does the uploader retry today?", { ...GUEST_WITH_AVATAR, avatar: AVATAR_PNG }),
+      guestPrompt("How does the uploader retry today?", {
+        ...GUEST_WITH_AVATAR,
+        avatar: AVATAR_PNG,
+      }),
     ],
     [4 * MINUTE - 500, "mux", "turn_started", {}],
-    [4 * MINUTE - 4_000, "in", "agent_message_chunk", reply("Three tries, doubling from 200 ms, on 5xx and timeouts.")],
+    [
+      4 * MINUTE - 4_000,
+      "in",
+      "agent_message_chunk",
+      reply("Three tries, doubling from 200 ms, on 5xx and timeouts."),
+    ],
     [4 * MINUTE - 4_500, "mux", "turn_result", { status: "completed" }],
     [MINUTE, "mux", "user_message", guestPrompt("What happens on a 429?", GUEST_INITIALS)],
     [MINUTE - 500, "mux", "turn_started", {}],
     [MINUTE - 4_000, "in", "agent_message_chunk", reply("A 429 is not retried; it fails at once.")],
     [MINUTE - 4_500, "mux", "turn_result", { status: "completed" }],
+  ]);
+
+/** The owner's follow-ups sent while the turn still runs: they wait behind it in acpmux's queue. */
+export const queuedRecords = (texts: string[]): EventRecord[] =>
+  records([
+    ...WORKING,
+    [
+      20_000,
+      "in",
+      "tool_call",
+      update("tool_call", run("run-2", "bun test src/upload.test.ts --rerun-each 20")),
+    ],
+    ...texts.map((text, index): Step => [
+      10_000 - index * 1000,
+      "mux",
+      "queued",
+      { promptId: `q-${index + 1}`, text, position: index + 1 },
+    ]),
   ]);
 
 function records(steps: Step[]): EventRecord[] {
@@ -134,8 +179,20 @@ function records(steps: Step[]): EventRecord[] {
   }));
 }
 
-export const OWNER = { id: "owner-1", name: "Sam Rivera", kind: "owner", viewing: true, typing: false };
-export const GUEST = { id: "guest:share.g1", name: "Ana", kind: "guest", viewing: true, typing: false };
+export const OWNER = {
+  id: "owner-1",
+  name: "Sam Rivera",
+  kind: "owner",
+  viewing: true,
+  typing: false,
+};
+export const GUEST = {
+  id: "guest:share.g1",
+  name: "Ana",
+  kind: "guest",
+  viewing: true,
+  typing: false,
+};
 
 /** The frames a room sends a guest on connect: presence, then the snapshot. */
 export const joinFrames = (

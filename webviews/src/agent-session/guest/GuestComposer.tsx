@@ -4,6 +4,7 @@
 // "Declined: …" or "Not sent: …", as the owner's own declined line does.
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 import { type StringKey, useT } from "../acpmux/i18n";
+import type { QueuedPrompt } from "../acpmux/model";
 import { AuthorChip } from "../acpmux/multiplayer/Faces";
 import type { Participant } from "../acpmux/multiplayer/participants";
 import { type GuestPrompt, isOpen, PROMPT_MAX_BYTES, promptBytes } from "./guestPrompts";
@@ -52,10 +53,51 @@ export function GuestMessages({
           <AuthorChip author={me} />
           <div className="ui-glass cv-user__bubble selectable">{prompt.text}</div>
           <span className="guest-mine__label">
-            {prompt.state === "sending" ? t("guest.prompt.sending") : t("guest.prompt.waiting", { owner })}
+            {prompt.state === "sending"
+              ? t("guest.prompt.sending")
+              : t("guest.prompt.waiting", { owner })}
           </span>
         </div>
       ))}
+    </section>
+  );
+}
+
+/** Whether a queue entry is a person's message that runs once the turn ends: not another agent's
+ * message or inbox notice, not a subagent retry, and not one still waiting on the owner. */
+export const runsAfterTurn = (entry: QueuedPrompt) =>
+  !entry.message &&
+  !entry.inbox &&
+  !entry.retry &&
+  !entry.awaitingOwner &&
+  entry.prompt.trim() !== "";
+
+/**
+ * The messages waiting behind the agent's running turn, as the owner's composer queue shows them:
+ * the guest sees a follow-up the moment the owner sends it, not when the turn ends and it becomes a
+ * row (Leo, 2026-11-23: "Google Docs-esque type sharing"). Read only: no edit, steer or delete.
+ */
+export function GuestQueue({
+  queue,
+  owner,
+}: {
+  queue: readonly QueuedPrompt[];
+  owner?: Participant;
+}) {
+  const t = useT();
+  if (!queue.length) return null;
+  return (
+    <section className="guest-mine guest-queue" data-testid="guest-queue" aria-live="polite">
+      {queue.map((entry) => {
+        const author = entry.author ?? owner;
+        return (
+          <div key={entry.id} className="cv-user guest-mine__held">
+            {author && <AuthorChip author={author} />}
+            <div className="ui-glass cv-user__bubble selectable">{entry.prompt}</div>
+            <span className="guest-mine__label">{t("composer.queued")}</span>
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -97,7 +139,8 @@ export function GuestComposer({
     setText("");
   };
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!enterSends || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (!enterSends || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
+      return;
     event.preventDefault();
     send();
   };
@@ -119,7 +162,12 @@ export function GuestComposer({
         onChange={(event) => change(event.target.value)}
         onKeyDown={keyDown}
       />
-      <button className="guest-join__button" type="submit" disabled={!canSend} aria-label={t("guest.composer.send")}>
+      <button
+        className="guest-join__button"
+        type="submit"
+        disabled={!canSend}
+        aria-label={t("guest.composer.send")}
+      >
         {sendIcon ?? t("guest.composer.send")}
       </button>
       {tooLong && (
