@@ -192,7 +192,7 @@ pub(super) fn percentile(values: &[f64], p: f64) -> Option<f64> {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let rank = ((p / 100.0) * sorted.len() as f64).ceil().max(1.0) as usize;
-    Some(sorted[rank.min(sorted.len()) - 1])
+    sorted.get(rank.min(sorted.len()) - 1).copied()
 }
 
 fn round_ms(elapsed: Duration) -> f64 {
