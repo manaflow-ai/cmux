@@ -140,6 +140,7 @@ pub(crate) async fn move_out(
         cwd: None,
         dry_run: false,
         resume_there: false,
+        continue_there: None,
         from: None,
         slow_ok: false,
         from_snapshot: false,
