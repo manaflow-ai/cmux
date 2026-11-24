@@ -9,7 +9,6 @@
 //! path carried it, so swapping or adding paths never resets the session or
 //! its TCP streams.
 
-use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -345,10 +344,12 @@ impl DatagramSocket for UdpSocket {
 pub struct SocketPath<S> {
     socket: S,
     peer: Option<SocketAddr>,
-    pending: VecDeque<(Vec<u8>, SocketAddr)>,
-    /// Datagrams of this pass, sent together at its flush (or once
-    /// [`STAGE_LIMIT`] wait). Only staged while nothing is pending.
-    staged: SendBatch,
+    /// Datagrams not yet sent, oldest first: this pass's, sent together at
+    /// its flush (or once [`STAGE_LIMIT`] wait), and any the socket refused.
+    queue: SendBatch,
+    /// The socket refused the queue's front: the driver feeds no more data
+    /// until [`Underlay::poll_flush`] drains it.
+    waiting: bool,
     /// Datagrams the last batched read took and the driver has not had.
     received: ReceiveBatch,
     /// Until when sends go one at a time ([`UNBATCHED_AFTER_REFUSAL`]).
@@ -379,8 +380,8 @@ impl<S: DatagramSocket> SocketPath<S> {
         Self {
             socket,
             peer,
-            pending: VecDeque::new(),
-            staged: SendBatch::default(),
+            queue: SendBatch::default(),
+            waiting: false,
             received: ReceiveBatch::default(),
             unbatched_until: None,
             retry: None,
@@ -403,60 +404,369 @@ impl<S: DatagramSocket> SocketPath<S> {
     /// the socket is unwritable. The mesh addresses each peer this way on
     /// one shared socket.
     pub(crate) fn send_to(&mut self, datagram: &[u8], peer: SocketAddr) {
-        if !self.pending.is_empty() {
+        if self.waiting {
             self.flush();
         }
-        if !self.pending.is_empty() {
-            if self.pending.len() < SEND_QUEUE_DEPTH {
-                self.pending.push_back((datagram.to_vec(), peer));
+        if self.waiting {
+            if self.queue.len() < SEND_QUEUE_DEPTH {
+                self.queue.push(datagram, peer);
             } else {
                 eprintln!("wireguard UDP send to {peer} dropped: the socket never drained");
             }
             return;
         }
-        if self.unbatched_until.is_some_and(|until| Instant::now() < until) {
-            match self.socket.try_send_to(datagram, peer) {
-                Ok(_) => {}
-                Err(error) if refusal(&error).is_some() => {
-                    self.refused();
-                    self.pending.push_back((datagram.to_vec(), peer));
-                }
-                Err(error) => eprintln!("wireguard UDP send to {peer} failed: {error}"),
-            }
-            return;
-        }
-        self.unbatched_until = None;
-        self.staged.push(datagram, peer);
-        if self.staged.len() >= STAGE_LIMIT {
-            self.send_staged();
+        self.queue.push(datagram, peer);
+        let unbatched = self.unbatched_until.is_some_and(|until| Instant::now() < until);
+        if unbatched || self.queue.len() >= STAGE_LIMIT {
+            self.send_queued();
         }
     }
 
     fn refused(&mut self) {
+        self.waiting = true;
         self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
     }
 
-    /// Send what this pass staged, in as few calls as the socket allows; what
-    /// the socket refuses waits in `pending`, in order, for writability.
-    fn send_staged(&mut self) {
-        let mut from = 0;
-        while from < self.staged.len() {
-            match self.socket.try_send_batch(&self.staged, from) {
-                Ok(0) => break,
-                Ok(sent) => from += sent,
+    /// Send what is queued, in as few calls as the socket allows, until it
+    /// refuses; what it refused waits, in order, for writability.
+    fn send_queued(&mut self) {
+        while !self.queue.is_empty() {
+            match self.socket.try_send_batch(&self.queue, 0) {
+                Ok(sent) => self.queue.consume(sent.max(1)),
                 Err(error) if refusal(&error).is_some() => {
                     self.refused();
-                    break;
+                    return;
                 }
                 Err(error) => {
-                    if let Some((_, peer)) = self.staged.get(from) {
+                    if let Some((_, peer)) = self.queue.get(0) {
                         eprintln!("wireguard UDP send to {peer} failed: {error}");
                     }
-                    from += 1;
+                    self.queue.consume(1);
                 }
             }
         }
-        self.pending.extend(self.staged.drain_from(from));
+        self.waiting = false;
+    }
+
+    /// The next datagram already read, or one read now without waiting:
+    /// `WouldBlock` when none waits.
+    pub(crate) fn try_recv(&mut self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        if self.received.is_empty() {
+            self.socket.try_recv_batch(&mut self.received)?;
+        }
+        self.received.pop_into(buffer).ok_or_else(|| io::ErrorKind::WouldBlock.into())
+    }
+}
+
+impl<S: DatagramSocket> Underlay for SocketPath<S> {
+    fn send(&mut self, datagram: &[u8]) {
+        if let Some(peer) = self.peer {
+            self.send_to(datagram, peer);
+        }
+    }
+
+    fn flush(&mut self) {
+        // A carrier not in use is flushed only here: an expired retry must
+        // not keep it waiting for a poll_flush that never comes.
+        if self.retry.as_ref().is_some_and(|retry| retry.deadline() <= Instant::now()) {
+            self.retry = None;
+        }
+        if self.retry.is_none() {
+            self.send_queued();
+        }
+    }
+
+    fn backlogged(&self) -> bool {
+        false
+    }
+
+    /// Send queued datagrams as the carrier becomes writable; ready once
+    /// nothing is queued.
+    fn poll_flush(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
+
+    /// Receive the next datagram into `buffer`.
+    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>>;
+
+    /// WireGuard authenticated the datagram from `origin`. A carrier that
+    /// addresses its peer follows it there (WireGuard roaming).
+    fn authenticated(&mut self, _origin: Origin) {}
+
+    /// Whether a send could reach the peer at all. The driver sends its
+    /// first handshake initiation only when it can.
+    fn has_peer(&self) -> bool;
+
+    /// The peer address of the path currently in use, so a rebind to a new
+    /// socket can keep sending to the same place.
+    fn peer_hint(&self) -> Option<SocketAddr> {
+        None
+    }
+
+    /// Whether the carrier moved the session to another route since the last
+    /// call (a switch, datagrams going on every path after the current one
+    /// went quiet, or the peer roaming to a new address). The driver then has
+    /// the tunnel's TCP resend what was in flight at once, instead of waiting
+    /// out a timer that backed off while the old route lost it.
+    fn take_path_change(&mut self) -> bool {
+        false
+    }
+}
+
+/// A datagram socket: Tokio's UDP socket, or a simulated one in tests.
+pub trait DatagramSocket: Send + 'static {
+    fn poll_recv_from(
+        &mut self,
+        cx: &mut Context<'_>,
+        buffer: &mut [u8],
+    ) -> Poll<io::Result<(usize, SocketAddr)>>;
+
+    /// Ready when a send would not answer `WouldBlock`.
+    fn poll_send_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+
+    fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize>;
+
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+
+    /// Ask the kernel for a [`RECEIVE_BUFFER`]-byte receive buffer, as far
+    /// as it allows. Best effort: a refusal keeps the default. A socket
+    /// with no kernel buffer (a simulated one) has nothing to grow.
+    fn grow_receive_buffer(&self) {}
+
+    /// Send `batch[from..]` in order, as many as one call takes. Returns how
+    /// many left (at least one), or the first one's refusal. The default
+    /// sends one; a kernel socket on Linux sends up to 64 messages with one
+    /// `sendmmsg`, a run to one address as one GSO message.
+    fn try_send_batch(&mut self, batch: &SendBatch, from: usize) -> io::Result<usize> {
+        let Some((datagram, target)) = batch.get(from) else { return Ok(0) };
+        self.try_send_to(datagram, target).map(|_| 1)
+    }
+
+    /// Read what waits into `batch` (empty on entry), at least one
+    /// datagram, registering for readiness when none does. The default reads
+    /// one; a kernel socket on Linux reads many with one `recvmmsg`.
+    fn poll_recv_batch(
+        &mut self,
+        cx: &mut Context<'_>,
+        batch: &mut ReceiveBatch,
+    ) -> Poll<io::Result<()>> {
+        let mut buffer = vec![0u8; 1 << 16];
+        self.poll_recv_from(cx, &mut buffer).map_ok(|(len, from)| {
+            batch.push(buffer.get(..len).unwrap_or_default(), from);
+        })
+    }
+
+    /// As [`poll_recv_batch`](DatagramSocket::poll_recv_batch), without
+    /// registering: `WouldBlock` when nothing waits, and always for a
+    /// socket that can only be polled.
+    fn try_recv_batch(&mut self, _batch: &mut ReceiveBatch) -> io::Result<()> {
+        Err(io::ErrorKind::WouldBlock.into())
+    }
+}
+
+impl DatagramSocket for UdpSocket {
+    fn poll_recv_from(
+        &mut self,
+        cx: &mut Context<'_>,
+        buffer: &mut [u8],
+    ) -> Poll<io::Result<(usize, SocketAddr)>> {
+        let mut read = ReadBuf::new(buffer);
+        match UdpSocket::poll_recv_from(self, cx, &mut read) {
+            Poll::Ready(Ok(source)) => Poll::Ready(Ok((read.filled().len(), source))),
+            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn poll_send_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        UdpSocket::poll_send_ready(self, cx)
+    }
+
+    fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize> {
+        UdpSocket::try_send_to(self, datagram, target)
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        UdpSocket::local_addr(self)
+    }
+
+    #[cfg(unix)]
+    fn grow_receive_buffer(&self) {
+        use std::os::fd::AsRawFd;
+        let size = libc::c_int::try_from(RECEIVE_BUFFER).unwrap_or(libc::c_int::MAX);
+        let set = |option| {
+            // SAFETY: the descriptor is open for the borrow of `self`, and
+            // the option value points at a live `c_int` of the length passed.
+            unsafe {
+                libc::setsockopt(
+                    self.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    option,
+                    (&raw const size).cast(),
+                    size_of_val(&size) as libc::socklen_t,
+                )
+            }
+        };
+        // Past `net.core.rmem_max` only with CAP_NET_ADMIN (wireguard-go
+        // does the same); without it the capped request below still holds.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if set(libc::SO_RCVBUFFORCE) == 0 {
+            return;
+        }
+        let _ = set(libc::SO_RCVBUF);
+        // Every read goes through `recv_batch`, which splits what GRO joins.
+        #[cfg(target_os = "linux")]
+        crate::underlay_batch::linux::enable_gro(self.as_raw_fd());
+    }
+
+    #[cfg(target_os = "linux")]
+    fn try_send_batch(&mut self, batch: &SendBatch, from: usize) -> io::Result<usize> {
+        use std::os::fd::AsRawFd;
+        let fd = self.as_raw_fd();
+        self.try_io(tokio::io::Interest::WRITABLE, || {
+            crate::underlay_batch::linux::send(fd, batch, from)
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn poll_recv_batch(
+        &mut self,
+        cx: &mut Context<'_>,
+        batch: &mut ReceiveBatch,
+    ) -> Poll<io::Result<()>> {
+        loop {
+            std::task::ready!(self.poll_recv_ready(cx))?;
+            match self.try_recv_batch(batch) {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                result => return Poll::Ready(result),
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn try_recv_batch(&mut self, batch: &mut ReceiveBatch) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
+        let fd = self.as_raw_fd();
+        self.try_io(tokio::io::Interest::READABLE, || crate::underlay_batch::linux::recv(fd, batch))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn try_recv_batch(&mut self, batch: &mut ReceiveBatch) -> io::Result<()> {
+        let mut buffer = vec![0u8; 1 << 16];
+        let (len, from) = UdpSocket::try_recv_from(self, &mut buffer)?;
+        batch.push(buffer.get(..len).unwrap_or_default(), from);
+        Ok(())
+    }
+}
+
+/// One socket and the peer's address on it. The address follows the source
+/// of the latest authenticated datagram, and starts unknown on a side that
+/// only answers.
+pub struct SocketPath<S> {
+    socket: S,
+    peer: Option<SocketAddr>,
+    /// Datagrams not yet sent, oldest first: this pass's, sent together at
+    /// its flush (or once [`STAGE_LIMIT`] wait), and any the socket refused.
+    queue: SendBatch,
+    /// The socket refused the queue's front: the driver feeds no more data
+    /// until [`Underlay::poll_flush`] drains it.
+    waiting: bool,
+    /// Datagrams the last batched read took and the driver has not had.
+    received: ReceiveBatch,
+    /// Until when sends go one at a time ([`UNBATCHED_AFTER_REFUSAL`]).
+    unbatched_until: Option<Instant>,
+    /// Armed after the interface refused a datagram.
+    retry: Option<Pin<Box<Sleep>>>,
+    retry_after: Duration,
+    refusals: u32,
+    /// The peer roamed to a new address after a silence, since the last
+    /// `take_path_change`.
+    roamed: bool,
+    /// When the peer last sent an authenticated datagram, from any address.
+    heard: Option<Instant>,
+}
+
+/// How long the peer must have been silent before a datagram from a new
+/// address counts as the peer moving off a lost path: the multipath
+/// selector's shortest silence window, so a path cut under a stream counts and
+/// paths that alternate while both answer do not.
+const ROAM_QUIET: Duration = Duration::from_millis(100);
+
+/// The default underlay: one UDP socket, one peer address.
+pub type UdpUnderlay = SocketPath<UdpSocket>;
+
+impl<S: DatagramSocket> SocketPath<S> {
+    pub fn new(socket: S, peer: Option<SocketAddr>) -> Self {
+        socket.grow_receive_buffer();
+        Self {
+            socket,
+            peer,
+            queue: SendBatch::default(),
+            waiting: false,
+            received: ReceiveBatch::default(),
+            unbatched_until: None,
+            retry: None,
+            retry_after: INTERFACE_RETRY_MIN,
+            refusals: 0,
+            roamed: false,
+            heard: None,
+        }
+    }
+
+    pub fn socket(&self) -> &S {
+        &self.socket
+    }
+
+    pub fn peer(&self) -> Option<SocketAddr> {
+        self.peer
+    }
+
+    /// Send one datagram to `peer`, or queue it behind earlier ones while
+    /// the socket is unwritable. The mesh addresses each peer this way on
+    /// one shared socket.
+    pub(crate) fn send_to(&mut self, datagram: &[u8], peer: SocketAddr) {
+        if self.waiting {
+            self.flush();
+        }
+        if self.waiting {
+            if self.queue.len() < SEND_QUEUE_DEPTH {
+                self.queue.push(datagram, peer);
+            } else {
+                eprintln!("wireguard UDP send to {peer} dropped: the socket never drained");
+            }
+            return;
+        }
+        self.queue.push(datagram, peer);
+        let unbatched = self.unbatched_until.is_some_and(|until| Instant::now() < until);
+        if unbatched || self.queue.len() >= STAGE_LIMIT {
+            self.send_queued();
+        }
+    }
+
+    fn refused(&mut self) {
+        self.waiting = true;
+        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
+    }
+
+    /// Send what is queued, in as few calls as the socket allows, until it
+    /// refuses; what it refused waits, in order, for writability.
+    fn send_queued(&mut self) {
+        while !self.queue.is_empty() {
+            match self.socket.try_send_batch(&self.queue, 0) {
+                Ok(sent) => self.queue.consume(sent.max(1)),
+                Err(error) if refusal(&error).is_some() => {
+                    self.refused();
+                    return;
+                }
+                Err(error) => {
+                    if let Some((_, peer)) = self.queue.get(0) {
+                        eprintln!("wireguard UDP send to {peer} failed: {error}");
+                    }
+                    self.queue.consume(1);
+                }
+            }
+        }
+        self.waiting = false;
     }
 
     /// The next datagram already read, or one read now without waiting:
@@ -508,11 +818,11 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
     }
 
     fn backlogged(&self) -> bool {
-        !self.pending.is_empty()
+        self.waiting && !self.queue.is_empty()
     }
 
     fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
-        while let Some((datagram, peer)) = self.pending.front() {
+        while !self.queue.is_empty() {
             if let Some(retry) = &mut self.retry {
                 if retry.as_mut().poll(cx).is_pending() {
                     return Poll::Pending;
@@ -523,40 +833,43 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(error)) => {
                     eprintln!("wireguard UDP socket failed: {error}");
-                    self.pending.clear();
+                    self.queue.clear();
                     break;
                 }
                 Poll::Ready(Ok(())) => {}
             }
-            match self.socket.try_send_to(datagram, *peer) {
-                Ok(_) => {
-                    self.pending.pop_front();
+            match self.socket.try_send_batch(&self.queue, 0) {
+                Ok(sent) => {
+                    self.queue.consume(sent.max(1));
                     self.retry_after = INTERFACE_RETRY_MIN;
                     self.refusals = 0;
                 }
-                Err(error) => match refusal(&error) {
-                    // Readiness was stale; the next poll registers interest.
-                    Some(Refusal::SocketFull) => {
-                        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
-                    }
-                    Some(Refusal::InterfaceFull) => {
-                        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
-                        self.refusals += 1;
-                        if self.refusals >= INTERFACE_RETRY_LIMIT {
-                            eprintln!("wireguard UDP send to {peer} dropped: {error} for 3 s");
-                            self.pending.pop_front();
-                            self.refusals = 0;
+                Err(error) => {
+                    let peer = self.queue.get(0).map(|(_, peer)| peer);
+                    let peer = peer.map_or_else(String::new, |peer| peer.to_string());
+                    match refusal(&error) {
+                        // Readiness was stale; the next poll registers interest.
+                        Some(Refusal::SocketFull) => self.refused(),
+                        Some(Refusal::InterfaceFull) => {
+                            self.refused();
+                            self.refusals += 1;
+                            if self.refusals >= INTERFACE_RETRY_LIMIT {
+                                eprintln!("wireguard UDP send to {peer} dropped: {error} for 3 s");
+                                self.queue.consume(1);
+                                self.refusals = 0;
+                            }
+                            self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
+                            self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
                         }
-                        self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
-                        self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
+                        None => {
+                            eprintln!("wireguard UDP send to {peer} failed: {error}");
+                            self.queue.consume(1);
+                        }
                     }
-                    None => {
-                        eprintln!("wireguard UDP send to {peer} failed: {error}");
-                        self.pending.pop_front();
-                    }
-                },
+                }
             }
         }
+        self.waiting = false;
         Poll::Ready(())
     }
 

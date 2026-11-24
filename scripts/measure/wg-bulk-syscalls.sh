@@ -6,12 +6,13 @@
 # DATAGRAMS=N (the wire datagrams of one run, e.g. the `sendto` count of a build that sends one per call) to get
 # syscalls a datagram; without it the script prints syscalls a MB.
 #
-#   scripts/measure/wg-bulk-syscalls.sh BENCH_BINARY [wg-tcp|wg-mesh] [BULK_BYTES]
+#   scripts/measure/wg-bulk-syscalls.sh BENCH_BINARY [wg-tcp|wg-mesh] [BULK_BYTES] [BENCH_ARGS...]
+#   (wg-mesh needs `--paths lan:1`)
 set -euo pipefail
 bench=${1:?bench binary}
 path=${2:-wg-tcp}
 bytes=${3:-200000000}
-args=(--path "$path" --seconds 1 --fps 1 --bulk-bytes "$bytes")
+args=(--path "$path" --seconds 1 --fps 1 --bulk-bytes "$bytes" "${@:4}")
 out=$(mktemp -d)
 strace -c -f -o "$out/strace" "$bench" "${args[@]}" >"$out/json" 2>"$out/stderr" || true
 "$bench" "${args[@]}" >"$out/json2" 2>/dev/null || true
