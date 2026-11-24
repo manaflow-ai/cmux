@@ -12,7 +12,6 @@ fn req(action: GithubAction) -> GithubActionParams {
         body: None,
         permissions: None,
         deadline_ms: None,
-        permissions: None,
     }
 }
 
