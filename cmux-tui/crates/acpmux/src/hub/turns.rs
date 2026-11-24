@@ -479,6 +479,22 @@ impl Hub {
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
+        // Serialize each prompt's setup through queue admission. In particular, resolving an
+        // uploaded block can block in a worker, and a later prompt must not claim the chat while
+        // the earlier one is still on its way to the queue. The guard is dropped immediately
+        // after `queue_slot`, before the admitted prompt reads its uploads for dispatch.
+        let _prompt_admission = match opts.prompt_admission.take() {
+            Some(guard) => guard,
+            None => session.prompt_admission.clone().lock_owned().await,
+        };
+        #[cfg(test)]
+        {
+            let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
@@ -781,6 +797,7 @@ impl Hub {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
+        drop(_prompt_admission);
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
@@ -1806,6 +1823,9 @@ impl Hub {
         // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
         let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
         if let Some(e) = refused {
+            result = Err(e);
+        }
+        if let Some(e) = result.as_ref().ok().and_then(Self::capacity_retry_error) {
             result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).

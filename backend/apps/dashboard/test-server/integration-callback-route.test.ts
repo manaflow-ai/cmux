@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
+import { accessTokenSubject, apiUserId, integrationAppHandoffResponse, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationEnvironmentHint, integrationStateSignedBy, STAGING_API_URL, STAGING_CONSOLE_HOST } from "../src/lib/integration-callback"
 
 /**
  * The development Worker's Connect comes back to the staging console, which finishes development states on the
@@ -144,4 +144,63 @@ test("a 401 from the development API is not a signed-out console", () => {
   expect(developmentRefusal(401)?.code).toBe("auth.development_refused")
   expect(developmentRefusal(200)).toBeUndefined()
   expect(developmentRefusal(403)).toBeUndefined()
+})
+
+test("an app's connect goes back to the app with a plain 302, not the router's redirect (#46018)", () => {
+  const state = token({ ret: "cmux-dev-gh-connect-46018://integration/complete", team: "team_0123456789abcdef0123" })
+  const answer = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&code=abc&installation_id=42&setup_action=install`)
+  expect(answer?.status).toBe(302)
+  const location = new URL(answer!.headers.get("Location")!)
+  expect(location.protocol).toBe("cmux-dev-gh-connect-46018:")
+  expect(`${location.host}${location.pathname}`).toBe("integration/complete")
+  expect(Object.fromEntries(location.searchParams)).toEqual({ state, code: "abc", installation_id: "42", setup_action: "install" })
+  expect(answer!.headers.get("Cache-Control")).toBe("no-store")
+  expect(answer!.headers.get("Referrer-Policy")).toBe("no-referrer")
+  // A cancel on GitHub still goes back, so the app stops waiting.
+  const cancel = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&error=access_denied`)
+  expect(new URL(cancel!.headers.get("Location")!).searchParams.get("error")).toBe("access_denied")
+})
+
+test("any other callback renders the page", () => {
+  const base = "https://console.cmux.dev/integrations/callback"
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "cmux://workspace/ws_" + "0".repeat(32) })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?state=${token({ ret: "https://evil.example/integration/complete" })}&code=abc`)).toBeUndefined()
+  expect(integrationAppHandoffResponse(`${base}?code=abc`)).toBeUndefined()
+  // Only `<an app scheme>://integration/complete` itself is an app handoff: nothing after it, no other scheme.
+  for (const ret of [
+    "cmux://integration/complete/x",
+    "cmux://integration/completeX",
+    "cmux://integration/complete?next=https://evil.example",
+    "CMUX://integration/complete",
+    "cmuxx://integration/complete",
+    "javascript://integration/complete",
+    `cmux-dev-${"a".repeat(41)}://integration/complete`,
+  ])
+    expect(integrationAppHandoffResponse(`${base}?state=${token({ ret })}&code=abc`)).toBeUndefined()
+})
+
+test("the link carries only what GitHub sends: an installation id that is not a number is dropped", () => {
+  const state = token({ ret: "cmux://integration/complete" })
+  const answer = integrationAppHandoffResponse(`https://console.cmux.dev/integrations/callback?state=${state}&code=abc&installation_id=42%0d%0aX-Injected:1&extra=1`)
+  expect(Object.fromEntries(new URL(answer!.headers.get("Location")!).searchParams)).toEqual({ state, code: "abc" })
+})
+
+test("the route itself answers the provider's redirect: the 302 for an app's connect, the page for any other (#46018)", async () => {
+  // The production 500 was the route's wiring, not the helper: this holds the GET handler on the route.
+  const { Route } = await import("../src/routes/integrations/callback")
+  const get = (Route.options.server as { handlers: { GET: (ctx: { request: Request; next: () => unknown }) => unknown } }).handlers.GET
+  const base = "https://console.cmux.dev/integrations/callback"
+  const page = new Response("page")
+  let rendered = 0
+  const next = () => {
+    rendered += 1
+    return page
+  }
+  const handoff = (await get({ request: new Request(`${base}?state=${token({ ret: "cmux-nightly://integration/complete" })}&code=abc`), next })) as Response
+  expect(handoff.status).toBe(302)
+  expect(handoff.headers.get("Location")!.startsWith("cmux-nightly://integration/complete?state=")).toBe(true)
+  expect(rendered).toBe(0)
+  expect(await get({ request: new Request(`${base}?state=${token({ team: "team_0123456789abcdef0123" })}&code=abc`), next })).toBe(page)
+  expect(rendered).toBe(1)
 })
