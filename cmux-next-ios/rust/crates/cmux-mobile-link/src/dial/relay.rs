@@ -294,6 +294,7 @@ impl RelayCarrier {
                         // A datagram no frame can carry (empty, or larger than a frame).
                         continue;
                     };
+                    tracing::trace!(datagrams = records.len(), bytes = frame.len(), "relay frame out");
                     let sent =
                         tokio::time::timeout(WRITE_WAIT, sink.send(Message::Binary(frame.into()))).await;
                     if !matches!(sent, Ok(Ok(()))) {
@@ -333,6 +334,7 @@ impl RelayCarrier {
                             if frame.kind != FrameKind::Datagrams
                                 || expected.is_some_and(|peer| peer != frame.peer)
                             {
+                                tracing::debug!(kind = ?frame.kind, "relay frame from another than the peer dropped");
                                 continue;
                             }
                             let Ok(datagrams) = frame.split_datagrams() else { continue };
@@ -355,7 +357,7 @@ impl RelayCarrier {
                                     peer_tx.send_replace(value["online"].as_bool().unwrap_or(false));
                                 }
                                 Some("error") => {
-                                    tracing::debug!(code = %value["code"], "relay refused a frame")
+                                    tracing::debug!(code = %value["code"], "relay refused a frame");
                                 }
                                 _ => {}
                             }
@@ -486,7 +488,7 @@ mod tests {
             frames += 1;
             received.extend(frame.split_datagrams().unwrap().into_iter().map(<[u8]>::to_vec));
         }
-        assert!(frames >= 2 && frames <= 4, "{frames} frames");
+        assert!((2..=4).contains(&frames), "{frames} frames");
         assert_eq!(received.iter().map(Vec::len).sum::<usize>(), 20 * 1200 + 32);
         // A frame from someone else is dropped; the peer's arrives.
         let stranger = RelayFrame::datagrams(PeerId([9; 16]), &[b"no"]).unwrap().encode().unwrap();

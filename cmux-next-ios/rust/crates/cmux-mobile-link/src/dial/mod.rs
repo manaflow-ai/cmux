@@ -475,7 +475,7 @@ pub enum DialError {
     /// No way to the peer worked, and each one's failure is known
     /// (PROTOCOL.md "When no path works"): the network blocks the link.
     #[error("no path to the peer: {0}")]
-    Blocked(diagnosis::PathFailures),
+    Blocked(Box<diagnosis::PathFailures>),
 }
 
 pub type DialFuture<'a> = Pin<Box<dyn Future<Output = Result<Dialed, DialError>> + Send + 'a>>;

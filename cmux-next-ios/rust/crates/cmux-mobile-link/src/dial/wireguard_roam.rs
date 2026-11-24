@@ -189,6 +189,8 @@ impl RelayShared {
         }
         if held {
             clock.lost = false;
+            // An ask that crossed this side's own join is answered by it.
+            clock.asked = false;
         }
     }
 
@@ -232,7 +234,14 @@ impl RelayShared {
         clock.heard = None;
     }
 
+    /// The peer asked this side to join (`wg-relay`). Ignored while this
+    /// side holds a relay socket: both sides joining at once each ask the
+    /// other, and a stale ask must not pull a side back onto the relay after
+    /// it left (and make it stick there).
     fn ask(&self) {
+        if self.held() {
+            return;
+        }
         lock(&self.state).asked = true;
         self.asked.notify_one();
     }
@@ -1273,10 +1282,15 @@ async fn run_relay_watch(session: Weak<Session>) {
                     return;
                 }
                 shared.set_held(true);
-                // Wake the tunnel: what it sends next takes the relay too.
-                if let Ok(net) = session.net() {
-                    let _ = net.refresh().await;
-                }
+                // Wake the tunnel so its handshake rides the relay: the dialer at once,
+                // the answerer a random moment later and only if the dialer's did not
+                // arrive meanwhile. Both sides often join in the same instant (their
+                // watches run on the same clock since their tunnels started together),
+                // and two handshake initiations that cross in lockstep each overwrite the
+                // other side's pending one (boringtun keeps one handshake state), so
+                // every response is refused and their fixed repeat schedule keeps them in
+                // step until the dial times out.
+                reassert_on_relay(&session, &shared).await;
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.
@@ -1316,6 +1330,28 @@ async fn run_relay_watch(session: Weak<Session>) {
                 }
             }
         }
+    }
+}
+
+/// How long the answering side waits, at random within this range, before it
+/// reasserts on a relay it just joined ([`reassert_on_relay`]).
+const ANSWER_REASSERT_JITTER: std::ops::Range<u64> = 300..900;
+
+/// Send a handshake (or keepalive) through the relay this side just joined.
+async fn reassert_on_relay(session: &Arc<Session>, shared: &Arc<RelayShared>) {
+    if !session.dialer {
+        let mut bytes = [0u8; 8];
+        getrandom::fill(&mut bytes).expect("operating system randomness");
+        let span = ANSWER_REASSERT_JITTER.end - ANSWER_REASSERT_JITTER.start;
+        let wait = Duration::from_millis(ANSWER_REASSERT_JITTER.start + u64::from_le_bytes(bytes) % span);
+        let joined = Instant::now();
+        tokio::time::sleep(wait).await;
+        if shared.heard_after(joined) {
+            return;
+        }
+    }
+    if let Ok(net) = session.net() {
+        let _ = net.refresh().await;
     }
 }
 

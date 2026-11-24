@@ -15,6 +15,11 @@ use cmux_mobile_link::{
 };
 
 fn options() -> DialOptions {
+    // RUST_LOG=cmux_mobile_link=debug shows the relay's joins and leaves.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
     DialOptions { include_loopback: true, timeout: Duration::from_secs(20), ..DialOptions::default() }
 }
 

@@ -199,7 +199,7 @@ impl Diagnosis {
     pub fn timed_out(&self, kind: TransportKind) -> DialError {
         self.with(|state| {
             if kind == TransportKind::WireGuard && !state.reached && state.failures.relay.is_some() {
-                DialError::Blocked(state.failures.clone())
+                DialError::Blocked(Box::new(state.failures.clone()))
             } else {
                 DialError::Timeout
             }
@@ -208,7 +208,7 @@ impl Diagnosis {
 
     /// [`DialError::Blocked`] with the record now.
     pub fn blocked(&self) -> DialError {
-        DialError::Blocked(self.snapshot())
+        DialError::Blocked(Box::new(self.snapshot()))
     }
 }
 

@@ -460,10 +460,12 @@ async fn serve_relay(
                 let Ok(encoded) = frame.encode() else { continue };
                 match peer_socket(&state) {
                     Some(target) => {
+                        tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
                         state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
                         let _ = target.send(Message::Binary(encoded.into()));
                     }
                     None => {
+                        tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
                         let _ = out_tx
                             .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
                     }
