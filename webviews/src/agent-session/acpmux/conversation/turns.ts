@@ -2057,8 +2057,11 @@ function shapeTurn(
   // "Worked for", Claude, Gemini and Muse with no turn fold.
   // A turn with little to hide draws flat, as the in-place family does (`foldsTurn`).
   const family = turnFoldStyle(agentFamily);
-  const style =
-    family.conclusion && !foldsTurn(user, body, summary, live ? turnStartedAtMs : undefined) ? CLAUDE_IN_PLACE : family;
+  // Flat: the family folds turns, but this one has too little to hide. Its replies stay plain replies
+  // (no `settled`, no `foldedReply`): no fold holds them, so every answer reads as drawn
+  // (replyAlwaysVisible.test.ts), unlike the `runs` arm, whose earlier replies draw as folded notes.
+  const flat = family.conclusion && !foldsTurn(user, body, summary, live ? turnStartedAtMs : undefined);
+  const style = flat ? CLAUDE_IN_PLACE : family;
   // Other agents' messages that started the turn fold into its "Worked for" once it ends, as its
   // first entries (Leo, 2026-11-07: "fold the receiving and sending messages into the worked for as
   // well? Like the nearest one?"); shapedTurn draws them there.
@@ -2296,10 +2299,10 @@ function shapeTurn(
           ...[...merge(before), ...(inPlace ? [said] : []), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
             ...endedPlan(row),
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-            settled: true,
+            ...(!(flat && replies.has(row.id)) && { settled: true }),
             // A finished turn's earlier replies fold here too; each keeps its action row, while a
             // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-            ...(replies.has(row.id) && row !== said && { foldedReply: true }),
+            ...(replies.has(row.id) && row !== said && !flat && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
             ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
             // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,

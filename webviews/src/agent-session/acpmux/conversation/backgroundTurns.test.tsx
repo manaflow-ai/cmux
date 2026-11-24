@@ -38,15 +38,15 @@ const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) =
     row("reply", "assistant", { text: "Started it." }),
     row("summary", "turnSummary", { status: "completed", durationMs: 2_000 }),
     line("bg", background),
+    // Three calls: a turn folds under "Worked for" only with three work rows or five seconds
+    // (workedForSmallTurns.test.tsx), and this one is about a turn that does.
     row("check", "activity", {
       inBackground: "bg",
-      items: [
-        {
-          kind: "tool",
-          text: "Ran check",
-          tool: { id: "check", title: "check", kind: "execute", status: "completed" },
-        },
-      ],
+      items: ["check", "check-2", "check-3"].map((id) => ({
+        kind: "tool",
+        text: "Ran check",
+        tool: { id, title: "check", kind: "execute", status: "completed" },
+      })),
     }),
     row("note", "assistant", { text: "Nothing new for you yet.", inBackground: "bg" }),
   ];
