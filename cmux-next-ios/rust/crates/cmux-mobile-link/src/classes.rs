@@ -96,7 +96,13 @@ pub(crate) fn parse_datagram(datagram: &[u8]) -> Option<Fragment> {
     if count == 0 || index >= count || usize::from(count) * FRAGMENT > MIRROR_MAX + FRAGMENT {
         return None;
     }
-    Some(Fragment { channel, seq, index, count, payload: Bytes::copy_from_slice(&datagram[DATAGRAM_HEADER..]) })
+    Some(Fragment {
+        channel,
+        seq,
+        index,
+        count,
+        payload: Bytes::copy_from_slice(&datagram[DATAGRAM_HEADER..]),
+    })
 }
 
 /// A sequenced stream frame's payload: message number, flags (bit 0: the
@@ -278,18 +284,19 @@ mod tests {
         // Message 1's datagram arrives before message 0: held.
         assert!(sequencer.fragment(fragments(1, 1, b"b").remove(0)).is_empty());
         // Message 0 from the stream releases both.
-        assert_eq!(sequencer.stream_chunk(0, true, Bytes::from_static(b"a")), vec![
-            Bytes::from_static(b"a"),
-            Bytes::from_static(b"b")
-        ]);
+        assert_eq!(
+            sequencer.stream_chunk(0, true, Bytes::from_static(b"a")),
+            vec![Bytes::from_static(b"a"), Bytes::from_static(b"b")]
+        );
         // The late copies are dropped.
         assert!(sequencer.stream_chunk(1, true, Bytes::from_static(b"b")).is_empty());
         assert!(sequencer.fragment(fragments(1, 0, b"a").remove(0)).is_empty());
         // A chunked stream message.
         assert!(sequencer.stream_chunk(2, false, Bytes::from_static(b"he")).is_empty());
-        assert_eq!(sequencer.stream_chunk(2, true, Bytes::from_static(b"llo")), vec![Bytes::from_static(
-            b"hello"
-        )]);
+        assert_eq!(
+            sequencer.stream_chunk(2, true, Bytes::from_static(b"llo")),
+            vec![Bytes::from_static(b"hello")]
+        );
         assert_eq!(sequencer.won_by_datagram, 1);
     }
 
@@ -300,7 +307,10 @@ mod tests {
         // Older states, from either copy, are dropped.
         assert!(sequencer.stream_chunk(1, true, Bytes::from_static(b"s1")).is_empty());
         assert!(sequencer.stream_chunk(3, true, Bytes::from_static(b"s3")).is_empty());
-        assert_eq!(sequencer.stream_chunk(4, true, Bytes::from_static(b"s4")), vec![Bytes::from_static(b"s4")]);
+        assert_eq!(
+            sequencer.stream_chunk(4, true, Bytes::from_static(b"s4")),
+            vec![Bytes::from_static(b"s4")]
+        );
     }
 
     #[test]
