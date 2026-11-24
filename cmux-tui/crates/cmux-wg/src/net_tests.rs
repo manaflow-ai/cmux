@@ -216,3 +216,61 @@ async fn a_lost_answer_is_retried_from_this_side_after_answer_wait() {
     assert_eq!(initiations(&take(&a_sent)), 1, "nothing retried the lost answer");
     assert!(a.tunn.time_since_last_handshake().is_none());
 }
+
+/// The same crossing on tunnels at least one persistent keepalive old with
+/// no session (a dial that waited out a dropped first handshake). boringtun's
+/// keepalive timer finds no session and queues the empty packet; the repeat
+/// after answering the peer's initiation (`decapsulate(&[])`) drains that queue,
+/// and with no current session `encapsulate` starts a new initiation, which
+/// replaces the one the peer is answering: the livelock again, past the pacer's
+/// guard (the DPI review of #53160).
+#[tokio::test(start_paused = true)]
+async fn crossing_after_a_queued_keepalive_still_completes() {
+    let mut pair = crate::testing::config_pair("127.0.0.1:9".parse().unwrap());
+    pair.client.persistent_keepalive = Some(10);
+    pair.server.persistent_keepalive = Some(10);
+    let a_addr: SocketAddr = "127.0.0.1:1001".parse().unwrap();
+    let b_addr: SocketAddr = "127.0.0.1:1002".parse().unwrap();
+    let (mut a, a_sent) = outbox_driver(pair.client);
+    let (mut b, b_sent) = outbox_driver(pair.server);
+    // First initiations, lost (a network that dropped them).
+    deliver(&mut a, &[], b_addr);
+    deliver(&mut b, &[], a_addr);
+    a.initiate_handshake();
+    b.initiate_handshake();
+    let _ = (take(&a_sent), take(&b_sent));
+    // A persistent keepalive later, with no session: boringtun queues it.
+    tokio::time::advance(Duration::from_secs(11)).await;
+    a.update_timers();
+    b.update_timers();
+    let _ = (take(&a_sent), take(&b_sent));
+    // Data waits on both sides, and both initiate at once (a reassert on a
+    // new path): the initiations cross.
+    let (a_reply, _a_pending) = oneshot::channel();
+    a.begin_connect(SocketAddr::new(pair.server_v4, 7000), a_reply);
+    let (b_reply, _b_pending) = oneshot::channel();
+    b.begin_connect(SocketAddr::new(pair.client_v4, 7001), b_reply);
+    a.reassert();
+    b.reassert();
+    deliver(&mut a, &[], b_addr);
+    deliver(&mut b, &[], a_addr);
+    let (a_init, b_init) = (take(&a_sent), take(&b_sent));
+    assert!(initiations(&a_init) >= 1 && initiations(&b_init) >= 1, "no crossing to test");
+    // Each keeps only its newest initiation, so deliver just that one.
+    let newest = |sent: &[Vec<u8>]| {
+        let last = sent.iter().rposition(|d| classify(d) == DatagramClass::WireGuardInitiation);
+        sent[last.unwrap()..=last.unwrap()].to_vec()
+    };
+    deliver(&mut a, &newest(&b_init), b_addr);
+    deliver(&mut b, &newest(&a_init), a_addr);
+    let (a_out, b_out) = (take(&a_sent), take(&b_sent));
+    assert_eq!(
+        (initiations(&a_out), initiations(&b_out)),
+        (0, 0),
+        "an end replaced the initiation its peer is answering"
+    );
+    deliver(&mut a, &b_out, b_addr);
+    deliver(&mut b, &a_out, a_addr);
+    assert!(a.tunn.time_since_last_handshake().is_some(), "the dialing end has no session");
+    assert!(b.tunn.time_since_last_handshake().is_some(), "the answering end has no session");
+}

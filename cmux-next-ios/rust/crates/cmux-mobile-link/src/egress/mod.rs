@@ -51,6 +51,12 @@ pub enum EgressError {
     ProxyRefused { proxy: String, target: String, status: String },
     #[error("the system has no proxy for {target}, and Proxy only allows nothing else")]
     ProxyRequired { target: String },
+    #[error(
+        "the proxy {proxy} asks for a password, and the system's proxy settings have a user name but no password"
+    )]
+    ProxyPasswordMissing { proxy: String },
+    #[error("{target:?} is not a host name or an address, so it was not sent to the proxy")]
+    BadTarget { target: String },
 }
 
 impl EgressError {
@@ -65,8 +71,9 @@ impl EgressError {
     fn rank(&self) -> u8 {
         match self {
             Self::Io(_) => 0,
-            Self::ProxyRefused { .. } | Self::ProxyRequired { .. } => 1,
-            Self::ProxyAuthMissing { .. }
+            Self::ProxyRefused { .. } | Self::ProxyRequired { .. } | Self::BadTarget { .. } => 1,
+            Self::ProxyPasswordMissing { .. }
+            | Self::ProxyAuthMissing { .. }
             | Self::ProxyAuthRefused { .. }
             | Self::ProxyAuthUnsupported { .. } => 2,
         }

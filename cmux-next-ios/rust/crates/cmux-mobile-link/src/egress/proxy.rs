@@ -478,6 +478,23 @@ pub fn auth_schemes(head: &str) -> Vec<String> {
     schemes
 }
 
+/// Forget every cached answer (stub: today's behavior keeps them 30 s).
+pub fn forget_cached() {}
+
+/// Whether `host` may go into `CONNECT host:port` (stub: today's behavior
+/// takes anything).
+pub(crate) fn valid_connect_host(_host: &str) -> bool {
+    true
+}
+
+/// The error for a 407 (stub: today's choice).
+pub(crate) fn auth_refusal(proxy: &ProxyServer, basic: bool, _schemes: &[String]) -> EgressError {
+    match (&proxy.credentials, basic) {
+        (Some(_), true) => EgressError::ProxyAuthRefused { proxy: proxy.to_string() },
+        _ => EgressError::ProxyAuthMissing { proxy: proxy.to_string() },
+    }
+}
+
 /// Tunnel `stream` (connected to `proxy`) to `host:port` with `CONNECT`,
 /// sending Basic credentials when the system has them.
 pub(crate) async fn http_connect(
@@ -698,6 +715,76 @@ mod tests {
             vec![Hop::Direct]
         );
         assert_eq!(hops_from_entries(Vec::new(), |_| None), vec![Hop::Direct]);
+    }
+
+    /// (b) A network change forgets the cached answers: the new network's
+    /// proxy (or none) is asked for, not the old one's for 30 s more.
+    #[test]
+    fn a_network_change_forgets_the_cached_proxy_answers() {
+        let key = ("cache-test.example".to_owned(), 443, true);
+        remember(key.clone(), &[http("old-network-proxy", 3128)]);
+        assert!(cached(&key).is_some());
+        forget_cached();
+        assert_eq!(cached(&key), None, "a network change kept the old network's proxy");
+    }
+
+    /// (c) A TURN host from `/v1/ice` goes into `CONNECT host:port` and the
+    /// `Host:` header: anything but a DNS name or an IP address (a space, a
+    /// CR or LF, a slash, an `@`) is refused before it reaches the proxy.
+    #[test]
+    fn only_a_name_or_an_address_goes_into_connect() {
+        for good in ["turn.cloudflare.com", "127.0.0.1", "2001:db8::1", "[2001:db8::1]", "a-b.c_d.example"] {
+            assert!(valid_connect_host(good), "{good}");
+        }
+        for bad in [
+            "",
+            "turn.example\r\nX-Injected: 1",
+            "turn.example HTTP/1.1",
+            "user@turn.example",
+            "turn.example/path",
+            "turn.example:443",
+            "-leading.example",
+            "a..b",
+        ] {
+            assert!(!valid_connect_host(bad), "{bad:?} would go into CONNECT");
+        }
+    }
+
+    /// (c) The refusal is a sentence, and nothing is written to the proxy.
+    #[tokio::test]
+    async fn a_bad_turn_host_never_reaches_the_proxy() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let accepted = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let _ = tokio::time::timeout(Duration::from_millis(300), socket.read_to_end(&mut seen)).await;
+            seen
+        });
+        let stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let server = ProxyServer::new("127.0.0.1", port);
+        let error = http_connect(stream, &server, "turn.example\r\nX-Injected: 1", 443).await.unwrap_err();
+        assert!(matches!(error, EgressError::BadTarget { .. }), "{error:?}");
+        assert!(error.to_string().contains("not a host name"), "{error}");
+        assert!(accepted.await.unwrap().is_empty(), "the bad host reached the proxy");
+    }
+
+    /// (d) A user name with no password in the settings is said as such when
+    /// the proxy refuses it, not as a refused password.
+    #[test]
+    fn a_user_name_without_a_password_says_so() {
+        let refused = |credentials: Option<(&str, &str)>| {
+            let mut server = ProxyServer::new("proxy.corp", 3128);
+            if let Some((user, password)) = credentials {
+                server = server.with_credentials(user, password);
+            }
+            auth_refusal(&server, true, &["Basic".to_owned()])
+        };
+        let no_password = refused(Some(("ann", "")));
+        assert!(matches!(no_password, EgressError::ProxyPasswordMissing { .. }), "{no_password:?}");
+        assert!(no_password.to_string().contains("no password"), "{no_password}");
+        assert!(matches!(refused(Some(("ann", "pw"))), EgressError::ProxyAuthRefused { .. }));
+        assert!(matches!(refused(None), EgressError::ProxyAuthMissing { .. }));
     }
 
     #[test]
