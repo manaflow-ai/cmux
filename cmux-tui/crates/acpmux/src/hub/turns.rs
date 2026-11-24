@@ -1330,6 +1330,12 @@ impl Hub {
         } else {
             self.forum_context(session, pushed.clone(), &mut blocks).await
         };
+        // A turn rule that matches this prompt, and the end rule the last turn left (`turn_rules.rs`).
+        if !resumed && let Some(said) = self.turn_rules_start(session, &text) {
+            blocks.push(
+                json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
