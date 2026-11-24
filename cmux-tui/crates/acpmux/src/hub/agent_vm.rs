@@ -82,6 +82,75 @@ pub(crate) fn registry_agent_vm(name: &str, url: &str) -> bool {
     registry.is_some_and(|r| agent_vm_in(&r, name, url))
 }
 
+/// The fleet registry as read now, for a caller that asks about many peers at once.
+pub(crate) fn registry_now() -> Option<Value> {
+    let (source, set) = super::admission::registry_source();
+    if source.as_os_str().is_empty() {
+        return None;
+    }
+    super::admission::read_registry(&source, set).0
+}
+
+/// What decides a machine's group: the person's own placing first, then what acpmux knows of
+/// how the machine is run. Never its name.
+pub(crate) struct GroupFacts {
+    /// `PeerConfig` `group`, if it is `own` or `agent`.
+    pub set: Option<String>,
+    /// The peer is held at the VM boundary (a saved `vmBoundary`, or a Cloud lease's).
+    pub vm_boundary: bool,
+    /// A Cloud lease made the peer: an ephemeral VM the app leased.
+    pub leased: bool,
+    /// This caller's fleet registry marks the peer `agent_vm` ([`agent_vm_in`]).
+    pub registry_agent_vm: bool,
+}
+
+/// `"agent"` for a machine agents run on (a lane VM, swarm VM, control plane or leased Cloud
+/// VM), `"own"` for the person's own computer. The picker lists `own` machines inline and
+/// folds `agent` ones into one group.
+pub(crate) fn group_of(f: &GroupFacts) -> &'static str {
+    match f.set.as_deref() {
+        Some("own") => return "own",
+        Some("agent") => return "agent",
+        _ => {}
+    }
+    if f.vm_boundary || f.leased || f.registry_agent_vm { "agent" } else { "own" }
+}
+
+#[cfg(test)]
+mod group_tests {
+    use super::{GroupFacts, group_of};
+
+    fn facts(set: Option<&str>, vm: bool, leased: bool, reg: bool) -> GroupFacts {
+        GroupFacts { set: set.map(str::to_owned), vm_boundary: vm, leased, registry_agent_vm: reg }
+    }
+
+    #[test]
+    fn derives_from_how_the_machine_is_run_never_its_name() {
+        assert_eq!(group_of(&facts(None, false, false, false)), "own");
+        assert_eq!(group_of(&facts(None, true, false, false)), "agent");
+        assert_eq!(group_of(&facts(None, false, true, false)), "agent");
+        assert_eq!(group_of(&facts(None, false, false, true)), "agent");
+    }
+
+    #[test]
+    fn the_persons_own_placing_wins() {
+        assert_eq!(group_of(&facts(Some("own"), true, true, true)), "own");
+        assert_eq!(group_of(&facts(Some("agent"), false, false, false)), "agent");
+        assert_eq!(group_of(&facts(Some("bogus"), false, false, true)), "agent");
+    }
+
+    #[test]
+    fn config_round_trips_group() {
+        let pc: crate::config::PeerConfig =
+            serde_json::from_str(r#"{"url":"ssh://a","group":"agent"}"#).unwrap();
+        assert_eq!(pc.group.as_deref(), Some("agent"));
+        let v = serde_json::to_value(&pc).unwrap();
+        assert_eq!(v["group"], "agent");
+        let none: crate::config::PeerConfig = serde_json::from_str(r#"{"url":"ssh://a"}"#).unwrap();
+        assert!(serde_json::to_value(&none).unwrap().get("group").is_none());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{agent_vm_in, ssh_host};

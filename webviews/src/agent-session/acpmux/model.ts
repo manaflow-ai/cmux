@@ -7,6 +7,7 @@ import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { PeerInfo } from "./environments";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -1330,6 +1331,8 @@ export type AcpmuxSnapshot = {
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's group (`own` or `agent`) and live session count, as acpmux said them (environments.ts).
+  peerInfo?: Record<string, PeerInfo>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one

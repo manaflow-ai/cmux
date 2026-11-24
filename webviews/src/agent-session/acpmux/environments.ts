@@ -22,7 +22,40 @@ export type Environment = {
   /// When acpmux says its link left `connected` (`PeerLinkDetail.since`, ms since the epoch), while
   /// it is not connected; absent from an older daemon.
   downSince?: number;
+  /// Whose machine acpmux says it is (`PeerGroup`): the person's own, or a fleet machine agents run
+  /// on. Absent from an older daemon, which lists every peer as the person's own.
+  group?: PeerGroup;
+  /// The sessions running on it now, as acpmux says (`liveSessions`); absent when it said nothing.
+  liveSessions?: number;
 };
+
+/// Which list a peer belongs in, as acpmux classifies it (peer_group.rs, `group` on each
+/// `_acpmux/status` peer): `own`, a laptop, desktop or home server of the person's, or `agent`, a
+/// machine agents run on (lane VMs, swarms, control planes, the VMs Cloud and Freestyle make).
+export type PeerGroup = "own" | "agent";
+
+/// What acpmux says of each peer besides its link: its `group` and its `liveSessions`.
+export type PeerInfo = { group?: PeerGroup; liveSessions?: number };
+
+/// Each peer's group and live session count from `_acpmux/status` rows (the relay keeps both,
+/// AcpmuxPaneMethods.replyShapes); `liveSessions` falls back to the health reading's.
+export function peerInfoFromStatus(status: unknown): Record<string, PeerInfo> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const info: Record<string, PeerInfo> = {};
+  for (const peer of peers) {
+    const row = (peer ?? {}) as { name?: unknown; group?: unknown; liveSessions?: unknown; health?: unknown };
+    if (typeof row.name !== "string" || !row.name) continue;
+    const health = (row.health ?? {}) as { liveSessions?: unknown };
+    const live = typeof row.liveSessions === "number" ? row.liveSessions : health.liveSessions;
+    const entry: PeerInfo = {
+      ...(row.group === "own" || row.group === "agent" ? { group: row.group } : {}),
+      ...(typeof live === "number" && Number.isFinite(live) && live >= 0 ? { liveSessions: Math.floor(live) } : {}),
+    };
+    if (entry.group !== undefined || entry.liveSessions !== undefined) info[row.name] = entry;
+  }
+  return info;
+}
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
@@ -171,31 +204,23 @@ export function thisMacName(
   return machineName === chatMachine ? undefined : machineName;
 }
 
-/// The picker's sections: this Mac; the person's own machines; Cloud machines and VM pools. acpmux
-/// keeps no label for a peer, so a pool is read from its names: a `wss://`/`ws://` peer (cmux Cloud)
-/// or a Cloud chat's host, and every SSH peer whose name is a shared stem and a number
-/// (`gcp-codex-lane-1`, `gcp-codex-lane-2`, `gcp-codex-lane-3`), at least three of them. Any other
-/// SSH peer is the person's own (`big-red`, `cmux16`, and a pair such as `build-mini-1`/`-2`).
+/// The picker's sections: this Mac; the person's own machines; Cloud machines and the machines
+/// agents run on. The split is acpmux's (`group`, `PeerGroup`), never read from a name: an SSH peer
+/// acpmux says is `agent` is fleet, any other (including one from a daemon that says nothing) is the
+/// person's own. A Cloud machine is fleet.
 export type EnvironmentSection = "local" | "mine" | "fleet";
 const SECTION_ORDER: readonly EnvironmentSection[] = ["local", "mine", "fleet"];
-const POOL_NAME = /^(.*\D)[-_.]?\d+$/;
-const POOL_MIN = 3;
 
 export function environmentSections(environments: readonly Environment[]): Map<string, EnvironmentSection> {
-  const stems = new Map<string, number>();
-  const stemOf = (environment: Environment) =>
-    environment.kind === "ssh" ? POOL_NAME.exec(environment.label)?.[1]?.replace(/[-_.]$/, "") : undefined;
-  for (const environment of environments) {
-    const stem = stemOf(environment);
-    if (stem) stems.set(stem, (stems.get(stem) ?? 0) + 1);
-  }
   return new Map(
-    environments.map((environment) => {
-      if (environment.kind === "local") return [environment.id, "local"];
-      if (environment.kind === "cloud") return [environment.id, "fleet"];
-      const stem = stemOf(environment);
-      return [environment.id, stem && (stems.get(stem) ?? 0) >= POOL_MIN ? "fleet" : "mine"];
-    }),
+    environments.map((environment) => [
+      environment.id,
+      environment.kind === "local"
+        ? "local"
+        : environment.kind === "cloud" || environment.group === "agent"
+          ? "fleet"
+          : "mine",
+    ]),
   );
 }
 
@@ -214,9 +239,27 @@ export function orderEnvironments<T extends Environment>(environments: readonly 
   });
 }
 
-/// The machines ⌥⌘1–9 number, in order: the listed ones a chat can start on.
+/// The machines ⌥⌘1–9 number, in order: this Mac, then the person's own machines a chat can start on.
+/// A fleet machine (agent VM, Cloud machine) is never numbered: it is in the Agent machines list.
 export function numberedEnvironments(environments: readonly Environment[]): Environment[] {
-  return orderEnvironments(environments).filter(environmentReady).slice(0, 9);
+  const sections = environmentSections(environments);
+  return orderEnvironments(environments)
+    .filter((environment) => environmentReady(environment) && sections.get(environment.id) !== "fleet")
+    .slice(0, 9);
+}
+
+/// What a number picks: a machine, or `cloud`.
+export type NumberedPlace = Environment | "cloud";
+
+/// The places ⌥⌘1–9 number in a list with a Cloud row: This Mac, Cloud, then the person's own
+/// machines (the menu's order). Without a Cloud row, `numberedEnvironments`.
+export function numberedPlaces(environments: readonly Environment[], cloud: boolean): NumberedPlace[] {
+  const machines = numberedEnvironments(environments);
+  if (!cloud) return machines;
+  const sections = environmentSections(environments);
+  const local = machines.filter((environment) => sections.get(environment.id) === "local");
+  const own = machines.filter((environment) => sections.get(environment.id) !== "local");
+  return [...local, "cloud" as const, ...own].slice(0, 9);
 }
 
 /// The environment ⌥⌘`digit` picks, if any. The digit counts the full list, never a filtered one,
@@ -360,6 +403,7 @@ export function knownMachines(
   extra: readonly Host[] = [],
   peerConnected: Record<string, boolean> = {},
   peerStates: Record<string, string> = {},
+  peerInfo: Record<string, PeerInfo> = {},
 ): Environment[] {
   const machines: Environment[] = [];
   const seen = new Set<string>();
@@ -370,12 +414,15 @@ export function knownMachines(
     const listed = cloudHost || listedPeers.has(id);
     const connected = cloudHost ? undefined : listed ? peerConnected[id] : false;
     const state = cloudHost || !listed ? undefined : peerStates[id];
+    const info = cloudHost || !listed ? undefined : peerInfo[id];
     machines.push({
       id,
       label,
       kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud",
       ...(connected !== undefined ? { connected } : {}),
       ...(state !== undefined ? { state } : {}),
+      ...(info?.group !== undefined ? { group: info.group } : {}),
+      ...(info?.liveSessions !== undefined ? { liveSessions: info.liveSessions } : {}),
     });
   };
   for (const peer of peers) add(peer, peer, false);

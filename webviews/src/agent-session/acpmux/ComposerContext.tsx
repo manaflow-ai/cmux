@@ -42,6 +42,8 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  type PeerGroup,
+  type PeerInfo,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
@@ -130,6 +132,8 @@ type Computer = Location & {
   connected?: boolean;
   state?: string;
   downSince?: number;
+  group?: PeerGroup;
+  liveSessions?: number;
   cloudMachine?: CloudMachine;
   resources?: MachineResources;
 };
@@ -137,6 +141,7 @@ const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_INFO: Record<string, PeerInfo> = {};
 const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
@@ -153,6 +158,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerInfo = NO_PEER_INFO,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -220,6 +226,8 @@ export function ComposerContext({
   /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
   /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
   peerLinks?: Record<string, PeerLinkDetail>;
+  /// Each peer's group and live sessions (`AcpmuxSnapshot.peerInfo`): which list a machine is in.
+  peerInfo?: Record<string, PeerInfo>;
   /// The computer control is the environment picker (EnvironmentPicker.tsx), with Local, SSH and
   /// Cloud sections and ⌥⌘1–9. The agent page always passes it (not behind Labs, Leo 2026-10-30);
   /// off, the plain Computer menu, for surfaces that pass nothing.
@@ -386,6 +394,7 @@ export function ComposerContext({
         peerStates,
         peerResources,
         peerLinks,
+        peerInfo,
       ),
       shownMachines,
       newChat,
@@ -404,6 +413,7 @@ export function ComposerContext({
     peerStates,
     peerResources,
     peerLinks,
+    peerInfo,
     ownName,
     newChat,
     shownMachines,
@@ -1429,12 +1439,13 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
   peerLinks: Record<string, PeerLinkDetail>,
+  peerInfo: Record<string, PeerInfo>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
   const current = summary ? [summary] : [];
-  for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
+  for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates, peerInfo)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
     const link = peerLinks[machine.id];
     const downSince = link && link.link !== "connected" ? link.since : undefined;
