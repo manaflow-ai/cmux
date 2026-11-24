@@ -125,8 +125,8 @@ BROWSERS = CHROMIUM | SYSTEM
 GROUPS = ["app", "renderer", "gpu", "acpmux", "terminals", "other"]
 GROUP_LABELS = {"app": "app (shell + browser process, helpers, utility)", "renderer": "renderer", "gpu": "GPU",
                 "acpmux": "acpmux", "terminals": "terminals (cmux-tui, holders, terminal hosts)", "other": "other"}
-GROUP_METRICS = [("memory", "footprint, end", "MB"), ("cpu", "CPU, mean", "%"), ("wakeups", "wakeups, mean", "/s"),
-                 ("processes", "processes", "n")]
+GROUP_METRICS = [("memory", "footprint, end", "MB"), ("growth", "footprint growth, after the settle cut", "MB/min"),
+                 ("cpu", "CPU, mean", "%"), ("wakeups", "wakeups, mean", "/s"), ("processes", "processes", "n")]
 for _prefix, _pass_label in PASSES:
     for _group in GROUPS:
         for _metric, _label, _unit in GROUP_METRICS:
@@ -418,6 +418,9 @@ class Run:
         self.record(app.name, round_no, f"{prefix}-processes", processes)
         for group in GROUPS:
             self.record(app.name, round_no, f"{prefix}-group-{group}-memory", groups[-1][group]["memory"])
+            self.record(app.name, round_no, f"{prefix}-group-{group}-growth",
+                        slope_per_min([(t, g[group]["memory"]) for (t, _mb), g in zip(points, groups)
+                                       if t >= a.settle_cut]))
             self.record(app.name, round_no, f"{prefix}-group-{group}-cpu",
                         statistics.fmean(g[group]["cpu"] for g in groups))
             self.record(app.name, round_no, f"{prefix}-group-{group}-wakeups",
@@ -671,6 +674,8 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
                 lines.append(f"- {LABELS.get(e['browser'], e['browser'])} {e['row']}: {e['note']}")
         lines.append("")
     lines += ["Method: scripts/perf-bench/rivals.py (docstring). Every app is signed out (its first screen) outside the Signed in rows.", ""]
+    import growth_bounds
+    lines += growth_bounds.lines(rows, "cmux", meta["args"].get("soak"))
     text = "\n".join(lines)
     if md_path:
         with open(md_path, "w") as handle:

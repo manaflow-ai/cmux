@@ -79,7 +79,7 @@ class Growth(unittest.TestCase):
         text = report(base, ["cmux", "chrome"])
         self.assertNotIn("## Signed in", text)
         self.assertNotIn("## Background tabs", text)
-        self.assertNotIn("trough growth", text)
+        self.assertNotIn("Idle: trough growth", text)
         more = base + [{"browser": "chrome", "round": 1, "row": "tabs-soak-memory-end", "value": 900.0},
                        {"browser": "chrome", "round": 1, "row": "soak-memory-trough-growth", "value": 0.01},
                        {"browser": "claude", "round": 1, "row": "signed-in-soak-memory-end", "value": 700.0}]
@@ -87,6 +87,30 @@ class Growth(unittest.TestCase):
         self.assertIn("| Background tabs, idle: footprint at end (MB) | – | – | 900 |", text)
         self.assertIn("| Signed in, idle: footprint at end (MB) | – | 700 | – |", text)
         self.assertIn("| Idle: trough growth (MB/min) | – | – | +0.010 |", text)
+
+
+class Bounds(unittest.TestCase):
+    def test_growth_bounds_are_advisory_perf_rows(self):
+        import growth_bounds
+        rows = {"soak-memory-growth": {"cmux": {"median": 1.4}},
+                "soak-group-renderer-growth": {"cmux": {"median": 0.2}},
+                "soak-group-gpu-growth": {"cmux": {"median": 0.3}},
+                "soak-memory-trough-growth": {"cmux": {"median": 0.01}}}
+        short = growth_bounds.lines(rows, "cmux", 300)
+        self.assertIn("| idle, short: whole instance | 1 MB/min | +1.400 | OVER | rivals.py soak, slope after --settle-cut |",
+                      short)
+        self.assertIn("| idle, short: worst group | 0.5 MB/min | +0.300 | yes | rivals.py soak, per-group slope |", short)
+        names = [json.loads(l[len("PERF_ROW "):])["name"] for l in short if l.startswith("PERF_ROW ")]
+        self.assertEqual(names, ["growth.idle_short", "growth.idle_short_group"])  # a 300 s soak has no long bound
+        long = growth_bounds.lines(rows, "cmux", 28800)
+        self.assertIn('PERF_ROW {"clock": "cpu", "floor": 0.01, "name": "growth.idle_long", "p50": 0.01, "p95": 0.01, '
+                      '"target": 0.02, "unit": "MB/min"}', long)
+        self.assertTrue(any("not measured here" in l for l in long))
+
+    def test_report_ends_with_growth_bounds(self):
+        text = report([{"browser": "cmux", "round": 1, "row": "soak-memory-growth", "value": 0.2}], ["cmux"])
+        self.assertIn("## Growth bounds (RFD 0062, advisory", text)
+        self.assertIn('PERF_ROW {"clock": "cpu", "floor": 0.1, "name": "growth.idle_short"', text)
 
 
 if __name__ == "__main__":
