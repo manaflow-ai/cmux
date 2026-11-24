@@ -243,8 +243,9 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
 export function withSentShapes<
   Image extends { id: string; mimeType: string; name?: string; width?: number; height?: number; src?: string },
 >(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
-  if (!sent?.length) return [...named];
-  return matchSentImages(named, sent).map((match, index) => {
+  // A queued send has no pane row left to pair with (`sent` is undefined or empty), but its bytes
+  // are primed by id at send: the id match still gives the echo its bytes and shape.
+  return matchSentImages(named, sent ?? []).map((match, index) => {
     const image = named[index]!;
     if (!match) return image;
     const size = image.width && image.height ? undefined : knownImageSize(match.src);
@@ -322,7 +323,8 @@ export type StableImage = {
   width?: number;
   height?: number;
   /// "loading" while a sent image is read, "missing" when acpmux has none to read, "failed" when
-  /// its read still failed after its tries again (the bubble then shows Retry, `retry`).
+  /// its read still failed after its tries again or went unanswered past IMAGE_READ_MS (the bubble
+  /// then shows Retry, `retry`; a late answer still draws).
   status: "loading" | "ready" | "missing" | "failed";
   /// Reads a "failed" image again.
   retry(): void;
@@ -333,6 +335,11 @@ export type StableImage = {
   /// The <img>'s onLoad: keeps its natural size and that it drew.
   onLoad(event: { currentTarget: HTMLImageElement }): void;
 };
+
+/// How long a sent image's slot waits for its read before it says the image failed: no slot waits
+/// forever (Leo, 2026-11-22, on tiles that only spun: "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE
+/// ATTACHMENTS!?").
+export const IMAGE_READ_MS = 15_000;
 
 /// One chat image that never blinks or reshapes on a re-render: the same `src` every render (a sent
 /// image is read and decoded once, shared by every bubble that shows it), its size before it decodes
@@ -350,6 +357,8 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   /// Bumped by Retry: the read effect runs again.
   const [attempt, again] = useReducer((count: number) => count + 1, 0);
   const [, measured] = useReducer((count: number) => count + 1, 0);
+  /// The id whose read passed IMAGE_READ_MS unanswered: its slot stops waiting and says so.
+  const [late, setLate] = useState<string>();
   // The entry this image drew from stays with it: the cache may forget the image (other images
   // pushed it out) while the bubble is still on screen, and the effect below reads only on mount
   // or a new id, so the bubble must never depend on the cache still holding what it shows.
@@ -382,8 +391,12 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
       // says so and offers Retry, never a stale image and never nothing.
       () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, failed: true })),
     );
+    // timeout: a read never answered (acpmux gone quiet, a host that dropped the call) ends the wait
+    // once; the watch above stays, so the image still draws if it comes. Cleared with the slot.
+    const timer = setTimeout(() => live && setLate(id), IMAGE_READ_MS);
     return () => {
       live = false;
+      clearTimeout(timer);
       stop();
     };
   }, [id, canRead, attempt]);
@@ -401,7 +414,9 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     src !== undefined
       ? "ready"
       : id !== undefined && canRead && loaded?.id !== id
-        ? "loading"
+        ? late === id
+          ? "failed"
+          : "loading"
         : loaded?.id === id && loaded?.failed
           ? "failed"
           : "missing";
@@ -423,6 +438,7 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     onLoad,
     retry: () => {
       setLoaded(undefined);
+      setLate(undefined);
       again();
     },
   };

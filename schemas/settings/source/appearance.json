@@ -1331,6 +1331,67 @@
             "space",
             "background"
           ]
+        },
+        {
+          "key": "appearance.terminalCellBackgrounds",
+          "note": "Ghostty's background-cells-opacity and background-cells-neutral-fade (ghostty-next), loaded with source cmux-next in GhosttyRuntime.finalizeConfig (GhosttyRuntimeSurfacePolicy.cellBackgroundLines). opaque loads nothing.",
+          "title": {
+            "key": "settings.appearance.terminalCellBackgrounds",
+            "text": "Terminal Cell Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.terminalCellBackgrounds.help",
+            "text": "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+          },
+          "kind": "choice",
+          "swift_owner": "TerminalCellBackgroundsSetting",
+          "swift_enum": {
+            "name": "TerminalCellBackgrounds",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "opaque",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.opaque",
+                "text": "Opaque"
+              }
+            },
+            {
+              "value": "window",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.window",
+                "text": "Window Opacity"
+              }
+            },
+            {
+              "value": "tint",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tint",
+                "text": "Tint"
+              }
+            },
+            {
+              "value": "tintWindow",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tintWindow",
+                "text": "Tint at Window Opacity"
+              }
+            }
+          ],
+          "default": "opaque",
+          "keywords": [
+            "terminal",
+            "cell",
+            "background",
+            "transparent",
+            "translucent",
+            "opacity",
+            "wallpaper",
+            "tui",
+            "claude"
+          ]
         }
       ]
     },
@@ -2429,7 +2490,7 @@
         },
         {
           "key": "appearance.cornerFlush",
-          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.",
+          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick. flush-goo also runs the sidebar's selected row into the card on a block appearance.tabShape (CornerFlush.sidebarRowFlows), and tones the frame under One Color too, since goo needs two tones to show (Leo 2026-11-18: \"like the \\\"gooey\\\" is each tab looking like it's morphing into the visible pane. the two tone thing.\").",
           "title": {
             "key": "settings.appearance.cornerFlush",
             "text": "Selected Tab Shape"
@@ -2495,6 +2556,60 @@
             "module": "CmuxNextDesign"
           },
           "swift_owner": "CornerFlushSetting"
+        },
+        {
+          "key": "appearance.tabShape",
+          "note": "How blocky the tabs of every tab bar and the rows of the sidebar are (TabShape, CmuxNextDesign). block (the default) draws today's tabs and rows unchanged. rounded draws the tabs and the sidebar's row fills as capsules, and the selected tab stays a capsule on its strip under every appearance.cornerFlush, never a folder into the content. The gooey look is not a third shape: it is appearance.cornerFlush flush-goo, which on a block shape also runs the sidebar's selected row into the content card (CornerFlush.sidebarRowFlows). Leo 2026-11-18: \"the blockiness of tabs both horizontal the the vertical ones in the sidebar should be customized/customizable too.\"",
+          "title": {
+            "key": "settings.appearance.tabShape",
+            "text": "Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.tabShape.help",
+            "text": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules."
+          },
+          "summary": {
+            "key": "settings.appearance.tabShape.summary",
+            "text": "Block or rounded tabs and sidebar rows"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.tabShape.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.tabShape.rounded",
+                "text": "Rounded"
+              }
+            }
+          ],
+          "default": "block",
+          "keywords": [
+            "tab",
+            "tabs",
+            "shape",
+            "corners",
+            "block",
+            "blocky",
+            "rounded",
+            "pill",
+            "capsule",
+            "sidebar",
+            "row",
+            "selection"
+          ],
+          "swift_enum": {
+            "name": "TabShape",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TabShapeSetting"
         }
       ]
     },
