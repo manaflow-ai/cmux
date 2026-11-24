@@ -209,12 +209,6 @@ function renderCountProbe() {
       if (!prev) mountTree(current.child);
       else update(current, prev);
       bump(state.starts, started.length ? started.join(" + ") : `(nothing) ${nameOf(current.child ?? current)}`);
-      const scheduled = (w.__cmuxSchedules as string[] | undefined) ?? [];
-      w.__cmuxSchedules = [];
-      if (started.some((s) => s.endsWith("bailed"))) for (const at of new Set(scheduled)) bump(state.why, `SCHED ${at}`);
-      const trace = ((w.__cmuxTrace as string[] | undefined) ??= []);
-      trace.push(`${started.join(" + ") || "(nothing)"} <= ${scheduled.map((x) => x.slice(0, 160)).join(" ;; ")}`);
-      if (trace.length > 40) trace.shift();
     },
   };
   w.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;

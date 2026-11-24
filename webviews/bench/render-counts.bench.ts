@@ -67,7 +67,6 @@ const record = (scenario: string, per: string, counts: RenderCounts, ms: number)
   };
   pack("WHY", Object.entries(counts.why));
   pack("MOUNT", Object.entries(counts.mountsByComponent));
-  pack("STARTS", Object.entries(counts.starts ?? {}));
 };
 
 /// Two frames and a task after them: whatever the event scheduled has committed.
@@ -116,7 +115,7 @@ async function seed(page: Page, turns: number): Promise<string> {
 
 const releases: (() => unknown)[] = [];
 try {
-  const port = await servePane(webviews, { unminified: true, built: (out) => { if (process.env.KEEP_BUILD) require("node:fs").cpSync(out, process.env.KEEP_BUILD, { recursive: true }); } }, releases);
+  const port = await servePane(webviews, { unminified: true }, releases);
   const browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());
   console.log(`render-counts: ${TURNS} light turns per chat, ${LIST} listed sessions in the list arm`);
@@ -174,7 +173,6 @@ try {
       const added = await loadTools(TOOLS, true);
       await settle(page, 300);
       const ms = ((await now(page)) - t0 - 300) / TOOLS;
-      if (process.env.TRACE) console.log((await page.evaluate(() => (window as unknown as { __cmuxTrace: string[] }).__cmuxTrace.slice(-14))).join("\n"));
       record("tool", "tool call", perEvent(await renderCountsTake(page), TOOLS), ms);
       await loadTools(0, false);
       if (added.tools !== TOOLS) throw new Error(`loadTools added ${added.tools} of ${TOOLS}`);
