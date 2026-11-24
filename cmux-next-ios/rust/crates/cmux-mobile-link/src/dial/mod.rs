@@ -730,7 +730,8 @@ mod tests {
                     session_id: session.first.session_id.clone(),
                     session: session.events,
                 };
-                let (mac, options) = (serving.clone(), DialOptions { include_loopback: true, ..DialOptions::default() });
+                let (mac, options) =
+                    (serving.clone(), DialOptions { include_loopback: true, ..DialOptions::default() });
                 tokio::spawn(async move {
                     if let Ok(connected) = answer_on(&mac, session.first, events, &options).await {
                         // Held for the rest of the test.
@@ -831,8 +832,13 @@ mod tests {
         let (mac_id, _mac) = mac(&signaling, false).await;
         let options = relayed(&turn);
         let reconnect = SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone");
-        let redial = connect_after(reconnect, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default());
-        tokio::pin!(redial);
+        let mut redial = Box::pin(connect_after(
+            reconnect,
+            &mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        ));
         let waited = tokio::select! {
             result = &mut redial => panic!("an unanswered dial ended: {:?}", result.err()),
             waited = async {
@@ -850,17 +856,24 @@ mod tests {
 
         let options = relayed(&turn);
         let reconnect = std::future::pending::<Result<SignalingClient, &str>>();
-        let redial = connect_after(reconnect, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default());
-        assert!(tokio::time::timeout(Duration::from_secs(5), async {
-            tokio::pin!(redial);
-            tokio::select! {
-                _ = &mut redial => unreachable!(),
-                allocated = held(&turn, 1) => allocated,
-            }
-        })
-        .await
-        .expect("bounded"));
-        assert!(held(&turn, 0).await, "{} allocations held after the abandoned reconnect", turn.allocations());
+        let mut redial = Box::pin(connect_after(
+            reconnect,
+            &mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        ));
+        let allocated = tokio::select! {
+            _ = &mut redial => unreachable!("the reconnect never ends"),
+            allocated = held(&turn, 1) => allocated,
+        };
+        assert!(allocated, "the redial allocated while signaling reconnects");
+        drop(redial);
+        assert!(
+            held(&turn, 0).await,
+            "{} allocations held after the abandoned reconnect",
+            turn.allocations()
+        );
     }
 
     fn error(session_id: Option<&str>) -> SignalingEvent {
