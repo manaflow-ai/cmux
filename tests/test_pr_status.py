@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import sys
 from contextlib import redirect_stderr
+import subprocess
+import textwrap
 import unittest
 import urllib.error
 
@@ -181,6 +183,22 @@ class PrStatusTests(unittest.TestCase):
             pr_status.upsert = saved
         self.assertEqual(caught.exception.code, 2)
         self.assertEqual(writes, [])
+
+    def test_the_workflow_hands_field_every_input_it_was_given(self):
+        # A dispatch with both inputs must reach field, which refuses the pair; the shell step must not drop one.
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/pr-status.yml").read_text()
+        block = workflow.split("        run: |\n", 1)[1].splitlines()
+        script = textwrap.dedent("\n".join(line for line in block if line.startswith("          ") or not line.strip()))
+        script = script.replace("python3 scripts/ci/pr_status.py field", "printf '%s\\n'")
+
+        def passed(bead: str, preview: str) -> list[str]:
+            env = {**os.environ, "REPO": REPO, "PR": str(PR), "BEAD": bead, "PREVIEW": preview}
+            run = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=True)
+            return [arg for arg in run.stdout.splitlines() if arg in ("--bead", "--preview")]
+
+        self.assertEqual(passed("cx-abc1", "a" * 40), ["--bead", "--preview"])
+        self.assertEqual(passed("cx-abc1", ""), ["--bead"])
+        self.assertEqual(passed("", "a" * 40), ["--preview"])
 
 
 class DispatchTests(unittest.TestCase):
