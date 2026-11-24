@@ -293,6 +293,26 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
     expect(held.calls()).toBe(1)
   })
 
+  // prod 2026-11-24: Stack unread (no pace token, or its read failed) refused a member's own team as auth.forbidden on
+  // every mint, and the failed read was kept for the window. Unread is retryable; the next mint with Stack readable succeeds.
+  type Unread = readonly [string, { listUserTeams: (u: string) => Promise<string[]> }, () => Promise<boolean>]
+  const unread: Unread[] = [
+    ["no pace token", { listUserTeams: async (): Promise<string[]> => [] }, async (): Promise<boolean> => false],
+    ["a Stack read that fails", { listUserTeams: async (): Promise<string[]> => { throw new Error("stack 503") } }, async (): Promise<boolean> => true],
+  ]
+  it.each(unread)("%s answers a retryable owner.unreachable, never auth.forbidden, and the next readable mint succeeds", async (_, stack, pace) => {
+    const s = await setup("Unread Stack")
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack, pace, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    const first = await mint(s.team)
+    expect(first.status, JSON.stringify(first.json)).toBe(503)
+    expect(errorOf(first)).toMatchObject({ code: "owner.unreachable", retryable: true })
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }))
+    const next = await mint(s.team)
+    expect(next.status, JSON.stringify(next.json)).toBe(200)
+    expect(next.json.team).toBe(s.team)
+  })
+
   // Review F2: a sync queued behind the Stack pace answered "queued" first and "duplicate" on the retry (TeamDO keeps the
   // window's delivery id), and the retry was refused as not a member while the sync still waited.
   it("a sync queued behind the Stack pace stays retryable on every mint until it lands", async () => {

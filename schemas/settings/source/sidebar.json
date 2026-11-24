@@ -826,6 +826,28 @@
           }
         },
         {
+          "key": "sidebar.drawnMenus",
+          "note": "On: the sidebar's right-click and more-button menus open as cmux-drawn menus (GlassMenu) with the same rows, shortcuts, submenus and keys, so the menu look (appearance.menu.*) styles them; off (the default) keeps the system menu, which cannot be restyled. A look pack or a theme file turns it on; it applies to the next menu opened.",
+          "title": {
+            "key": "settings.sidebar.drawnMenus",
+            "text": "Styled Sidebar Menus"
+          },
+          "help": {
+            "key": "settings.sidebar.drawnMenus.help",
+            "text": "Right-click and more-button menus in the sidebar follow the menu look instead of the system menu."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "menu",
+            "context menu",
+            "right click",
+            "look",
+            "style"
+          ],
+          "swift_owner": "SidebarDrawnMenusSetting"
+        },
+        {
           "key": "sidebar.density",
           "title": {
             "key": "settings.sidebar.density",
@@ -1306,7 +1328,7 @@
               }
             }
           ],
-          "default": "folder",
+          "default": "auto",
           "keywords": [
             "sidebar",
             "group",
@@ -2563,7 +2585,7 @@
             "customize",
             "tokens"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2637,7 +2659,7 @@
             "agent",
             "browser"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true
@@ -2708,7 +2730,7 @@
             "claude",
             "codex"
           ],
-          "page_hidden": "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true

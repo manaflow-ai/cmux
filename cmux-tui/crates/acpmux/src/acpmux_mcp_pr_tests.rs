@@ -180,7 +180,7 @@ fn receipt_lines_parse_and_others_do_not() {
 }
 
 #[test]
-fn targets_take_numbers_and_urls() {
+fn targets_take_numbers_refs_and_urls() {
     assert_eq!(target(&json!({"pr": 12})).unwrap(), Target { selector: "12".into(), repo: None });
     assert_eq!(
         target(&json!({"pr": "#12", "repo": "acme/widgets"})).unwrap(),
@@ -190,6 +190,20 @@ fn targets_take_numbers_and_urls() {
         target(&json!({"pr": "https://github.com/acme/widgets/pull/34/files"})).unwrap(),
         Target { selector: "34".into(), repo: Some("acme/widgets".into()) }
     );
+    // Every tool and published row prints OWNER/REPO#N, so a caller pasting one back must get an answer, not a
+    // usage error (this lane's own `pr_state manaflow-ai/cmux#50814` came back refused).
+    assert_eq!(
+        target(&json!({"pr": "acme/widgets#56"})).unwrap(),
+        Target { selector: "56".into(), repo: Some("acme/widgets".into()) }
+    );
+    // An explicit repo still wins over the one the ref carries.
+    assert_eq!(
+        target(&json!({"pr": "acme/widgets#56", "repo": "acme/other"})).unwrap(),
+        Target { selector: "56".into(), repo: Some("acme/other".into()) }
+    );
+    assert!(target(&json!({"pr": "acme/widgets#"})).is_err());
+    assert!(target(&json!({"pr": "no-slash#56"})).is_err());
+    assert!(target(&json!({"pr": "a/b; rm -rf#56"})).is_err());
     assert!(target(&json!({})).is_err());
     assert!(target(&json!({"pr": "abc"})).is_err());
     assert!(target(&json!({"pr": 1, "repo": "no-slash"})).is_err());
