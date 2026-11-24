@@ -98,6 +98,7 @@ pub(crate) fn walk(
 }
 
 /// The children of each pid in `procs` (a `/proc` scan's table), for [`walk`].
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn children_of(procs: &[Proc]) -> HashMap<u32, Vec<u32>> {
     let mut map: HashMap<u32, Vec<u32>> = HashMap::new();
     for p in procs {
@@ -138,6 +139,7 @@ pub(crate) fn ewma(prev: Option<f64>, reading: f64, dt: Duration, tau: Duration)
 /// A Linux `/proc/PID/stat` line as a [`Proc`]: `tick_ns` nanoseconds per clock tick, `page`
 /// bytes per page. The command may hold spaces and parentheses, so fields count after its last
 /// `)`: ppid is field 4, utime 14, stime 15, cutime 16, cstime 17, rss (pages) 24.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn parse_stat(pid: u32, text: &str, tick_ns: u64, page: u64) -> Option<Proc> {
     let (_, rest) = text.rsplit_once(')')?;
     let f: Vec<&str> = rest.split_whitespace().collect();
