@@ -2489,9 +2489,8 @@ async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> 
     let addresses = super::dial::resolve_dial_target(host, port)
         .await
         .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
-    let addresses = super::hedge::v6_first(&addresses);
     let socket =
-        super::hedge::connect(&addresses, super::hedge::HedgePolicy::INTERNET, TcpStream::connect)
+        super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
             .await
             .map_err(WebSocketError::Io)?;
     let _ = socket.set_nodelay(true);
