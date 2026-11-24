@@ -2311,8 +2311,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // there are none, never the chat's rows (Leo, 2026-11-07: "is this your sub-agent, or is this
   // literally just a duplicate of you?"; 2026-11-12: "NO MESSAGES DISPLAYED?").
   const subagentReadsOwnLog = useMemo(
-    () => !!subagentView && needsOwnLog(subagentView, { rows: snapshot.rows, views: snapshot.subagentViews }),
-    [subagentView, snapshot.rows, snapshot.subagentViews],
+    () =>
+      !!subagentView &&
+      needsOwnLog(subagentView, {
+        rows: snapshot.rows,
+        views: snapshot.subagentViews,
+        wholeHistory: !snapshot.canLoadOlder,
+      }),
+    [subagentView, snapshot.rows, snapshot.subagentViews, snapshot.canLoadOlder],
   );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
