@@ -429,25 +429,38 @@ Asked for by Austin after the demo (`cloud-cmux-mode-demo`, `plans/cmux-next/aut
 Claude Code chat between a Mac and a VM and back. This section is the contract for that work; where it differs
 from the sections above, it wins.
 
-### One mode per chat
+### One picker: the place mode decides where a chat starts and where it runs
 
-A chat has one mode with three values. It is read from fields the record already has, never stored twice.
+Revised 2026-11-24 (later the same day). The base landed a place mode for new chats
+(`cmux-tui/crates/acpmux/src/place_mode.rs`, https://github.com/manaflow-ai/cmux/pull/53459): each chat has one
+of Auto, Cloud or one machine, picked in the composer's place picker (`_acpmux/chat_place_set`) or with
+`cmux chat --on`, and a chat nobody picked for is Auto. It decides where a new chat starts. This branch does
+not add a second picker, a second set of words or a setting beside it. The same pick also decides where the
+chat runs after it started:
 
-| Mode | Record | What the person gets |
-|---|---|---|
-| `local` | `auto: false` | The chat runs on this device only. Nothing is copied to the Cloud. |
-| `auto` | `auto: true`, `keepInCloud: false` | On the laptop while it is there, on the Cloud machine when it is not, home again at a turn end. |
-| `cloud` | `auto: true`, `keepInCloud: true` | The chat runs on the Cloud machine. A laptop that opens it follows it and sends to it; it never comes home by itself. |
+| Place mode (the picker row) | Where it starts (the base, unchanged) | Where it runs afterwards (this branch) | Auto record |
+|---|---|---|---|
+| Auto | This Mac when it has room, else a new Cloud VM | Started on this Mac: on the Mac while it is there, on the Cloud machine when it is not, home again at a turn end. Started in a Cloud VM: it stays there, as today. | `auto: true`, `keepInCloud: false` |
+| Cloud | A new Cloud VM | In the Cloud, always. Picked for a chat that already runs on this Mac: the chat is moved to the Cloud machine now and never comes home by itself. | `auto: true`, `keepInCloud: true` |
+| This Mac (machine = this Mac) | This Mac | This Mac only. Nothing is copied to the Cloud. | `auto: false` |
+| Another machine | That machine | That machine only (the Auto rules do not apply to it). | none |
 
-- Setting a chat to `cloud` is `keepInCloud: true` and a move to the Cloud in one store write. Setting it to
-  `auto` from `cloud` is `keepInCloud: false`; the chat then comes home by the handback rule. Setting it to
-  `local` while a machine holds it is a move to the laptop, and Auto goes off once the laptop has stored its
-  own snapshot (the `owesImport` rule already refuses it earlier).
-- A new chat takes the default mode from the setting `cloud.chatMode` (`local`, `auto`, `cloud`; default
-  `local`). It replaces `cloud.autoMode`, which this branch added and nothing released reads. A chat made in
-  `cloud` mode on a laptop is registered there, copied once, and moved: the same path as a move by hand.
-- Any surface shows the mode and where the chat runs now as two facts: "Auto, on this Mac", "Auto, in the
-  Cloud", "Cloud", "Local". No surface says lease, epoch, give or wish.
+- The record's fields stay the truth for a started chat (`auto`, `keepInCloud`); the place mode is read from
+  them, never stored twice. The daemon's in-memory pick (`server/chat_place.rs`) stays what it is: the pick of
+  a chat that has not started yet. For a started chat that has an Auto record, `_acpmux/chat_place` answers the
+  mode from the record, and `_acpmux/chat_place_set` applies it: Auto is `auto: true, keepInCloud: false` (the
+  chat then comes home by the handback rule), Cloud is `keepInCloud: true` and a move to the Cloud in one store
+  write, This Mac is a move to the laptop when a machine holds the chat, and Auto goes off once the laptop has
+  stored its own snapshot (the `owesImport` rule already refuses it earlier).
+- The setting `cloud.autoMode` (this branch, on hold until ship) stays the switch for the whole feature: while
+  it is off, a chat in place mode Auto that started on this Mac runs here and is not copied, exactly as on the
+  base. There is no `cloud.chatMode`.
+- A chat started in a new Cloud VM (the base's Cloud, or Auto with a busy Mac) lives on that VM and needs no
+  Auto record. The Cloud machine an Auto chat is taken over by is the team's one Auto machine
+  (`machine-pick.ts`), not a new VM per chat. Both are "Cloud" to the person; making them one machine policy is
+  not part of this pull request.
+- Any surface shows the mode and where the chat runs now as two facts, in the picker's own words: "Auto · This
+  Mac", "Auto · Cloud", "Cloud", "This Mac". No surface says lease, epoch, give or wish.
 
 ### Move now
 
@@ -498,20 +511,36 @@ The manual move carries those files (`hub/transfer.rs`, `native::locate`); the A
 ### Daemon surface
 
 - `_acpmux/auto_session/set` takes `mode: "local" | "auto" | "cloud"` (`auto` and `keepInCloud` stay accepted).
+  These are the record's three states; the place picker's rows map to them as in the table above
+  (This Mac = `local`).
 - `_acpmux/auto_session/move` `{sessionId, to: "cloud" | "local"}`: the wish, sent to the store.
 - A chat's row gains `autoSession.mode` and `autoSession.moving` (`"cloud" | "local"`, absent when not moving).
+- `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) read and apply the mode of a started chat
+  through the two requests above; for a chat that has not started they are unchanged.
 
-### CLI and chat commands
+### Surfaces: none of its own (the place picker's work owns them)
 
-Modelled on the demo's `auto` command, inside the commands people already have:
+What exists on the base and in open pull requests (read 2026-11-24), so this branch builds no control beside it:
 
-- `cmux chat mode [SESSION] [local|auto|cloud]`: print a chat's mode and where it runs, or set it.
-- `cmux chat move SESSION cloud|local`: move it now (an Auto chat; a Local chat is told to set a mode first).
-- `cmux chats list` names where each Auto or Cloud chat runs.
-- In a chat's composer: `/local`, `/auto`, `/cloud` set the mode; `/mode` prints it.
-- The chat menu shows one three-way choice (Local, Auto, Cloud) in place of the Auto and Keep in Cloud rows.
-- `cmux chat --on cloud` and `cmux move --to cloud` keep their meaning (the move with no lease); their help
-  names `cmux chat mode` for a chat that should follow the laptop.
+- The web composer's Where menu (`webviews/src/agent-session/acpmux/EnvironmentPicker.tsx`): the Auto row opens
+  Auto, Cloud only, Machine. New chats only, behind the hidden key `cloud.autoCloud`.
+- The setting `agentPane.newChatsIn` (This Mac or Cloud) is already the default place of new chats: "everything
+  in the Cloud" and "everything on this Mac" for new chats are that setting, not a new one.
+- `cmux chat --on auto|here|cloud|vm:new` for a new chat.
+- Open: https://github.com/manaflow-ai/cmux/pull/53449 (the pick moves an existing chat and is kept on disk),
+  https://github.com/manaflow-ai/cmux/pull/52230 (a three-state control: Hybrid, Only in Cloud, Only on This
+  Mac), https://github.com/manaflow-ai/cmux/pull/52043 (a Cloud button per chat),
+  https://github.com/manaflow-ai/cmux/pull/51824 (move progress). Whichever control lands is the one control.
+
+What this branch gives that control:
+
+- The two daemon requests above are the seam: a control that sets a started chat to Auto, Cloud only or This
+  Mac calls `_acpmux/auto_session/set {mode}`; "move it now" is `_acpmux/auto_session/move`. The row's
+  `autoSession.mode`, `autoSession.moving` and holder are what it draws.
+- Until such a control lands, the chat menu keeps this branch's two rows (Auto, Keep in Cloud), which set the
+  same fields. They are removed when the picker covers started chats.
+- No new CLI verb here: `cmux chat place` or the like belongs to the pull request that makes the pick apply to
+  a started chat. The journey test drives the daemon requests directly.
 
 ### Known gaps this section does not close
 
