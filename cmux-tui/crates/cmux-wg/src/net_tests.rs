@@ -210,10 +210,8 @@ async fn a_lost_answer_is_retried_from_this_side_after_the_hold() {
     // The answer left (and is lost); no initiation of its own yet.
     assert_eq!(initiations(&take(&a_sent)), 0);
     let hold = a.wait_for_handshake_until.expect("answering holds the pacer's initiation");
-    tokio::time::advance(
-        hold.saturating_duration_since(tokio::time::Instant::now()) - Duration::from_millis(1),
-    )
-    .await;
+    tokio::time::advance(hold.saturating_duration_since(Instant::now()) - Duration::from_millis(1))
+        .await;
     deliver(&mut a, &[], peer_addr);
     assert_eq!(initiations(&take(&a_sent)), 0, "initiated inside the hold");
     tokio::time::advance(Duration::from_millis(1)).await;
