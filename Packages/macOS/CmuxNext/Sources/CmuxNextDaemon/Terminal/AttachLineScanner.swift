@@ -214,48 +214,46 @@ struct AttachLineScanner {
         if b.at(r.upperBound - 1) == equals { pad = 1 }
         if pad == 1, b.at(r.upperBound - 2) == equals { pad = 2 }
         let outCount = count / 4 * 3 - pad
-        var ok = false
-        let out = Data(unsafeUninitializedCapacity: outCount) { buffer, initialized in
-            initialized = 0
-            guard let dst = buffer.baseAddress else { return }
-            let done: Bool = sextetTable.withUnsafeBufferPointer { lutBuffer -> Bool in
-                guard let lut = lutBuffer.baseAddress else { return false }
-                let src = b.base
-                func sx(_ at: Int) -> UInt8 {
-                    lut.advanced(by: Int(truncatingIfNeeded: src.advanced(by: at).pointee)).pointee
-                }
-                var o = 0
-                var p = r.lowerBound
-                let lastQuad = r.upperBound - 4
-                while p < lastQuad {
-                    let q0 = sx(p), q1 = sx(p + 1), q2 = sx(p + 2), q3 = sx(p + 3)
-                    if (q0 | q1 | q2 | q3) == invalid { return false }  // valid sextets are < 64
-                    let v = UInt32(truncatingIfNeeded: q0) << 18 | UInt32(truncatingIfNeeded: q1) << 12
-                        | UInt32(truncatingIfNeeded: q2) << 6 | UInt32(truncatingIfNeeded: q3)
-                    dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 16)
-                    dst.advanced(by: o + 1).pointee = UInt8(truncatingIfNeeded: v >> 8)
-                    dst.advanced(by: o + 2).pointee = UInt8(truncatingIfNeeded: v)
-                    o += 3
-                    p += 4
-                }
-                // The last quad, possibly padded.
-                let c2 = b.at(p + 2), c3 = b.at(p + 3)
-                let q0 = sx(p), q1 = sx(p + 1)
-                let q2 = pad == 2 ? 0 : sx(p + 2)
-                let q3 = pad >= 1 ? 0 : sx(p + 3)
-                if q0 == invalid || q1 == invalid || q2 == invalid || q3 == invalid { return false }
-                if pad == 2 && (c2 != equals || c3 != equals) { return false }
-                if pad == 1 && c3 != equals { return false }
+        // Data has no uninitialized-capacity initializer: decode into malloc'd storage and hand it over
+        // without a copy or a zero fill.
+        guard let raw = malloc(outCount) else { return nil }
+        let dst = raw.assumingMemoryBound(to: UInt8.self)
+        let done: Bool = sextetTable.withUnsafeBufferPointer { lutBuffer -> Bool in
+            guard let lut = lutBuffer.baseAddress else { return false }
+            let src = b.base
+            func sx(_ at: Int) -> UInt8 {
+                lut.advanced(by: Int(truncatingIfNeeded: src.advanced(by: at).pointee)).pointee
+            }
+            var o = 0
+            var p = r.lowerBound
+            let lastQuad = r.upperBound - 4
+            while p < lastQuad {
+                let q0 = sx(p), q1 = sx(p + 1), q2 = sx(p + 2), q3 = sx(p + 3)
+                if (q0 | q1 | q2 | q3) == invalid { return false }  // valid sextets are < 64
                 let v = UInt32(truncatingIfNeeded: q0) << 18 | UInt32(truncatingIfNeeded: q1) << 12
                     | UInt32(truncatingIfNeeded: q2) << 6 | UInt32(truncatingIfNeeded: q3)
-                dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 16); o += 1
-                if pad < 2 { dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 8); o += 1 }
-                if pad < 1 { dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v); o += 1 }
-                return o == outCount
+                dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 16)
+                dst.advanced(by: o + 1).pointee = UInt8(truncatingIfNeeded: v >> 8)
+                dst.advanced(by: o + 2).pointee = UInt8(truncatingIfNeeded: v)
+                o += 3
+                p += 4
             }
-            if done { initialized = outCount }
-            ok = done
+            // The last quad, possibly padded.
+            let c2 = b.at(p + 2), c3 = b.at(p + 3)
+            let q0 = sx(p), q1 = sx(p + 1)
+            let q2 = pad == 2 ? 0 : sx(p + 2)
+            let q3 = pad >= 1 ? 0 : sx(p + 3)
+            if q0 == invalid || q1 == invalid || q2 == invalid || q3 == invalid { return false }
+            if pad == 2 && (c2 != equals || c3 != equals) { return false }
+            if pad == 1 && c3 != equals { return false }
+            let v = UInt32(truncatingIfNeeded: q0) << 18 | UInt32(truncatingIfNeeded: q1) << 12
+                | UInt32(truncatingIfNeeded: q2) << 6 | UInt32(truncatingIfNeeded: q3)
+            dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 16); o += 1
+            if pad < 2 { dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v >> 8); o += 1 }
+            if pad < 1 { dst.advanced(by: o).pointee = UInt8(truncatingIfNeeded: v); o += 1 }
+            return o == outCount
         }
-        return ok ? out : nil
+        guard done else { free(raw); return nil }
+        return Data(bytesNoCopy: raw, count: outCount, deallocator: .free)
     }
 }
