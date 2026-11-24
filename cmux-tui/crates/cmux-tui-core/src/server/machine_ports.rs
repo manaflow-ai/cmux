@@ -83,7 +83,7 @@ fn parse_line(line: &str) -> Option<Listener> {
     let first = *fields.first()?;
     // `lsof -nP -iTCP -sTCP:LISTEN`: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME (LISTEN)
     if fields.last() == Some(&"(LISTEN)") && fields.len() >= 3 {
-        let name = fields[fields.len() - 2];
+        let name = fields.iter().rev().nth(1)?;
         let port = port_after(name, ':')?;
         return Some(Listener { port, process: Some(unescape_lsof(first)) });
     }
