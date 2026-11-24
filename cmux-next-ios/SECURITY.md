@@ -1336,16 +1336,17 @@ computer, and that prompt was one the person never meant to answer (2026-11-17: 
 phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
 nothing: it only hides a request from the prompt.
 
-## End-of-task hand-off: pairing by the Mac's own code, and a readiness receipt (DEBUG builds)
+## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 
 `scripts/review.sh` pairs each phone with the same-tag Mac without anyone at the Mac, and changes
-no trust rule to do it. It reads the tagged Mac's live pairing code from its Mobile Pairing page
-(`cmux.mobilePairing.status` over the tag's own control socket, the pair-e2e route) and hands it to
-the phone's DEBUG launch environment (`CMUX_MOBILE_PAIR_URL`), the same single-use, minutes-long
-code a scan of the Mac's screen would open; it is never printed or logged, and a code is used for
-one phone only. The Mac shows a code only while its person has iPhone connections on and it is
-signed in, and hostd still refuses a phone of another account. It sets no pairing seed, presses
-no Allow, writes no pairing state and turns no setting on.
+no trust rule to do it. The Mac's pairing code (a QR with a single-use pre-approval) is retired
+(2026-11-20): the phone, signed in to the Mac's account, asks as every phone does, and the tagged
+Mac's DEBUG dev auto-approve (above) allows its own tag's phone. The hand-off reads the tagged Mac's
+iPhone-host device id from the Settings page's `iphone` card (`cmux.settings.host.lists` over the
+tag's own control socket) and names it in the phone's DEBUG launch environment
+(`CMUX_MOBILE_FOCUS_MAC`), which only makes that build the team's picked Mac, as a tap in the Macs
+list does; it carries no secret and grants nothing. hostd still refuses a phone of another
+account. It sets no pairing seed, presses no Allow, writes no pairing state and turns no setting on.
 
 A DEBUG launch with `CMUX_DOGFOOD_READINESS_NONCE` writes
 `Library/Application Support/cmux-dogfood/readiness.json` in the app's own container
@@ -1355,7 +1356,7 @@ token, password or key; the checker refuses a receipt with a secret-like field. 
 compile none of it. A launch that resolves signed out writes a signed-out receipt (no account, no
 Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-only
 `CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
-ships. `--manual-pairing` hands the phone no code at all.
+ships. `--manual-pairing` names no Mac to the phone.
 
 ## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
 
