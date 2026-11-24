@@ -357,6 +357,8 @@ export function trayHeadGroups(
       key: "agents",
       icon: SUBAGENT_ICON,
       text: t("subagents.count", { n: agents.length }),
+      // Running needs no word: the group is what runs.
+      long: t("subagents.count", { n: agents.length }),
       items: agents,
       ...(harness ? { harness } : {}),
     });
