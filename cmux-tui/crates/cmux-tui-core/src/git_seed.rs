@@ -65,6 +65,12 @@ pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v2";
 pub const GIT_SEED_HOLD_COMMANDS: [&str; 3] =
     ["git.seed.hold", "git.seed.hold.head", "git.seed.hold.end"];
 
+/// A seed whose sender carries the base ([`StartParams`]'s `carry`): the machine builds a fresh
+/// folder from the sender's depth-1 pack instead of cloning (`run/carry.rs`). No new op: an older
+/// machine ignores the param and clones, so a sender asks for this capability before it spends the
+/// upload.
+pub const GIT_SEED_CARRY_CAPABILITY: &str = "git-seed-carry-v1";
+
 /// Whether a chat's `subpath` can name a head literally (`params::HeadFirst`): a hold or a
 /// head-first seed with another subpath is refused, so the Mac copies such a folder plainly.
 pub fn head_subpath_is_literal(subpath: &str) -> bool {
@@ -140,7 +146,12 @@ pub fn installed() -> Option<&'static GitSeedService> {
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
     match crate::fs_ops::installed() {
-        Some(_) => vec![GIT_SEED_CAPABILITY, GIT_SEED_EXPORT_CAPABILITY, GIT_SEED_HOLD_CAPABILITY],
+        Some(_) => vec![
+            GIT_SEED_CAPABILITY,
+            GIT_SEED_EXPORT_CAPABILITY,
+            GIT_SEED_HOLD_CAPABILITY,
+            GIT_SEED_CARRY_CAPABILITY,
+        ],
         None => Vec::new(),
     }
 }

@@ -95,6 +95,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var shownIdentity: ObjectIdentifier?
     private var keyboardPin: NSLayoutConstraint?
     private var fallbackPin: NSLayoutConstraint?
+    /// The app-lifetime keyboard record also hears a hide that happened while
+    /// this controller was detached. The controller's own notification
+    /// observer cannot receive that transition, so keep the frame until the
+    /// view is attached and lay it out at the resting edge.
+    private let keyboardTracker: MobileKeyboardFrameTracker?
+    private var pendingTrackedKeyboardFrame: CGRect?
+    /// A detached hide needs this controller's fallback even when the shared
+    /// layout-guide probe has not observed a stall. It is local to this
+    /// controller: another scene must not permanently change every chat's pin.
+    private var trackerFallbackActive = false
     private let notifiedKeyboard = UILayoutGuide()
     /// Offset of the notified keyboard's top from the view's bottom (<= 0).
     private var notifiedKeyboardTop: NSLayoutConstraint?
@@ -132,10 +142,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Space between the last turn and the stack.
     static let contentGap: CGFloat = 8
 
+    /// Either the shared probe or this controller's detached-hide recovery is
+    /// driving the notified keyboard frame. Geometry and drag handling must
+    /// use the same source as the active constraint pair.
+    private var usesNotifiedKeyboardFrame: Bool {
+        Self.layoutGuideStalls || trackerFallbackActive
+    }
+
     init(placement: ChatDockPlacement, surface: AgentChatSurface, store: AgentChatStore,
-         empty: AnyView, dock: AnyView?, jump: AnyView?) {
+         empty: AnyView, dock: AnyView?, jump: AnyView?,
+         keyboardTracker: MobileKeyboardFrameTracker? = nil) {
         self.placement = placement
         self.surface = surface
+        self.keyboardTracker = keyboardTracker
         list = ChatTranscriptList(store: store, surface: surface)
         emptyHost = UIHostingController(rootView: empty)
         if dock != nil { dockHost = UIHostingController(rootView: AnyView(EmptyView())) }
@@ -143,6 +162,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         jumpVisibility = JumpToBottomVisibility(isShown: surface.showJump)
         shownIdentity = ObjectIdentifier(store)
         super.init(nibName: nil, bundle: nil)
+        // The tracker forgot a keyboard nothing owns (UIKit posted no hide
+        // for it): its record now holds the hidden frame.
+        keyboardTracker?.subscribeToDrops(self) { [weak self, weak keyboardTracker] in
+            guard let frame = keyboardTracker?.lastEndFrame else { return }
+            self?.keyboardWasReconciledHidden(frame)
+        }
         list.collectionView.didLayout = { [weak self] in self?.transcriptLaidOut() }
         // A tapped disclosure in a row holds its line while it opens or closes (DisclosureReveal).
         list.context.foldHold = TranscriptFoldHold(
@@ -238,7 +263,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
-        scrollView.topEdgeEffect.style = .soft
+        // A hard edge: text scrolled under the header stops at it instead of showing through
+        // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
+        scrollView.topEdgeEffect.style = .hard
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -381,6 +408,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         surface.stackHeightFrame = { [weak self] in self?.stackHeightFrame($0) }
         if let height = surface.drawnStackHeight { stackHeightFrame(height) }
         if placement == .external { externalMetricsChanged() }
+        if let frame = keyboardTracker?.lastEndFrame, keyboardTracker?.isShown == false {
+            pendingTrackedKeyboardFrame = frame
+        }
         #if DEBUG
         if ChatKeyboardTrace.isEnabled { trace = ChatKeyboardTrace(owner: self) }
         #endif
@@ -393,6 +423,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         return frame.width >= view.bounds.width - 1 && frame.maxY >= view.bounds.maxY - 1
     }
 
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        // Back on screen (a tab switch, a push popped, the app reopened): the
+        // keyboard may have gone while the page was away with no hide this
+        // controller heard. A keyboard on record that nothing owns now is
+        // gone, so the dock rests at the bottom (the terminal page does the
+        // same in its viewIsAppearing).
+        keyboardTracker?.dropKeyboardWithoutOwner()
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         // The push has landed: warm the rows' first draws now, not under the push animation.
@@ -401,8 +441,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        if let frame = pendingTrackedKeyboardFrame, view.window != nil {
+            pendingTrackedKeyboardFrame = nil
+            applyReconciledKeyboardFrame(frame, layoutNow: false)
+        }
         list.boundsMayHaveChanged()
-        if let pin = keyboardPin, !Self.layoutGuideStalls, pin.isActive != keyboardPinApplies {
+        if let pin = keyboardPin, !Self.layoutGuideStalls, !trackerFallbackActive, pin.isActive != keyboardPinApplies {
             pin.isActive = keyboardPinApplies
             view.setNeedsLayout()
             view.layoutIfNeeded()
@@ -488,7 +532,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// keyboard (`keyboardDismissPadding`).
     private var keyboardDragging: Bool {
         guard scrollView.isTracking else { return false }
-        let keyboardTop = Self.layoutGuideStalls
+        let keyboardTop = usesNotifiedKeyboardFrame
             ? view.bounds.maxY + (notifiedKeyboardTop?.constant ?? 0)
             : view.keyboardLayoutGuide.layoutFrame.minY
         guard keyboardTop < view.bounds.maxY - 1 else { return false }
@@ -670,12 +714,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // laying out the hosted stack from here aborts in AttributeGraph
             // (step a9eaae4e), so the spring starts on the next main-queue turn.
             springTarget = target
+            // The stack's own spring: 0.35 s for its other changes, `ComposerLineMotion` for a
+            // line the draft gained or lost, so the transcript and the composer move as one.
+            let motion = surface.stackMotion
+            let began = CACurrentMediaTime()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.springTarget == target else { return }
                 self.springTarget = nil
-                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                UIView.animate(springDuration: motion.seconds, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.applyStackHeight(target)
                     self.view.layoutIfNeeded()
+                } completion: { [weak self] finished in
+                    guard finished else { return }
+                    self?.noteStackMotionSettled(motion, since: began)
                 }
             }
             return
@@ -683,6 +734,35 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         springTarget = nil
         applyStackHeight(height)
     }
+
+    /// The transcript settled after the stack's height change: its length, from the first drawn
+    /// frame of the stack's change to the transcript's spring completing (the composer's line
+    /// motion end to end). Under `-CmuxMobileFrameLog` a `STACKMOTION` line in the log; in DEBUG
+    /// with `-cmux-mobile-motion-probe`, the value of the `chat.stackMotion` element, which
+    /// ComposerLineMotionUITests reads.
+    private func noteStackMotionSettled(_ motion: AgentChatSurface.StackMotion, since began: CFTimeInterval) {
+        let ms = Int(((CACurrentMediaTime() - began) * 1000).rounded())
+        let line = "kind=\(motion.rawValue) spring_ms=\(Int((motion.seconds * 1000).rounded())) settled_ms=\(ms)"
+        if FrameLogSwitch.isEnabled { print("STACKMOTION \(line)") }
+        #if DEBUG
+        if Self.motionProbeEnabled {
+            if motionProbe == nil {
+                let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+                probe.isAccessibilityElement = true
+                probe.accessibilityIdentifier = "chat.stackMotion"
+                probe.alpha = 0.02
+                probe.isUserInteractionEnabled = false
+                view.addSubview(probe)
+                motionProbe = probe
+            }
+            motionProbe?.accessibilityValue = line
+        }
+        #endif
+    }
+    #if DEBUG
+    private static let motionProbeEnabled = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-motion-probe")
+    private var motionProbe: UIView?
+    #endif
 
     private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
@@ -744,12 +824,48 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     // MARK: Keyboard
 
+    /// A hide reconciled by the app-lifetime tracker has no matching UIKit
+    /// notification for this controller (it may have been outside the
+    /// window). Force the notified fallback to the bottom so a stale keyboard
+    /// frame cannot leave the chat floating above empty space.
+    private func keyboardWasReconciledHidden(_ frame: CGRect) {
+        pendingTrackedKeyboardFrame = frame
+        guard isViewLoaded, view.window != nil else { return }
+        pendingTrackedKeyboardFrame = nil
+        applyReconciledKeyboardFrame(frame)
+    }
+
+    private func applyReconciledKeyboardFrame(_ end: CGRect, layoutNow: Bool = true) {
+        guard let top = notifiedTop(end) else { return }
+        notifiedKeyboardTop?.constant = top - view.bounds.maxY
+        // The system guide can retain the stale shown frame after a detached
+        // hide. Keep using the notification fallback for this controller. Do
+        // not latch the process-wide probe: another scene may still have a
+        // live system guide.
+        trackerFallbackActive = true
+        keyboardPin?.isActive = false
+        fallbackPin?.isActive = true
+        view.setNeedsLayout()
+        if layoutNow { UIView.performWithoutAnimation { view.layoutIfNeeded() } }
+    }
+
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
         // UIKit posts this inside the keyboard's animation. Ending an
         // interactive dismissal moves the guide but lays out later, outside
         // the animation; laying out now rides the keyboard's remaining curve
         // instead of jumping.
-        let top = notifiedTop(note)
+        // A fresh notification supersedes a reconciled frame that was queued
+        // while detached; never let that older hide win on the next layout.
+        if note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] != nil {
+            pendingTrackedKeyboardFrame = nil
+        }
+        let top = notifiedTop(note) ?? view.bounds.maxY
+        if trackerFallbackActive, !Self.layoutGuideStalls {
+            trackerFallbackActive = false
+            followDraggedKeyboard(false)
+            fallbackPin?.isActive = false
+            keyboardPin?.isActive = true
+        }
         notifiedKeyboardTop?.constant = top - view.bounds.maxY
         view.setNeedsLayout()
         let remaining = UIView.inheritedAnimationDuration
@@ -775,9 +891,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     /// The keyboard's top in this view from a frame notification (the
     /// view's bottom when it hides or is not docked).
-    private func notifiedTop(_ note: Notification) -> CGFloat {
-        guard let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
-              let window = view.window else { return view.bounds.maxY }
+    private func notifiedTop(_ note: Notification) -> CGFloat? {
+        guard let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return nil }
+        return notifiedTop(end)
+    }
+
+    /// Converts a tracker frame (already in screen coordinates) to this view.
+    private func notifiedTop(_ end: CGRect) -> CGFloat? {
+        guard let window = view.window else { return nil }
         let frame = view.convert(end, from: window.screen.coordinateSpace)
         guard frame.height > 0, frame.width >= view.bounds.width - 1, frame.maxY >= view.bounds.maxY - 1 else { return view.bounds.maxY }
         return min(view.bounds.maxY, frame.minY)
@@ -786,7 +907,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// While the guide stalls and a drag dismisses the keyboard, the stack
     /// follows the keyboard as drawn, every display frame.
     private func followDraggedKeyboard(_ on: Bool) {
-        guard Self.layoutGuideStalls, on != (dragLink != nil) else { return }
+        // Turning the link off must work even when a fresh notification just
+        // handed geometry back to the system guide.
+        guard (!on || usesNotifiedKeyboardFrame), on != (dragLink != nil) else { return }
         if on {
             let link = CADisplayLink(target: DragLinkTarget(self), selector: #selector(DragLinkTarget.tick))
             link.add(to: .main, forMode: .common)
@@ -1090,11 +1213,35 @@ private final class NextFrame: NSObject {
 /// Takes touches only in its bottom `interactiveHeight` (the stack); the
 /// empty space above lets them through to the transcript. (SwiftUI handles
 /// its gestures in the hosting view itself, so the hit view cannot tell.)
+///
+/// While it rides the keyboard's slide, a touch resolves where the stack is
+/// drawn: UIKit hit-tests the model frame, already at the slide's end, so a
+/// tap on the field as drawn landed on whatever sat under the finger at the
+/// end (a button of the stack, or nothing) instead of the field.
 final class PassthroughView: UIView {
     var interactiveHeight: CGFloat = 0
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         point.y >= bounds.height - interactiveHeight && super.point(inside: point, with: event)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let shift = drawnShift else { return super.hitTest(point, with: event) }
+        return super.hitTest(CGPoint(x: point.x + shift.x, y: point.y + shift.y), with: event)
+    }
+
+    /// From a point in the model's coordinates to the same screen point in
+    /// the drawn (presentation) ones; nil when no move is in flight.
+    var drawnShift: CGPoint? {
+        guard let keys = layer.animationKeys(),
+              keys.contains(where: { $0.hasPrefix("position") || $0.hasPrefix("bounds") }),
+              let drawn = layer.presentation() else { return nil }
+        func origin(_ l: CALayer) -> CGPoint {
+            CGPoint(x: l.position.x - l.anchorPoint.x * l.bounds.width - l.bounds.minX,
+                    y: l.position.y - l.anchorPoint.y * l.bounds.height - l.bounds.minY)
+        }
+        let model = origin(layer), now = origin(drawn)
+        return CGPoint(x: model.x - now.x, y: model.y - now.y)
     }
 }
 
@@ -1129,6 +1276,7 @@ private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
 
 /// SwiftUI wrapper for `ChatTranscriptController`.
 struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
+    @Environment(\.mobileKeyboardFrameTracker) private var keyboardTracker
     let placement: ChatDockPlacement
     let surface: AgentChatSurface
     var topInset: CGFloat?
@@ -1143,7 +1291,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
     let jump: AnyView?
 
     func makeUIViewController(context: Context) -> ChatTranscriptController {
-        let controller = ChatTranscriptController(placement: placement, surface: surface, store: store, empty: empty, dock: dock, jump: jump)
+        let controller = ChatTranscriptController(placement: placement, surface: surface, store: store, empty: empty, dock: dock, jump: jump,
+                                                  keyboardTracker: keyboardTracker)
         controller.topInset = topInset
         controller.onUserScroll = onUserScroll
         controller.isEmpty = isEmpty

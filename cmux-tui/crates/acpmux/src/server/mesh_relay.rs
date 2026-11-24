@@ -28,10 +28,9 @@
 //! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`).
 
 use super::*;
-use crate::mesh::{
-    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
-};
+use crate::mesh::{Ack, Backoff, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork};
 use crate::mesh_http::MeshControlFrom;
+use crate::prompt_provenance::RelaySender;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Weak;
@@ -573,13 +572,93 @@ async fn inbox(
     }
 }
 
-/// A connection of the origin a relayed request runs as: a peer daemon's, proven
-/// (`ConnAuth::PeerToken`). The control hook sends a start, resume or stop on one.
+/// A connection of the origin a relayed read runs as: a peer daemon's, proven
+/// (`ConnAuth::PeerToken`).
 pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
+    relay_connection_as(hub, ConnAuth::PeerToken)
+}
+
+/// A relayed request's connection of `Origin::Peer` with `auth`: `ConnAuth::PeerToken` for a
+/// control the owner granted `maxPolicy: approve-all`, else `ConnAuth::MeshControl`
+/// ([`control_auth`]).
+fn relay_connection_as(
+    hub: &Arc<Hub>,
+    auth: ConnAuth,
+) -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Peer));
+    tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, Origin::Peer, auth));
     (in_tx, out_rx)
+}
+
+/// The proof a relayed control runs with, by the widest `maxPolicy` the matching entries grant
+/// (`mesh_relay_config::control_cap`): only `approve-all` is owner control (cmux#50026); any
+/// narrower cap is `ConnAuth::MeshControl`, a remote start that settles into asking mode.
+fn control_auth(cap: crate::config::PermissionPolicy) -> ConnAuth {
+    if cap == crate::config::PermissionPolicy::ApproveAll {
+        ConnAuth::PeerToken
+    } else {
+        ConnAuth::MeshControl
+    }
+}
+
+/// A relayed start's params held to `cap`: a `policy` or `_meta.acpmux.policy` that runs more
+/// without asking than `cap` allows becomes `cap`. None named stays none, and the remote start
+/// rule settles it into `ask` (`remote_guard::web_starts_asking`). Owner control (`approve-all`)
+/// is left as asked.
+fn capped_start(
+    mut params: serde_json::Value,
+    cap: crate::config::PermissionPolicy,
+) -> serde_json::Value {
+    use crate::mesh_relay_config::policy_reach;
+    let over = |value: Option<&serde_json::Value>| {
+        value.filter(|v| !v.is_null()).is_some_and(|v| {
+            // A value this build does not read, or no string, is held to the cap too.
+            v.as_str()
+                .and_then(|s| s.parse::<crate::config::PermissionPolicy>().ok())
+                .is_none_or(|asked| policy_reach(asked) > policy_reach(cap))
+        })
+    };
+    let to = serde_json::Value::String(cap.to_string());
+    if over(params.get("policy")) {
+        params["policy"] = to.clone();
+    }
+    if over(params.pointer("/_meta/acpmux/policy"))
+        && let Some(meta) =
+            params.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        meta.insert("policy".into(), to);
+    }
+    params
+}
+
+/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
+/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
+/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
+/// relay_connection_as`): `ConnAuth::MeshControl` unless the matching entry's `maxPolicy` is
+/// `approve-all`, which runs it as the owner's peer daemon (`ConnAuth::PeerToken`). The message has already been checked to be
+/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
+/// comes back). Moved from `mesh.rs`: it takes the hub, which `mesh.rs` (a lower module) does
+/// not reach.
+pub trait ControlHook: Send + Sync {
+    fn control<'a>(
+        &'a self,
+        hub: &'a Arc<Hub>,
+        message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>>;
+}
+
+/// The control hook of a daemon that runs no control messages: each one is refused.
+pub struct RefuseControl;
+
+impl ControlHook for RefuseControl {
+    fn control<'a>(
+        &'a self,
+        _hub: &'a Arc<Hub>,
+        _message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>> {
+        Box::pin(async { Some(Ack::refused("this daemon runs no control messages")) })
+    }
 }
 
 /// Runs an owner-allowlisted hub control message through the same authenticated peer-origin
@@ -648,10 +727,18 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // The widest policy the owner granted this sender for `op` here (`maxPolicy`).
+            let cap = crate::mesh_relay_config::control_cap(
+                &self.allowed,
+                &message.from,
+                own_user.as_deref(),
+                op,
+            )
+            .unwrap_or_default();
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
@@ -695,7 +782,7 @@ impl ControlHook for MeshControlHook {
                             return;
                         }
                         let outcome = tokio::select! {
-                            ack = run_control(&hub, &message) => ack,
+                            ack = run_control(&hub, &message, cap) => ack,
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
@@ -746,7 +833,11 @@ fn without_unsent_answer(mut params: serde_json::Value, message: &InMessage) -> 
     params
 }
 
-async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
+async fn run_control(
+    hub: &Arc<Hub>,
+    message: &InMessage,
+    cap: crate::config::PermissionPolicy,
+) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
     };
@@ -760,6 +851,36 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
         return Some(Ack::refused("unsupported control body version"));
     }
+    // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
+    // is the daemon the hub stamped, never one the body names. The hook admitted only this
+    // machine's own person, with `move` listed (`mesh_relay_config.rs`).
+    if matches!(op, crate::mesh_relay_config::MOVE_OP | crate::mesh_relay_config::MOVE_FORGET_OP) {
+        let source = message.from.daemon_id.as_deref().unwrap_or_default();
+        let answered = if op == crate::mesh_relay_config::MOVE_OP {
+            hub.transfer_pull_op(source, message.from.host.as_deref(), &body).await
+        } else {
+            hub.transfer_pull_forget(&body).await
+        };
+        return Some(match answered {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(error.message),
+        });
+    }
+    if op == crate::mesh_relay_config::MOVE_OUT_OP {
+        let mut args = match crate::mesh_control::MoveOutParams::parse(body, "version") {
+            Ok(args) => args,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        // Only the hub's authenticated sender stamp identifies the requesting machine.
+        if args.to.eq_ignore_ascii_case("local") {
+            args.to = message.from.daemon_id.clone()?;
+        }
+        let result = crate::cli::run::session_move::move_out(hub, args).await;
+        return Some(match result {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(format!("{error:#}")),
+        });
+    }
     let mut params = match op {
         "start" => {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {
@@ -772,9 +893,30 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             {
                 return Some(Ack::refused("mesh control start cannot forward to another daemon"));
             }
-            without_unsent_answer(params, message)
+            capped_start(without_unsent_answer(params, message), cap)
         }
-        "resume" | "stop" => serde_json::json!({}),
+        "resume" => serde_json::json!({}),
+        // A peer's stop carries its closer's reason and outcome and the host the hub stamped
+        // (`close_why.rs`): recorded with the close, never a condition on it.
+        "stop" => {
+            let asked = body.get("params");
+            let text = |key: &str| {
+                asked
+                    .and_then(|p| p.get(key))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
+            let from = message.from.host.as_deref().unwrap_or("an unnamed machine");
+            let reason = match text("reason") {
+                Some(reason) => format!("mesh stop from {from}: {reason}"),
+                None => format!("mesh stop from {from}"),
+            };
+            let mut params = serde_json::json!({"reason": reason});
+            if let Some(outcome) = text("outcome") {
+                params["outcome"] = serde_json::Value::String(outcome);
+            }
+            params
+        }
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
     };
     if matches!(op, "resume" | "stop") {
@@ -792,7 +934,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
     let session_id = params.get("sessionId").cloned();
-    let (tx, mut rx) = relay_connection(hub);
+    let (tx, mut rx) = relay_connection_as(hub, control_auth(cap));
     let initialized = rpc_call(
         &tx,
         &mut rx,
@@ -962,6 +1104,48 @@ fn sender_name(message: &InMessage, book_host: Option<&str>) -> String {
     named.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
 }
 
+/// What the transport proves of a message no session sent (the lane-gh broker's `acpmux send`, a
+/// shell outside acpmux): the machine, as a relay record (`prompt_provenance::FROM_RELAY`) the
+/// receiver shows as verified. The hub authenticated the sending daemon by its credential and
+/// stamped `from.daemonId`; the machine is the one this person's book lists for it, else the host
+/// the hub returned beside that stamp. The session is the sending daemon's relay record's, its
+/// word as a peer link's `fromRelay` is, kept only when that record names the same machine.
+/// None for a message from a session (`fromSessionId` proves it), a team address, or one with no
+/// hub stamp: those read as [`sender_name`] says.
+/// Why: every broker relay through the hub read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had proved HOST, and receivers asked the sender to confirm.
+fn hub_relay(message: &InMessage, book_host: Option<&str>) -> Option<RelaySender> {
+    let from = &message.from;
+    let present = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).is_some();
+    if present(from.session_id.as_deref())
+        || present(from.team_address.as_deref())
+        || !present(from.daemon_id.as_deref())
+    {
+        return None;
+    }
+    let machine = book_host.or(from.host.as_deref()).map(str::trim).filter(|h| !h.is_empty())?;
+    let carried = from.relay.as_ref().and_then(RelaySender::of);
+    let (by, session) = match carried {
+        Some(r) if r.machine == machine => (r.by, r.session),
+        _ => (HUB_RELAY.to_owned(), None),
+    };
+    RelaySender::of(&json!({"by": by, "machine": machine, "session": session}))
+}
+
+/// How a [`hub_relay`] record reads as the sender: `MACHINE/SESSION`, or `PROGRAM on MACHINE`
+/// for a program outside any session that named itself, or the machine alone.
+fn relay_name(relay: &RelaySender) -> String {
+    match &relay.session {
+        None if relay.by != HUB_RELAY => {
+            crate::prompt_provenance::relayed_label(&format!("{} on {}", relay.by, relay.machine))
+        }
+        _ => relay.name(),
+    }
+}
+
+/// The relay a [`hub_relay`] record names when the sending daemon carried none: the team hub.
+const HUB_RELAY: &str = "mesh-hub";
+
 /// The host this person's address book lists for the daemon the hub stamped on `message`
 /// (`from.daemonId`): the machine as the hub proved it, not as the sender wrote it.
 fn stamped_host(hub: &Hub, message: &InMessage) -> Option<String> {
@@ -1011,7 +1195,14 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
-    let from_name = sender_name(message, stamped_host(hub, message).as_deref());
+    let book_host = stamped_host(hub, message);
+    // A send no session made: the machine the hub proved names it, with the session its daemon's
+    // relay record names, so the label is verified rather than declared ([`hub_relay`]).
+    let relay = hub_relay(message, book_host.as_deref());
+    let from_name = match &relay {
+        Some(relay) if !team => relay_name(relay),
+        _ => sender_name(message, book_host.as_deref()),
+    };
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
@@ -1054,7 +1245,8 @@ pub async fn deliver(
     let sender = crate::prompt_provenance::BoundSender {
         session_id: message.from.session_id.clone(),
         harness: None,
-        relay: None,
+        relay: relay.filter(|_| !team),
+        display_name: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     // The harness the sender says it came from, for the chat's sender chip: the claim only, so
@@ -1140,6 +1332,32 @@ mod tests {
     }
 
     #[test]
+    fn a_relayed_start_is_held_to_its_cap_and_only_approve_all_is_owner_control() {
+        use crate::config::PermissionPolicy as P;
+        assert_eq!(control_auth(P::ApproveAll), ConnAuth::PeerToken);
+        for cap in [P::Ask, P::DenyAll, P::ApproveReads, P::Review, P::ApproveEdits] {
+            assert_eq!(control_auth(cap), ConnAuth::MeshControl, "{cap}");
+        }
+        let start = |policy: Value| json!({"cwd": "/w", "policy": policy, "_meta": {"acpmux": {"policy": policy}}});
+        let held = capped_start(start(json!("approve-all")), P::Ask);
+        assert_eq!(held["policy"], "ask");
+        assert_eq!(held["_meta"]["acpmux"]["policy"], "ask");
+        // Within the cap, or none named: as asked (the remote start rule settles none to `ask`).
+        let within = capped_start(start(json!("approve-reads")), P::ApproveEdits);
+        assert_eq!(within, start(json!("approve-reads")));
+        assert_eq!(capped_start(json!({"cwd": "/w"}), P::Ask), json!({"cwd": "/w"}));
+        assert_eq!(capped_start(start(Value::Null), P::Ask), start(Value::Null));
+        // A value this build does not read is held to the cap as well.
+        assert_eq!(capped_start(start(json!("yolo")), P::Ask)["policy"], "ask");
+        assert_eq!(capped_start(start(json!(7)), P::Ask)["_meta"]["acpmux"]["policy"], "ask");
+        // Owner control keeps what it asked.
+        assert_eq!(
+            capped_start(start(json!("approve-all")), P::ApproveAll),
+            start(json!("approve-all"))
+        );
+    }
+
+    #[test]
     fn only_a_start_from_a_daemon_keeps_its_answer() {
         let params = || serde_json::json!({"cwd": "/w", "_meta": {"acpmux": {"cmuxTools": "on", "harness": "codex"}}});
         let mut message = from("h", "n");
@@ -1180,6 +1398,27 @@ mod tests {
         assert_eq!(sender_name(&bare, None), "a session on hub daemon inst_a");
         bare.from.name = Some("hook".into());
         assert_eq!(sender_name(&bare, None), "hook on hub daemon inst_a");
+    }
+
+    /// gap:surface:naming: a 429 recovery send from `ACPMUX_FROM=glaeda-land` read only
+    /// "build-host". The program's own relay record names it on the machine the hub proved; a
+    /// record for another machine, or none, still reads as the machine alone.
+    #[test]
+    fn a_program_outside_any_session_is_named_on_the_proven_machine() {
+        let name = |m: &InMessage| hub_relay(m, Some("build-host")).map(|r| relay_name(&r));
+        let mut message = from("build-host", "glaeda-land");
+        message.from.daemon_id = Some("inst_a".into());
+        message.from.relay =
+            Some(serde_json::json!({"by": "glaeda-land", "machine": "build-host"}));
+        assert_eq!(name(&message).as_deref(), Some("glaeda-land on build-host"));
+        message.from.relay = Some(serde_json::json!({"by": "glaeda-land", "machine": "other"}));
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = None;
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = Some(
+            serde_json::json!({"by": "lane-gh", "machine": "build-host", "session": "lane-7"}),
+        );
+        assert_eq!(name(&message).as_deref(), Some("build-host/lane-7"));
     }
 
     /// An old peer that sends neither host, name nor a stamped daemon keeps today's text.

@@ -492,7 +492,8 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutNeedsYouGlow(pill: bounds, onPath: onPath)
         layoutSeparator(slot: slot, pill: bounds)
-        backgroundLayer.cornerRadius = m.cornerRadius
+        // At most half the pill's height: a capsule (`appearance.tabShape` rounded) on a pill shorter than the tab.
+        backgroundLayer.cornerRadius = min(m.cornerRadius, bounds.height / 2)
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
         // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
         backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve

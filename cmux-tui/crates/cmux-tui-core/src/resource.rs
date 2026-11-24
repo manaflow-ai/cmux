@@ -190,8 +190,16 @@ pub enum ResourceOperation {
     DiffCommentsSave,
     #[serde(rename = "diff.comments.send")]
     DiffCommentsSend,
+    #[serde(rename = "diff.comments.thread")]
+    DiffCommentsThread,
     #[serde(rename = "git.branches")]
     GitBranches,
+    #[serde(rename = "git.review.comment")]
+    GitReviewComment,
+    #[serde(rename = "git.review.post")]
+    GitReviewPost,
+    #[serde(rename = "git.review.start")]
+    GitReviewStart,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
@@ -468,6 +476,14 @@ pub enum ResourceOperation {
     SettingsResetAll,
     #[serde(rename = "settings.edit")]
     SettingsEdit,
+    #[serde(rename = "settings.history")]
+    SettingsHistory,
+    #[serde(rename = "settings.undo")]
+    SettingsUndo,
+    #[serde(rename = "settings.restore")]
+    SettingsRestore,
+    #[serde(rename = "settings.reset_group")]
+    SettingsResetGroup,
     #[serde(rename = "keybindings.get")]
     KeybindingsGet,
     #[serde(rename = "keybindings.set")]
@@ -526,6 +542,8 @@ pub enum ResourceOperation {
     SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
+    #[serde(rename = "project.actions.list")]
+    ProjectActionsList,
     #[serde(rename = "project.observe")]
     ProjectObserve,
     #[serde(rename = "project.add")]
@@ -678,6 +696,10 @@ pub enum ResourceOperation {
     CloudMachineShareChat,
     #[serde(rename = "cloud.machine.chief_start")]
     CloudMachineChiefStart,
+    #[serde(rename = "cloud.machine.chief_resize")]
+    CloudMachineChiefResize,
+    #[serde(rename = "cloud.machine.fork")]
+    CloudMachineFork,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

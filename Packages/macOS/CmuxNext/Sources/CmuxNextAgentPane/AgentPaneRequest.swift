@@ -21,11 +21,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
     /// starts this app's own. Only with a real gesture; answers `{stopped}`.
     case restartAcpmux
-    /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
-    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
-    /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
-    /// Only with a real gesture; answers `{stopped}`.
-    case restartStuckAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -262,9 +257,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `terminalSwitch`: also answer whether the chat is half of a terminal and chat pair (its "..." asks as it
     /// opens, and once as the chat loads; never on a hover, since that answer walks every machine's agents).
     case tabState(refresh: Bool, terminalSwitch: Bool = false)
-    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
-    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
-    case tabRowTools(width: Double)
+    /// `pane.tabRowTools {width, need?}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there; `need` is that width less
+    /// what takes only the row's leftover room (the rolling summary), what decides whether the pane offers the row.
+    case tabRowTools(width: Double, need: Double? = nil)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
@@ -300,10 +296,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
     case offerOpen(String, sender: Bool)
-    /// `chat.asks.open {sessionId, where?}`: Needs you went to another chat's ask: on this chat's
-    /// right by default, else the workspace whose tab shows it or a new workspace, as the person
-    /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
-    case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.asks.open {sessionId, where?, turnId?, ask?}`: Needs you went to another chat's ask: on
+    /// this chat's right by default, else the workspace whose tab shows it or a new workspace, as the
+    /// person picked; never this chat replaced in place. The pane that shows it scrolls to `turnId`
+    /// and starts Ask about this with `ask` (``AgentPaneAskThere``, ``AgentPaneAskOpen``).
+    case asksOpen(String, AgentPaneAskPlace, AgentPaneAskThere)
     /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
     case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
@@ -337,7 +334,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the chat's settled view (the daemon's `_acpmux/attach {settled: true}`
     /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
     /// Absent (an older page, or a page's fallback paths) means as before.
-    case painted(fromKeptTail: Bool, settled: Bool)
+    /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
+    /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
+    case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false, live: Bool = false)
     /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).

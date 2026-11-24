@@ -20,7 +20,7 @@
 // The registry is complete before any lazy chunk runs: the script finishes before the first `import()` it
 // started evaluates its target. Source maps (for frame-sites) are composed through the second pass.
 import { build } from "esbuild";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 const REGISTRY = "__paneChunks";

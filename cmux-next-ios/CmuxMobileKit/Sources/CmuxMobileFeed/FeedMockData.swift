@@ -15,6 +15,13 @@ extension FeedStore {
                  workspaceTitle: "cmux.com", markdown: markdown, quote: quote, createdAt: now.addingTimeInterval(-ago))
     }
 
+    /// A second Claude chat (the `ws-ios` workspace's agent tab): its run of events in a row is the
+    /// Feed's stack of one busy chat.
+    static func claudeIOS(_ id: String, _ kind: FeedItem.Kind, _ markdown: String, quote: FeedItem.Quote?, ago: TimeInterval, now: Date) -> FeedItem {
+        FeedItem(id: id, kind: kind, workspaceID: "ws-ios", tabID: "t-ios-claude", agentName: "Claude", harness: "claude",
+                 workspaceTitle: "cmux-next-ios", markdown: markdown, quote: quote, createdAt: now.addingTimeInterval(-ago))
+    }
+
     public static func mockItems(now: Date) -> [FeedItem] {
         let question = AgentQuestion(
             id: "feed-q-release",
@@ -85,6 +92,19 @@ extension FeedStore {
 
             I added `BackoffTests` covering the cap and the jitter bounds.
             """, quote: .init("why does reconnect hammer the relay after sleep?"), ago: 900, now: now),
+            // Four events in a row from one chat, newest first: the Feed folds the three older ones.
+            claudeIOS("f-run-4", .finished, """
+            **Finished:** the workspaces list is redesigned. Rows show the agent's status and the branch, and the list keeps its place when a workspace changes.
+            """, quote: .init("Redesign the workspaces list"), ago: 960, now: now),
+            claudeIOS("f-run-3", .response, """
+            All **38** list tests pass on the simulator. Recording the before and after next.
+            """, quote: nil, ago: 1080, now: now),
+            claudeIOS("f-run-2", .response, """
+            The rows are laid out. Wiring the status dot and the unread badge now.
+            """, quote: nil, ago: 1200, now: now),
+            claudeIOS("f-run-1", .response, """
+            Starting with the row layout: one line for the title, one for the branch and the last activity.
+            """, quote: nil, ago: 1320, now: now),
             claude("f-finished", .finished, """
             **Finished:** extracted `LinkDialer` into `CmuxMobileTransport` and added WireGuard dialing behind `TransportKind`.
 
@@ -122,6 +142,23 @@ extension FeedStore {
             codex("f-agent-quote", .response, """
             Done. I kept the old `/v1/pricing` route as a redirect so cached links still work.
             """, quote: .init("Should I keep the old route as a redirect?", author: .agent), ago: 5400, now: now),
+        ]
+    }
+
+    /// One short row per kind of sender (Claude, Codex, a terminal agent, a harness with no mark),
+    /// so one screen shows every avatar (`-cmux-mobile-feed-marks`).
+    static func markSamples(now: Date) -> [FeedItem] {
+        var terminal = FeedItem(id: "f-marks-terminal", kind: .finished, workspaceID: "ws-cmux", tabID: "t-shell", agentName: "Terminal",
+                                harness: "terminal", workspaceTitle: "cmux", markdown: "`cargo test` finished: **218 passed**, 0 failed.",
+                                quote: nil, createdAt: now.addingTimeInterval(-30))
+        terminal.opensTerminal = true
+        let other = FeedItem(id: "f-marks-other", kind: .response, workspaceID: "ws-web", tabID: "t-other", agentName: "Lint bot",
+                             harness: "lint-bot", workspaceTitle: "cmux.com", markdown: "No new warnings in the last push.",
+                             quote: nil, createdAt: now.addingTimeInterval(-40))
+        return [
+            claude("f-marks-claude", .response, "Rebased onto the release branch; the diff is down to two files.", quote: nil, ago: 10, now: now),
+            codex("f-marks-codex", .response, "The flaky upload test now waits for the progress event instead of sleeping.", quote: nil, ago: 20, now: now),
+            terminal, other,
         ]
     }
 

@@ -108,9 +108,15 @@ impl Assembler {
     }
 }
 
+/// fchroot(2), Linux 7.3: chroot by fd, including into failfs. It is 472 in the
+/// unified table on both arches and the libc crate has no constant for it yet.
+/// The filter is default-allow, so it is denied beside chroot by number.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SYS_FCHROOT: u32 = 472;
+
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 fn deny_syscalls() -> Vec<u32> {
-    let mut numbers = Vec::new();
+    let mut numbers = vec![SYS_FCHROOT];
     #[cfg(target_arch = "x86_64")]
     numbers.push(libc::SYS_link as u32);
     numbers.extend(
@@ -568,6 +574,8 @@ mod tests {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), EPERM_ACTION, "nr {nr}");
         }
         assert_eq!(evaluate(&filter, ARCH, SYS_seccomp as u32, [0; 6]), EPERM_ACTION);
+        // fchroot is 472 in arch/x86/entry/syscalls/syscall_64.tbl and scripts/syscall.tbl.
+        assert_eq!(evaluate(&filter, ARCH, 472, [0; 6]), EPERM_ACTION, "fchroot");
         for nr in [SYS_clone3, SYS_openat2] {
             assert_eq!(evaluate(&filter, ARCH, nr as u32, [0; 6]), ENOSYS_ACTION);
         }

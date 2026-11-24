@@ -20,11 +20,13 @@ anyhow.workspace = true
 async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true
+cmux-braid-carrier.workspace = true
 cmux-build-space.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 reqwest.workspace = true
@@ -51,3 +53,4 @@ zeroize.workspace = true
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
+cmux-fault.workspace = true

@@ -134,6 +134,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -205,6 +207,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -223,11 +226,31 @@ jobs:
             cargo test --release --locked -p cmux-mobile-host --test reliability_matrix --no-fail-fast -- --ignored --nocapture --test-threads=1 ; } \
             2>&1 | tee "$RUNNER_TEMP/matrix/rust.log" || true
 
+      # Mac scroll to iPhone display (Leo, 2026-11-22, ask-0e9bbe35bb), Mac idle and Mac CPU busy
+      # (one spinning thread per core), over the good-wifi shaper: this step fails when either
+      # arm's p95 passes tests/scroll_to_display_baseline.json's limit. The rows go to the summary.
+      - name: Scroll-to-display gate (idle and loaded Mac CPU)
+        working-directory: cmux-next-ios/rust
+        run: |
+          set -o pipefail
+          cargo test --release --locked -p cmux-mobile-host --test scroll_to_display -- --ignored --nocapture --test-threads=1 \
+            2>&1 | tee "$RUNNER_TEMP/matrix/scroll.log"
+        timeout-minutes: 10
+
+      - name: Scroll-to-display rows
+        if: ${{ !cancelled() }}
+        run: |
+          { echo '### Mac scroll to phone display (ms)'; echo '```';
+            grep -E '^SCROLL-(ROW|GATE)' "$RUNNER_TEMP/matrix/scroll.log" || echo 'no rows';
+            echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: matrix-rust-log
-          path: ${{ runner.temp }}/matrix/rust.log
+          path: |
+            ${{ runner.temp }}/matrix/rust.log
+            ${{ runner.temp }}/matrix/scroll.log
           retention-days: 3
 
   ios:
@@ -279,6 +302,7 @@ jobs:
         if: steps.ffi.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false

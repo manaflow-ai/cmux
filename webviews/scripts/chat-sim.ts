@@ -7,14 +7,18 @@
 //   bun scripts/chat-sim.ts --list
 //   bun scripts/chat-sim.ts incoming-notice-turn --trace /tmp/sim.jsonl
 //   bun scripts/chat-sim.ts --all
+//   bun scripts/chat-sim.ts churn --churn   (layout shifts and sub-second rows per minute)
+//   bun scripts/chat-sim.ts --map   (every mapped case, what is expected of it, and whether it holds)
 //   bun scripts/chat-sim.ts --long 1000 --trace /tmp/long.jsonl
-//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --limit N]
+//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --last N --limit N]
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
 //   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
 //   bun scripts/chat-sim.ts --capture SESSION --window "2:05PM NOV 22 TO 2:11PM" --name leo-2205-x
 //   bun scripts/chat-sim.ts --capture SESSION --report "WHY DID IT" [--minutes 6]   (the minutes before that prompt)
-//   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions   (record kinds live chats write that no fixture or scenario plays)
+//   bun scripts/chat-sim.ts --capture HOST/NAME --window "22:05Z-22:11Z" --out /tmp   (a chat on a peer, over the hub)
+//   bun scripts/chat-sim.ts --reported [--update]   (replay each fixture and compare the rows breaking each rule)
+//   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions [--days 7 --json]   (record kinds live chats write that no fixture or scenario plays)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -27,11 +31,20 @@ import {
   parseWindow,
   pickRange,
   readOffsets,
+  findReportTurn,
+  parseHistory,
+  parseTail,
+  readAfterSeq,
+  REMOTE_SESSION,
+  type HistoryTurn,
 } from "../src/agent-session/acpmux/sim/capture";
+import { readRecords, readReplayRange } from "../src/agent-session/acpmux/sim/records";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
-import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
-import { DROPPED, parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { churnSummary, runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
+import { DROPPED, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
+import { replayReported, ruleCounts } from "../src/agent-session/acpmux/sim/reported";
+import { EVERYWHERE, MAP } from "../src/agent-session/acpmux/sim/map";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 
 const args = process.argv.slice(2);
@@ -45,24 +58,13 @@ const number = (name: string) => (value(name) === undefined ? undefined : Number
 function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
+      .split("\nimport ", 1)[0]!
       .split("\n")
-      .slice(1, 19)
+      .slice(1)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
   process.exit(code);
-}
-
-/** A session directory's records (events/*.ndjson), or one NDJSON file's. */
-function readRecords(path: string): EventRecord[] {
-  if (statSync(path).isDirectory()) {
-    const dir = existsSync(join(path, "events")) ? join(path, "events") : path;
-    return readdirSync(dir)
-      .filter((name) => name.endsWith(".ndjson"))
-      .sort()
-      .flatMap((name) => parseRecords(readFileSync(join(dir, name), "utf8")));
-  }
-  return parseRecords(readFileSync(path, "utf8"));
 }
 
 if (flag("--help") || flag("-h")) usage(0);
@@ -86,6 +88,149 @@ function sessionRecords(source: string): { records: EventRecord[]; from: string 
   return { records: readRecords(join(dest, dir)), from: `${source} (acpmux session export)` };
 }
 
+/// The window a capture asks for (`--window`, or the `--minutes` before the `--report` prompt) out of the
+/// records it read: a time with no date takes the date of the chat's last record. Exits 2 when there is none.
+function captureWindow(records: EventRecord[], from: string, zone: string, minutes: number): [number, number] {
+  if (records.length === 0) {
+    console.error(`chat-sim: ${from} has no records`);
+    process.exit(2);
+  }
+  const last = records.reduce((most, record) => Math.max(most, record.at), 0);
+  const reportText = value("--report");
+  if (value("--window")) return windowOf(last, zone, minutes);
+  if (reportText !== undefined) {
+    const report = findReport(records, reportText);
+    if (!report) {
+      console.error(`chat-sim: no prompt of the person's in ${from} holds "${reportText}"`);
+      process.exit(2);
+    }
+    return [report.at - minutes * 60_000, report.at];
+  }
+  console.error("chat-sim: --capture needs --window TIMES or --report TEXT");
+  process.exit(2);
+}
+
+function windowOf(near: number, zone: string, minutes: number): [number, number] {
+  const window = parseWindow(value("--window")!, { zone, near, minutes });
+  if (window) return window;
+  console.error(
+    `chat-sim: cannot read the window "${value("--window")}" (e.g. "2:05PM NOV 22 TO 2:11PM", "22:05Z-22:11Z")`,
+  );
+  process.exit(2);
+}
+
+function localCapture(source: string, zone: string, minutes: number) {
+  const { records, from } = sessionRecords(source);
+  return { records, from, window: captureWindow(records, from, zone, minutes) };
+}
+
+/** How long one acpmux read over the hub may take (`--timeout S`, default 120 for the history, 600 for the tail). */
+const hubTimeout = (fallback: number) => (number("--timeout") ?? fallback) * 1000;
+
+/// One line naming the hub's error, then exit 2: no retry, a relay-only host fails every read the same way.
+function hubFailed(source: string, detail: string): never {
+  console.error(
+    `chat-sim: cannot read ${source} over the mesh hub: ${detail.trim().split("\n")[0] || "no answer"}. ` +
+      "A host listed only via relay fails every read until cmux#48249; capture on that host instead.",
+  );
+  process.exit(2);
+}
+
+/// `acpmux ARGS` read whole, inside `ms`; its stdout, or hubFailed with its stderr.
+async function acpmuxRead(source: string, args: string[], ms: number): Promise<string> {
+  const child = Bun.spawn(["acpmux", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const timer = setTimeout(() => child.kill(), ms);
+  const [text, errors] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  const code = await child.exited;
+  clearTimeout(timer);
+  if (child.signalCode) hubFailed(source, `acpmux ${args.slice(0, 2).join(" ")} gave no answer in ${ms / 1000} s`);
+  if (code !== 0) hubFailed(source, errors);
+  return text;
+}
+
+/// The records after seq `after`, from `acpmux session tail --json --since`, read as they stream in and
+/// stopped at the first record past `until` (the tail itself would read on to the log's end).
+async function tailRecords(source: string, after: number, until: number, ms: number): Promise<EventRecord[]> {
+  const child = Bun.spawn(["acpmux", "session", "tail", source, "--json", "--since", String(after)], {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, ms);
+  const errors = new Response(child.stderr).text();
+  const out: EventRecord[] = [];
+  const decoder = new TextDecoder();
+  let rest = "";
+  let past = false;
+  for await (const chunk of child.stdout as unknown as AsyncIterable<Uint8Array>) {
+    rest += decoder.decode(chunk, { stream: true });
+    const cut = rest.lastIndexOf("\n");
+    if (cut < 0) continue;
+    for (const record of parseTail(rest.slice(0, cut))) {
+      if (record.at > until) {
+        past = true;
+        break;
+      }
+      out.push(record);
+    }
+    rest = rest.slice(cut + 1);
+    if (past) break;
+  }
+  if (!past) for (const record of parseTail(rest)) if (record.at <= until) out.push(record);
+  if (past) child.kill();
+  const code = await child.exited;
+  clearTimeout(timer);
+  if (timedOut) hubFailed(source, `acpmux session tail gave no answer in ${ms / 1000} s (${out.length} records read)`);
+  if (!past && code !== 0) hubFailed(source, await errors);
+  return out;
+}
+
+/// A chat on a peer (`HOST/NAME`), over the hub: its turn history places the window, then the tail reads from
+/// the prompt of the turn running when the window opened to the window's end.
+async function remoteCapture(source: string, zone: string, minutes: number) {
+  let turns: HistoryTurn[];
+  try {
+    turns = parseHistory(await acpmuxRead(source, ["session", "history", source, "--json"], hubTimeout(120)));
+  } catch (error) {
+    hubFailed(source, `its history did not read (${(error as Error).message})`);
+  }
+  const near = turns.reduce((most, turn) => Math.max(most, turn.endedAt ?? turn.startedAt), 0) || Date.now();
+  let window: [number, number];
+  const reportText = value("--report");
+  if (value("--window")) window = windowOf(near, zone, minutes);
+  else if (reportText) {
+    const turn = findReportTurn(turns, reportText);
+    if (!turn) {
+      console.error(`chat-sim: no prompt in ${source}'s history starts with "${reportText}"`);
+      process.exit(2);
+    }
+    window = [turn.startedAt - minutes * 60_000, turn.startedAt];
+  } else {
+    console.error("chat-sim: --capture HOST/NAME needs --window TIMES or --report TEXT (from the prompt's start)");
+    process.exit(2);
+  }
+  const after = readAfterSeq(turns, window[0]);
+  // A few seconds past the end: a record's time can trail the one before it by a little.
+  const records = await tailRecords(source, after, window[1] + 10_000, hubTimeout(600));
+  if (reportText) {
+    const report = findReport(records, reportText);
+    if (report) window = [report.at - minutes * 60_000, report.at];
+  }
+  return {
+    records,
+    from: `${source} (acpmux session tail over the hub, ${records.length} records after seq ${after})`,
+    window,
+  };
+}
+
+const fixtureDir = join(import.meta.dir, "..", "test", "fixtures", "chat-sim");
+
+if (flag("--reported")) process.exit(replayReported(fixtureDir, flag("--update")) ? 1 : 0);
+
 const capture = value("--capture");
 if (capture) {
   // A reported breakage as a fixture (sim/README.md "Capture a reported breakage"): the window's records,
@@ -94,34 +239,14 @@ if (capture) {
   const began = performance.now();
   const zone = value("--tz") ?? DEFAULT_ZONE;
   const minutes = number("--minutes") ?? 6;
-  const { records, from } = sessionRecords(capture);
+  const remote =
+    REMOTE_SESSION.test(capture) &&
+    !existsSync(home(capture)) &&
+    !existsSync(join(home("~/.acpmux/sessions"), capture, "events"));
+  const { records, from, window } = remote
+    ? await remoteCapture(capture, zone, minutes)
+    : localCapture(capture, zone, minutes);
   const read = performance.now();
-  if (records.length === 0) {
-    console.error(`chat-sim: ${from} has no records`);
-    process.exit(2);
-  }
-  const last = records.reduce((most, record) => Math.max(most, record.at), 0);
-  let window: [number, number] | undefined;
-  const reportText = value("--report");
-  if (value("--window")) {
-    window = parseWindow(value("--window")!, { zone, near: last, minutes });
-    if (!window) {
-      console.error(
-        `chat-sim: cannot read the window "${value("--window")}" (e.g. "2:05PM NOV 22 TO 2:11PM", "22:05Z-22:11Z")`,
-      );
-      process.exit(2);
-    }
-  } else if (reportText !== undefined) {
-    const report = findReport(records, reportText);
-    if (!report) {
-      console.error(`chat-sim: no prompt of the person's in ${from} holds "${reportText}"`);
-      process.exit(2);
-    }
-    window = [report.at - minutes * 60_000, report.at];
-  } else {
-    console.error("chat-sim: --capture needs --window TIMES or --report TEXT");
-    process.exit(2);
-  }
   const range = pickRange(records, window[0], window[1], flag("--no-lead") ? "none" : "turn");
   if (!range) {
     console.error(
@@ -131,28 +256,25 @@ if (capture) {
   }
   const clean = sanitizeRecords(records, { from: range.fromSeq, to: range.toSeq });
   const name = value("--name") ?? `capture-${new Date(window[0]).toISOString().slice(0, 16).replace(/[-:T]/g, "")}`;
-  const out = home(value("--out") ?? join(import.meta.dir, "..", "test", "fixtures", "chat-sim"));
+  const out = home(value("--out") ?? fixtureDir);
   const fixture = join(out, `${name}.ndjson`);
   writeFileSync(fixture, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
   const hostBuild = [...records]
     .reverse()
     .find((record: EventRecord) => record.kind === "host_started" && record.at <= window[1])?.msg?.hostBuild;
-  writeFileSync(
-    join(out, `${name}.json`),
-    JSON.stringify(
-      {
-        window: [new Date(window[0]).toISOString(), new Date(window[1]).toISOString()],
-        zone,
-        hostBuild: typeof hostBuild === "string" ? hostBuild : null,
-        capturedAt: new Date().toISOString(),
-        records: clean.length,
-        leadIn: range.leadIn,
-        inWindow: range.inWindow,
-      },
-      null,
-      2,
-    ) + "\n",
-  );
+  const metadata = {
+    window: [new Date(window[0]).toISOString(), new Date(window[1]).toISOString()],
+    zone,
+    hostBuild: typeof hostBuild === "string" ? hostBuild : null,
+    capturedAt: new Date().toISOString(),
+    records: clean.length,
+    leadIn: range.leadIn,
+    inWindow: range.inWindow,
+  };
+  const writeMetadata = (expect?: Record<string, number>) =>
+    writeFileSync(join(out, `${name}.json`), JSON.stringify({ ...metadata, expect }, null, 2) + "\n");
+  // A recapture replaces the previous sidecar even if the whole replay below cannot finish.
+  writeMetadata();
   const written = performance.now();
   console.log(
     `captured ${clockLabel(window[0], zone)} to ${clockLabel(window[1], zone)} from ${from}: ` +
@@ -177,6 +299,8 @@ if (capture) {
       };
     }),
   );
+  const whole = runs.find((run) => run.offset.from === 0)?.violations;
+  if (whole) writeMetadata(ruleCounts(whole));
   const realFirst = records.find((record) => record.seq === range.fromSeq)!.at;
   for (const run of runs) {
     if (!run.violations) {
@@ -206,10 +330,9 @@ const drift = value("--drift");
 if (drift) {
   // What the offline simulator does not play: record kinds the chats here wrote that no committed fixture
   // and no scenario holds, and that the sanitizer does not drop as noise. One line each, most written first.
-  const fixtures = join(import.meta.dir, "..", "test", "fixtures", "chat-sim");
   const covered = new Set<string>();
-  for (const name of readdirSync(fixtures).filter((file) => file.endsWith(".ndjson")))
-    for (const record of readRecords(join(fixtures, name))) covered.add(`${record.dir} ${record.kind}`);
+  for (const name of readdirSync(fixtureDir).filter((file) => file.endsWith(".ndjson")))
+    for (const record of readRecords(join(fixtureDir, name))) covered.add(`${record.dir} ${record.kind}`);
   for (const name of scenarioNames())
     for (const record of SCENARIOS[name]!().events) covered.add(`${record.dir} ${record.kind}`);
   const seen = new Map<string, { records: number; chats: Set<string>; newest: number }>();
@@ -248,6 +371,25 @@ if (drift) {
   const source = paneSource(join(import.meta.dir, "..", "src", "agent-session"));
   const read = [...seen].filter(([key]) => source.includes(`"${key.split(" ")[1]}"`));
   const days = number("--days") ?? 7;
+  if (flag("--json")) {
+    // For a timer (the fleet's chat-sim-drift pass): the same answer as one JSON object.
+    console.log(
+      JSON.stringify({
+        played: covered.size,
+        days,
+        chats: chats.length,
+        missing: read.map(([key, entry]) => ({
+          kind: key,
+          records: entry.records,
+          chats: entry.chats.size,
+          newest: new Date(entry.newest).toISOString(),
+          example: [...entry.chats][0],
+        })),
+        unread: seen.size - read.length,
+      }),
+    );
+    process.exit(read.length ? 1 : 0);
+  }
   console.log(
     `${covered.size} record kinds played offline. Chats here in the last ${days} days wrote ${read.length} more that the pane reads ` +
       `and the simulator never plays (and ${seen.size - read.length} the pane does not read; --all-kinds lists them):`,
@@ -349,6 +491,39 @@ if (sweep) {
     );
   process.exit(classes.size ? 1 : 0);
 }
+if (flag("--map")) {
+  // The scenario map (sim/map.ts): each case, what is expected, and whether it holds on this checkout.
+  const runs = new Map<string, SimResult>();
+  const run = (name: string) => runs.get(name) ?? runs.set(name, runSimulation(SCENARIOS[name]!())).get(name)!;
+  const rulesOf = (name: string) => run(name).violations.map((violation) => `${violation.rule}: ${violation.detail}`);
+  let wrong = 0;
+  for (const entry of MAP) {
+    const broken = entry.scenario ? [...(entry.check?.(run(entry.scenario)) ?? []), ...rulesOf(entry.scenario)] : [];
+    const state = !entry.scenario ? "not played" : broken.length ? (entry.open ? "open" : "BROKEN") : "holds";
+    if (state === "BROKEN" || (state === "holds" && entry.open && entry.check)) wrong += 1;
+    console.log(`${state.padEnd(10)} ${entry.id}${entry.scenario ? ` (${entry.scenario})` : ""}`);
+    console.log(
+      `           when:     ${entry.when}\n           wrong:    ${entry.wrong}\n           expected: ${entry.expected}`,
+    );
+    if (entry.open) console.log(`           open:     ${entry.open}`);
+    if (state !== "holds" || flag("--verbose"))
+      for (const line of broken.slice(0, 5)) console.log(`           now:      ${line}`);
+  }
+  for (const each of EVERYWHERE) {
+    const breaks = scenarioNames().filter((name) => each.check(run(name)).length > 0);
+    const fresh = breaks.filter((name) => !each.known?.[name]);
+    wrong += fresh.length;
+    console.log(`${(fresh.length ? "BROKEN" : breaks.length ? "open" : "holds").padEnd(10)} everywhere: ${each.id}`);
+    console.log(`           expected: ${each.expected}`);
+    for (const name of breaks)
+      console.log(`           breaks:   ${name}${each.known?.[name] ? ` (open: ${each.known[name]})` : ""}`);
+  }
+  const count = (state: (entry: (typeof MAP)[number]) => boolean) => MAP.filter(state).length;
+  console.log(
+    `${MAP.length} cases: ${count((entry) => !!entry.scenario && !entry.open)} hold, ${count((entry) => !!entry.scenario && !!entry.open)} open, ${count((entry) => !entry.scenario)} not played; ${scenarioNames().length} scenarios; ${EVERYWHERE.length} checks on every scenario`,
+  );
+  process.exit(wrong ? 1 : 0);
+}
 if (flag("--list")) {
   for (const name of scenarioNames()) console.log(`${name.padEnd(24)} ${SCENARIOS[name]!().about}`);
   console.log(`${"--long N".padEnd(24)} N turns of mixed work (about 12 rows a turn)`);
@@ -358,18 +533,30 @@ if (flag("--list")) {
 const scenarios: SimScenario[] = [];
 const replay = value("--replay");
 if (replay) {
-  const range = { from: number("--from"), to: number("--to"), limit: number("--limit") };
-  const raw = readRecords(replay.replace(/^~/, process.env.HOME ?? "~"));
+  const last = number("--last");
+  if (flag("--last") && (last === undefined || !Number.isSafeInteger(last) || last < 0)) {
+    console.error("chat-sim: --last needs a nonnegative integer");
+    process.exit(2);
+  }
+  const {
+    records: raw,
+    parsed,
+    count,
+  } = await readReplayRange(home(replay), {
+    from: number("--from"),
+    to: number("--to"),
+    last,
+  });
+  if (parsed < count) console.error(`parsed ${parsed} of ${count} event files (${raw.length} records in range)`);
+  const limit = number("--limit");
   const sanitizeTo = value("--sanitize");
   if (sanitizeTo) {
-    const clean = sanitizeRecords(raw, range);
+    const clean = sanitizeRecords(raw, { limit });
     writeFileSync(sanitizeTo, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
     console.log(`wrote ${clean.length} sanitized records (of ${raw.length}) to ${sanitizeTo}`);
     scenarios.push(replayScenario(`replay:${sanitizeTo}`, clean));
   } else {
-    const kept = raw
-      .filter((record) => record.seq >= (range.from ?? 0) && record.seq <= (range.to ?? Number.POSITIVE_INFINITY))
-      .slice(0, range.limit ?? Number.POSITIVE_INFINITY);
+    const kept = raw.slice(0, limit);
     scenarios.push(replayScenario(`replay:${replay}`, kept));
   }
 } else if (value("--long")) {
@@ -404,6 +591,19 @@ for (const scenario of scenarios) {
     continue;
   }
   console.log(summarize(result));
+  if (flag("--churn")) {
+    // Layout shifts and sub-second rows per minute of churn, and each one (`--show N` at most).
+    console.log(`  churn ${churnSummary(result)}`);
+    const show = Number(value("--show") ?? 20);
+    for (const shift of result.shifts.slice(0, show))
+      console.log(
+        `  shift ${shift.phase.padEnd(8)} step ${shift.step} (+${(shift.at / 1000).toFixed(1)} s, ${shift.label}) moved ${shift.moved} rows up to ${shift.px}px, back ${shift.back}px; cause ${shift.cause}`,
+      );
+    for (const flash of result.flashes.slice(0, show))
+      console.log(
+        `  flash ${flash.phase.padEnd(8)} step ${flash.step} (+${(flash.at / 1000).toFixed(1)} s, ${flash.label}) ${flash.kind} ${flash.id} shown ${flash.shownMs} ms`,
+      );
+  }
   // One line per distinct violation (the same row breaking the same rule at many steps prints once).
   const seen = new Set<string>();
   for (const violation of result.violations) {

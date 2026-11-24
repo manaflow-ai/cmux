@@ -17,6 +17,7 @@ struct AgentIncomingCard: View {
     /// The transcript's key for whether a single message is open (`ChatDisclosures`).
     var disclosureKey: String?
     @State private var open: Set<Int> = []
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var localOpen = false
     @Environment(\.chatDisclosures) private var disclosures
     @Environment(\.transcriptFoldHold) private var holdFold
@@ -54,16 +55,11 @@ struct AgentIncomingCard: View {
             if !attachments.isEmpty {
                 SentAttachments(attachments: attachments)
             }
-            Text(Self.inlineMarkdown(message.text))
-                .font(.body)
-                .lineSpacing(4)
-                .foregroundStyle(.white)
-                .tint(.white)
+            SelectableText(chiefText(message.text))
+                .selectionMenu { _ in messageActions }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color(uiColor: .systemBlue), in: .rect(cornerRadius: 20, style: .continuous))
-                .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
-                .contextMenu { menu }
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -72,14 +68,29 @@ struct AgentIncomingCard: View {
         .accessibilityIdentifier("agent-chat.chief-bubble")
     }
 
-    /// The message's inline Markdown (bold, code, links), its line breaks kept; as written when it
-    /// does not read.
-    static func inlineMarkdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
+    private func chiefText(_ source: String) -> NSAttributedString {
+        let styles = NativeTextStyles(category: UIContentSizeCategory(typeSize))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        return NativeMarkdownLayout.inlineText(source, font: styles.font(.body), color: .white,
+                                               styles: styles, paragraph: paragraph, codeBackground: false)
     }
 
-    @ViewBuilder private var menu: some View {
+    private var messageActions: [UIMenuElement] {
+        var rows: [UIMenuElement] = [
+            SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = incoming.text },
+            SelectionMenu.action("Select Text", "selection.pin.in.out") { ChatSelectText.present(incoming.text) },
+            SelectionMenu.action("Copy as Sent", "envelope") { UIPasteboard.general.string = incoming.raw },
+        ]
+        if let id = incoming.messageID {
+            rows.append(UIAction(title: String(localized: "Copy Message ID \(id)"), image: UIImage(systemName: "number")) { _ in
+                UIPasteboard.general.string = id
+            })
+        }
+        return [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: rows)]
+    }
+
+    @ViewBuilder private var disclosureMenu: some View {
         Section(AgentTurn.menuTimestamp(at)) {
             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = incoming.text }
             Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(incoming.text) }
@@ -93,7 +104,7 @@ struct AgentIncomingCard: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
+            header.contextMenu { disclosureMenu }
             if !attachments.isEmpty {
                 SentAttachments(attachments: attachments)
             }
@@ -116,8 +127,7 @@ struct AgentIncomingCard: View {
         .background(Color.cmuxMobileBubble.opacity(0.55), in: .rect(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(.contextMenuPreview, .rect(cornerRadius: 16, style: .continuous))
-        .contextMenu { menu }
+        .selectionMenu { _ in messageActions }
         .accessibilityElement(children: .contain)
     }
 
@@ -139,7 +149,7 @@ struct AgentIncomingCard: View {
             } label: {
                 headerLine(chevron: allOpen).contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
         } else {
             // One message starts closed: its sender's line and its first line, muted; a tap opens the
@@ -163,7 +173,7 @@ struct AgentIncomingCard: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .accessibilityValue(singleOpen ? "Expanded" : "Collapsed")
             .accessibilityHint(singleOpen ? "Closes the message" : "Opens the message")
             .accessibilityIdentifier("agent-chat.incoming-line")
@@ -242,6 +252,7 @@ struct AgentIncomingCard: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.cmuxPressFill)
+            .contextMenu { disclosureMenu }
             .accessibilityHint(isOpen ? "Closes the message" : "Opens the message")
             if isOpen {
                 MarkdownView(markdown: message.text, margin: 0)

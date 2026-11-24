@@ -1,16 +1,11 @@
 name: cmux-next web lint
 
-# `web lint (fast)` on every feat-cmux-next push. It ran in cmux-next-web.yml until that workflow's web checks were
-# coalesced to at most one run every 15 minutes (scripts/ci/web_coalesce.py): this check is cheap (about $7 a day)
-# and its point is a red within minutes of the push that skipped the hook, so it keeps one run per push here. In its
-# own workflow, a coalesced cmux-next web run that a newer push replaced runs no job at all and ends cancelled,
-# which is how readers of base verdicts tell it apart (base_red_excuse.coalesced).
-#
-# `webviews typecheck (whole tree)` also runs on every push, with no path routing: a push that touches no webviews
-# file can still break the tree's types (cmux#49052, 2026-11-22: green alone, red with #48989's rename), and the
-# range lint above skips webviews when the push did not change it. Leo's ask: "Every push to main gets a webview type
-# check, so a break shows up on the status board within minutes." base-red-watch (cmuxterm-hq) reads this
-# workflow's push runs every 10 minutes (PUSH_WORKFLOWS), so a red here is a NOW base red.
+# Saves the caches pull requests restore: the pinned lint tools and the Bun package cache, on feat-cmux-next pushes
+# (coalesced; it ran in cmux-next-web.yml until that workflow's web checks were coalesced). It gives no verdict. The
+# checks it ran after the merge now run on the pull request (CI v2 step 5, post-merge-checks.json): `web lint (fast)`
+# is cmux-next-fast-gates.yml's, and the hook tests and the whole-tree `webviews typecheck` are the step
+# `webviews-typecheck` of ci/steps.toml. Its lint still runs, because its installs fill the Bun cache, and its red no
+# longer fails the run.
 on:
   push:
     branches: [feat-cmux-next]
@@ -27,6 +22,20 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  # One run per 30-minute window on the feat-cmux-next tip (base-coalesce.yml), not one per merge: the window's first
+  # push lints every commit since the last run (needs.coalesce.outputs.base, where it read event.before) and
+  # typechecks the whole tree at its tip; the other pushes' jobs report skipped, with no runner taken. 8,188
+  # runner-minutes a day ran here (web lint 5,771 + typecheck 2,417 on pushes; 762 runs, timing feed
+  # 2026-11-23T10Z..11-24T10Z, about 1,015 merges); about 48 runs a day now. A red is seen within about 30 minutes
+  # plus the gap to the next push plus the run, and base-red-watch bisects it over the covered range. A dispatch runs
+  # at once (the coalesce job is skipped on it). vars.NEXT_WEB_LINT_COALESCE = '0' runs every push again.
+  coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-web-lint
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.NEXT_WEB_LINT_COALESCE) == '0' }}
+
   # The pre-push hook's check (scripts/web_lint_prepush.py) as a fast job of its
   # own: a skipped hook (--no-verify, CMUX_WEB_LINT_SKIP_REASON, a clone without
   # scripts/install-git-hooks.sh, or a push that changed the check's own code)
@@ -34,9 +43,17 @@ jobs:
   # Same script as the hook, so the two cannot drift.
   web-lint:
     name: web lint (fast)
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
+    # 10 minutes, plus the R2 saves below (bounded at 4 and 2 minutes; a key R2 already has costs one HEAD request).
+    timeout-minutes: 16
+    # The R2 write credentials for the saves below: only a feat-cmux-next run enters next-cache-writer (deployment
+    # branch feat-cmux-next only), as in cmux-next.yml (docs/ci/cmux-next-workflow-notes.md#note-171).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -51,7 +68,15 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
@@ -62,15 +87,20 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # The pinned lint tools cmux-next-fast-gates.yml restores on every pull request: saved once per lock here, in
-      # feat-cmux-next's scope, which every pull request reads. Pull requests only restore them, so without this save
-      # nothing would (fast gates never runs on a push). A hit skips the download and the save; a miss is a 25 s
-      # download of every Linux row of the lock (sha256 checked by prepush-gate.py's own ensure_tool).
-      - name: Cache the pinned lint tools
+      # The pinned lint tools cmux-next-fast-gates.yml restores on every pull request, from R2 only: saved once per
+      # lock here, on the feat-cmux-next push (fast gates never runs on a push). Not in the GitHub store: a copy there
+      # is 65 MB of its 10 GB cap, and Freestyle reads it at about 0.9 MB/s. A hit skips the download; a miss is a
+      # 25 s download of every Linux row of the lock (sha256 checked by prepush-gate.py's own ensure_tool).
+      - name: Restore the pinned lint tools from R2
         id: lint-tools
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ~/.cache/cmux-lint-tools
           key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
 
@@ -92,14 +122,29 @@ jobs:
               print(tool, gate.ensure_tool(lock, tool))
           PY
 
-      - name: Hook tests
-        run: python3 tests/test_web_lint_prepush.py
-
-      # Lints what the push brought (event.before..sha). An unknown or unfetchable
-      # base (a new branch, a force push, a dispatch) lints every package.
-      - name: Web lint on the pushed range
+      # cache-save's r2 backend skips a key the bucket already holds, so a lock that did not change costs one HEAD.
+      - name: Save the pinned lint tools to R2
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
         env:
-          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
+      # Lints what the pushes since the last run brought (the coalesce base..sha; event.before..sha when not
+      # coalescing). An unknown or unfetchable base (a new branch, a force push, a dispatch, a lost coalesce
+      # record) lints every package.
+      - name: Web lint on the pushed range (warms the Bun cache; pull requests run the verdict)
+        continue-on-error: true
+        env:
+          PUSH_BASE: ${{ github.event_name == 'push' && (needs.coalesce.outputs.base == 'unknown' && '0000000000000000000000000000000000000000' || needs.coalesce.outputs.base || github.event.before) || '' }}
         run: |
           set -euo pipefail
           if [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
@@ -110,45 +155,18 @@ jobs:
             python3 scripts/web_lint_prepush.py --all --base "$GITHUB_SHA" --head "$GITHUB_SHA" --timings
           fi
 
-  webviews-typecheck:
-    name: webviews typecheck (whole tree)
-    # tsgo holds about 5 GB on webviews (scripts/web_lint_prepush.py): 8 vCPU, as cmux-next-web-bundles' webviews checks.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
-
-      # Restore only: the React apps jobs save this key (tests/ci_per_ref_cache_saves_baseline.txt never grows).
-      - name: Restore the Bun package cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
-
-      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
-
-      - name: Install webviews dependencies
-        working-directory: webviews
+      # After the lint's installs, as the GitHub copy above is saved at the job's end.
+      - name: Save the Bun package cache to R2
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
         env:
-          BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
-          BUN_CONFIG_HTTP_RETRY_COUNT: "5"
-        run: bun install --frozen-lockfile
-
-      # The whole tree, whatever the push changed: `vp check --no-fmt --no-lint` (webviews/package.json `typecheck`).
-      - name: Typecheck webviews
-        working-directory: webviews
-        run: bun run typecheck
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
