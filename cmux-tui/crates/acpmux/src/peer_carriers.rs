@@ -569,7 +569,8 @@ impl Peer {
         // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
         // listener predates that refuses the upgrade ("junk after client request"), which is
         // remembered (`early_refused`) and dialed again without it.
-        let mut use_early = !self.early_refused.load(Ordering::SeqCst);
+        let mut use_early =
+            std::env::var_os("NO_EARLY").is_none() && !self.early_refused.load(Ordering::SeqCst);
         loop {
             let heard = Heard::default();
             let early = use_early.then(|| self.early_initialize()).flatten();
@@ -627,9 +628,11 @@ impl Peer {
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
         // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
-        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
-            .then(|| self.early_initialize())
-            .flatten();
+        let early = (std::env::var_os("NO_EARLY").is_none()
+            && self.url.starts_with("ws://")
+            && !self.early_refused.load(Ordering::SeqCst))
+        .then(|| self.early_initialize())
+        .flatten();
         let early_id = early.as_ref().map(|(id, _)| *id);
         let token_said_no = AtomicBool::new(false);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
