@@ -7,7 +7,7 @@
 //! item the flow sends `permission_respond` with the harness-shaped answers.
 
 use super::*;
-use crate::question_answer::{self, Choice};
+use acpmux::question_answer::{self, Choice};
 
 /// One question being answered in the composer.
 #[derive(Debug, Clone)]

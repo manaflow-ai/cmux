@@ -121,7 +121,7 @@ pub(super) fn transcript_rows_range(
                     Span::styled(format!("{glyph} "), gstyle),
                     Span::styled(title_shown, tstyle),
                 ];
-                let counts = crate::transcript::diff_counts(detail);
+                let counts = acpmux::transcript::diff_counts(detail);
                 if let Some((plus, minus)) = counts {
                     spans.push(Span::styled(
                         format!("  +{plus}"),
@@ -432,7 +432,7 @@ pub(super) fn transcript_rows_range(
                     let (mut plus, mut minus) = (0usize, 0usize);
                     for &j in &work {
                         if let Item::Tool { detail, .. } = &t.items[j]
-                            && let Some((p, m)) = crate::transcript::diff_counts(detail)
+                            && let Some((p, m)) = acpmux::transcript::diff_counts(detail)
                         {
                             plus += p;
                             minus += m;

@@ -374,14 +374,14 @@ impl App {
         {
             let text = self.rows_cache.get(row).cloned().unwrap_or_default();
             if let Some(link) =
-                crate::tui::links::find(&text).into_iter().find(|l| col >= l.start && col < l.end)
+                crate::links::find(&text).into_iter().find(|l| col >= l.start && col < l.end)
             {
                 let cwd = self
                     .selected_session()
                     .and_then(|s| s.get("cwd").and_then(Value::as_str))
                     .unwrap_or("")
                     .to_owned();
-                self.status = crate::tui::links::open(&link.target, &cwd);
+                self.status = crate::links::open(&link.target, &cwd);
                 self.selection = None;
                 return;
             }

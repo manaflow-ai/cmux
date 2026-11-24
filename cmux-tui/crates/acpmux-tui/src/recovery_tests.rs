@@ -226,8 +226,8 @@ async fn an_error_before_an_empty_attach_still_pages_older_history() {
         .items
         .iter()
         .filter_map(|i| match i {
-            crate::transcript::Item::User { text, .. } => Some(format!("user {text}")),
-            crate::transcript::Item::Error { text } => Some(format!("error {text}")),
+            acpmux::transcript::Item::User { text, .. } => Some(format!("user {text}")),
+            acpmux::transcript::Item::Error { text } => Some(format!("error {text}")),
             _ => None,
         })
         .collect();

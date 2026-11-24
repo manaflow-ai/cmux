@@ -395,10 +395,8 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
-/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
-/// binary turns it on). Its entry for the CLI is `tui_entry`.
-#[cfg(feature = "tui")]
-pub mod tui;
+/// Where the CLI opens a session in a terminal UI: one the process installed (acpmux-tui, in the
+/// `cmux` binary), else a handoff to `cmux` (acpmux itself is headless).
 pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;

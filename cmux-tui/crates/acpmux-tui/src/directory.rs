@@ -1,7 +1,7 @@
 //! Directory input is resolved against the selected session, never the TUI process cwd
-//! (its pure parts: `crate::directory_input`).
+//! (its pure parts: `acpmux::directory_input`).
 use super::*;
-pub use crate::directory_input::*;
+pub use acpmux::directory_input::*;
 use std::path::{Path, PathBuf};
 
 impl App {

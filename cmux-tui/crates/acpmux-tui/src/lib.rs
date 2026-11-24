@@ -11,6 +11,13 @@
 //!   :            command mode       ?        help
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 //!   (on a question, y opens the answer flow: digits pick, Enter confirms)
+//!
+//! acpmux itself is headless; this crate is its terminal UI, which the `cmux` binary installs at
+//! start ([`install`]) so acpmux's interactive commands open it (`acpmux::tui_entry`).
+
+// The lints the acpmux crate allowed when this was its `tui` module.
+#![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
+#![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 use cmux_json::JsonSet as _;
 
@@ -25,6 +32,18 @@ mod scheduler;
 mod state;
 mod terminal;
 pub use run::run;
+
+/// Make this process's acpmux CLI open sessions in this terminal UI (`acpmux::tui_entry::run`).
+pub fn install() {
+    acpmux::tui_entry::install(entry);
+}
+
+fn entry(
+    client: Arc<Client>,
+    session: Option<String>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>>>> {
+    Box::pin(run(client, session))
+}
 pub use state::*;
 mod collapse;
 pub mod dialog;
@@ -55,9 +74,9 @@ pub use answering::Answering;
 pub use mouse::{ButtonAction, PermChoice};
 pub use picker::{PickRow, Picker};
 
-use crate::client::Client;
-use crate::rpc::{Message, method};
-use crate::transcript::{Item, Transcript};
+use acpmux::client::Client;
+use acpmux::rpc::{Message, method};
+use acpmux::transcript::{Item, Transcript};
 use anyhow::Result;
 use crossterm::event::{
     Event, EventStream, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -75,7 +94,7 @@ use theme::Chrome;
 use tokio::sync::mpsc;
 
 /// What `App::request_then` re-reads once the request's reply arrived.
-pub(super) enum Reread {
+pub(crate) enum Reread {
     Nothing,
     /// The session's detail (mode, model, config options).
     Detail(String),
@@ -87,7 +106,7 @@ pub(super) enum Reread {
 
 /// Keep lag recovery responsive even if a session has an unusually large
 /// event log. Each page is capped by the daemon's attach limit below.
-pub(super) const MAX_RECOVERY_PAGES: u8 = 8;
+pub(crate) const MAX_RECOVERY_PAGES: u8 = 8;
 
 impl Reread {
     async fn run(self, client: &Arc<Client>, tx: &mpsc::UnboundedSender<AppMsg>) {
@@ -123,25 +142,25 @@ impl Reread {
 
 /// Screen rects from the last frame, for mouse hit testing.
 pub struct App {
-    pub(super) client: Arc<Client>,
-    pub(super) tx: mpsc::UnboundedSender<AppMsg>,
+    pub(crate) client: Arc<Client>,
+    pub(crate) tx: mpsc::UnboundedSender<AppMsg>,
     pub sessions: Vec<Value>,
     pub selected: usize,
     pub transcripts: HashMap<String, Transcript>,
-    pub(super) details: HashMap<String, Value>,
-    pub(super) attached: HashSet<String>,
+    pub(crate) details: HashMap<String, Value>,
+    pub(crate) attached: HashSet<String>,
     /// Sessions with a lag recovery request in flight. A broadcast lag can
     /// notify us more than once; only one replay page per session is in flight.
-    pub(super) recovery_in_flight: HashSet<String>,
+    pub(crate) recovery_in_flight: HashSet<String>,
     /// Number of pages already requested for each lagged session.
-    pub(super) recovery_pages: HashMap<String, u8>,
+    pub(crate) recovery_pages: HashMap<String, u8>,
     /// Number of records accepted from the current lag recovery.
-    pub(super) recovery_replayed: HashMap<String, usize>,
+    pub(crate) recovery_replayed: HashMap<String, usize>,
     /// Cursor that started the current lag recovery, for the terminal status.
-    pub(super) recovery_start: HashMap<String, u64>,
+    pub(crate) recovery_start: HashMap<String, u64>,
     /// Older transcript pages requested while the user scrolls to the top.
-    pub(super) history_in_flight: HashSet<String>,
-    pub(super) history_more: HashMap<String, bool>,
+    pub(crate) history_in_flight: HashSet<String>,
+    pub(crate) history_more: HashMap<String, bool>,
     pub input: Editor,
     /// The composer's tie to the chat's durable draft (`composer_draft.rs`).
     pub draft_sync: composer_draft::DraftSync,
@@ -150,11 +169,11 @@ pub struct App {
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.
     /// Each is created on its first Enter, with that message.
     pub drafts: Vec<Draft>,
-    pub(super) next_draft_id: u64,
+    pub(crate) next_draft_id: u64,
     pub focus: Focus,
     pub overlay: Overlay,
     /// The new-session form is parked here while its agent picker is open.
-    pub(super) parked_form: Option<Overlay>,
+    pub(crate) parked_form: Option<Overlay>,
     pub status: String,
     pub web_url: Option<String>,
     /// Peers as reported by the daemon: name, connected, session count.
@@ -163,21 +182,21 @@ pub struct App {
     pub host_filter: Option<String>,
     /// Clickable host chips drawn last frame.
     pub host_chips: Vec<(Rect, Option<String>)>,
-    pub(super) harnesses: Vec<String>,
-    pub(super) default_harness: Option<String>,
-    pub(super) model_picker_current_only: bool,
-    pub(super) skills: Vec<skills::Skill>,
-    pub(super) palette_prefix: String,
-    pub(super) palette_aliases: Vec<String>,
-    pub(super) skill_prefix: String,
-    pub(super) keymap: keymap::Keymap,
-    pub(super) skill_paths: Vec<String>,
+    pub(crate) harnesses: Vec<String>,
+    pub(crate) default_harness: Option<String>,
+    pub(crate) model_picker_current_only: bool,
+    pub(crate) skills: Vec<skills::Skill>,
+    pub(crate) palette_prefix: String,
+    pub(crate) palette_aliases: Vec<String>,
+    pub(crate) skill_prefix: String,
+    pub(crate) keymap: keymap::Keymap,
+    pub(crate) skill_paths: Vec<String>,
     pub show_thoughts: bool,
     /// Show lifecycle events (stopped, resumed, renamed, model set…).
     pub show_system: bool,
-    pub(super) quit: bool,
-    pub(super) pending_select: Option<String>,
-    pub(super) initial_empty_checked: bool,
+    pub(crate) quit: bool,
+    pub(crate) pending_select: Option<String>,
+    pub(crate) initial_empty_checked: bool,
     pub tick: u64,
     pub chrome: Chrome,
     pub areas: Areas,
@@ -234,8 +253,8 @@ pub struct App {
     pub sidebar_nav_pos: usize,
     pub sidebar_offset: usize,
     pub toast: Option<(String, Instant)>,
-    pub(super) last_click: Option<(Instant, u16, u16, u8)>,
-    pub(super) pointer_shape: bool,
+    pub(crate) last_click: Option<(Instant, u16, u16, u8)>,
+    pub(crate) pointer_shape: bool,
     /// Clickable dialog buttons drawn last frame.
     pub buttons: Vec<(Rect, ButtonAction)>,
     /// Clickable permission option rows drawn last frame.
@@ -246,7 +265,7 @@ pub struct App {
     pub answering: Option<Answering>,
 }
 
-pub(super) const DEFAULT_STATUS: &str = "";
+pub(crate) const DEFAULT_STATUS: &str = "";
 
 impl App {
     /// True when the sidebar selection is a draft row.
@@ -255,7 +274,7 @@ impl App {
     }
     /// Show an error where the user is looking: red in the status bar, and
     /// as a red row in the current transcript (or under the draft summary).
-    pub(super) fn report_error(&mut self, e: String) {
+    pub(crate) fn report_error(&mut self, e: String) {
         self.status = format!("error: {e}");
         if let Some(d) = self.draft_mut() {
             d.errors.push(e);
@@ -268,20 +287,20 @@ impl App {
     pub fn draft(&self) -> Option<&Draft> {
         self.drafts.get(self.selected)
     }
-    pub(super) fn draft_mut(&mut self) -> Option<&mut Draft> {
+    pub(crate) fn draft_mut(&mut self) -> Option<&mut Draft> {
         let i = self.selected;
         self.drafts.get_mut(i)
     }
     /// Index into `sessions` for the current selection, or None on a draft.
-    pub(super) fn session_index(&self) -> Option<usize> {
+    pub(crate) fn session_index(&self) -> Option<usize> {
         self.selected.checked_sub(self.drafts.len())
     }
-    pub(super) fn selected_session(&self) -> Option<&Value> {
+    pub(crate) fn selected_session(&self) -> Option<&Value> {
         self.session_index().and_then(|i| self.sessions.get(i))
     }
     /// Number of sidebar rows: drafts plus sessions.
     /// Move the selection by `delta` rows of the drawn sidebar order.
-    pub(super) fn select_step(&mut self, delta: isize) {
+    pub(crate) fn select_step(&mut self, delta: isize) {
         if self.sidebar_nav.is_empty() {
             let next = if delta > 0 { self.selected + 1 } else { self.selected.saturating_sub(1) };
             self.select(next);
@@ -304,7 +323,7 @@ impl App {
         }
     }
 
-    pub(super) fn row_count(&self) -> usize {
+    pub(crate) fn row_count(&self) -> usize {
         self.sessions.len() + self.drafts.len()
     }
     /// True when a session (or draft peer) belongs to the filtered host.
@@ -371,7 +390,7 @@ impl App {
         blocks
     }
 
-    pub(super) fn paste_images(&mut self, pasted: &str) -> bool {
+    pub(crate) fn paste_images(&mut self, pasted: &str) -> bool {
         let mut found = Vec::new();
         let mut tokens = Vec::new();
         for line in pasted.lines() {
@@ -423,10 +442,10 @@ impl App {
         self.status = format!("{count} image{} attached", if count == 1 { "" } else { "s" });
         true
     }
-    pub(super) fn selected_id(&self) -> Option<String> {
+    pub(crate) fn selected_id(&self) -> Option<String> {
         self.selected_session().and_then(session_route_id)
     }
-    pub(super) fn selected_name(&self) -> String {
+    pub(crate) fn selected_name(&self) -> String {
         if let Some(d) = self.draft() {
             return match &d.peer {
                 Some(p) => format!("new session · {p}/{}", d.harness),
@@ -439,7 +458,7 @@ impl App {
             .to_owned()
     }
 
-    pub(super) fn select(&mut self, idx: usize) {
+    pub(crate) fn select(&mut self, idx: usize) {
         if self.row_count() == 0 {
             return;
         }
@@ -462,7 +481,7 @@ impl App {
     }
 
     /// Re-ask the daemon for harnesses and status (after a reconnect).
-    pub(super) fn refresh_harnesses(&mut self) {
+    pub(crate) fn refresh_harnesses(&mut self) {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -483,7 +502,7 @@ impl App {
         });
     }
 
-    pub(super) fn attach(&mut self, id: &str) {
+    pub(crate) fn attach(&mut self, id: &str) {
         self.attached.insert(id.to_owned());
         self.request_attach(id, None);
     }
@@ -491,7 +510,7 @@ impl App {
     /// Replay records after the last sequence the TUI applied.  The daemon's
     /// page is forward-ordered for `afterSeq`, so Transcript's existing
     /// sequence deduplication can merge it into the live model.
-    pub(super) fn recover_after_lag(&mut self, id: &str, after_seq: u64) -> bool {
+    pub(crate) fn recover_after_lag(&mut self, id: &str, after_seq: u64) -> bool {
         if !self.recovery_in_flight.insert(id.to_owned()) {
             return false;
         }
@@ -543,7 +562,7 @@ impl App {
 
     /// Asks for the page of records before the oldest one shown once the selected
     /// transcript is scrolled to its top, one page at a time, until the log has no more.
-    pub(super) fn load_older_if_needed(&mut self) {
+    pub(crate) fn load_older_if_needed(&mut self) {
         let Some(id) = self.selected_id() else { return };
         let Some(v) = self.viewport.get(&id) else { return };
         if v.offset != 0
@@ -581,7 +600,7 @@ impl App {
         self.status = "loading earlier history…".into();
     }
 
-    pub(super) fn refresh_sessions(&self) {
+    pub(crate) fn refresh_sessions(&self) {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -593,7 +612,7 @@ impl App {
         });
     }
 
-    pub(super) fn request_bg(&self, m: &'static str, params: Value, ok_msg: Option<String>) {
+    pub(crate) fn request_bg(&self, m: &'static str, params: Value, ok_msg: Option<String>) {
         // Shares `request_then`, which re-reads nothing here.
         self.request_then(m, params, ok_msg, Reread::Nothing);
     }
@@ -601,7 +620,7 @@ impl App {
     /// `request_bg`, then re-read what the request changed once its reply
     /// arrived. The daemon applies a mode, model, config or policy change
     /// before it replies, so no timer is needed.
-    pub(super) fn request_then(
+    pub(crate) fn request_then(
         &self,
         m: &'static str,
         params: Value,
@@ -650,7 +669,7 @@ impl App {
 
     /// The selected session has a turn open: running, or waiting on a permission (the turn still
     /// takes a steer), by its list row or by its transcript, whichever is newer.
-    pub(super) fn turn_open(&self) -> bool {
+    pub(crate) fn turn_open(&self) -> bool {
         self.selected_session()
             .and_then(|s| s.get("status"))
             .and_then(Value::as_str)
@@ -664,14 +683,14 @@ impl App {
     /// Enter steers a prompt into the running turn when the agent steers, as the app's composer does
     /// (Leo, 2026-11-05: "wt* like no these default enters became queues?"); Ctrl-s queues it. A
     /// slash command still waits for the turn, so it runs as its own turn, never as a steer.
-    pub(super) fn enter_steers(&self) -> bool {
+    pub(crate) fn enter_steers(&self) -> bool {
         self.turn_open()
             && !self.on_draft()
             && self.selected_supports_steer()
             && !self.editor().text().trim_start().starts_with('/')
     }
 
-    pub(super) fn send_prompt(&mut self, steer: bool) {
+    pub(crate) fn send_prompt(&mut self, steer: bool) {
         if self.editor().text().trim().is_empty() && self.prompt_images().is_empty() {
             return;
         }
@@ -728,7 +747,7 @@ impl App {
             };
             t.push_optimistic(
                 text.clone(),
-                crate::transcript::Item::User { text: shown, steer, queued },
+                acpmux::transcript::Item::User { text: shown, steer, queued },
             );
             if !steer && !queued {
                 t.status = "running".into();
@@ -738,7 +757,7 @@ impl App {
         self.request_bg(method::SESSION_PROMPT, params, None);
     }
 
-    pub(super) fn cancel(&mut self) {
+    pub(crate) fn cancel(&mut self) {
         if let Some(id) = self.selected_id() {
             let client = self.client.clone();
             tokio::spawn(async move {
@@ -748,7 +767,7 @@ impl App {
         }
     }
 
-    pub(super) fn answer_permission(&mut self, choice: PermChoice) {
+    pub(crate) fn answer_permission(&mut self, choice: PermChoice) {
         // A question is answered through its flow, never by a blank allow.
         if self.question_choice(&choice) {
             return;
@@ -786,7 +805,7 @@ impl App {
 }
 
 fn session_route_id(session: &Value) -> Option<String> {
-    crate::session_identity::routed_id(session).ok()
+    acpmux::session_identity::routed_id(session).ok()
 }
 
 /// A session or transcript status with a turn still open: running, or waiting on a permission.
@@ -812,9 +831,9 @@ mod session_route_tests {
 }
 
 #[cfg(all(test, unix))]
-pub(super) mod interaction_tests {
+pub(crate) mod interaction_tests {
     use super::*;
-    pub(super) async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
+    pub(crate) async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", uuid::Uuid::now_v7()));
         let _ = std::fs::remove_file(&socket);
@@ -842,7 +861,7 @@ pub(super) mod interaction_tests {
         let client = Client::connect(&socket).await.unwrap();
         let _ = std::fs::remove_file(socket);
         let (tx, _) = mpsc::unbounded_channel();
-        let mut app = run::make_app(client, tx, vec![], crate::config::Config::default()).unwrap();
+        let mut app = run::make_app(client, tx, vec![], acpmux::config::Config::default()).unwrap();
         app.default_harness = Some("codex".into());
         app.harnesses = vec!["codex".into(), "claude".into()];
         app.open_draft();
