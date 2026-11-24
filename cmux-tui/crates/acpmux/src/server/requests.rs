@@ -940,34 +940,27 @@ async fn new_on_peer(
     peer_name: &str,
 ) -> Result<Value, RpcError> {
     // A credential is for an agent on this machine only: never sent on to a peer.
-    if mux_meta(params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
-    {
+    if mux_meta(params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some() {
         return Err(RpcError::invalid_params(
             "credentials start an agent on this machine only, never on a peer",
         ));
     }
-    let peer =
-        hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
     let mut p = params.clone();
     super::peer_forward::strip_new_meta(&mut p);
     // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-    let answer = crate::hub::cmux_tools_answer::here_for(
-        crate::user_settings::text().as_deref(),
-        &p,
-    );
+    let answer =
+        crate::hub::cmux_tools_answer::here_for(crate::user_settings::text().as_deref(), &p);
     crate::hub::cmux_tools_answer::stamp(&mut p, answer);
     super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
     // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
-    let unattended =
-        hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
+    let unattended = hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
     // A full-access starter's chat runs in full access there too, and the person's
     // own start at the person's start level (`hub/full_access_children.rs`).
-    let carried = hub
-        .forward_start_policy(person_start(conn, params), conn.caller(), &mut p)
-        .await;
+    let carried = hub.forward_start_policy(person_start(conn, params), conn.caller(), &mut p).await;
     crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, params));
     // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
     // for the person's own clients here only (`vm_boundary::owner`): a saved
@@ -977,13 +970,9 @@ async fn new_on_peer(
         conn.auth,
         super::remote_guard::control_of(conn.origin, conn.auth, params),
         params,
-    ) && (peer.vm_boundary()
-        || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
+    ) && (peer.vm_boundary() || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
     {
-        crate::hub::merge_mux_meta(
-            &mut p,
-            json!({crate::hub::vm_boundary::FIELD: true}),
-        );
+        crate::hub::merge_mux_meta(&mut p, json!({crate::hub::vm_boundary::FIELD: true}));
     }
     if let Some((name, digest)) = &unattended {
         hub.unattended_preset_holds(name, digest).await?;
@@ -995,9 +984,7 @@ async fn new_on_peer(
     let mut result = match super::remote_guard::hint::new_on(&peer, params, p).await {
         Err(e)
             if asking.is_some()
-                && e.data
-                    .as_ref()
-                    .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
+                && e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
         {
             let asking = asking.unwrap_or_default();
             super::remote_guard::hint::new_on(&peer, params, asking).await?
@@ -1889,7 +1876,12 @@ async fn dispatch_request_with_identity(
                     }
                     Err(e) => {
                         let host = Some(placed.host.as_str());
-                        redirect::log("local_forward_failed", placed.reason, host, Some(&e.message));
+                        redirect::log(
+                            "local_forward_failed",
+                            placed.reason,
+                            host,
+                            Some(e.message.as_str()),
+                        );
                         if let Some(a) = admitted.as_mut() {
                             let failed = redirect::forward_failed(&placed, &e.message);
                             let mut w = a.warning.take().unwrap_or_else(|| json!({}));

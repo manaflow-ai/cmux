@@ -13,7 +13,9 @@
 //!   (`placement.rs`, as `new --host auto` and lane-place weigh hosts). A cap
 //!   only warns: no launch is refused for load or a cap (Leo's rulebook; at
 //!   huge-blue's 12 the stall reconciler's PONG to claude-sr2 was refused,
-//!   2026-10-26). The registry is `FLEET_REGISTRY` when set,
+//!   2026-10-26). A create whose client asks (`_meta.acpmux.placeRedirect`) starts on
+//!   that peer instead (`admission_redirect.rs`), and here, warned, when it cannot.
+//!   The registry is `FLEET_REGISTRY` when set,
 //!   else the first that exists of `~/.ssh/config.d/fleet-registry.json` (the
 //!   copy `reach --install` renders) and leo-workspace's own
 //!   `~/Projects/leo-workspace/machines/fleet-registry.json` (a fleet host
@@ -394,7 +396,12 @@ impl Hub {
         // (`admission_redirect.rs`), and nothing else does.
         let shadow =
             crate::shadow_admission::record("admit", Some(&here.name), std::slice::from_ref(&here));
-        let busy = shadow.get("would_defer").and_then(Value::as_bool) == Some(true);
+        // Busy: the host-budget formula reads it saturated, never only its readings unknown.
+        let busy = shadow.get("would_defer").and_then(Value::as_bool) == Some(true)
+            && shadow
+                .get("reason")
+                .and_then(Value::as_str)
+                .is_some_and(|r| r.starts_with("saturated"));
         match verdict.uncapped {
             Some(why) if why == NO_REGISTRY => {
                 tracing::debug!("session admitted with no lane cap: {why}")

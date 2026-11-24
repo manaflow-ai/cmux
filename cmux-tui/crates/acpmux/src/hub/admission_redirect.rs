@@ -167,7 +167,12 @@ pub(crate) fn pick(
 
 /// One decision's log line (module docs): `outcome` is `redirected`,
 /// `local_no_room`, `local_forward_failed` or `local_not_asked`.
-pub(crate) fn log(outcome: &str, reason: Reason, host: Option<&str>, detail: Option<&str>) -> Value {
+pub(crate) fn log(
+    outcome: &str,
+    reason: Reason,
+    host: Option<&str>,
+    detail: Option<&str>,
+) -> Value {
     let line = json!({
         "ts": crate::store::now_ms(),
         "outcome": outcome,
@@ -254,7 +259,11 @@ mod tests {
         assert_eq!(considered(&agent, true, false, true), Some(Reason::Busy));
         assert_eq!(considered(&agent, true, false, false), None, "room here: it stays");
         assert_eq!(considered(&agent, false, true, true), None, "no lanes entry: not a lane host");
-        assert_eq!(considered(&ask(false, false, true, true), true, true, false), None, "old client");
+        assert_eq!(
+            considered(&ask(false, false, true, true), true, true, false),
+            None,
+            "old client"
+        );
         assert_eq!(considered(&ask(true, true, true, true), true, true, false), None, "a person");
         assert_eq!(considered(&ask(true, false, false, true), true, true, false), None, "Web");
         assert_eq!(considered(&ask(true, false, true, false), true, true, false), None, "a peer");
@@ -269,7 +278,9 @@ mod tests {
         assert!(movable(&plain));
         let without = json!({"cwd": "/w", "_meta": {"acpmux": {"name": "r"}}});
         assert!(!asked(&without) && !movable(&without), "no opt-in: an old client");
-        for key in ["worktree", "env", "ephemeral", "workspaceId", "adopt", "credentials", "reportTo"] {
+        for key in
+            ["worktree", "env", "ephemeral", "workspaceId", "adopt", "credentials", "reportTo"]
+        {
             let mut p = plain.clone();
             p["_meta"]["acpmux"][key] = json!(true);
             assert!(!movable(&p), "{key} ties it here");
@@ -301,12 +312,16 @@ mod tests {
             live: 13,
             max: Some(12),
         };
-        let p = json!({"cwd": "/here", "mcpServers": [], "_meta": {"acpmux": {"name": "r", FIELD: 1}}});
+        let p =
+            json!({"cwd": "/here", "mcpServers": [], "_meta": {"acpmux": {"name": "r", FIELD: 1}}});
         let f = forwarded(&p, &placed);
         assert_eq!(f.get("cwd"), None);
         assert_eq!(f.pointer("/_meta/acpmux/peer"), Some(&json!("far")));
         assert_eq!(f.pointer(&format!("/_meta/acpmux/{FIELD}")), None);
-        assert_eq!(f.pointer("/_meta/acpmux/ifNameTaken"), Some(&json!(super::super::SUFFIX_TAKEN_NAME)));
+        assert_eq!(
+            f.pointer("/_meta/acpmux/ifNameTaken"),
+            Some(&json!(super::super::SUFFIX_TAKEN_NAME))
+        );
         let a = answer(json!({"sessionId": "s1", "peer": "far"}), &placed);
         assert_eq!(a.pointer("/_meta/acpmux/placedOn"), Some(&json!("far")));
         assert_eq!(a.pointer("/_meta/acpmux/placement/version"), Some(&json!(VERSION)));
