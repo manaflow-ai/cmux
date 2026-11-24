@@ -2751,7 +2751,6 @@ button.cv-subagent > :last-child {
 /* The header's glyphs, at the composer's size. */
 /* A harness mark (the stack's, a kind's) keeps its own size: its badge and mask cut are drawn for it. */
 .acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind) > svg,
-.acpmux-running-tray__chevron svg,
 .acpmux-running-tray :is(.acpmux-running-tray__open, .acpmux-running-tray__hide) > svg {
   width: var(--acpmux-tray-glyph);
   height: var(--acpmux-tray-glyph);
@@ -2804,4 +2803,10 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__plan .cv-plan__mark {
   margin-inline-start: calc((var(--acpmux-tray-lead-box) - 12px) / 2);
+}
+
+/* The hat's one caret (HatChevron.tsx): the Goal row's and the header's, one size at every density. */
+.acpmux-hat-chevron {
+  width: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
+  height: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
 }

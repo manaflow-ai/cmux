@@ -323,6 +323,21 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
               hatChevron: rect(q(".acpmux-running-tray__chevron svg")),
               hatChevronBox: rect(q(".acpmux-running-tray__chevron")),
               panel: rect(q(".acpmux-running-tray__open > svg")),
+              // The two carets' drawing: one component (its class), one stroke, one ink.
+              carets: [".acpmux-goal[data-look] .acpmux-goal-chevron > svg", ".acpmux-running-tray__chevron svg"].map(
+                (selector) => {
+                  const svg = q(selector);
+                  if (!svg) return null;
+                  const shapes = [...svg.querySelectorAll("path,polyline,line")].map((shape) =>
+                    shape.getBoundingClientRect(),
+                  );
+                  return {
+                    shared: svg.classList.contains("acpmux-hat-chevron"),
+                    stroke: getComputedStyle(svg.querySelector("path,polyline,line") ?? svg).strokeWidth,
+                    ink: shapes.length ? Math.max(...shapes.map((r) => r.width)) : 0,
+                  };
+                },
+              ),
             };
           });
           const off: string[] = [];
@@ -337,6 +352,11 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
           near("goal chevron's right edge", m.goalChevron?.right, m.hatChevron?.right);
           near("goal chevron size", m.goalChevron?.w, m.hatChevron?.w);
           near("panel glyph size", m.panel?.w, m.hatChevron?.w);
+          const [goalCaret, hatCaret] = m.carets;
+          if (!goalCaret?.shared || !hatCaret?.shared) off.push("both carets draw HatChevron");
+          if (goalCaret?.stroke !== hatCaret?.stroke)
+            off.push(`caret stroke: ${goalCaret?.stroke} vs ${hatCaret?.stroke}`);
+          near("caret ink", goalCaret?.ink, hatCaret?.ink, 0.25);
           near("goal dot on its first line", m.goalMark?.cy, m.goalText?.cy, 1);
           near("goal chevron on its first line", m.goalChevron?.cy, m.goalText?.cy, 1);
           expect(off).toEqual([]);

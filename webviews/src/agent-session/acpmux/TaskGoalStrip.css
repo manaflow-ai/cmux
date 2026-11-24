@@ -340,9 +340,6 @@
   color: var(--agent-muted);
 }
 .acpmux-goal-chevron > svg {
-  /* The hat header's chevron size (subagents.css --acpmux-tray-glyph). */
-  width: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
-  height: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
   rotate: 180deg;
   transition: rotate var(--acpmux-goal-close) var(--acpmux-goal-close-ease);
 }

@@ -61,6 +61,7 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
+import { HatChevron } from "./HatChevron";
 import {
   type CSSProperties,
   type FocusEvent,
@@ -971,7 +972,7 @@ export const SubagentTray = memo(function SubagentTray({
                 on a lone line that navigated on its first click). */}
             {chevronAt === "trailing" && (
               <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
-                <Icon name="disclosure.expanded" size={ROW_ICON} row />
+                <HatChevron />
               </span>
             )}
           </span>
