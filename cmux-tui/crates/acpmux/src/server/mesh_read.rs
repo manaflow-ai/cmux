@@ -139,6 +139,10 @@ async fn run(hub: &Arc<Hub>, message: &InMessage, writes: bool) -> Result<String
     if WRITE_METHODS.contains(&m) && !writes {
         return Err("mesh.control_not_allowed".into());
     }
+    // This machine's health, for placement on a machine only the hub reaches: of no session.
+    if m == HOST_HEALTH {
+        return health_answer(hub).await;
+    }
     if !READ_METHODS.contains(&m) && !WRITE_METHODS.contains(&m) && m != READ_PART {
         return Err(format!("mesh.read_unsupported: {m:?} is not a read"));
     }
@@ -209,6 +213,73 @@ async fn run(hub: &Arc<Hub>, message: &InMessage, writes: bool) -> Result<String
         return Ok(json!({PARTS: {"id": held, "count": count}}).to_string());
     }
     Err("mesh.read_too_large: the answer does not fit the hub's 64 KiB".into())
+}
+
+/// The read that asks a machine for its health (`peer_status.rs` `host_health`), as a direct
+/// peer's link asks it every minute (`peer_health.rs`). Addressed to the machine, not a session.
+/// A build before it refuses it as `mesh.read_unsupported`, which the asker keeps as
+/// `{"unsupported": true}`: unknown, and `placement.rs` says to update that machine.
+pub(crate) const HOST_HEALTH: &str = "_acpmux/host_health";
+
+/// The most a health answer holds. A trimmed reading is about 1 KiB; one past this is refused,
+/// never cut, so a reading is whole or none.
+pub(crate) const HEALTH_BYTES: usize = 8 * 1024;
+
+/// How long a health read waits for its answer: placement never waits on a slow machine.
+// timeout: a missing reading reads as unknown; placement goes on without it.
+pub(crate) const HEALTH_WAIT: Duration = Duration::from_secs(8);
+
+/// The answer to a [`HOST_HEALTH`] read: `{"health": READING}`, the reading cut as a direct
+/// peer's is (`peer_health.rs` `trim`), at most [`HEALTH_BYTES`].
+async fn health_answer(hub: &Arc<Hub>) -> Result<String, String> {
+    let reading = crate::server::peer_status::host_health(hub, Origin::Peer).await;
+    let text = json!({"health": crate::peer::health::trim(reading)}).to_string();
+    if text.len() > HEALTH_BYTES {
+        return Err(format!("mesh.read_too_large: the health reading is {} bytes", text.len()));
+    }
+    Ok(text)
+}
+
+/// The body of a [`HOST_HEALTH`] read. Version 1, as every read: a build before the method
+/// then answers `mesh.read_unsupported`, not `unsupported read body version`.
+pub(crate) fn health_body() -> String {
+    json!({"version": 1, "method": HOST_HEALTH, "params": {}}).to_string()
+}
+
+/// What a machine's answer to a [`HOST_HEALTH`] read says: its reading, or `{"unsupported":
+/// true}` from a build without the method (its refusal names `mesh.read_unsupported`).
+pub(crate) fn health_of(answer: Result<String, RpcError>) -> Result<Value, RpcError> {
+    match answer {
+        Ok(text) => {
+            if text.len() > HEALTH_BYTES {
+                return Err(RpcError::internal("the health reading is too large"));
+            }
+            let v: Value = serde_json::from_str(&text)
+                .map_err(|_| RpcError::internal("the health reading is not JSON"))?;
+            match v.get("health") {
+                Some(h) if h.is_object() => Ok(h.clone()),
+                _ => Err(RpcError::internal("the health answer has no reading")),
+            }
+        }
+        Err(e) if e.message.starts_with("mesh.read_unsupported") => {
+            Ok(json!({"unsupported": true}))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// `host`'s health through the hub, asked of the machine itself, within [`HEALTH_WAIT`].
+pub(crate) async fn host_health(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+) -> Result<Value, RpcError> {
+    let to = Target { host: Some(host.to_owned()), ..Target::default() };
+    let deadline = tokio::time::Instant::now() + HEALTH_WAIT;
+    let answer = ask_once(mesh, to, host, "", health_body(), deadline).await.map_err(|e| match e {
+        Asked::Gone(e) => hub_error(host, "", e),
+        Asked::Failed(e) => e,
+    });
+    health_of(answer)
 }
 
 /// The queued prompts an `_acpmux/info` through the hub carries: the next ones to run. The
@@ -621,7 +692,7 @@ async fn ask(
     let deadline = tokio::time::Instant::now() + READ_WAIT;
     let mut round = 1;
     loop {
-        match ask_once(mesh, host, key, body.clone(), deadline).await {
+        match ask_once(mesh, recipient(host, key), host, key, body.clone(), deadline).await {
             Ok(text) => return Ok(text),
             // A read sent again once its wait has run out is one no one waits for.
             Err(Asked::Gone(_)) if tokio::time::Instant::now() >= deadline => {
@@ -646,6 +717,7 @@ enum Asked {
 
 async fn ask_once(
     mesh: &dyn crate::mesh::MeshHub,
+    to: Target,
     host: &str,
     key: &str,
     body: String,
@@ -660,7 +732,7 @@ async fn ask_once(
         })
     };
     let message = OutMessage {
-        to: recipient(host, key),
+        to,
         from: Sender { host: Some(crate::pairing::mesh_host()), ..Sender::default() },
         kind: Kind::Control,
         op: Some("read".into()),

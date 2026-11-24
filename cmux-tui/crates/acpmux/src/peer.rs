@@ -38,7 +38,7 @@ mod dialer;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
-mod health;
+pub(crate) mod health;
 #[path = "peer_overlay.rs"]
 pub(crate) mod overlay;
 
