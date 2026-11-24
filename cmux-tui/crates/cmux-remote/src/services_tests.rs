@@ -25,6 +25,13 @@ pub(super) struct TestEndpoint {
     generation: watch::Sender<u64>,
 }
 
+impl TestEndpoint {
+    /// Moves this side's session to `generation`, as a resume does.
+    pub(super) fn set_generation(&self, generation: u64) {
+        let _ = self.generation.send(generation);
+    }
+}
+
 #[async_trait]
 impl SessionEndpoint for TestEndpoint {
     async fn send_frame(
