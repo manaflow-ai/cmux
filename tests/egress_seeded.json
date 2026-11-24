@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 49,
+ "todo_max": 45,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -105,7 +105,7 @@
    "todo": true
   },
   "cmux_tui::cli::video": {
-   "todo": true
+   "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
   },
   "cmux_tui::cloud_conversations_backend": {
    "todo": true
@@ -120,7 +120,7 @@
    "todo": true
   },
   "cmux_tui::owner_start::background_checks": {
-   "todo": true
+   "none": "header-less GETs of the signed feature-flag file and the npm/PyPI registry entry: no cookie, token or person data in the request"
   },
   "cmux_tui::owner_start::crash_forward": {
    "test": "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward_tests.rs::seeded_secrets_never_reach_the_wire"
@@ -129,7 +129,7 @@
    "todo": true
   },
   "cmux_tui_core::apps::community": {
-   "todo": true
+   "none": "a GET of the public app registry pages: no auth or person data in the request"
   },
   "cmux_tui_core::apps::egress": {
    "todo": true
@@ -138,7 +138,7 @@
    "todo": true
   },
   "cmux_tui_core::language_packs": {
-   "todo": true
+   "none": "a GET of the pack URL from the signed manifest, no auth, no redirect: the request carries only the pack name"
   },
   "cmux_tui_core::server::agent_session_share_room": {
    "todo": true
