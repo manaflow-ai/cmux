@@ -129,7 +129,7 @@ const START_WAIT: Duration = Duration::from_secs(120);
 /// A `session/new` for `host`, a machine only the mesh hub reaches (`hub/mesh_book.rs`): sent as
 /// the hub's start control, as `acpmux session start NAME --machine HOST` sends it, and answered
 /// as a peer's start is (`sessionId`, `peer`), with `via: "hub"`, once that machine started it.
-/// Before, a placed `new` there was refused as no peer (gcp-agent-lane-8, 2026-11-24: every
+/// Before, a placed `new` there was refused as no peer (a lane VM, 2026-11-24: every
 /// fleet host was hub-only). Its prompts then go through the hub (`mesh_read.rs` `prompt`).
 pub(super) async fn start_through_hub(
     hub: &Arc<Hub>,
