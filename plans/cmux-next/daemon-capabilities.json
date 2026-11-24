@@ -201,6 +201,7 @@
     "workspace-kind-v1",
     "workspace-metadata-v1",
     "workspace-name-source-v1",
+    "workspace-open-url-v1",
     "workspace-pin-v1",
     "workspace-status-v1",
     "ws-listen-origins-v1",
