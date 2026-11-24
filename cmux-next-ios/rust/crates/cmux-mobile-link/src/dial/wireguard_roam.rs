@@ -113,6 +113,39 @@ pub(super) struct RelayPlan {
     /// on a signal to this device (`relayTicket`); `None` from a service that
     /// stamps none, whose join is then refused.
     pub ticket: Option<String>,
+    /// A join already under way, started at the dial's start with the ticket the
+    /// service handed over before the peer's answer ([`EarlyJoin`]); the relay watch
+    /// takes it instead of dialing again.
+    pub early: Option<Arc<EarlyJoin>>,
+}
+
+/// A relay join that began before the tunnel did (PROTOCOL.md "Relay ticket"): the
+/// phone asked the service for its ticket at the dial's start, and joins as it arrives.
+/// `None` out of it: the join failed, and the watch joins on its own as before. Dropped
+/// unused (the peer does not dial the relay first), it ends the join.
+#[derive(Debug)]
+pub(super) struct EarlyJoin(
+    Mutex<Option<tokio::task::JoinHandle<Option<super::super::relay::RelayCarrier>>>>,
+);
+
+impl EarlyJoin {
+    pub(super) fn new(handle: tokio::task::JoinHandle<Option<super::super::relay::RelayCarrier>>) -> Self {
+        Self(Mutex::new(Some(handle)))
+    }
+
+    /// The join's outcome, once: `None` when it failed or was taken already.
+    pub(super) async fn take(&self) -> Option<super::super::relay::RelayCarrier> {
+        let handle = lock(&self.0).take()?;
+        handle.await.ok().flatten()
+    }
+}
+
+impl Drop for EarlyJoin {
+    fn drop(&mut self) {
+        if let Some(handle) = lock(&self.0).take() {
+            handle.abort();
+        }
+    }
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
@@ -1379,14 +1412,24 @@ async fn run_relay_watch(session: Weak<Session>) {
         let decided = Instant::now();
         tracing::info!(session = session.session_id, reason, "WireGuard joins cmux's relay");
         let host = plan.endpoint.host();
-        match super::super::relay::RelayCarrier::join(
-            &plan.endpoint,
-            &session.session_id,
-            &session.peer,
-            plan.ticket.as_deref(),
-        )
-        .await
-        {
+        // A join begun at the dial's start is taken once; a failed one joins as before.
+        let early = match &plan.early {
+            Some(early) => early.take().await.map(Ok),
+            None => None,
+        };
+        let joined = match early {
+            Some(carrier) => carrier,
+            None => {
+                super::super::relay::RelayCarrier::join(
+                    &plan.endpoint,
+                    &session.session_id,
+                    &session.peer,
+                    plan.ticket.as_deref(),
+                )
+                .await
+            }
+        };
+        match joined {
             Ok(carrier) => {
                 failures = 0;
                 // The peer was heard while the join ran (a slow handshake, not a

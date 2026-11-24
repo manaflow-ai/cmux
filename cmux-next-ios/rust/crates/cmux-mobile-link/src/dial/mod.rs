@@ -150,6 +150,12 @@ pub struct DialOptions {
     /// after nothing reached it. On by default; off dials as a build before
     /// relay-first did (tests of the older join rules).
     pub relay_first: bool,
+    /// Ask the service for this device's relay ticket as the dial starts and join the
+    /// relay when it arrives (PROTOCOL.md "Relay ticket"), so the join runs beside the
+    /// signaling round trip. Needs [`Self::relay_first`] and a peer that offers `first`
+    /// too. On by default; off dials as a build before it did (the ticket comes on the
+    /// peer's answer).
+    pub relay_ticket_early: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -281,6 +287,7 @@ impl Default for DialOptions {
             relay: None,
             force_relay: false,
             relay_first: true,
+            relay_ticket_early: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
