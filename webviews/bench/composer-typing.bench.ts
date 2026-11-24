@@ -43,7 +43,7 @@ import { chromium, webkit } from "./browsers";
 import { runComposerLoad } from "./composer-load";
 import { composerTypingRows } from "./composerTypingRows";
 import { perfRow } from "./perfRow";
-import { requireProductionReact, installReactWatch } from "./support/benchPage";
+import { requireProductionReact, installReactWatch, waitForPageHook, watchPageErrors } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
@@ -138,10 +138,15 @@ const METRICS = [
 async function openChat(page: Page, port: number, turns: number) {
   // Before the page's own code (bench/support/benchPage.ts installReactWatch).
   await installReactWatch(page);
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const errors = watchPageErrors(page);
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A 404 body loads as a page, and the wait below would then be 60 s of nothing (composer-load.ts).
+  if (status !== undefined && status >= 400)
+    throw new Error(`openChat: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // `servePane` builds the pane unless `--dev`; the check reads which React the page loaded
   // (bench/support/benchPage.ts).
-  await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  await waitForPageHook(page, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   // After the pane is up: react-dom rides a lazy chunk the page fetches when it mounts, so asking
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
@@ -336,7 +341,12 @@ async function measure(
     if (!COLD) {
       for (const key of "warm") await page.keyboard.press(key);
       await page.waitForTimeout(500);
-      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+      // Three of the four go: one letter stays, so the measured keys type into a prompt that already has
+      // words. The empty-to-typed step is a real change of the UI (Send takes Stop's slot, a suggestion goes)
+      // and renders once by design (composer/promptText.ts PromptFacts `blank`/`empty`); it is not what a key
+      // costs. Clearing the prompt here put that one render on the first measured key, hiding the per-key cost
+      // behind 1/60 of a transition (#45279, carried forward).
+      for (let i = 0; i < 3; i += 1) await page.keyboard.press("Backspace");
     }
     if (DRAFT > 0) {
       const line = "the quick brown fox jumps over the lazy dog and keeps on running past the old fence";

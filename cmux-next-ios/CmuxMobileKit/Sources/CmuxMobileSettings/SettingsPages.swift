@@ -665,10 +665,8 @@ struct TransportDetails: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
                             .font(theme.type.rowTitle)
-                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .textSelection(.enabled)
+                        InPlaceSelectionLabel(store.macLinkDiagnostics[macID] ?? "", textStyle: .footnote,
+                                              color: theme.colors.label2.uiColor)
                     }
                     .accessibilityElement(children: .combine)
                 }
