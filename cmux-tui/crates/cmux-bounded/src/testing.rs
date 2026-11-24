@@ -46,9 +46,9 @@ pub fn assert_every_wait_recovers<M: BoundedMachine>(
         assert_eq!(driver.state(), start, "{}: the factory built another state", M::NAME);
         let mut path = vec![M::label(start)];
         let mut now = t0;
-        let mut hops = 0;
+        let mut hops: usize = 0;
         while let Some(due) = driver.deadline() {
-            hops += 1;
+            hops = hops.saturating_add(1);
             now = due;
             assert!(
                 now.saturating_duration_since(t0) <= budget,

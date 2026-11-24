@@ -37,6 +37,7 @@ dependencies = [
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-fault",
  "cmux-felt",
@@ -1423,6 +1424,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bounded"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -1866,6 +1880,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -2318,6 +2333,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-egress",
  "cmux-file-lock",
  "cmux-process",
  "flate2",
@@ -2717,6 +2733,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -2866,6 +2890,7 @@ dependencies = [
  "cmux-customize-recipes",
  "cmux-daemon-launch-core",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
@@ -2894,6 +2919,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
