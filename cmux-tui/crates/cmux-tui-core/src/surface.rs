@@ -25,6 +25,8 @@ mod host_state;
 mod input;
 mod local_output;
 mod metadata;
+mod mirror_park;
+pub(crate) use mirror_park::TerminalMirror;
 mod mouse_input;
 mod options;
 mod pending_bells;
@@ -121,6 +123,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(any(unix, windows))]
 mod hosted_reader;
+#[cfg(unix)]
+mod idle_links;
 #[cfg(any(unix, windows))]
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(any(unix, windows))]
@@ -856,7 +860,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: TerminalMirror::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
@@ -1064,6 +1068,15 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    /// The terminal runs on the holder (its PTY master lives in the holder process).
+    #[cfg(test)]
+    pub(crate) fn runs_on_holder(&self) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+        })
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {

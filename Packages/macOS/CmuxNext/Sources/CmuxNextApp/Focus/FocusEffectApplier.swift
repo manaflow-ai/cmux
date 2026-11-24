@@ -52,6 +52,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.services.input.observeFocus(of: controller)
     }
 
+    func holdingPageGrants(_ send: () -> Void, until layout: () -> Void) { pageFocus.holdingGrants(send, until: layout) }
+
     func teardown() {
         observers.removeAll()
         overlayPanelObserver = nil
@@ -428,6 +430,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         // The Files tree follows the focused terminal's folder.
         services.fileExplorers.focusChanged(in: controller)
+        services.projectActions.focusChanged()
         if registry.context != next { registry.context = next }
     }
 

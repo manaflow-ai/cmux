@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9'
+IR_SHA256 = '6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b'
 
 
 @dataclass(frozen=True)
@@ -1183,6 +1183,28 @@ COMMANDS = {
             'turns': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-scheduled-list': CommandMetadata(
+        'conversation-scheduled-list',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-scheduled-op': CommandMetadata(
+        'conversation-scheduled-op',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'op': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-search': CommandMetadata(
         'conversation-search',
         'local-admin',
@@ -1982,6 +2004,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'after': CommandFieldMetadata(12, 'list-workspaces-page-v1'),
             'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
             'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
         },
@@ -2649,6 +2672,16 @@ COMMANDS = {
         6,
         None,
         ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'process-census': CommandMetadata(
+        'process-census',
+        'local-admin',
+        12,
+        'process-census-v1',
+        ('local-admin',),
         None,
         {
         },
@@ -4219,6 +4252,7 @@ EVENTS = {
     'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-live': EventMetadata('conversation-live', 12, 'chief-live-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
+    'conversation-scheduled-changed': EventMetadata('conversation-scheduled-changed', 12, 'conversation-scheduled-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
