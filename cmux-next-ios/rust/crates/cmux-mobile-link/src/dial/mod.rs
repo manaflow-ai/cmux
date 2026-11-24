@@ -14,8 +14,8 @@ use crate::api::IceServer;
 use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
-pub(crate) mod dpi;
 pub mod diagnosis;
+pub(crate) mod dpi;
 pub mod relay;
 pub(crate) mod turn;
 #[doc(hidden)]
