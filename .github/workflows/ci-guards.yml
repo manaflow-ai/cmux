@@ -1151,6 +1151,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_paid_queue_pin.py
 
+      # backend.yml's api-workerd shards reuse a green result for the same inputs by this key.
+      - name: Validate the pull_request.paths input-tree key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_paths_tree_key.py
+
       # A same-repository Linux job starts on the persistent pool (cmux-linux), not a Blacksmith size. No
       # workflow ran this from #49215 until 2026-11-24, and in that time five jobs went back to RUNNER_POOLS reads.
       - name: Validate that same-repository Linux jobs start on the persistent pool

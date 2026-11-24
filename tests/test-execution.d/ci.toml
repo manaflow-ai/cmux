@@ -521,6 +521,10 @@ path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_paths_tree_key.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_piece_swap.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_piece_swap.py"

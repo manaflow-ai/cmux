@@ -79,11 +79,6 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling. A pull request run also applies its
-    # migrations to the shared development database (migrations-development)
-    # before its preview deploy, so a cancel could stop one mid-apply.
-    "backend.yml": "deploy workflow; PR runs apply migrations to the shared development database",
 }
 
 
