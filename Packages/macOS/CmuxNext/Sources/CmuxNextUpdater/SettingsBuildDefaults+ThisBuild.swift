@@ -6,7 +6,8 @@ extension SettingsBuildDefaults {
     /// `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS` (``BuildStatePaths/settingsBuildDefaultsKey``), the Rust settings owner
     /// behind `cmux settings` and MCP `settings_get`, so both report one value.
     public static var thisBuild: SettingsBuildDefaults {
-        .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault,
-                 devBuild: BuildStatePaths.current.isolatesSharedState)
+        let track = UpdateBuildIdentity.main().track
+        return .channel(downloadsAutomatically: track.downloadsAutomaticallyByDefault,
+                        devBuild: BuildStatePaths.current.isolatesSharedState, installsWhenIdle: track.installsWhenIdleByDefault)
     }
 }

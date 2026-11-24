@@ -143,6 +143,11 @@ pub enum CircuitService {
     Acpmux,
     /// The machine's cmux-tui remote daemon, its WebSocket listener on loopback `port`.
     CmuxTui { port: u16 },
+    /// [`Self::CmuxTui`]'s daemon through a pipe this machine holds across the stream's end, so
+    /// an ssh session lives through the dialer's acpmux restarting (RFD 0127 cut 4,
+    /// `hub_carrier_resume.rs`). Hello `{"service":"cmux-tui","port":P,"target":"resume"}`; a
+    /// daemon from before it refuses it `service.unknown`, and the dialer opens a plain one.
+    CmuxTuiResume { port: u16 },
     /// The machine's own cmux-tui session daemon, the one its app shows (`CMUX_TUI_SOCKET`): a
     /// workspace and its terminals opened from another of the person's machines. Hello
     /// `{"service":"cmux-tui","target":"session"}`. Reached only while the person granted
@@ -193,7 +198,9 @@ impl CircuitLane {
     pub fn of(service: CircuitService) -> Self {
         match service {
             // A move's pages are bulk bytes, as a port pipe's are.
-            CircuitService::CmuxTui { .. } | CircuitService::TransferSource => Self::Bulk,
+            CircuitService::CmuxTui { .. }
+            | CircuitService::CmuxTuiResume { .. }
+            | CircuitService::TransferSource => Self::Bulk,
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
             | CircuitService::MachineCall => Self::Cheap,
@@ -210,6 +217,9 @@ impl CircuitLane {
 
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
+
+/// The `target` a hello gives [`CircuitService::CmuxTuiResume`].
+pub const RESUME_TARGET: &str = "resume";
 
 /// The first bytes of a record that names a circuit's service. A WebSocket upgrade (the acpmux
 /// service's first bytes) never starts with NUL.
@@ -284,6 +294,9 @@ fn hello_record(service: CircuitService) -> Bytes {
         CircuitService::CmuxTui { port } => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port})
         }
+        CircuitService::CmuxTuiResume { port } => {
+            serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port, "target": RESUME_TARGET})
+        }
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
         }
@@ -314,6 +327,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
     Some(match (hello.get("service").and_then(serde_json::Value::as_str), port, target) {
         (Some(CMUX_TUI_SERVICE), Some(port), None) if port != 0 => {
             Ok(CircuitService::CmuxTui { port })
+        }
+        (Some(CMUX_TUI_SERVICE), Some(port), Some(RESUME_TARGET)) if port != 0 => {
+            Ok(CircuitService::CmuxTuiResume { port })
         }
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
@@ -1652,9 +1668,11 @@ impl RelayIncoming for Incoming {
                 let reached = match named {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
-                    // Served above; never reaches a TCP target.
+                    // Served above; never reaches a TCP target. A held pipe rides only a kept
+                    // circuit's stream, whose mux serves it; its dialer then opens a plain one.
                     Ok(
-                        CircuitService::CmuxTuiSession
+                        CircuitService::CmuxTuiResume { .. }
+                        | CircuitService::CmuxTuiSession
                         | CircuitService::MachineCall
                         | CircuitService::TransferSource,
                     ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
