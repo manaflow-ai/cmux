@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-egress",
     "crates/desktop-lease",
     "crates/acpmux-core",
     "crates/acpmux-client",
@@ -358,6 +359,7 @@ await_holding_refcell_ref = "deny"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
+cmux-egress = { path = "crates/cmux-egress" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
