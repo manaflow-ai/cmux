@@ -23,7 +23,24 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         presentAppsMenu()
     }
 
+    /// Whether ``sendGate`` lets a send go now.
+    func sendGateAllows(retry: @escaping () -> Void) -> Bool {
+        sendGate?(retry) ?? true
+    }
+
     func composerDidTapSend(_ composer: ConversationComposerView) {
+        // Every typed send comes here (Send, Return, the effect picker): the gate sees each.
+        let heldEffect = effects.pendingSendEffect
+        guard sendGateAllows(retry: { [weak self, weak composer] in
+            guard let self, let composer else { return }
+            self.effects.pendingSendEffect = heldEffect
+            self.composerDidTapSend(composer)
+            self.effects.pendingSendEffect = nil
+        }) else {
+            // Held: a later plain send must not carry this one's effect (the retry restores it).
+            effects.pendingSendEffect = nil
+            return
+        }
         if sendLaterIfNeeded(composer) { return }
         let effect = effects.pendingSendEffect
         effects.pendingSendEffect = nil

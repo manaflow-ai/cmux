@@ -343,6 +343,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         id: d.id,
         name: String::new(),
         handle: None,
+        icon: None,
         name_given: false,
         former_names: Vec::new(),
         harness: d.agent.into(),
@@ -414,14 +415,17 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_return: None,
         away_recap: None,
         rolling_summary: None,
+        approved_plan: None,
         read_through: Default::default(),
         claude_unstored: false,
         claude_unstored_work: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
         throwaway: false,
+        create_key: None,
         agent_behind_seq: None,
         hibernated_ms: 0,
+        close: None,
         idle_launch: None,
         start_level: None,
         moved_to: None,
@@ -445,6 +449,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
         totals: None,
         harness_cost_usd: None,
+        task_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
         closed_pull_requests: vec![],
@@ -463,6 +468,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_noticed: None,
         delegator: None,
         cold: None,
+        fork_of_subagent: None,
     }
 }
 

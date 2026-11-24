@@ -36,6 +36,8 @@ struct StubHub {
     posts: Mutex<Vec<OutMessage>>,
     /// The message it holds under each idempotency key: one per key, however often it is posted.
     held: Mutex<HashMap<String, String>>,
+    /// Until when (the runtime's clock) every post is answered 503, whatever the script says.
+    down_until: Mutex<Option<tokio::time::Instant>>,
 }
 
 fn hub_status(status: u16, code: &str) -> HubError {
@@ -65,8 +67,11 @@ impl MeshHub for StubHub {
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.posts.lock().unwrap().push(message.clone());
         let name = message.to.name.clone().unwrap_or_default();
+        let down = self.down_until.lock().unwrap().is_some_and(|u| tokio::time::Instant::now() < u);
         let answer = if self.unknown.contains(&name.as_str()) {
             Answer::Fail(404, "mesh.unknown_recipient")
+        } else if down {
+            Answer::Fail(503, "mesh.unavailable")
         } else {
             self.script.lock().unwrap().pop_front().unwrap_or(Answer::Take)
         };
@@ -373,4 +378,51 @@ async fn call_within(
             });
         }
     }
+}
+
+/// RFD 0086 item 2's duress number: the hub answers 503 for [`OUTAGE`] while [`SENDS`] sends are
+/// made, one every [`OUTAGE`] / [`SENDS`]. Every send is answered `queued` within the bound, none
+/// is lost (the hub holds each once after it recovers), and the line printed says how long the
+/// outbox took to drain from the moment the hub answered again, on the runtime's clock (paused,
+/// so the outage costs no wall time) and the wall's.
+#[tokio::test(start_paused = true)]
+async fn duress_a_30s_hub_503_loses_none_of_100_sends_and_drains_on_recovery() {
+    const SENDS: u32 = 100;
+    const OUTAGE: Duration = Duration::from_secs(30);
+    let (hub, stub) = setup(StubHub::default());
+    let start = tokio::time::Instant::now();
+    let recovered_at = start + OUTAGE;
+    *stub.down_until.lock().unwrap() = Some(recovered_at);
+    let mut ids = Vec::new();
+    let mut slowest = Duration::ZERO;
+    for n in 0..SENDS {
+        tokio::time::sleep_until(start + OUTAGE * n / SENDS).await;
+        let params = request(&format!("far-host/lane-{n}"), &format!("prompt-duress-{n}"));
+        let (answer, runtime, wall) = timed_send(&hub, params).await;
+        slowest = slowest.max(runtime).max(wall);
+        let queued = answer.expect("a hub 503 never fails the send");
+        assert_eq!(queued["status"], "queued", "{queued}");
+        ids.push(queued["deliveryId"].as_str().unwrap().to_owned());
+    }
+    assert!(slowest < BOUND, "a send took {slowest:?}");
+    tokio::time::sleep_until(recovered_at).await;
+    let wall = std::time::Instant::now();
+    let mut lost = 0;
+    for id in &ids {
+        let d = settled(&hub, id, Duration::from_secs(900)).await;
+        if d.state != State::Delivered {
+            lost += 1;
+        }
+    }
+    let drain = tokio::time::Instant::now() - recovered_at;
+    let drain_wall = wall.elapsed();
+    let held = stub.held.lock().unwrap().len();
+    let posts = stub.posts.lock().unwrap().len();
+    println!(
+        "DURESS hub503_for={}s sends={SENDS} lost={lost} hub_holds={held} hub_posts={posts} \
+         slowest_send={slowest:?} drain_after_recovery={drain:?} drain_wall={drain_wall:?}",
+        OUTAGE.as_secs(),
+    );
+    assert_eq!(lost, 0, "every send delivered");
+    assert_eq!(held, SENDS as usize, "the hub holds each send once");
 }

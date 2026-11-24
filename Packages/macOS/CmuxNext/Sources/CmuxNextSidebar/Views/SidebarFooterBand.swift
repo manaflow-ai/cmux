@@ -141,10 +141,25 @@ final class SidebarFooterBand {
     /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
     /// padding stacked on the margin): no padding under a row as tall as the button, half the
     /// difference under a shorter one, which the button overhangs.
+    ///
+    /// On a screen whose pixel grid cannot hold the density's margin (a half-point margin at 1x, #44449) the line ends
+    /// on the next whole pixel up (`bottomMargin`), and the Search button is whole pixels tall (`searchSide`), so the
+    /// button's bottom and top both land on pixels and the row centers one device pixel over its middle.
     func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
         guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
-        return max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
+        return max(0, (searchSide - rowHeight) / 2 + searchLensDrop + bottomMargin - SidebarStyle.bottomInset)
     }
+
+    /// The window's device pixel scale (2 before the sidebar has a window).
+    private var pixelScale: CGFloat { host?.window?.backingScaleFactor ?? 2 }
+
+    /// The Search button's side in whole device pixels: `searchButtonSide` is a half point at some densities (#44449),
+    /// which a 1x screen cannot draw both edges of.
+    var searchSide: CGFloat { SidebarStyle.pixelSnapped(Self.searchButtonSide, scale: pixelScale) }
+
+    /// The footer line's bottom margin, `SidebarStyle.bottomInset` rounded up to whole device pixels: 3.5 pt at Compact
+    /// on a 2x screen, 4 on a 1x one.
+    var bottomMargin: CGFloat { (SidebarStyle.bottomInset * pixelScale).rounded(.up) / pixelScale }
 
     /// How far the Search button sits under the avatar's center line: one device pixel. The eye
     /// centers the magnifying glass on its lens, which rides above the glyph's middle with the
@@ -169,7 +184,7 @@ final class SidebarFooterBand {
             return nil
         }
         button.isHidden = false
-        let side = Self.searchButtonSide
+        let side = searchSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
             // The search button shares the list rows' trailing column. Preserve the footer's

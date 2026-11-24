@@ -48,7 +48,7 @@ final class TooltipContentView: NSView {
         if next != self.shortcut || (next != nil && keycap == nil) {
             keycap?.removeFromSuperview()
             keycap = next.map { keys in
-                let made = CmuxDialogKeycapView(keys, style: .linearKbd, cornerRadius: TooltipMetrics.keycapRadius * Self.scale)
+                let made = CmuxDialogKeycapView(keys.keycapText, style: .linearKbd, cornerRadius: TooltipMetrics.keycapRadius * Self.scale)
                 made.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(made)
                 return made

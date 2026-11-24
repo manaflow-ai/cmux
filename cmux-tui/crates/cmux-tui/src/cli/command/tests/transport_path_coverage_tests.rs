@@ -394,6 +394,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.machine.io"
                         | "cloud.machine.share_chat"
                         | "cloud.machine.chief_start"
+                        | "cloud.machine.chief_resize"
+                        | "cloud.machine.fork"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"

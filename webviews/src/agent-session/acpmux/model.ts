@@ -1,4 +1,5 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
+import type { ApprovedPlan } from "./approvedPlan";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
@@ -45,6 +46,7 @@ import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
 import { isRunPart } from "./conversation/runPartId";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
@@ -59,9 +61,10 @@ import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/
 import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./conversation/promptCoach";
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
+import type { LiveWait } from "./conversation/liveWait";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
-import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "./subagents/subagent";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
 import type { SubagentRetryNotice } from "./subagents/retryState";
@@ -95,7 +98,13 @@ import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
+import {
+  linkedImagePath,
+  SENT_IMAGE_HEIGHT,
+  SENT_IMAGE_MAX_WIDTH,
+  sentImageSize,
+  sentImageWidth,
+} from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -273,6 +282,10 @@ export type AcpmuxBackgroundRun = {
   other: number;
   /// How many members are background shells' ends: a run of only those reads "N background commands".
   commands: number;
+  /// How many members are subagents' ends (a harness event, folded as a tool call is), and how they
+  /// ended when they all ended alike: a run of only those reads "N subagents stopped".
+  subagents?: number;
+  subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
   rows: string[];
 };
 
@@ -470,6 +483,12 @@ export type AcpmuxTurnRetry = {
   maxRetries?: number;
   error?: string;
   errorStatus?: number;
+  /// What acpmux classified the failure as (hub/outage.rs): the connection failed, not the model.
+  cause?: "dns" | "refused" | "timeout" | "unreachable";
+  /// The host that could not be reached, when the harness's words name one.
+  host?: string;
+  /// When the harness tries again, epoch ms (acpmux adds the harness's delay to its own clock).
+  retryAt?: number;
 };
 
 /// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
@@ -753,6 +772,9 @@ export type AcpmuxRow = {
   /// That should replace the thinking area").
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  /// The names of the foreground subagents the line waits on, as the tray shows them (conversation/
+  /// turns.ts `foregroundAgentNames`): "Waiting on subagent Explore auth", never only a count.
+  liveAgentNames?: readonly string[];
   liveCompaction?: AcpmuxCompaction;
   /// With the line reading "Thinking" past the first step (conversation/turns.ts `liveClock`, this
   /// computer's clock): when this stretch of thinking began, the time beside the word ticking from
@@ -761,6 +783,10 @@ export type AcpmuxRow = {
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// What a silent line waits on, so it never reads a bare "Waiting" (conversation/liveWait.ts):
+  /// the model reading the call that just returned, its first reply, another agent's message, the
+  /// person's queued message, or its next step.
+  liveWait?: LiveWait;
   /// With the line reading "Waiting on N subagents" (conversation/turns.ts, this computer's clock):
   /// when that wait began, the last moment the turn's own rows did anything, so the time beside the
   /// words is the wait's, never the turn's whole time.
@@ -907,6 +933,8 @@ export type AcpmuxRow = {
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// A start line's: how many of its `subagents` it names; it counts the rest (runningTray.ts `startedLineModel`).
+  startedNamed?: number;
   /// On a background turn's line: the subagent whose report started the turn, which the line names
   /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
   subagentReport?: Subagent;
@@ -933,6 +961,10 @@ export type AcpmuxActivity = {
     awaitingCall?: true;
     inputSummary?: string;
     output?: string;
+    /// The output starts after the beginning of what the call printed: a long call's oldest lines went
+    /// with their records when the chat let go of its oldest (direct.ts `shedOlderHeld`), and scrolling
+    /// up reads them back (`foldOlder`). Its Shell block marks the cut as a read tail's is marked.
+    earlierOutput?: true;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
     command?: string;
     /// What the call says it does in a few words (Claude Code's Bash `rawInput.description`): a
@@ -1088,6 +1120,9 @@ export type AcpmuxPermission = {
   /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
   /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
   plan?: string;
+  /// Whether the person may edit the plan before approving it: Claude Code's ExitPlanMode, whose
+  /// allow carries the edited plan back to the agent (`_acpmux/plan/build` `plan`).
+  planEditable?: boolean;
   pending: boolean;
   options: {
     id: string;
@@ -1352,11 +1387,20 @@ export type AcpmuxSnapshot = {
     worktree?: string;
     title?: string;
     name?: string;
+    /** The name it was given (acpmux `displayName`, "Mango"): the header shows it first. */
+    displayName?: string;
+    /** Its names before its renames, oldest first (acpmux `formerNames`): the header's "fka". */
+    formerNames?: string[];
+    /** The icon it set (acpmux `icon`), drawn in place of its harness mark. */
+    icon?: HarnessIconSpec;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
     /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
     /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
     taskList?: ChatTaskList;
+    /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
+    /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
+    approvedPlan?: ApprovedPlan;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
@@ -1394,6 +1438,9 @@ export type AcpmuxSnapshot = {
     /// A watched Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
     /// to the app and takes nothing over.
     bridged?: boolean;
+    /// A chat handed to a cmux terminal (`terminalWatch`): the terminal and the chat are two live views of one
+    /// session, so the chat takes prompts (into the terminal's harness) and shows no View Only banner.
+    terminal?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -1426,7 +1473,7 @@ export type AcpmuxSnapshot = {
     tools?: ChatTool[];
     toolsMutable?: boolean;
     /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
+    /// person started). The chat header does not draw it; the sidebar's hover card and Expanded rows do.
     rollingSummary?: { text: string; next?: string };
   };
   connection: string;
@@ -1535,6 +1582,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// A return placed that line (the chat picked, shown again, the reader back): the view opens at
+  /// it, not at the latest message (App.tsx). Unset for the line a scroll up placed.
+  sinceLands?: true;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -1669,10 +1719,16 @@ export type PreparedRow = {
   closedEnd: number;
   /// The characters the last update lexed (tests, perf).
   lexedLength: number;
+  /// The blocks the last update measured (tests, perf): the ones closed since, and the tail's.
+  measuredBlocks?: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
   /// A plain user row's final line height, keyed by text, font, line height and width.
   plainHeight?: { key: string; height: number };
+  /// The summed heights of the first `count` closed blocks (`last` the last of them), at the width
+  /// and metrics `key` names, and the prepared texts they read: a streaming reply measures only
+  /// the blocks that closed since and its tail, never every block again for each delta.
+  closedHeight?: { key: string; count: number; last: Token | undefined; height: number; used: Set<string> };
 };
 
 export type ConversationLayout = {
@@ -1699,6 +1755,9 @@ export type ConversationLayout = {
   /// Some row keeps its height from another width (layoutConversation `near`), so the tops below it
   /// are not this width's: nothing may keep them as measured (transcriptHeights.ts keepPromptTops).
   remembered?: true;
+  /// A cold open's layout (layoutConversation `roughAbove`): rows above the measured end hold rough
+  /// heights until the transcript lays the chat out whole, after the first paint. Also `remembered`.
+  rough?: true;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -2995,13 +3054,39 @@ function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   }
 }
 
-function trimPreparedCache(prepared: Map<string, PreparedText | null>, used: ReadonlySet<string>): void {
-  const limit = used.size + PREPARED_CACHE_SPARE;
+function trimPreparedCache(
+  prepared: Map<string, PreparedText | null>,
+  used: ReadonlySet<string>,
+  /// The closed blocks' prepared texts, measured once (`closedHeight`) and kept as used.
+  kept?: ReadonlySet<string>,
+): void {
+  const limit = used.size + (kept?.size ?? 0) + PREPARED_CACHE_SPARE;
   if (prepared.size <= limit) return;
   for (const key of prepared.keys()) {
     if (prepared.size <= limit) break;
-    if (!used.has(key)) prepared.delete(key);
+    if (!used.has(key) && !kept?.has(key)) prepared.delete(key);
   }
+}
+
+/// The sum of `entry`'s closed block heights in a column `width` wide: the blocks measured before
+/// at the same width and metrics count as they did, and only the ones that closed since measure.
+// perf-hot: 1ms/delta agent-chat-stream-reveal
+function closedBlocksHeight(entry: PreparedRow, width: number): { height: number; used: Set<string> } {
+  const closed = entry.closedBlocks;
+  const { lineHeight, blockCodeSize, codeLineHeight, codeCharWidth } = metrics();
+  // proseFont: a reply measures in the reply face (measuringReply), another row in the chat's.
+  const key = `${width}\n${proseFont()}\n${lineHeight}\n${blockCodeSize}\n${codeLineHeight}\n${codeCharWidth}`;
+  let kept = entry.closedHeight;
+  // The closed blocks only grow by appending; dropped (a text that is not this one's continuation),
+  // their objects are new, so the last one measured is not where it was.
+  if (!kept || kept.key !== key || kept.count > closed.length || (kept.count && closed[kept.count - 1] !== kept.last))
+    kept = { key, count: 0, last: undefined, height: 0, used: new Set() };
+  let height = kept.height;
+  entry.measuredBlocks = closed.length - kept.count;
+  for (let index = kept.count; index < closed.length; index += 1)
+    height += blockHeight(closed[index]!, width, entry.prepared, kept.used);
+  entry.closedHeight = { key, count: closed.length, last: closed.at(-1), height, used: kept.used };
+  return entry.closedHeight;
 }
 
 function textHeight(
@@ -3365,6 +3450,7 @@ function measuredRowHeight(
   const contentWidth = Math.max(80, row.kind === "user" ? userBubbleShare() * width - userBubbleSides() : width);
   const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
+  let keptPrepared: Set<string> | undefined;
   // A long prompt shut on its fold draws its first lines and Show more whatever follows them
   // (collapsedPromptHeight, below): when its head is past the fold already, the head is all there
   // is to lex and measure. Measured whole, a prompt sent from a draft of thousands of lines laid
@@ -3426,11 +3512,17 @@ function measuredRowHeight(
           );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      const blocksHeight = () =>
-        entry.blocks.reduce(
-          (sum, block) => sum + blockHeight(block, contentWidth, entry.prepared, usedPrepared),
-          (entry.blocks.length - 1) * blockGap(),
-        );
+      // `entry.blocks` is the closed blocks followed by the tail's (lexIncrementally): the closed ones
+      // are measured once each (closedBlocksHeight), the tail's every time.
+      const blocksHeight = () => {
+        const closed = closedBlocksHeight(entry, contentWidth);
+        keptPrepared = closed.used;
+        let height = (entry.blocks.length - 1) * blockGap() + closed.height;
+        for (let index = entry.closedBlocks.length; index < entry.blocks.length; index += 1)
+          height += blockHeight(entry.blocks[index]!, contentWidth, entry.prepared, usedPrepared);
+        entry.measuredBlocks! += entry.blocks.length - entry.closedBlocks.length;
+        return height;
+      };
       contentHeight = blocksHeight();
       if (lexed !== row.text && contentHeight <= foldLimit) {
         lexIncrementally(entry, (lexed = row.text));
@@ -3441,7 +3533,7 @@ function measuredRowHeight(
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
   // includes list items, whose text count can be much larger than the block count.
-  trimPreparedCache(entry.prepared, usedPrepared);
+  trimPreparedCache(entry.prepared, usedPrepared, keptPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx). One the reader opened (PromptText.tsx, its
   // `prompt:` disclosure) draws whole over the same line, Show less.
@@ -3592,6 +3684,9 @@ function attachmentBox(
       width: sentImageWidth(video),
       height: SENT_IMAGE_HEIGHT,
     });
+  // An image sent as its file's link draws as a sent image of unknown size (UserBubble.tsx
+  // `SentLinkedImage`) until it is read.
+  if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
   const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
   const content =
@@ -3732,7 +3827,12 @@ function pickedPromptHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
+/// `open` is the row's state signature then (conversation/rowOpenState.ts): an estimate taken with a
+/// run, group, call or message open is never reused for the row once it is closed, or the other way.
+export type RowHeights = WeakMap<
+  AcpmuxRow,
+  { width: number; height: number; edge?: string; scale?: number; open?: string }
+>;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3770,6 +3870,11 @@ export function layoutConversation(
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
   near?: { from: number; to: number },
+  /// A cold open at the chat's end: the rows within this many px of the end are measured, and every
+  /// row above them with no known height takes its rough height (`fallbackRowHeight`, no text is
+  /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
+  /// paint. The open's first frame costs the rows it mounts, not the whole page of history.
+  roughAbove?: number,
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3785,8 +3890,9 @@ export function layoutConversation(
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
-    const limit = Math.min(rows.length, previous.rows.length);
-    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    // Asked of the same two row arrays by the pane's other passes too: walked once a pair, or not at
+    // all where the rows' maker said how many it kept (prefixFlatMap.ts `noteKeptPrefix`).
+    start = keptPrefix(previous.rows, rows);
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
     let drawn = start - 1;
@@ -3814,6 +3920,18 @@ export function layoutConversation(
   let nextDrawn = start;
   // The drawn row above the current one, carried along the pass for the same reason.
   let prevDrawn = prevDrawnRow(rows, start);
+  // The first row measured whole in a cold open (`roughAbove`); rows before it are rough.
+  let roughBefore = 0;
+  let rough = false;
+  if (roughAbove !== undefined && start === 0 && !resizing) {
+    let below = 0;
+    roughBefore = rows.length;
+    while (roughBefore > 0 && below < roughAbove) {
+      roughBefore -= 1;
+      const row = rows[roughBefore]!;
+      if (!drawsNothing(row)) below += fallbackRowHeight(row, width);
+    }
+  }
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // The mark is taken against the row the gap is taken from (`previousContent`, the last row with
@@ -3830,8 +3948,12 @@ export function layoutConversation(
     if (!drawsNothing(row)) prevDrawn = row;
     const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
+    // The row's open state now (rowOpenState.ts), read only when a remembered estimate could place it:
+    // one taken in another open state is estimated again, from the same stores the DOM opens from.
+    const open = kept ? rowOpenState(sessionId, row) : undefined;
+    const keptOpen = kept !== undefined && (kept.open ?? "") === open;
     let height: number;
-    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    if (kept && keptOpen && kept.width === width && kept.edge === edge) height = kept.height;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3846,8 +3968,30 @@ export function layoutConversation(
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       if (
         !custom &&
+        index < roughBefore &&
+        !kept &&
+        (row.kind === "assistant" || row.kind === "user") &&
+        row.text &&
+        !row.received &&
+        !cache.has(row.id)
+      ) {
+        // Above a cold open's measured rows: its rough height, never recorded as this width's.
+        height = fallbackRowHeight(
+          row,
+          width,
+          edge?.startsWith("footer") === true,
+          edge?.startsWith("last-turn") === true,
+          edge?.endsWith(ACTIONS_EDGE) === true,
+          sessionId,
+        );
+        if (height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
+        rough = true;
+        remembered = true;
+      } else if (
+        !custom &&
         near &&
         kept &&
+        keptOpen &&
         kept.edge === edge &&
         (kept.scale ?? 1) === scale &&
         (index < near.from || index >= near.to) &&
@@ -3882,7 +4026,7 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        known?.set(row, { width, height, edge, scale });
+        if (known) known.set(row, { width, height, edge, scale, open: open ?? rowOpenState(sessionId, row) });
       }
     }
     if (height > 0) {
@@ -3906,6 +4050,7 @@ export function layoutConversation(
     ...(gapFactor !== 1 ? { gapScale: gapFactor } : {}),
     totalHeight: top,
     ...(remembered ? { remembered: true as const } : {}),
+    ...(rough ? { rough: true as const } : {}),
   };
   trimPreparedRows(cache);
   messages.finish(rows, layout);
@@ -4353,6 +4498,7 @@ import {
 } from "./chatDisplay";
 import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
+import { rowOpenState } from "./conversation/rowOpenState";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";

@@ -154,6 +154,23 @@ class GitRange(unittest.TestCase):
         result = self.run_check(self.commit("browser-only row leaves the MDM exports"))
         self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
+    def test_a_hidden_row_leaving_a_stale_reference_passes(self):
+        # cmux#51125: the base (a branch tip) already hid tabs.newTabApp from the Settings page, but its docs
+        # reference was stale and still listed it. The reference regenerated at the head leaves the hidden row out
+        # (export-next-docs.ts), which is right, not drift; the other exports must still keep it.
+        self.write("schemas/settings/source/tabs.json", json.dumps({"lists": [{"name": "rows", "rows": [
+            {"key": "tabs.newTabApp", "page_hidden": "cmux.json only"}, {"key": "tabs.position"}]}]}))
+        base = self.commit("hide a row; reference not yet regenerated")
+        reference = "web/data/next-docs/settings-reference.generated.json"
+        self.write(reference, exports("tabs.position")[reference])
+        result = self.run_check(self.commit("regenerated reference"), base=base)
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+        self.write_exports("tabs.position")
+        result = self.run_check(self.commit("every export drops the hidden row"), base=base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn(reference, result.stdout)
+        self.assertEqual(len(result.stdout.splitlines()), 4, result.stdout)
+
     def test_a_source_with_an_unexpected_shape_is_an_error_not_a_crash(self):
         self.write("schemas/settings/source/odd.json", json.dumps({"lists": ["not a list entry"]}))
         result = self.run_check(self.commit("odd source"))

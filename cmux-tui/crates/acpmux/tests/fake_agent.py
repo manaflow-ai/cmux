@@ -3,7 +3,8 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
-  "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:"
+  "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:";
+                 an allow carrying an edited plan (`_meta.updatedInput.plan`) says "building: <plan>"
   "plan-ask-on: <plan>" -> the same; a rejected plan plans on until session/cancel
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
@@ -27,6 +28,7 @@ Behaviour per prompt text:
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
   "wrap-up: <json>" -> a reply, then a completed mcp__acpmux__wrap_up call with <json> as its input
+  "steps"      -> a finished tool call every 150 ms until session/cancel (see FAKE_STEPS_IN)
   "tool-then-cancel: <p>" -> a running tool call tc-1 until a write to FIFO <p>, its result, then
                  as "until-cancel" (a turn a move may stop between its tool calls)
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
@@ -47,6 +49,12 @@ answered only once the test writes to that FIFO (the agent's next tool step).
 With FAKE_STEER_NO_TURN_AT_END=1 a steer is never read: the turn ends first, and the
 steer is answered "steer: no turn is running" after the turn's own answer, as
 Claude Code's translator answers a message it held for a tool step that never came.
+
+FAKE_REVIEW_CMUX=<cmux-tui binary> with FAKE_REVIEW_SOCKET=<daemon socket>: a prompt that
+starts "Code review of " (a threaded diff.comments.send) is answered in each of its threads,
+as a real agent follows the prompt: for every "## Thread <id>:" section that does not say it
+"needs no answer", the agent runs `<bin> git comments reply <id> --root <root> --text
+"answered <id>"` against that socket, then echoes the prompt as any other.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -79,6 +87,10 @@ session/fork with a bare "Internal error", as Kimi does.
 
 FAKE_UNTIL_CANCEL_IN=<text>: a prompt containing <text> is an "until-cancel" one.
 
+FAKE_STEPS_IN=<text>: a prompt containing <text> is a "steps" one. FAKE_STEP_LOG=<path>: each
+finished step's tool call id, one per line, written after its result is sent. FAKE_STEPS_END=<path>:
+once that file exists a "steps" turn ends by itself.
+
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
@@ -103,6 +115,13 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fails with a capacity
+error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
+and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
+to <path>.seen, one JSON string per line, so a test sees what reached the model.
+FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
+(session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
+as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
 """
 import base64
 import hashlib
@@ -113,11 +132,14 @@ import threading
 import time
 
 lock = threading.Lock()
+# FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
+capacity_storm = [0]
 cancelled = set()
 failed_once = set()
 # "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
 goals = {}
 cap_failures = {}
+capacity_inner_loops = set()
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -158,9 +180,23 @@ def send(obj):
     send_all([obj])
 
 
+# FAKE_USAGE=<json>: every prompt answer that ends a turn carries it as its ACP `usage` (a
+# harness's token counts and cost). FAKE_SENT_LOG=<path>: append the wall clock (Unix
+# microseconds) each such answer is written at, one per line (the cost-per-task bench).
+FAKE_USAGE = json.loads(os.environ["FAKE_USAGE"]) if os.environ.get("FAKE_USAGE") else None
+FAKE_SENT_LOG = os.environ.get("FAKE_SENT_LOG")
+
+
 def send_all(objs):
     """Write `objs` as one write: a burst the agent sends at once."""
+    ends = [o for o in objs if isinstance(o.get("result"), dict) and "stopReason" in o["result"]]
+    if FAKE_USAGE is not None:
+        for o in ends:
+            o["result"].setdefault("usage", FAKE_USAGE)
     with lock:
+        if FAKE_SENT_LOG and ends:
+            with open(FAKE_SENT_LOG, "a") as f:
+                f.write(f"{time.time_ns() // 1000}\n")
         sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
 
@@ -535,6 +571,26 @@ def run_goal(rid, sid, text):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+def answer_review_threads(text):
+    """Answer each thread of a threaded review in that thread, through the cmux CLI."""
+    import re
+    import shlex
+    import subprocess
+    root = re.search(r"--root ('(?:[^']|'\\'')*')", text)
+    root = shlex.split(root.group(1))[0] if root else ""
+    env = dict(os.environ, CMUX_TUI_SOCKET=os.environ.get("FAKE_REVIEW_SOCKET", ""))
+    for section in re.split(r"(?m)^## Thread ", text)[1:]:
+        thread_id = section.split(":", 1)[0].strip()
+        if "needs no answer" in section:
+            continue
+        subprocess.run(
+            [os.environ["FAKE_REVIEW_CMUX"], "git", "comments", "reply", thread_id,
+             "--root", root, "--text", "answered " + thread_id, "--json"],
+            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=60, check=False,
+        )
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     # Model a harness that scopes an interrupt to the prompt it is processing.
@@ -542,6 +598,8 @@ def handle_prompt(rid, params):
         cancelled.discard(sid)
     blocks = params.get("prompt", [])
     text = prompt_text(params)
+    if os.environ.get("FAKE_REVIEW_CMUX") and text.startswith("Code review of "):
+        answer_review_threads(text)
     if text.startswith("envs:"):
         names = [name.strip() for name in text[5:].split(",") if name.strip()]
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
@@ -580,6 +638,20 @@ def handle_prompt(rid, params):
         chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    cap_file = os.environ.get("FAKE_CAPACITY_FILE")
+    if cap_file:
+        with open(cap_file + ".seen", "a") as seen:
+            seen.write(json.dumps(text) + "\n")
+    if cap_file and os.path.exists(cap_file):
+        storm = [
+            "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)",
+            "API Error: 502 the gateway is at its call limit; retry",
+        ]
+        n = capacity_storm[0]
+        capacity_storm[0] += 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": storm[n % len(storm)]}})
         return
     # "/compact": a compaction, as Claude Code reports one (acpmux compacts a chat that outgrew
     # its context before it goes on, hub/auto_resume/compact_first.rs). FAKE_COMPACT=fail
@@ -700,6 +772,33 @@ def handle_prompt(rid, params):
     if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
         cap_failures[sid] = cap_failures.get(sid, 0) + 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
+        return
+    # Separate requests in a healthy turn can each briefly meet capacity.
+    if text == "capacity-retry-progress":
+        for _ in range(2):
+            for attempt in range(1, 3):
+                update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                    "message": f"Reconnecting... {attempt}", "willRetry": True,
+                    "additionalDetails": "Selected model is at capacity."
+                }}}})
+            update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "working"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # Older Codex keeps retrying in the turn, with no maximum in its notice.
+    # It acknowledges cancel, but never ends the capacity failure on its own.
+    if text == "capacity-inner-loop":
+        capacity_inner_loops.add(sid)
+    if sid in capacity_inner_loops:
+        cancelled.discard(sid)
+        for attempt in range(1, 251):
+            if sid in cancelled:
+                break
+            update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                "message": f"Reconnecting... {attempt}", "willRetry": True,
+                "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}
+            }}}})
+            time.sleep(0.02)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
@@ -1180,7 +1279,11 @@ def handle_prompt(rid, params):
             },
         )
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
-        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        # The plan it builds, as Claude Code takes an allow's `updatedInput`: the person's edit
+        # (acpmux lifts the outcome's `_meta` to the result's, hub permissions.rs).
+        built = (((res or {}).get("_meta") or {}).get("updatedInput") or {}).get("plan")
+        said = f"chose {chosen}" + (f" building: {built}" if built else "")
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": said}})
         if plan_on and chosen == "no":
             for _ in range(100):
                 if sid in cancelled:
@@ -1540,6 +1643,18 @@ def handle_prompt(rid, params):
         chunk("e")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "background-subagent" starts background subagent bg-quiet and ends the turn at once, as a
+    # coordinator's Claude Agent call with run_in_background outlives its turn;
+    # "background-subagent-done" reports it completed.
+    if text in ("background-subagent", "background-subagent-done"):
+        if text == "background-subagent":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-quiet", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
+        else:
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "bg-quiet", "state": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "reply-segments":
         chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
         chunk("a", "m1")
@@ -1697,6 +1812,35 @@ def handle_prompt(rid, params):
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "steps" (or a prompt containing FAKE_STEPS_IN) is a turn that works until told to stop: a
+    # tool call every 150 ms (step-PID-N: 20 ms running, then its result), each finished call's
+    # id appended to FAKE_STEP_LOG once its result is sent. A session/cancel between two calls
+    # ends it cancelled; once the file FAKE_STEPS_END exists it says "stepped" and ends its turn.
+    if text == "steps" or (os.environ.get("FAKE_STEPS_IN") or "\0") in text:
+        end, step_log = os.environ.get("FAKE_STEPS_END"), os.environ.get("FAKE_STEP_LOG")
+        for n in range(2000):
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            if end and os.path.exists(end):
+                break
+            call = f"step-{os.getpid()}-{n}"
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": call, "title": f"step {n}",
+                         "kind": "execute", "status": "in_progress"})
+            time.sleep(0.02)
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed",
+                         "rawOutput": f"done {n}"})
+            if step_log:
+                fd = os.open(step_log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+                os.write(fd, (call + "\n").encode())
+                os.close(fd)
+            time.sleep(0.13)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "stepped"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
@@ -2262,7 +2406,9 @@ def main():
         elif m == "session/load":
             # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
             # another Codex holds the thread: "Internal error", the reason in data.details.
-            if os.environ.get("FAKE_LOAD_ERROR"):
+            if os.environ.get("FAKE_LOAD_ERROR") and not (
+                os.environ.get("FAKE_LOAD_RECOVERED") and os.path.exists(os.environ["FAKE_LOAD_RECOVERED"])
+            ):
                 error = {"code": -32603, "message": "Internal error", "data": {"details": os.environ["FAKE_LOAD_ERROR"]}}
                 send({"jsonrpc": "2.0", "id": rid, "error": error})
                 continue
@@ -2306,6 +2452,20 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "result": {"modes": {"currentModeId": load_mode, "availableModes": offered}}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})
+            quit_file = os.environ.get("FAKE_QUIT_429_FILE")
+            if quit_file and os.path.exists(quit_file):
+                with open(quit_file) as f:
+                    said = f.read().strip()
+
+                def quit_429(said=said):
+                    import time as clock  # main() imports `time` locally
+                    clock.sleep(0.3)
+                    sys.stderr.write(said + "\n")
+                    sys.stderr.flush()
+                    clock.sleep(0.2)
+                    os._exit(0)
+
+                threading.Thread(target=quit_429, daemon=True).start()
         elif m == "session/fork":
             # FAKE_NO_FORK=1: an agent without session/fork (Kimi, DeepSeek): a bare internal error.
             if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":

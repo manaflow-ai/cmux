@@ -417,7 +417,7 @@ test("classic New Tab: a second Add folder… while the host's panel is open ask
 
   await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector(".acpmux-add-project-dialog")).toBeNull();
+  expect(document.querySelector(".acpmux-add-project-palette")).toBeNull();
   await addFolder();
   expect(calls).toBe(1);
   await act(async () => resolveBrowse("/work/late"));

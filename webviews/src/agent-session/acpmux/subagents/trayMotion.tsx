@@ -109,6 +109,7 @@ export function Tick({
     if (duration <= 0) return undefined;
     const easing = style?.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });
+    width.id = SLIDE;
     return () => width.cancel();
   }, [turn, slide]);
   const settled = (part: "previous" | "entering" | "rolled") => () =>
@@ -198,6 +199,8 @@ function onAnimationDone(done: () => void) {
 
 /// The glides `useGlide` starts, told apart from a node's other animations.
 const GLIDE = "acpmux-glide";
+/// A Tick's width ease (`slide`): the one animation that already carries the parts after it.
+const SLIDE = "acpmux-slide";
 
 /// The parts of `row` that `selector` names move to a new place as one glide instead of a jump (Leo,
 /// 2026-11-09, on the hat's "+2 more" and time: "the animations don't track properly to squishy"):
@@ -230,8 +233,10 @@ export function useGlide(row: { readonly current: HTMLElement | null }, selector
       observer.current = new ResizeObserver(() => {
         const node = row.current;
         if (!node || !laid.current) return;
-        // A width ease in the row (Tick slide) carries what follows it; don't glide on top of it.
-        const easing = node.getAnimations({ subtree: true }).some((animation) => animation.id !== GLIDE);
+        // A width ease in the row (Tick slide) carries what follows it; don't glide on top of it. A roll
+        // or a crossfade (opacity, transform) moves nothing after it, so it never stops a glide: the
+        // subagent icon row widening while the count rolls still glides the kinds after it.
+        const easing = node.getAnimations({ subtree: true }).some((animation) => animation.id === SLIDE);
         laid.current = glideFrom(node, selector, easing ? undefined : stillDrawnAt(laid.current));
       });
     observer.current?.disconnect();

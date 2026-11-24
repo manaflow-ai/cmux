@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockHubState, runMockHub } from "./mockHub";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
@@ -21,11 +22,12 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
-  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -36,8 +38,9 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -47,11 +50,7 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -63,25 +62,29 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type DoctorReport,
-  type DoctorRun,
-  type LibraryAnswer,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
-  type AgentConfigAgent,
-  type AgentConfigRun,
-  type AgentConfigState,
+  type ComputerUseApproval,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type HubRun,
+  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
-  type AllotmentSet,
-  type AllotmentView,
+  type AgentConfigAgent,
+  type AgentConfigRun,
+  type AgentConfigState,
   type AccountsRunReply,
+  type DoctorReport,
+  type DoctorRun,
+  type LibraryAnswer,
   type AgentSkillRow,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
@@ -130,6 +133,9 @@ export type MockOptions = {
   doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Writes of these keys the daemon refuses with this reason and details (a json row's
+   * `accepted.problems`, as cmux-config's refusal carries them). */
+  refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -221,6 +227,31 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
   },
 };
 
+/** Settings > Extensions: one app as `apps.settings.list` answers it, with the person's changes. */
+export type MockExtensionApp = {
+  app: string;
+  name: string;
+  enabled: boolean;
+  schema: {
+    type: "object";
+    properties: Record<
+      string,
+      {
+        type: string;
+        title?: string;
+        description?: string;
+        enum?: string[];
+        default?: unknown;
+        minimum?: number;
+        maximum?: number;
+        maxLength?: number;
+        "x-cmux-devOnly"?: boolean;
+      }
+    >;
+  };
+  stored: Record<string, unknown>;
+};
+
 /** A project of the mock session host: its repository's recipe files and the saved override. */
 export type MockWorktreeProject = {
   path: string;
@@ -245,6 +276,7 @@ export class MockSettingsProvider {
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
+  private readonly refusals: NonNullable<MockOptions["refusals"]>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
   private readonly changed = new Set<EventSourceContext>();
@@ -273,6 +305,7 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     this.tryOn = options.tryOn ?? null;
@@ -645,6 +678,14 @@ export class MockSettingsProvider {
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
+      // Settings > Extensions: the daemon's apps.settings.list / apps.settings.set.
+      "cmux.settings.extensions.list": () => {
+        if (this.extensionsUnsupported)
+          throw new ProtocolError("cmux.protocol.unknown_op", "cmux.settings.extensions.list");
+        return { apps: this.extensionApps.map((app) => ({ ...app, values: this.extensionValues(app) })) };
+      },
+      "cmux.settings.extensions.set": (params) =>
+        this.setExtensionSettings(params as { app: string; values: Record<string, unknown> }),
       // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
       "cmux.settings.worktree.list": () => ({
         projects: this.worktreeProjects.map((project) => ({
@@ -901,6 +942,13 @@ export class MockSettingsProvider {
         this.agentHooks = { ...state, listing: { ...listing, hooks } };
         return this.agentHooks;
       },
+      "cmux.settings.hub.state": () => this.hub,
+      "cmux.settings.hub.run": (params) => {
+        const run = params as HubRun;
+        if (run.action !== "refresh") this.hubRuns.push(run);
+        this.hub = runMockHub(this.hub, run);
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -1013,6 +1061,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.hub.state",
+      "cmux.settings.hub.run",
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
@@ -1284,6 +1334,69 @@ export class MockSettingsProvider {
       run: { state: "none", output: "", output_start: "0", output_end: "0" },
     };
   }
+  /** Settings > Extensions: the installed extensions whose manifests declare settings, as
+   * `apps.settings.list` answers them; `stored` is what the person changed. */
+  extensionApps: MockExtensionApp[] = [
+    {
+      app: "acme/standup",
+      name: "Standup Notes",
+      enabled: true,
+      schema: {
+        type: "object",
+        properties: {
+          greeting: {
+            type: "string",
+            title: "Greeting",
+            description: "The first line of each note.",
+            default: "Morning!",
+            maxLength: 40,
+          },
+          compact: { type: "boolean", title: "Compact rows", default: false },
+          size: { type: "string", title: "Note size", enum: ["small", "large"], default: "small" },
+          limit: { type: "integer", title: "Notes kept", minimum: 1, maximum: 50, default: 10 },
+        },
+      },
+      stored: {},
+    },
+  ];
+  /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
+  extensionsUnsupported = false;
+
+  private extensionValues(app: MockExtensionApp): Record<string, unknown> {
+    const values: Record<string, unknown> = {};
+    for (const [key, property] of Object.entries(app.schema.properties)) values[key] = property.default;
+    return { ...values, ...app.stored };
+  }
+
+  /** Like the daemon: every key declared, every value of its type and range, `null` resets it. */
+  private setExtensionSettings(params: { app: string; values: Record<string, unknown> }) {
+    const app = this.extensionApps.find((row) => row.app === params.app);
+    if (!app) throw new ProtocolError("cmux.apps.settings.invalid", `${params.app} declares no settings`);
+    for (const [key, value] of Object.entries(params.values)) {
+      const property = app.schema.properties[key];
+      if (!property) throw new ProtocolError("cmux.apps.settings.invalid", `${params.app} has no setting ${key}`);
+      if (value === null) continue;
+      const fits = property.enum
+        ? property.enum.includes(value as string)
+        : property.type === "boolean"
+          ? typeof value === "boolean"
+          : property.type === "string"
+            ? typeof value === "string" && value.length <= (property.maxLength ?? 4096)
+            : typeof value === "number" &&
+              (property.type !== "integer" || Number.isInteger(value)) &&
+              value >= (property.minimum ?? -Infinity) &&
+              value <= (property.maximum ?? Infinity);
+      if (!fits) throw new ProtocolError("cmux.apps.settings.invalid", `${key} is not a value it allows`);
+    }
+    const stored = { ...app.stored };
+    for (const [key, value] of Object.entries(params.values)) {
+      if (value === null) delete stored[key];
+      else stored[key] = value;
+    }
+    app.stored = stored;
+    return { app: app.app, values: this.extensionValues(app) };
+  }
+
   /** While set, `cmux.settings.worktree.read` answers only once it resolves (a slow host). */
   worktreeReadHold: Promise<void> | null = null;
   /** Settings > Agents > Worktree Setup: the session host's projects and each one's recipe files. */
@@ -1669,6 +1782,11 @@ export class MockSettingsProvider {
   /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
    * settings cmux could not put back. */
   agentToolsKeeps: string | null = null;
+
+  /** Settings > Integrations as the app serves it (`SettingsIntegrationsHub.state`). */
+  hub: HubState = mockHubState();
+  /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
+  hubRuns: HubRun[] = [];
 
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
@@ -2476,6 +2594,8 @@ export class MockSettingsProvider {
 
   private set(key: string, value: unknown): MutationResult {
     this.guard(key);
+    const refusal = this.refusals[key];
+    if (refusal) throw new ProtocolError("cmux.settings.invalid", refusal.message, { details: refusal.details });
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);

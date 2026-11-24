@@ -3,12 +3,14 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, type WorkStyle } from "./ops";
+import { OPS, type ImportDataKind, type OnboardingState, type DensityChoice, type WorkStyle } from "./ops";
 import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
 import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
+  /** Make cmux Yours' choices before its first pick: what Skip puts back, as the host's revert() does. */
+  private openedChoices: OnboardingState["makeItYours"];
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
   /** The in-place sign-in (`cmux.onboarding.accounts.run`), the same mock Settings runs; tests and
@@ -37,6 +39,9 @@ export class MockOnboardingProvider implements PageClient {
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
+    // The intro walk probe (scripts/intro-walk.mjs) counts the ops each click sends.
+    const log = (globalThis as { cmuxOnboardingMockCalls?: { op: string; params: unknown }[] }).cmuxOnboardingMockCalls;
+    log?.push({ op, params });
     const input = (params ?? {}) as {
       id?: string | null;
       kind?: ImportDataKind;
@@ -106,6 +111,9 @@ export class MockOnboardingProvider implements PageClient {
           computerUse: {
             ...computerUse,
             allGranted,
+            // The mock's Allow is the person's: the last grant shows the done view.
+            finished: allGranted,
+            confirmsCapture: computerUse.confirmsCapture || input.pane === "screenRecording",
             comebacks: computerUse.comebacks + 1,
             rows: rows.map((row) => (row === next ? { ...row, control: "allowPrimary" as const } : row)),
           },
@@ -113,12 +121,16 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
+        // Skip on Make cmux Yours puts back what was set when it opened (MakeItYoursStepModel.revert).
+        if (state.step === "makeItYours" && state.makeItYours && this.openedChoices)
+          this.change({ ...state, makeItYours: this.openedChoices });
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
       case OPS.background: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
+        this.openedChoices ??= choices;
         const next =
           op === OPS.workStyle
             ? { ...choices, workStyle: input.value as WorkStyle }

@@ -48,7 +48,8 @@ use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
 use super::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 use crate::Mux;
 use crate::RenderAttachFrame;
@@ -203,6 +204,9 @@ pub(super) fn attach_surface(
     let shell_lines = hybrid_declared
         && hybrid_lean
         && mux.control_clients.supports_capability(client, TERMINAL_SHELL_LINES_CAPABILITY);
+    // `terminal-full-screen-frames-v1`: a full-screen program as frames too (agent_cli_hybrid.rs).
+    let full_screen_frames = shell_lines
+        && mux.control_clients.supports_capability(client, TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY);
     let hybrid_resume =
         agent_cli_hybrid::resume_request(hybrid_declared, hybrid_stream, hybrid_frame)?;
     anyhow::ensure!(
@@ -238,6 +242,7 @@ pub(super) fn attach_surface(
             })?;
             let terminal = TerminalPublicId::parse(terminal)
                 .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+            mux.wake_lazy_terminal(&terminal);
             mux.resource_surface_for_terminal(&terminal)
                 .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
         }
@@ -291,8 +296,12 @@ pub(super) fn attach_surface(
     } else {
         Adapter::Pty
     };
-    let shell_viewer = shell_lines && adapter == Adapter::Lines;
-    let hybrid = adapter == Adapter::Agent || shell_viewer;
+    // A viewer that asked for full-screen frames gets any terminal as an agent CLI's: frames
+    // throughout, the alternate screen and input modes as bytes, never the PTY bytes.
+    let shell_viewer = shell_lines && adapter == Adapter::Lines && !full_screen_frames;
+    let hybrid = adapter == Adapter::Agent
+        || shell_viewer
+        || (full_screen_frames && adapter == Adapter::Lines);
     // Only the plain byte attach coalesces; render mode keeps its own frames.
     let coalesce_interval = if !hybrid
         && surface.kind() == SurfaceKind::Pty
@@ -610,7 +619,12 @@ pub(super) fn attach_surface(
             attach.rows,
             &[&*attach.replay, &*attach.pending_sequence].concat(),
             hybrid_resume,
-            agent_cli_hybrid::Wants { lean: hybrid_lean, shell: shell_viewer, lines: shell_lines },
+            agent_cli_hybrid::Wants {
+                lean: hybrid_lean,
+                shell: shell_viewer,
+                lines: shell_lines,
+                display_frames: full_screen_frames && adapter == Adapter::Lines,
+            },
         );
         let (mut viewer, first) = match started {
             Ok(started) => started,
@@ -735,7 +749,14 @@ pub(super) fn attach_surface(
                             let _ = viewer.take(frame, now, &mut hybrid_out);
                         }
                         (None, Some(coalescer)) => coalescer.push(frame, now, &mut ready),
-                        (None, None) => ready.push(frame),
+                        (None, None) => {
+                            // The writer is free now: the reads that queued while it was
+                            // busy go out as one event, at once (no timer).
+                            attach_output_coalesce::push_merged(frame, &mut ready);
+                            while let Ok(next) = attach.stream.try_recv() {
+                                attach_output_coalesce::push_merged(next, &mut ready);
+                            }
+                        }
                     }
                     false
                 }

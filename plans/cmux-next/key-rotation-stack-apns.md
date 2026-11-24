@@ -47,7 +47,7 @@ S2: update the consumers in this order, each from the secrets file through stdin
 S3 verify, after each consumer:
 - web: sign in at cmux.com in a fresh browser profile; open the dashboard; a server route that calls Stack (for example the account page) answers 200. Axiom: no rise of 5xx with `stack` in the error on `cmux.com` for 15 minutes.
 - `cmux-api`: `GET https://cloud-api.cmux.dev/health` 200, then one authenticated request from the Mac app (open Cloud) that makes the Worker call Stack.
-- GitHub: dispatch `cloud-vm-smoke.yml` (production) once; it must pass.
+- GitHub: the internal classic `cloud-vm-smoke.yml` workflow is retired. Verify only maintained consumers of the rotated key; the web and `cmux-api` checks above remain required.
 
 S4: wait 24 hours with both sets valid; watch Axiom and Sentry for Stack auth errors.
 

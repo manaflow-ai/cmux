@@ -372,15 +372,17 @@ test("Claude: one click starts the login and opens its page; paste the code, fin
   expect(calls[0]).toEqual(["start", "claude", "chat-1"]);
   // The one Sign in click opened the page too (the host lets its start open it): no second click.
   expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true"]);
-  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
-  expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(host.textContent).toContain(
+    "Approve on the sign-in page beside this window, then paste the code it shows here.",
+  );
+  expect(button("Continue")!.getAttribute("data-sign-in-action")).toBe("continue");
   // Open sign-in page stays, quiet, to open it again.
   expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(false);
   await act(async () => button("Open sign-in page")!.click());
   expect(opened).toHaveLength(2);
   // Nothing goes again before the code: no gesture taken, nothing sent.
   expect(intents).toEqual([]);
-  const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
+  const input = host.querySelector<HTMLInputElement>(".signin-paste-field")!;
   expect(input.getAttribute("autocomplete")).toBe("off");
   await typeInto(input, "  abc#def  ");
   await act(async () => button("Continue")!.click());
@@ -424,11 +426,11 @@ test("Codex: one click opens the page with its device code copied; after approva
   if (clipboard) Object.defineProperty(dom.window.navigator, "clipboard", clipboard);
   else delete (dom.window.navigator as unknown as Record<string, unknown>).clipboard;
   expect(opened).toEqual(["https://auth.openai.com/codex/device"]);
-  expect(host.querySelector('[data-testid="cloud-signin-code"]')!.textContent).toBe("WXYZ-1234");
+  expect(host.querySelector('[data-testid="cloud-signin-code"] .signin-code')!.textContent).toBe("WXYZ-1234");
   // The code is on the clipboard already, for the page's field.
   expect(copied).toEqual(["WXYZ-1234"]);
-  expect(button("Copied")).toBeDefined();
-  expect(host.textContent).toContain("Enter this code on the page. Waiting for approval…");
+  expect(button("Copy")!.getAttribute("data-sign-in-action")).toBe("copy");
+  expect(host.textContent).toContain("Paste this code on the sign-in page beside this window. It's already copied.");
   expect(calls).toContainEqual(["finish", "login-2", "chat-1", undefined]);
   await act(async () => approve({ signedIn: true, restarted: true }));
   await flush();
@@ -581,7 +583,7 @@ test("never sends without a gesture ticket", async () => {
   await render({ route: cloudRoute, cloudSignIn: signIn });
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
-  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "code-1");
+  await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "code-1");
   await act(async () => button("Continue")!.click());
   await flush();
   await flush();
@@ -614,7 +616,7 @@ test("a refused step names its reason, with Retry", async () => {
     await render({ route: cloudRoute, cloudSignIn: signIn });
     await act(async () => button("Sign in to Claude")!.click());
     await flush();
-    await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "wrong");
+    await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "wrong");
     await act(async () => button("Continue")!.click());
     await flush();
     expect(host.querySelector(".cv-turn-signin__error")!.textContent).toBe(copy);
@@ -720,7 +722,7 @@ test("a card that goes away cancels its login and sends nothing after", async ()
   await render({ route: cloudRoute, cloudSignIn: signIn });
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
-  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "code-7");
+  await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "code-7");
   await act(async () => button("Continue")!.click());
   await act(async () => root.render(<></>));
   expect(calls).toContainEqual(["cancel", "login-7", "chat-1"]);
@@ -839,7 +841,7 @@ test("Claude, no paste: one click opens the automatic page on the machine, the a
   expect(onMachine).toEqual([AUTO]);
   expect(opened).toEqual([]);
   // No code field: the approve finishes it.
-  expect(host.querySelector(".cv-turn-signin__input")).toBeNull();
+  expect(host.querySelector(".signin-paste-field")).toBeNull();
   expect(host.textContent).toContain("Approve on the sign-in page; it finishes on its own.");
   expect(calls).toContainEqual(["finish", "login-a", "chat-1", undefined]);
   // Paste a code instead is a quiet link, never a second button.
@@ -866,8 +868,10 @@ test("Claude, no paste: a host that cannot open the machine-bound tab opens the 
   await flush();
   expect(onMachine).toEqual([AUTO]);
   expect(opened).toEqual([MANUAL]);
-  expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
-  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
+  expect(host.querySelector(".signin-paste-field")).not.toBeNull();
+  expect(host.textContent).toContain(
+    "Approve on the sign-in page beside this window, then paste the code it shows here.",
+  );
   // No wait for an approve that cannot come.
   expect(calls.filter((call) => call[0] === "finish")).toEqual([]);
 });
@@ -881,7 +885,7 @@ test("Claude, no paste: a host without the open (older app) pastes as before", a
   await flush();
   await flush();
   expect(opened).toEqual([MANUAL]);
-  expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
+  expect(host.querySelector(".signin-paste-field")).not.toBeNull();
 });
 
 test("Claude, no paste: Paste a code instead opens the code page; the pasted code finishes the same login", async () => {
@@ -902,7 +906,7 @@ test("Claude, no paste: Paste a code instead opens the code page; the pasted cod
   await flush();
   await act(async () => button("Paste a code instead")!.click());
   expect(opened).toEqual([MANUAL]);
-  const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
+  const input = host.querySelector<HTMLInputElement>(".signin-paste-field")!;
   await typeInto(input, "abc#def");
   await act(async () => button("Continue")!.click());
   await flush();
@@ -928,7 +932,7 @@ test("Claude, no paste: the approve's wait ending after a pasted code sent again
   await flush();
   await flush();
   await act(async () => button("Paste a code instead")!.click());
-  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "abc#def");
+  await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "abc#def");
   await act(async () => button("Continue")!.click());
   await flush();
   await flush();
