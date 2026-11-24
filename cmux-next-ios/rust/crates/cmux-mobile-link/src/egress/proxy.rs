@@ -315,11 +315,13 @@ const CACHE_FOR: Duration = Duration::from_secs(30);
 /// Bound on asking the system (PAC fetch and run included): past it, direct.
 const SYSTEM_WAIT: Duration = Duration::from_secs(5);
 
+/// A destination: host, port and whether TLS runs on it.
 type CacheKey = (String, u16, bool);
+/// Each destination's hops and when the system gave them.
+type Cache = Mutex<HashMap<CacheKey, (Instant, Vec<Hop>)>>;
 
-fn cache() -> &'static Mutex<HashMap<CacheKey, (Instant, Vec<Hop>)>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<CacheKey, (Instant, Vec<Hop>)>>> =
-        std::sync::OnceLock::new();
+fn cache() -> &'static Cache {
+    static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -464,7 +466,7 @@ pub fn auth_schemes(head: &str) -> Vec<String> {
         // Several challenges may share a header, comma separated; a scheme is
         // a challenge's first token (parameters follow it with `=`).
         for part in value.split(',') {
-            let token = part.trim().split_whitespace().next().unwrap_or("");
+            let token = part.split_whitespace().next().unwrap_or("");
             if !token.is_empty()
                 && !token.contains('=')
                 && !schemes.iter().any(|s: &String| s.eq_ignore_ascii_case(token))
