@@ -1570,10 +1570,70 @@ def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[st
     return rows
 
 
-def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str]:
+def carry_renamed_rows(lines: list[str], moved: dict[str, str], parse, pushed_paths: set[str],
+                       count: int) -> tuple[list[str], list[str]]:
+    """(LINES with carried rows, notes): each installed row of an old path in MOVED ({new: old}) is also given to its
+    new path (column 0), added to any row the new path already has: a moved file is the same code, never a new file's
+    debt. Only while the pushed copy (PUSHED_PATHS, its row paths) keeps no row for the old path, as a move leaves it;
+    an old path that still has its own row keeps it, and the new path takes nothing. The rows are capped at the old
+    row's count here, and at the pushed copy's own row by the lowering after."""
+    old_to_new: dict[str, list[str]] = {}
+    for new, old in moved.items():
+        if old not in pushed_paths and new != old:
+            old_to_new.setdefault(old, []).append(new)
+    if not old_to_new:
+        return lines, []
+    gains: dict[tuple[str, ...], tuple[int, str]] = {}
+    for line in lines:
+        row = parse(line)
+        if not row:
+            continue
+        (key, n), = row.items()
+        for new in old_to_new.get(key[0], ()):
+            new_key = (new, *key[1:])
+            prior, _ = gains.get(new_key, (0, line))
+            gains[new_key] = (prior + n, line)
+    out, notes = [], []
+    for line in lines:
+        row = parse(line)
+        if row:
+            (key, n), = row.items()
+            if key in gains:
+                gain, _ = gains.pop(key)
+                parts = line.rstrip("\n").split("\t")
+                parts[count] = str(n + gain)
+                line = "\t".join(parts) + ("\n" if line.endswith("\n") else "")
+                notes.append(f"{' '.join(key)} {n} -> {n + gain} (carried across a rename)")
+        out.append(line)
+    for new_key, (gain, template) in sorted(gains.items()):
+        parts = template.rstrip("\n").split("\t")
+        parts[0] = new_key[0]
+        parts[count] = str(gain)
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        out.append("\t".join(parts) + "\n")
+        notes.append(f"{' '.join(new_key)} 0 -> {gain} (carried across a rename)")
+    return out, notes
+
+
+def carry_renamed_lines(lines: list[str], moved: dict[str, str], listed: set[str]) -> list[str]:
+    """The LINE_BASELINES lines ("path: site") of each old path in MOVED, under its new path, while the pushed copy
+    (LISTED) no longer lists the old line; the shrink-only filter after keeps one only if the pushed copy lists it."""
+    out = []
+    for new, old in moved.items():
+        for line in lines:
+            if line.startswith(old + ":") and line.rstrip("\n") not in listed:
+                carried = new + line[len(old):]
+                out.append(carried if carried.endswith("\n") else carried + "\n")
+    return out
+
+
+def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path, moved: dict[str, str] | None = None) -> list[str]:
     """Rewrite each RATCHET_BASELINES file in SCRIPTS_DIR (a tree's copy of the installed scripts) so a row reads REV's
     own count where that is lower (a row REV deleted reads 0 and is dropped); every other line stays the installed
-    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered."""
+    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered.
+    MOVED ({new path: old path}, baseline_renames.py) first gives each new path its old path's installed row and line
+    (carry_renamed_rows), so a moved file is the same code; the lowering then caps it at REV's own row."""
     taken: list[str] = []
     # One `cat-file --batch` for every baseline, not a `git show` each: each git start costs 0.3 s on a big mirror, and
     # this runs for every side of every tree a gate builds (2026-11-21: 13 s of one merge push's dependency trees).
@@ -1587,8 +1647,12 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
         if not path.is_file() or own is None:
             continue
         pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
-        lines, changed = [], False
-        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        installed_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        carried = carry_renamed_rows(installed_lines, moved or {}, lambda line: _ratchet_rows(line, keys, count),
+                                     set(k[0] for k in pushed), count)
+        taken += [f"{name}: {note}" for note in carried[1]]
+        lines, changed = [], bool(carried[1])
+        for line in carried[0]:
             row = _ratchet_rows(line, keys, count)
             if not row:
                 lines.append(line)
@@ -1615,9 +1679,10 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             continue
         listed = set(own.decode(errors="replace").splitlines())
         installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        installed += carry_renamed_lines(installed, moved or {}, listed)
         # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
         kept = [line for line in installed if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
-        if len(kept) != len(installed):
+        if kept != path.read_text(encoding="utf-8").splitlines(keepends=True):
             taken += [f"{name}: {line.rstrip()} (line removed)" for line in installed if line not in kept]
             path.write_text("".join(kept), encoding="utf-8")
     return taken
