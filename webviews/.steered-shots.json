@@ -1,0 +1,47 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "closed",
+   "entry": "agent-pane.steered-harness-events",
+   "variant": "closed",
+   "width": 760,
+   "height": 640,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  },
+  {
+   "name": "open",
+   "entry": "agent-pane.steered-harness-events",
+   "variant": "open",
+   "width": 760,
+   "height": 1100,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  },
+  {
+   "name": "mixed",
+   "entry": "agent-pane.steered-harness-events",
+   "variant": "mixed",
+   "width": 760,
+   "height": 760,
+   "deviceScaleFactor": 2,
+   "arms": {
+    "now": ""
+   }
+  }
+ ]
+}
