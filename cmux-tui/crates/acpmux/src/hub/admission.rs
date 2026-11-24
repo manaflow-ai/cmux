@@ -8,7 +8,7 @@
 //!   while the disk is under its free-space floor: start with a warning;
 //! - `lanes.max_lanes` of this machine in the fleet registry: a create while
 //!   this host's live sessions (running, ready, waiting; a peer's are not
-//!   counted) are at the cap starts all the same, with a warning that names
+//!   counted, nor is one out of a turn whose lane failed: `holds_lane`) are at the cap starts all the same, with a warning that names
 //!   the cap and the host the placement engine would pick instead
 //!   (`placement.rs`, as `new --host auto` and lane-place weigh hosts). A cap
 //!   only warns: no launch is refused for load or a cap (Leo's rulebook; at
@@ -316,6 +316,23 @@ fn is_live(status: SessionStatus, hosted: bool) -> bool {
     }
 }
 
+/// Whether a session holds a lane toward the cap: its harness runs (`is_live`)
+/// and it is not an idle dead lane, one whose lane failed (`lane_failed`: a
+/// usage limit, a dead login, exhausted accounts, a refused chain) and that is
+/// not inside a turn (running, waiting). Leo 2026-11-21: "lanes dont count if
+/// they are idle and out of usage". The same rule as lane-place's `holds_lane`.
+/// `lane_failed` is asked only of a live session out of a turn.
+fn holds_lane(status: SessionStatus, hosted: bool, lane_failed: impl FnOnce() -> bool) -> bool {
+    is_live(status, hosted)
+        && (matches!(status, SessionStatus::Running | SessionStatus::Waiting) || !lane_failed())
+}
+
+/// Whether a session's lane failed: its summary's `lane.state` is `failed`
+/// (`views::lane`), as every session list shows it.
+fn lane_failed(summary: &Value) -> bool {
+    super::views::lane(summary)["state"] == "failed"
+}
+
 /// The live sessions `live` plus the admitted creates whose session is not one of
 /// them: a create is counted once, as its session once that runs.
 fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
@@ -345,7 +362,14 @@ impl Hub {
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
         let live: std::collections::HashSet<&str> = sessions
             .iter()
-            .filter(|s| is_live(s.status(), hosted.contains(&s.id)))
+            .filter(|s| {
+                // Only a session whose last turn failed can have a failed lane, so only
+                // those build their summary.
+                holds_lane(s.status(), hosted.contains(&s.id), || {
+                    s.read_meta(|m| m.last_turn.as_ref().is_some_and(|t| t["status"] == "failed"))
+                        && lane_failed(&self.session_summary(s))
+                })
+            })
             .map(|s| s.id.as_str())
             .collect();
         counted(&live, open)
@@ -511,6 +535,33 @@ mod tests {
         assert!(!is_live(SessionStatus::Idle, false));
         assert!(!is_live(SessionStatus::Closed, true));
         assert!(is_live(SessionStatus::Ready, false));
+    }
+
+    #[test]
+    fn an_idle_session_whose_lane_failed_holds_no_lane() {
+        // Leo 2026-11-21: "lanes dont count if they are idle and out of usage".
+        let usage_limit = json!({"status": "ready", "updatedAt": 9, "createdAt": 1,
+            "lastTurn": {"endedAt": 8, "status": "failed",
+                         "errorText": "You've hit your usage limit"}});
+        assert!(lane_failed(&usage_limit));
+        assert!(!holds_lane(SessionStatus::Ready, false, || lane_failed(&usage_limit)));
+        // An agent host still runs it after a restart: idle, its lane dead, not counted.
+        assert!(!holds_lane(SessionStatus::Idle, true, || true));
+        assert!(!holds_lane(SessionStatus::Disconnected, true, || true));
+        // Inside a turn it holds its lane whatever its lane says, and is never asked.
+        assert!(holds_lane(SessionStatus::Running, false, || panic!("asked mid-turn")));
+        assert!(holds_lane(SessionStatus::Waiting, false, || panic!("asked mid-turn")));
+        // A session with no harness is not counted, failed or not.
+        assert!(!holds_lane(SessionStatus::Closed, true, || panic!("asked of a closed one")));
+        assert!(!holds_lane(SessionStatus::Idle, false, || panic!("asked of an unhosted one")));
+        // A lane whose last turn completed, or that waits on a person, still counts.
+        let done = json!({"status": "ready", "lastTurn": {"endedAt": 8, "status": "completed"}});
+        assert!(!lane_failed(&done));
+        assert!(holds_lane(SessionStatus::Ready, false, || lane_failed(&done)));
+        let asking = json!({"status": "ready", "pendingPermissions": 1,
+            "lastTurn": {"endedAt": 8, "status": "failed"}});
+        assert!(!lane_failed(&asking));
+        assert!(holds_lane(SessionStatus::Ready, false, || lane_failed(&asking)));
     }
 
     /// A registry that turns unreadable keeps its last good copy: a partial write
