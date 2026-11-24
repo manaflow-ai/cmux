@@ -422,3 +422,7 @@ pub(super) fn mark_sent(file: &mut File, carried: &[Carried], prompt_id: &str) -
     }
     marked
 }
+
+#[cfg(test)]
+#[path = "thread_tests.rs"]
+mod tests;
