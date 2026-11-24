@@ -265,7 +265,11 @@ impl Hub {
             .iter()
             .filter(|s| s.child.try_lock().is_ok_and(|c| c.is_none()))
             .filter(|s| s.attached.load(Ordering::Relaxed) == 0)
-            .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + after)
+            .map(|s| {
+                let since = s.last_active.load(Ordering::Relaxed);
+                std::time::Duration::from_nanos(since.max(s.evict_tried_at.load(Ordering::Relaxed)))
+                    + after
+            })
             .map(|due| if due > now { due } else { retry })
             .min()
     }
@@ -275,15 +279,30 @@ impl Hub {
         let Some(after) = self.evicted.after() else { return 0 };
         let after = u64::try_from(after.as_nanos()).unwrap_or(u64::MAX);
         let now = self.clock_now();
+        // A chat this reaper tried within the last idle period and could not evict waits out that
+        // period: else the same kept chats fill every batch, `more_due` stays set and the reaper
+        // runs pass after pass at once (98.8% CPU, 374 wakeups/s idle at n=1,000).
         let due: Vec<Arc<Session>> = self
             .session_handles()
             .into_iter()
+            .filter(|s| s.evict_tried_at.load(Ordering::Relaxed).saturating_add(after) <= now)
             .filter(|s| self.evictable(s, now, after))
             .take(EVICT_AT_ONCE)
             .collect();
-        self.evicted.more_due.store(due.len() == EVICT_AT_ONCE, Ordering::Relaxed);
-        // Each handle moves into `evict`: a clone kept here would count as a third holder.
-        due.into_iter().map(|s| self.evict(s, now, after)).filter(Result::is_ok).count()
+        let full = due.len() == EVICT_AT_ONCE;
+        // Each handle moves into `evict`: a clone kept here would count as a third holder. Each
+        // is marked tried first; one that leaves takes the mark with it.
+        let evicted = due
+            .into_iter()
+            .map(|s| {
+                s.evict_tried_at.store(now, Ordering::Relaxed);
+                self.evict(s, now, after)
+            })
+            .filter(Result::is_ok)
+            .count();
+        // More are due at once only when this pass was full and every chat in it left.
+        self.evicted.more_due.store(full && evicted == EVICT_AT_ONCE, Ordering::Relaxed);
+        evicted
     }
 
     /// `session` leaves the map for a tier row, when nothing else holds it.

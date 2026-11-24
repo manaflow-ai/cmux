@@ -177,5 +177,36 @@ async fn a_kept_chat_past_its_deadline_is_retried_later_not_at_once() {
     let next = hub.next_evict_deadline().expect("a candidate");
     assert!(next > now, "a kept chat's retry is in the future: {next:?} <= {now:?}");
     drop(held);
+    // Tried and kept: it waits out one idle period before the next try.
+    std::thread::sleep(after * 2);
     assert_eq!(hub.evict_idle_chats(), 1);
+}
+
+/// More kept chats than one pass takes (n=1,000 bench: 98.8% CPU, 374 wakeups/s idle): a pass
+/// whose chats all stayed must not ask for another at once, and the next pass reaches the chats
+/// behind them instead of trying the same kept ones again.
+#[tokio::test]
+async fn a_full_batch_of_kept_chats_neither_spins_the_reaper_nor_starves_the_rest() {
+    let n = EVICT_AT_ONCE + 40;
+    let hub = hub_with(n);
+    let after = std::time::Duration::from_millis(50);
+    hub.evicted.set_after(Some(after));
+    std::thread::sleep(after * 2);
+    // Every chat is held but the last 40, which the first pass may never reach.
+    let mut ids: Vec<String> = hub.session_handles().iter().map(|s| s.id.clone()).collect();
+    ids.sort();
+    let held: Vec<_> =
+        ids.iter().take(EVICT_AT_ONCE).map(|id| hub.session_get(id).unwrap()).collect();
+    let first = hub.evict_idle_chats();
+    assert!(
+        !hub.evicted.more_due.load(Ordering::Relaxed),
+        "a pass that left chats behind is not 'more due'"
+    );
+    let now = std::time::Duration::from_nanos(hub.clock_now());
+    let next = hub.next_evict_deadline().expect("candidates");
+    assert!(next > now, "no deadline in the past: {next:?} <= {now:?}");
+    let second = hub.evict_idle_chats();
+    assert_eq!(first + second, 40, "the unheld chats all leave within two passes");
+    assert_eq!(hub.eviction_counts().0, 40);
+    drop(held);
 }

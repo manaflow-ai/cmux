@@ -552,6 +552,9 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time at which the idle reaper last tried to evict it and it stayed
+    /// (`evict.rs`), or 0: it is tried again one idle period after that, not on every pass.
+    pub(super) evict_tried_at: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
