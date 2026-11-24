@@ -157,17 +157,25 @@ final class BillingStoreKitTests: XCTestCase {
         // StoreKit Testing can still renew at expireSubscription although its
         // renewal info already says auto-renew is off (run 45344114175: a
         // RENEWAL #1 with autoRenew=true appeared at expiry). Each such
-        // renewal is expired in turn, once, so the test still ends on an
-        // expired subscription.
+        // renewal gets auto-renew off and is expired in turn, so the test
+        // still ends on an expired subscription. The wait ends only when no
+        // entitlement is listed and no Pro transaction is still unexpired, so
+        // a renewal that lands after the entitlement dropped is not missed;
+        // more than three stray renewals fail at once.
         var expiredRenewals: Set<UInt> = [testTransaction.identifier]
         try await rig.eventually("the expired entitlement dropped") {
-            if await self.rig.entitledProductIDs().isEmpty { return true }
-            let renewals = self.rig.testTransactions(CmuxProduct.proMonthly).filter {
+            let live = self.rig.testTransactions(CmuxProduct.proMonthly).filter {
                 !expiredRenewals.contains($0.identifier) && ($0.expirationDate ?? .distantPast) > Date()
             }
-            for renewal in renewals {
+            if live.isEmpty, await self.rig.entitledProductIDs().isEmpty { return true }
+            for renewal in live {
                 expiredRenewals.insert(renewal.identifier)
+                guard expiredRenewals.count <= 4 else {
+                    XCTFail("StoreKit kept renewing at expiry with auto-renew off: \(expiredRenewals.sorted())")
+                    throw CancellationError()
+                }
                 print("[storekit] StoreKit renewed #\(renewal.identifier) at expiry with auto-renew off; expiring it")
+                try? self.rig.session.disableAutoRenewForTransaction(identifier: renewal.identifier)
                 try? self.rig.session.expireSubscription(productIdentifier: CmuxProduct.proMonthly)
             }
             return false
