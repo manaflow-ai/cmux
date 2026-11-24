@@ -150,6 +150,10 @@ pub struct AttachResult {
 pub struct EventsParams {
     pub session_id: String,
     pub kinds: Option<EventKinds>,
+    /// Read records after the chat's persisted person-facing seen cursor. A chat with no cursor
+    /// has never been focused and returns an empty page. Cannot be combined with `afterSeq` or
+    /// `beforeSeq`.
+    pub since_seen: Option<bool>,
     /// Records after this one; it may not lie beyond the last record.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.

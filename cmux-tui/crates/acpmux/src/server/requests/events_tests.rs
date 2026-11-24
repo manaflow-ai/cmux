@@ -6,11 +6,15 @@ use crate::store::{EventRecord, MemoryStore, SessionMeta, Store};
 /// A chat whose `session.json` was last saved at seq 2 while its log went on to seq 5, as a hard
 /// stop leaves it, in a daemon that started without reading chat logs yet (`new_deferred`).
 fn hard_stopped() -> Arc<Hub> {
+    hard_stopped_with_seen(None)
+}
+
+fn hard_stopped_with_seen(seen_seq: Option<u64>) -> Arc<Hub> {
     let store = MemoryStore::default();
     let meta: SessionMeta = serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": "c", "name": "chat", "harness": "fake",
         "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
-        "lastSeq": 2, "eventCount": 2,
+        "lastSeq": 2, "eventCount": 2, "seenSeq": seen_seq,
     }))
     .unwrap();
     store.save(&meta).unwrap();
@@ -57,6 +61,40 @@ fn a_read_past_the_saved_last_seq_gets_the_logs_tail_before_the_log_loads() {
     let past = handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "afterSeq": 9}), None)
         .unwrap_err();
     assert!(past.message.contains("cursor_future"), "{}", past.message);
+}
+
+#[test]
+fn since_seen_reads_after_the_saved_cutover_without_moving_it() {
+    let hub = hard_stopped_with_seen(Some(2));
+    let page =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "sinceSeen": true}), None)
+            .expect("the recap starts after the saved seen cursor");
+    assert_eq!(seqs(&page), [3, 4, 5]);
+    assert_eq!(page["seenSeq"], 2);
+    assert_eq!(page["lastSeq"], 5);
+    assert_eq!(page["pageThrough"], 5);
+    assert_eq!(hub.resolve("c".into()).unwrap().meta().seen_seq, Some(2));
+
+    let never_focused = hard_stopped_with_seen(None);
+    let empty = handle(
+        &never_focused,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "sinceSeen": true}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(seqs(&empty), Vec::<u64>::new());
+    assert_eq!(empty["seenSeq"], Value::Null);
+    assert_eq!(empty["lastSeq"], 5);
+
+    let invalid = handle(
+        &hub,
+        method::MUX_EVENTS,
+        &json!({"sessionId": "c", "sinceSeen": true, "afterSeq": 1}),
+        None,
+    )
+    .unwrap_err();
+    assert!(invalid.message.contains("cannot be combined"), "{}", invalid.message);
 }
 
 /// A reader that pages forward on its own (a durable watch on a peer chat, `hub/watch_events.rs`)

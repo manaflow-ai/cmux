@@ -3933,6 +3933,13 @@
         "sessionId": {
           "type": "string"
         },
+        "sinceSeen": {
+          "description": "Read records after the chat's persisted person-facing seen cursor. A chat with no cursor\nhas never been focused and returns an empty page. Cannot be combined with `afterSeq` or\n`beforeSeq`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "subagent": {
           "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
           "type": [
