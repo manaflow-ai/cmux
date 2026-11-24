@@ -173,6 +173,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `tab-hibernation.sh` | Tab hibernation keep rule on 48 Chromium tabs. | msg 9103 | 2026-11-03 | active |
 | `infinite-tabs.sh` | The app with 500 browser tabs, 200 workspaces and 100 agent chats hibernated, over the empty app: RSS, CPU, wakeups, switch times. | cmuxterm-hq goals/infinite-tabs-flat.md | 2026-11-22 | active |
 | `renderer-sharing.sh` | Chromium renderer sharing across 100 same-site tabs. | - | 2026-10-27 | active |
+| `tab-spinner-cost.sh` | The tab-strip spinner's cost while a load never ends: app, GPU and WindowServer CPU and wakeups, spinner on vs. `showPageLoading` off. | hq#13463 | 2026-11-24 | active |
 | `cef-pump-wakes.sh` | Main-thread wakes from the Chromium message pump with busy hidden terminals. | STATUS 9946 | 2026-11-04 | active |
 | `holder-dogfood.sh` | Terminal holder vs hosts: process and memory A/B. | perf lead | 2026-10-27 | active |
 | `unshown-ptys.sh` | PTYs held by workspaces nobody has shown. | a913 | 2026-11-07 | active |
