@@ -227,7 +227,14 @@ import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKey
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { chatCloudMachine, createStopWaiter } from "./cloudMachineMenu";
-import { refreshCloudMachines, useCloudMachines, useCloudSignedIn, type CloudMachine } from "./cloudMachines";
+import { autoCloudOn } from "./autoCloud";
+import {
+  refreshCloudMachines,
+  useCloudMachines,
+  useCloudPlan,
+  useCloudSignedIn,
+  type CloudMachine,
+} from "./cloudMachines";
 import {
   AUTO_LOOK,
   autoTargets,
@@ -491,6 +498,7 @@ import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { type QuickActionMode } from "./header/quickActions";
 import {
+  useAutoCloudKey,
   useChatDisplay,
   useChatMinimap,
   useChatPinnedPlan,
@@ -4306,8 +4314,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const pickAutoRef = useRef(pickAuto);
   pickAutoRef.current = pickAuto;
+  /// AutoCloud (autoCloud.ts): the plan and the hidden `cloud.autoCloud` key turn Auto's row into a
+  /// chevron that opens Auto, Cloud only and Machine…. Off, Auto is the one row it was.
+  const autoCloud = autoCloudOn({ key: useAutoCloudKey(), plan: useCloudPlan() });
   const autoRow: AutoRow | undefined = autoOffered
-    ? { picked: autoPicked, onPick: (on) => pickAutoRef.current(on), look: AUTO_LOOK }
+    ? {
+        picked: autoPicked,
+        onPick: (on) => pickAutoRef.current(on),
+        look: AUTO_LOOK,
+        ...(autoCloud ? { cloud: true } : {}),
+      }
     : undefined;
   /// Where Auto put this page's chat, said on the arrival line (AutoArrival): `deciding` while the
   /// daemon has not answered. Kept for the page it was decided on.
