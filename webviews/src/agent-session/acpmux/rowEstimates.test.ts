@@ -28,7 +28,7 @@ import {
 import { turnView } from "./conversation/turns";
 import { SENT_IMAGE_HEIGHT } from "./conversation/userBubbleModel";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
-import { currentChatMetrics } from "./chatDisplay";
+import { chatDisplay, currentChatMetrics, drawnFontSize } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LINE_ROW } from "./transcriptGrid";
 import { setComposerSettings } from "./composerSettings";
 
@@ -756,9 +756,12 @@ test("permission estimates use the grid frame and reserve a command preview only
 test("the first layout reserves every question option before placing the reply below", () => {
   const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
   const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
-  expect(two.heights[0]).toBeCloseTo(32 + 24 + 24 + currentChatMetrics().lineHeight + 8 + 2 * 40 + 8 + 32);
-  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 40);
-  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 40);
+  // The card's 8 px inset, the 28 px "Needs your input" line, the question as a 14/20 title, 36 px
+  // rows 2 px apart, then the 36 px last row under its 8 px gap (question/questionCard.css).
+  const title = drawnFontSize(chatDisplay()) * (20 / 14);
+  expect(two.heights[0]).toBeCloseTo(16 + 28 + 2 + title + 8 + (2 * 36 + 2) + 8 + 36);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 38);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 38);
 });
 
 test("question estimates follow description wrapping at the actual column width", () => {
