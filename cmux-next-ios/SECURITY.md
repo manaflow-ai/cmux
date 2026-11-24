@@ -1380,7 +1380,11 @@ going first) and never take one of the places that cap real prompts, so dev phon
 the next real phone's prompt. A signed-in phone dials the Macs it lists, which can be another build on the same
 computer, and that prompt was one the person never meant to answer (2026-11-17: an `ios-onboard`
 phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
-nothing: it only hides a request from the prompt.
+nothing: it only hides a request from the prompt. The person's own Approve Phone Requests
+Automatically (`mobile.autoApprovePhones`) never pairs such a request either: with the setting on,
+another build's dev iPhone app still waits quietly, so only the person's Allow in Settings > Mobile
+pairs it there (route audit, 2026-11-24). Every other phone of the account, the App Store and
+TestFlight apps included, pairs with the setting on as before.
 
 ## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 

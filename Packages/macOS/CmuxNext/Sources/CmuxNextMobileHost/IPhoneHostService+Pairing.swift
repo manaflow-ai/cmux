@@ -124,7 +124,8 @@ extension IPhoneHostService {
         }
         // The person's own `mobile.autoApprovePhones` (off by default): a phone of the signed-in
         // user pairs as Allow would. hostd served this phone only because the service stamped its
-        // dial with the signed-in user, and the list is that user's. Machines still ask.
+        // dial with the signed-in user, and the list is that user's. Machines still ask, and another
+        // build's dev iPhone app still waits quietly below: the quiet ask decides it, not the setting.
         if !removed, Self.autoApproves(request, on: dependencies?.autoApprovePhones() ?? false, macDevTag: dependencies?.macDevTag,
                                        pairedUserID: list.userID, accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired by Approve Phone Requests Automatically")
@@ -269,10 +270,14 @@ extension IPhoneHostService {
 
     /// Whether `mobile.autoApprovePhones` (`on`) pairs `request` without the prompt: a phone, never
     /// a machine, on the paired list of the signed-in user. Never true with the setting off, no
-    /// account or another user's list.
+    /// account or another user's list, nor for a request the quiet ask holds on this Mac
+    /// (`macDevTag`, ``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``): another build's dev iPhone
+    /// app waits quietly whether the setting is on or off, so the setting never pairs a dev phone
+    /// with NIGHTLY, release or another tag's dev build.
     static func autoApproves(_ request: MobileHostPairRequest, on: Bool, macDevTag: String?, pairedUserID: String,
                              accountUserID: String?) -> Bool {
         guard on, !request.isMachine, let accountUserID, !accountUserID.isEmpty else { return false }
+        guard !IPhoneDevAutoApprove.asksQuietly(request, macDevTag: macDevTag) else { return false }
         return pairedUserID == accountUserID
     }
 
@@ -306,7 +311,8 @@ extension IPhoneHostService {
         setKeepAwake(false)
     }
 
-    /// `mobile.autoApprovePhones` turned on: the phones already waiting pair now, as a new request would.
+    /// `mobile.autoApprovePhones` turned on: the phones already waiting pair now, as a new request would
+    /// (another build's dev iPhone app keeps waiting quietly, ``autoApproves(_:on:macDevTag:pairedUserID:accountUserID:)``).
     func autoApproveWaiting() {
         guard dependencies?.autoApprovePhones() ?? false else { return }
         for request in prompts.pending where !request.isMachine { ask(request) }
