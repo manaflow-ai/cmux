@@ -448,10 +448,12 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # --no-filter: a reused workspace can carry the blob filter another job's partial fetch configured.
           fetch_one() {
             for try in 1 2 3; do
-              if git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --depth=1 origin "$1"; then return 0; fi
+              if git -c protocol.version=2 fetch --no-filter --no-tags --no-recurse-submodules --depth=1 origin "$1"; then return 0; fi
               echo "fetch of $1: try $try failed" >&2
+              if [ "$try" != 3 ]; then sleep $((try * 15)); fi
             done
             return 1
           }
@@ -477,7 +479,7 @@ jobs:
         run: |
           set -euo pipefail
           dir=backend/db/migrations
-          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch or force push); lint only"; BEFORE=""; fi
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch); lint only"; BEFORE=""; fi
           errors=0
           if [ -n "$BEFORE" ]; then
             while IFS=$'\t' read -r status path; do

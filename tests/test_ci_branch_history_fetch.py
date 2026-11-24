@@ -53,6 +53,8 @@ class BranchHistoryFetch(unittest.TestCase):
         self.assertIn('fetch_one "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"', run)
         self.assertIn('fetch_one "$BEFORE"', run)
         self.assertIn("--no-tags", run)
+        # A reused workspace can carry a configured blob filter; --no-filter overrides it.
+        self.assertIn("fetch --no-filter ", run)
         self.assertNotIn("--filter", run)
         self.assertNotIn("|| true", run)
         guards = [i for i, s in enumerate(steps) if "git diff --name-status" in (s.get("run") or "")]
