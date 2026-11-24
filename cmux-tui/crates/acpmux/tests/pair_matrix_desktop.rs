@@ -260,7 +260,7 @@ impl Client {
             challenge["nonce"].as_str().unwrap_or_default(),
             challenge["connection"].as_str().unwrap_or_default(),
         )
-        .map_err(|e| format!("person proof: {e:?}"))?;
+        .ok_or_else(|| "person proof: no key".to_string())?;
         c.call("_acpmux/person_prove", json!({"proof": proof}), Duration::from_secs(20)).await?;
         Ok(c)
     }
