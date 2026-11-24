@@ -219,8 +219,8 @@ export const RowFrame = React.memo(function RowFrame({
         rows.observe(node);
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
-  }, []);
+    // `skipHeight` is state from the frame's first mount: this runs on that mount only.
+  }, [skipHeight]);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
   const morphOnMount = useEffectEvent(() => {
