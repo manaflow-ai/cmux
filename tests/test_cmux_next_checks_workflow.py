@@ -2445,8 +2445,9 @@ class FastTierStartsWarm(unittest.TestCase):
         saves = [s for s in steps if is_cache_save(s)]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         self.assertEqual([s["with"]["path"] for s in saves],
-                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["swift"]],
-                         "the swift archive, whose pointer readers follow, goes last")
+                         ["${{ matrix.workspace }}/" + FAST_CACHE_DIRS["home"],
+                          "${{ matrix.workspace }}/" + FAST_CACHE_DIRS["swift"]],
+                         "the swift archive, whose pointer readers follow, goes last; each at its pool's path")
         for name, save in zip(("home", "swift"), saves):
             with self.subTest(name=name):
                 self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
@@ -2477,8 +2478,11 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
+        # blacksmith-root2: the same seed at the owned minis' second seed root's path (owned_spm_scratch).
+        self.assertEqual(set(pools), {"blacksmith", "blacksmith-root2"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["workspace"], "/Users/runner/_work/cmux-2/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["runner"], "blacksmith-6vcpu-macos-26")
 
     def test_a_seed_key_names_the_path_its_restore_writes(self):
         """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
