@@ -2720,6 +2720,8 @@ name = "cmux-tailnet-front"
 version = "0.1.0"
 dependencies = [
  "cmux-scope",
+ "cmux-tailnet",
+ "libc",
  "serde",
  "serde_json",
  "tokio",

@@ -25,6 +25,8 @@
 pub mod front;
 pub mod messages;
 pub mod placement;
+#[cfg(all(unix, feature = "tsnet"))]
+pub mod tsnet;
 
 pub use front::{Dialer, Front, FrontConfig, FrontListener, PortMap, Route, TcpDialer};
 pub use messages::{PLACEMENT_MESSAGE_VERSION, PlacementMessage};
