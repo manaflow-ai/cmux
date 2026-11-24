@@ -26,15 +26,12 @@ pub(super) enum Signal {
     Other,
 }
 
-fn cut(text: String) -> String {
-    if text.len() <= TOOL_ARGS_MAX {
-        return text;
+fn cut(mut text: String) -> String {
+    if text.len() > TOOL_ARGS_MAX {
+        let end = (0..=TOOL_ARGS_MAX).rev().find(|&at| text.is_char_boundary(at)).unwrap_or(0);
+        text.truncate(end);
     }
-    let mut end = TOOL_ARGS_MAX;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
+    text
 }
 
 /// A `tool_call` or `tool_call_update` record: the call ended, or is the one running now.

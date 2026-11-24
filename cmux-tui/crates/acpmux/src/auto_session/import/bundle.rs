@@ -5,6 +5,7 @@ use std::io::Write as _;
 use std::path::Path;
 
 use cmux_auto_session::wire::{Manifest, SeqRecord, SessionView};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use crate::store::{EventRecord, SessionMeta};
@@ -28,15 +29,15 @@ pub(super) fn meta(
                 "status": "idle", "createdAt": now, "updatedAt": now,
             });
             if !view.title.trim().is_empty() {
-                meta["title"] = json!(view.title);
+                meta.set("title", json!(view.title));
             }
             meta
         }
     };
-    meta["id"] = json!(view.id);
-    meta["harness"] = json!(manifest.harness);
-    meta["cwd"] = json!(dir);
-    meta["agentSessionId"] = json!(manifest.harness_session_id);
+    meta.set("id", json!(view.id));
+    meta.set("harness", json!(manifest.harness));
+    meta.set("cwd", json!(dir));
+    meta.set("agentSessionId", json!(manifest.harness_session_id));
     Ok(meta)
 }
 
