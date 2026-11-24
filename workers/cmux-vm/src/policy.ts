@@ -40,6 +40,18 @@ export interface TenantPolicyService {
   readonly isManaflowTeam: (tenantId: TenantId) => boolean;
   /** Listed in CMUX_VM_ENTITLED_SERVICE_IDS: this service key's requests are entitled for the team they act for. */
   readonly isEntitledService: (serviceId: string) => boolean;
+  /**
+   * Listed in CMUX_VM_SIZED_IMAGE_SERVICE_IDS: this service key's image creates boot the image's large snapshot when
+   * they ask for exactly its size (proofs/vm-image.ts), so no resize follows the create. Unset: every create boots the
+   * image's own snapshot and is resized, as before.
+   */
+  readonly bootsSizedImage: (serviceId: string) => boolean;
+  /**
+   * Listed in CMUX_VM_CREATE_NO_READS_SERVICE_IDS: this service key's creates send no provider read before the
+   * create (upstream/live-create.ts): no exact-slug read when the VM id was minted in the request, and no boot image
+   * read. Unset: both reads come first, as before.
+   */
+  readonly createsWithoutReads: (serviceId: string) => boolean;
   /** Live VMs a tenant may hold; NO_VM_COUNT_CAP for a product tenant with no TENANT_VM_QUOTAS entry. */
   readonly maxVms: (tenantId: TenantId) => number;
   /** Live snapshots per tenant; a budget separate from VMs. */
@@ -59,6 +71,10 @@ export interface PolicyConfig {
   readonly manaflowTenantIds?: ReadonlyArray<string>;
   /** Service key ids whose requests are entitled for the team they act for (CMUX_VM_ENTITLED_SERVICE_IDS). */
   readonly entitledServiceIds?: ReadonlyArray<string>;
+  /** Service key ids whose image creates may boot a large snapshot (CMUX_VM_SIZED_IMAGE_SERVICE_IDS). */
+  readonly sizedImageServiceIds?: ReadonlyArray<string>;
+  /** Service key ids whose creates send no provider read first (CMUX_VM_CREATE_NO_READS_SERVICE_IDS). */
+  readonly createNoReadsServiceIds?: ReadonlyArray<string>;
   /** Live VMs per tenant for every tenant (tests); overrides the defaults. */
   readonly maxVms?: number;
   /** Per-tenant live VM limits, by Stack team id, from TENANT_VM_QUOTAS. */
@@ -107,6 +123,9 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
     isDevTest,
     isManaflowTeam: (tenantId) => manaflow.has(tenantId),
     isEntitledService: (serviceId) => entitledServices.has(serviceId),
+    // Read per call (the lists hold a few ids): the test harness changes them between two attempts of one create.
+    bootsSizedImage: (serviceId) => (config.sizedImageServiceIds ?? []).includes(serviceId),
+    createsWithoutReads: (serviceId) => (config.createNoReadsServiceIds ?? []).includes(serviceId),
     maxVms: (tenantId) =>
       config.maxVms ?? config.vmQuotas?.[tenantId] ?? (config.environment !== "production"
         ? DEFAULT_DEV_TEST_MAX_VMS
