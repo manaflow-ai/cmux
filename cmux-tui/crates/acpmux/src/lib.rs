@@ -266,6 +266,7 @@ pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
 pub mod race_records;
+pub mod range_fetch;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
