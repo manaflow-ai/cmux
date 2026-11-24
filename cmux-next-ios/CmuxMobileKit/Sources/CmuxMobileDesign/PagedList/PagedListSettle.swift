@@ -18,12 +18,13 @@ enum PagedListSettle {
         var drift: CGFloat
     }
 
-    /// Only an `.up` list sliding to its newest row, with no finger and no fling, after an anchored
-    /// update whose kept row drifted more than half a point once its rows sized themselves. A `.down`
-    /// list's rows above the reader are the rows arriving at its top (restoring again corrects their
-    /// move twice); at rest the layout pass keeps the newest row; under a scroll the scroll moves them.
+    /// An `.up` list whose update's restore ran (anchored), whatever the scroll state (a resting finger,
+    /// a drag, a fling, the slide or rest), when the kept row drifted more than half a point once its
+    /// rows sized themselves: the first restore already moved the offset, under a finger too, so one
+    /// more bounded restore in the same update is no more of a fight. A `.down` list's rows above the
+    /// reader are the rows arriving at its top (restoring again corrects their move twice).
     static func again(_ state: State) -> Bool {
-        state.up && state.sliding && !state.scrolling && state.anchored && abs(state.drift) > 0.5
+        state.up && state.anchored && abs(state.drift) > 0.5
     }
 }
 #endif
