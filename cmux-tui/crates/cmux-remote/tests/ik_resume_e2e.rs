@@ -6,6 +6,7 @@
 //! link that delays every frame by a fixed one-way latency, so the saving shows up in wall time.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -117,6 +118,7 @@ fn handshake(
         connection_attempt: ConnectionAttemptId([3; 16]),
         resume: BTreeMap::new(),
         daemon_takes_ik,
+        early: Vec::new(),
         handshake_timeout: Duration::from_secs(5),
     }
 }
@@ -248,11 +250,13 @@ impl Path {
 
 /// A link group that delays every frame by its path's one-way latency each way, charges the
 /// path's open cost per open (a carrier dial), and keeps every frame the client sent, per link,
-/// for the replay test.
+/// for the replay test. While `withhold` is set its links keep what the client sends and deliver
+/// none of it: a carrier that died with frames in flight.
 struct DelayedGroup {
     inner: Arc<dyn LinkGroup>,
     sent: Arc<StdMutex<Vec<(LinkRequest, Arc<StdMutex<Vec<Bytes>>>)>>>,
     path: Path,
+    withhold: Arc<AtomicBool>,
 }
 
 struct DelayedLink {
@@ -261,10 +265,16 @@ struct DelayedLink {
     inc: Mutex<mpsc::UnboundedReceiver<Result<Option<(Instant, Bytes)>, LinkError>>>,
     sent: Arc<StdMutex<Vec<Bytes>>>,
     one_way: Duration,
+    withhold: Arc<AtomicBool>,
 }
 
 impl DelayedLink {
-    fn new(inner: Box<dyn FrameLink>, sent: Arc<StdMutex<Vec<Bytes>>>, one_way: Duration) -> Self {
+    fn new(
+        inner: Box<dyn FrameLink>,
+        sent: Arc<StdMutex<Vec<Bytes>>>,
+        one_way: Duration,
+        withhold: Arc<AtomicBool>,
+    ) -> Self {
         let inner: Arc<dyn FrameLink> = Arc::from(inner);
         let (out, mut to_send) = mpsc::unbounded_channel::<(Instant, Bytes)>();
         tokio::spawn({
@@ -293,7 +303,7 @@ impl DelayedLink {
                 }
             }
         });
-        Self { inner, out, inc: Mutex::new(inc), sent, one_way }
+        Self { inner, out, inc: Mutex::new(inc), sent, one_way, withhold }
     }
 }
 
@@ -309,6 +319,9 @@ impl FrameLink for DelayedLink {
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         self.sent.lock().unwrap().push(frame.clone());
+        if self.withhold.load(Ordering::Acquire) {
+            return Ok(());
+        }
         self.out.send((Instant::now() + self.one_way, frame)).map_err(|_| LinkError::Closed)
     }
 
@@ -343,7 +356,7 @@ impl LinkGroup for DelayedGroup {
         let link = self.inner.open(request).await?;
         let sent = Arc::new(StdMutex::new(Vec::new()));
         self.sent.lock().unwrap().push((request, sent.clone()));
-        Ok(Box::new(DelayedLink::new(link, sent, self.path.one_way)))
+        Ok(Box::new(DelayedLink::new(link, sent, self.path.one_way, self.withhold.clone())))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
@@ -386,6 +399,17 @@ async fn group_on(
     path: Path,
     lane_policy: LanePolicy,
 ) -> Arc<dyn LinkGroup> {
+    group_withholding(daemon, session, sent, path, lane_policy, Arc::default()).await
+}
+
+async fn group_withholding(
+    daemon: &Daemon,
+    session: SessionId,
+    sent: &Sent,
+    path: Path,
+    lane_policy: LanePolicy,
+    withhold: Arc<AtomicBool>,
+) -> Arc<dyn LinkGroup> {
     let endpoint =
         Url::parse(&format!("ws://127.0.0.1:{}/v1/link", daemon.server.local_addr().port()))
             .unwrap();
@@ -394,7 +418,7 @@ async fn group_on(
         .connect(ConnectRequest { endpoint, session, lane_policy, routing: Default::default() })
         .await
         .unwrap();
-    Arc::new(DelayedGroup { inner, sent: sent.clone(), path })
+    Arc::new(DelayedGroup { inner, sent: sent.clone(), path, withhold })
 }
 
 /// Reconnects on `path`, the time each took, after a first connect. The first redial learns
@@ -462,10 +486,11 @@ async fn a_reconnect_saves_a_round_trip_per_link_phase() {
     );
     // A reconnect is an open then each phase's handshake and link-ready, plus the session's own
     // resume exchange. Measured at 25 ms one way: base (XX on every link) median 331 ms, IK 229 ms,
-    // one round trip saved per phase. The bound sits between the two: XX on either phase lands
-    // above it. Opening every lane link at once removes the second phase: about 4 round trips
-    // (one open, the IK exchange, link-ready, the session's resume) where two phases took 6.
-    assert!(median < ONE_WAY * 11, "reconnect took {median:?}: IK did not take");
+    // one round trip saved per phase.
+    // Opening every lane link at once leaves one phase: fleet, 25 ms one way, 208 ms with the
+    // two phases and 105 ms with one (an open and the IK exchange; link-ready rides behind the
+    // welcome). The bound sits between them.
+    assert!(median < ONE_WAY * 6, "reconnect took {median:?}: the lane links did not open at once");
 }
 
 /// The before/after rows at 50 and 150 ms round trips, on a direct path (an open is one round
@@ -488,6 +513,10 @@ async fn resume_rows_at_50_and_150_ms() {
                 times[times.len() - 1],
                 times.len()
             );
+            // One phase is an open and one round trip (fleet: 105 ms at 50 ms with a one round
+            // trip open, 455 ms at 150 ms with two); two phases in a row took twice that.
+            let one_phase = path.open_cost() + path.round_trip();
+            assert!(median < one_phase + path.round_trip(), "{path:?}: {median:?}");
         }
     }
 }
@@ -547,4 +576,155 @@ async fn a_replayed_ik_resume_is_refused_and_the_live_session_carries_on() {
     assert!(accepted.snapshot().await.generation >= 2);
     client.close().await.unwrap();
     daemon.server.shutdown().await.unwrap();
+}
+
+/// Three Control frames the client sent on a carrier that died with them in flight.
+fn withheld_payloads() -> Vec<Bytes> {
+    (0..3_u8).map(|n| Bytes::from(vec![b'a' + n; 500])).collect()
+}
+
+/// What a withheld-then-delivered reconnect showed.
+struct Withheld {
+    /// From the reconnect's start to the daemon reading the first withheld frame.
+    arrival: Duration,
+    client: Arc<ClientConnection>,
+    accepted: Arc<cmux_remote::daemon::ServerConnection>,
+    daemon: Daemon,
+    sent: Sent,
+    session: SessionId,
+}
+
+/// Connects on `path` with a Cloud client's `Auto` lanes, withholds three Control frames on the
+/// first carrier, and reconnects. The daemon reads each withheld frame once, in order, and then a
+/// frame sent after the reconnect: no copy of any of them in between.
+async fn withheld_then_delivered(path: Path, session: SessionId) -> Withheld {
+    let mut daemon = daemon().await;
+    let sent = Sent::default();
+    let withhold = Arc::new(AtomicBool::new(false));
+    let client = ClientConnection::connect(
+        group_withholding(&daemon, session, &sent, path, LanePolicy::Auto, withhold.clone()).await,
+        ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: Some(daemon.auth.identity().public_key()),
+            auth: ClientAuthMode::Carrier,
+            device_name: "early-data-client".into(),
+            session,
+            lane_policy: LanePolicy::Auto,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { maximum_attempts: Some(1), ..Default::default() },
+        },
+    )
+    .await
+    .unwrap();
+    let accepted = daemon.accepted.recv().await.unwrap();
+    withhold.store(true, Ordering::Release);
+    let payloads = withheld_payloads();
+    for payload in &payloads {
+        client.send(Lane::Control, 1, payload.clone(), FrameFlags::empty()).await.unwrap();
+    }
+    let replacement = group_on(&daemon, session, &sent, path, LanePolicy::Auto).await;
+    let started = Instant::now();
+    let reconnect = tokio::spawn({
+        let client = client.clone();
+        async move { client.reconnect(replacement).await }
+    });
+    let mut arrival = None;
+    for payload in &payloads {
+        let frame = accepted.receive().await.unwrap().unwrap();
+        arrival.get_or_insert_with(|| started.elapsed());
+        assert_eq!((frame.lane, &frame.payload), (Lane::Control, payload));
+    }
+    reconnect.await.unwrap().unwrap();
+    let after = Bytes::from_static(b"after the reconnect");
+    client.send(Lane::Control, 1, after.clone(), FrameFlags::empty()).await.unwrap();
+    assert_eq!(accepted.receive().await.unwrap().unwrap().payload, after, "a duplicate arrived");
+    Withheld { arrival: arrival.unwrap(), client, accepted, daemon, sent, session }
+}
+
+/// The early-data rows: how long a reconnect takes to put the Control frames a dead carrier
+/// withheld in front of the daemon, at 50 and 150 ms round trips. Early data puts them in the
+/// Control link's IK hello, so the daemon reads them as the link group commits (an open and half
+/// a round trip); after the commit, the replay is a round trip later (link-ready back, the replay
+/// out). `CMUX_IK_RESUME_RUNS` sets the runs per row (default 8).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn early_rows_at_50_and_150_ms() {
+    let runs =
+        std::env::var("CMUX_IK_RESUME_RUNS").ok().and_then(|runs| runs.parse().ok()).unwrap_or(8);
+    for one_way in [Duration::from_millis(25), Duration::from_millis(75)] {
+        for open_round_trips in [1, 2] {
+            let path = Path { one_way, open_round_trips };
+            let mut times = Vec::new();
+            for _ in 0..runs {
+                let run = withheld_then_delivered(path, SessionId([24; 16])).await;
+                times.push(run.arrival);
+                run.client.close().await.unwrap();
+                run.daemon.server.shutdown().await.unwrap();
+            }
+            let median = median(&mut times);
+            eprintln!(
+                "early-row rtt={:?} open_rtts={open_round_trips} withheld_control_median={median:?} \
+                 min={:?} max={:?} n={}",
+                path.round_trip(),
+                times[0],
+                times[times.len() - 1],
+                times.len()
+            );
+            // Early: the open and half a round trip. After the commit: the open and a round trip
+            // and a half. The bound sits between them.
+            assert!(median < path.open_cost() + path.round_trip(), "{path:?}: {median:?}");
+        }
+    }
+}
+
+/// The early first flight, recorded and replayed: once the session has moved past its
+/// generation the daemon refuses it, and nothing it carried reaches the session again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_replayed_early_first_flight_delivers_nothing_twice() {
+    let run = withheld_then_delivered(Path::DIRECT_50, SessionId([25; 16])).await;
+    // The generation-1 Control link's IK hello carried the withheld frames; the Interactive
+    // link's, at the same generation, carried none.
+    let first_message = |lane: Lane| {
+        let sent = run.sent.lock().unwrap();
+        let (request, frames) = sent
+            .iter()
+            .find(|(request, _)| request.generation == 1 && request.lane == lane)
+            .expect("a generation-1 link");
+        (*request, frames.lock().unwrap()[..2].to_vec())
+    };
+    let (control, flight) = first_message(Lane::Control);
+    let (_, interactive) = first_message(Lane::Interactive);
+    assert!(
+        flight[1].len() > interactive[1].len() + 1_500,
+        "the Control hello carried no early data: {} vs {} bytes",
+        flight[1].len(),
+        interactive[1].len()
+    );
+    // Stale generation: the session moves on, then the first flight comes again.
+    run.client
+        .reconnect(
+            group_on(&run.daemon, run.session, &Sent::default(), Path::DIRECT_50, LanePolicy::Auto)
+                .await,
+        )
+        .await
+        .unwrap();
+    let raw =
+        group_on(&run.daemon, run.session, &Sent::default(), Path::DIRECT_50, LanePolicy::Auto)
+            .await;
+    let replay = raw.open(control).await.unwrap();
+    for frame in &flight {
+        replay.send(frame.clone()).await.unwrap();
+    }
+    let _ = tokio::time::timeout(Duration::from_secs(2), async {
+        while let Ok(Some(_)) = replay.receive().await {}
+    })
+    .await;
+    let payload = Bytes::from_static(b"after the replayed flight");
+    run.client.send(Lane::Control, 1, payload.clone(), FrameFlags::empty()).await.unwrap();
+    assert_eq!(
+        run.accepted.receive().await.unwrap().unwrap().payload,
+        payload,
+        "the replayed flight delivered something again"
+    );
+    run.client.close().await.unwrap();
+    run.daemon.server.shutdown().await.unwrap();
 }

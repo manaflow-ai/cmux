@@ -1140,6 +1140,7 @@ impl HubCarrier {
                 connection_attempt: ConnectionAttemptId(random_16()?),
                 resume: BTreeMap::new(),
                 daemon_takes_ik: false,
+                early: Vec::new(),
                 handshake_timeout: self.timings.handshake,
             },
         )

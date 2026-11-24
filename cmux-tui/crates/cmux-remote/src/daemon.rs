@@ -838,6 +838,9 @@ struct PendingLinks {
     /// A new session's admission permit, moved to `client_permits` once it
     /// registers; a reconnect has none.
     client_permit: Option<OwnedSemaphorePermit>,
+    /// The Control link's early data (`AcceptedSecureLink::early`), read by the
+    /// session first once the group commits.
+    early: Vec<Bytes>,
 }
 
 struct ReconnectRegistration<'a> {
@@ -1027,6 +1030,27 @@ impl RemoteDaemon {
                 (None, Lane::ALL.into_iter().map(|lane| (lane, 0)).collect())
             }
         };
+        // Early data is the Control lane's replay, written for this session and generation:
+        // anything else refuses the link. What the daemon already has is dropped here, and the
+        // session's own dedupe drops anything that arrives meanwhile.
+        let early = if accepted.early.is_empty() {
+            Vec::new()
+        } else {
+            let contiguous = daemon_resume.get(&Lane::Control).copied().unwrap_or(0);
+            match crate::session::admit_early_frames(
+                &accepted.early,
+                accepted.session,
+                accepted.generation,
+                contiguous,
+            ) {
+                Ok(early) if existing.is_some() => early,
+                Ok(_) => Vec::new(),
+                Err(error) => {
+                    let _ = accepted.link.close().await;
+                    return Err(DaemonError::Protocol(error));
+                }
+            }
+        };
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
@@ -1085,8 +1109,12 @@ impl RemoteDaemon {
                 grant_generation: accepted.grant.revocation_generation,
                 service_authority: accepted.grant.authority.clone(),
                 client_permit: None,
+                early: Vec::new(),
             }
         });
+        if !early.is_empty() {
+            pending.early = early;
+        }
         if pending.client_permit.is_none() {
             pending.client_permit = client_permit.take();
         }
@@ -1136,6 +1164,11 @@ impl RemoteDaemon {
         let (connection, is_new) = if let Some(connection) = existing {
             let expected_generation = base_generation.expect("an existing client has a generation");
             let rejected_mux = mux.clone();
+            let link: Arc<dyn FrameLink> = if pending.early.is_empty() {
+                mux
+            } else {
+                Arc::new(crate::link::EarlyFrames::new(mux, std::mem::take(&mut pending.early)))
+            };
             if let Err(error) = self
                 .reconnect_registered_client(
                     &key,
@@ -1143,7 +1176,7 @@ impl RemoteDaemon {
                     ReconnectRegistration {
                         expected_generation,
                         generation: accepted.generation,
-                        link: mux,
+                        link,
                         lane_bindings,
                         peer_resume: &pending.client_resume,
                         service_authority: &pending.service_authority,
