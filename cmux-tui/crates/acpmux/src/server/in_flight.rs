@@ -127,7 +127,8 @@ impl InFlight {
     pub(crate) fn states(&self) -> (Vec<Id>, Vec<Id>) {
         let map = self.map();
         let running = map.values().map(|entry| entry.id.clone()).collect();
-        let answered = self.answered.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
+        let answered =
+            self.answered.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
         (running, answered)
     }
 

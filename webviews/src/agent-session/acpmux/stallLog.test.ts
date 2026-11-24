@@ -283,7 +283,9 @@ test("a Stop whose cancel never reached acpmux is sent again, and the chat stops
     expect(await settle(() => run.snapshot()?.isWorking === true, 10_000)).toBe(true);
     await run.client.cancel();
     expect(run.snapshot()?.stopping).toBe(true);
-    expect(await settle(() => run.snapshot()?.stopping !== true && run.snapshot()?.isWorking === false, 5_000)).toBe(true);
+    expect(await settle(() => run.snapshot()?.stopping !== true && run.snapshot()?.isWorking === false, 5_000)).toBe(
+      true,
+    );
     expect(run.cancels()).toBe(2);
     expect(run.sockets()).toBe(1);
   } finally {

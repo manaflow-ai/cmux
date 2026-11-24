@@ -30,7 +30,13 @@ class StateSocket {
       onmessage: ((message: { data: string }) => void) | null;
       send(raw: string): void;
     },
-    private readonly options: { drops?: string[]; holds?: string[]; hostHolds?: string[]; relay?: boolean; old?: boolean },
+    private readonly options: {
+      drops?: string[];
+      holds?: string[];
+      hostHolds?: string[];
+      relay?: boolean;
+      old?: boolean;
+    },
   ) {
     daemon.onopen = () => {
       this.readyState = 1;
