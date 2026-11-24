@@ -733,28 +733,48 @@ export class TeamHub extends DurableObject<Env> {
 
   /**
    * Sends the Mac's next page of queued, unexpired items on `ws` (after `hello`, a post, and each `mailbox_ack`):
-   * ordered by phone, then `seq`, each once per socket, at most MAILBOX_PAGE waiting for their ack on it at a time.
+   * ordered by phone, then `seq`, each once per socket, at most MAILBOX_PAGE per frame and MAILBOX_PAGE per phone
+   * waiting for their ack on it at a time.
    * Answers the ids it sent.
    */
   private deliverMailbox(ws: WebSocket, mac: string): string[] {
+    // Frames of at most MAILBOX_PAGE (an older Mac's cap) until nothing more fits: a second phone's items go in
+    // the next frame instead of waiting for the next ack. Each pass sends at least one item or stops.
+    const sent: string[] = []
+    for (;;) {
+      const page = this.deliverMailboxPage(ws, mac)
+      if (!page.length) return sent
+      sent.push(...page)
+    }
+  }
+
+  private deliverMailboxPage(ws: WebSocket, mac: string): string[] {
     const now = Date.now()
     this.mailboxSweep(now)
     const conn = this.attach(ws).connectedAt ?? 0
-    const outstanding = this.sql
-      .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND sent_conn = ?`, mac, now, conn)
-      .toArray()[0]?.n ?? 0
-    const room = MAILBOX_PAGE - outstanding
-    if (room <= 0) return []
-    const items = this.sql
-      .exec<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }>(
-        `SELECT id, from_device, sealed, at, seq FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND (sent_conn IS NULL OR sent_conn != ?)
-         ORDER BY from_device, COALESCE(seq, 0), at LIMIT ?`,
-        mac,
-        now,
-        conn,
-        room
-      )
-      .toArray()
+    // Counted per phone: one phone's items held on the Mac (unacked) never take another phone's room.
+    const outstanding = new Map<string, number>()
+    for (const r of this.sql.exec<{ from_device: string; n: number }>(
+      `SELECT from_device, COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND sent_conn = ? GROUP BY from_device`,
+      mac,
+      now,
+      conn
+    ))
+      outstanding.set(r.from_device, r.n)
+    const items: Array<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }> = []
+    for (const r of this.sql.exec<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }>(
+      `SELECT id, from_device, sealed, at, seq FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND (sent_conn IS NULL OR sent_conn != ?)
+       ORDER BY from_device, COALESCE(seq, 0), at`,
+      mac,
+      now,
+      conn
+    )) {
+      const sent = outstanding.get(r.from_device) ?? 0
+      if (sent >= MAILBOX_PAGE) continue
+      outstanding.set(r.from_device, sent + 1)
+      items.push(r)
+      if (items.length >= MAILBOX_PAGE) break
+    }
     if (!items.length) return []
     try {
       ws.send(JSON.stringify({ type: "mailbox", items: items.map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at, ...(r.seq ? { seq: r.seq } : {}) })) }))
