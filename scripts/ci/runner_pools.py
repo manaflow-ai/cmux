@@ -44,6 +44,11 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
   the linux pool went from 16 back to the stalled 32 vCPU size;
+- remembers in `_served` (label -> when first seen) each owned Mac fleet Linux VM label (OWNED_EPHEMERAL_LINUX) the
+  evidence above saw start a job, and passes over such a label until it has: its runners are one-job scale-set
+  clones that register only when a job is handed to them, so with no reader queued there nothing ever marked it dead
+  and the pool led with a label no runner had ever taken (2026-11-22 ~07:26Z, linux_owned_small on
+  glaeda-linux-arm64; unproven());
 - points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
   release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
   linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
@@ -150,6 +155,8 @@ DEAD_KEY = "_dead"
 # (queue_janitor.LABEL_STARTED_KEY).
 LABEL_STARTED_KEY = "label_started"
 UPDATED_KEY = "_updated"
+# Owned Mac fleet Linux VM labels seen starting a job at least once: label -> when first seen (unproven()).
+SERVED_KEY = "_served"
 # A label the janitor's `label_started` shows starting a job this recently is serving, whatever a probe saw: it is
 # never marked dead, and a mark on it clears (label_evidence()). Blacksmith caps the org on vCPUs at once, so under
 # load a probe can wait out its PROBE_MINUTES on a size that keeps starting jobs: at 02:00:26Z on 2026-11-18
@@ -439,6 +446,15 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    served = value.get(SERVED_KEY)
+    if served is not None:
+        good = {label: since for label, since in (served.items() if isinstance(served, dict) else ())
+                if owned_ephemeral(label) and parse_time(since) is not None}
+        if not isinstance(served, dict) or len(good) != len(served):
+            dropped.append(f"{VARIABLE}.{SERVED_KEY} holds entries that are not owned Linux VM label -> zoned time; "
+                           "dropped")
+        if good:
+            clean[SERVED_KEY] = dict(sorted(good.items()))
     homes = value.get(RAW_HOME_KEY)
     if homes is not None:
         good = {name: {"home": entry["home"], "to": entry["to"]}
@@ -833,6 +849,20 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
     return found
 
 
+def unproven(label: str, served: Mapping[str, Any]) -> bool:
+    """An owned Mac fleet Linux VM label (OWNED_EPHEMERAL_LINUX) no runner has been seen taking a job on.
+
+    Its runners are scale-set clones that register only when a job is handed to them, so an idle label lists no
+    runner, and a label whose scale sets never came up lists none either. Only a start tells them apart. The stall
+    rule (label_evidence()) needs a job queued there, so a pool nothing reads yet was never judged: at about 07:26Z on
+    2026-11-22 the writer put linux_owned_small back on glaeda-linux-arm64, which no runner had ever served, and the
+    coordinator's FIRE read "No runner registered for manaflow-ai/cmux carries that label, so every job routed through
+    it sits queued". Until a start is seen (a job pinned to the label, whose start the janitor's `label_started`
+    records) the pool takes its Blacksmith members. The owned GCP label is not judged this way: its runners stand
+    registered and its pools' readers queue there, so the stall rule marks it within the cutoff."""
+    return owned_ephemeral(label) and label not in served
+
+
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
               covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
@@ -861,20 +891,30 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         marks[label] = iso(now)
     known = {label for spec in pools.values() for label in members(spec)}
     marks = {label: since for label, since in marks.items() if label in known}
+    served = {label: since for label, since in (current.get(SERVED_KEY) or {}).items() if label in known}
+    for label in sorted(set(served_now)):
+        if owned_ephemeral(label) and label in known and label not in served:
+            served[label] = iso(now)
+            lines.append(f"{label}: an owned Linux VM runner took a job; the pools may lead with it")
+    skipped = set(marks) | {label for label in known if unproven(label, served)}
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), None)
+        chosen = next((label for label in candidates if label not in skipped), None)
+        if candidates and unproven(candidates[0], served) and current.get(name) == candidates[0]:
+            lines.append(f"pools.{name}: no runner has ever taken a job on {candidates[0]}; passed over")
         if chosen is None:
             # Every member is dead: the release valve, the next smaller x64 size with no mark, instead of
             # leaving the pool on a label that starts nothing. With none, the first member, as before.
-            chosen = next((label for label in valve_labels(spec, pools) if label not in marks), candidates[0])
+            chosen = next((label for label in valve_labels(spec, pools) if label not in skipped), candidates[0])
             if chosen != candidates[0] and current.get(name) != chosen:
                 lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); release valve to {chosen}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
     value[DEAD_KEY] = dict(sorted(marks.items()))
+    if served:
+        value[SERVED_KEY] = dict(sorted(served.items()))
     comparable = {key: current.get(key) for key in value}
     if comparable != value or UPDATED_KEY not in current:
         value[UPDATED_KEY] = iso(now)
