@@ -170,7 +170,10 @@ fn open_bounded(
         request["resume_generation"] = json!(generation);
     }
     if let Some(max_bytes) = max_bytes {
+        // As the phone attaches (DaemonTerminalSession.historyAttachParams): a replay is the
+        // screen, and its history pages in on scroll.
         request["resume_max_bytes"] = json!(max_bytes);
+        request["replay_history_rows"] = json!(0);
     }
     let reply = handle_command(mux, client, command(request), &writer).unwrap();
     (Link { client, outbound, writer }, reply)
