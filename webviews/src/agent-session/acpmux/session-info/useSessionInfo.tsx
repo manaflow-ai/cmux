@@ -50,7 +50,7 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
-import { NativeSessionInfo } from "./native/NativeSessionInfo";
+import { LazyNativeSessionInfo } from "./native/LazyNativeSessionInfo";
 import {
   FLOAT_MARGIN,
   pushes,
@@ -1371,7 +1371,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
             }}
           />
         )}
-        <NativeSessionInfo
+        <LazyNativeSessionInfo
           key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
           shown={drawn && !gallery}
           width={panelWidth}

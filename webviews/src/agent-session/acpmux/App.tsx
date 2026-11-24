@@ -8607,7 +8607,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    return [...byPath.values()];
+    // A No folder chat's private agent-home folder is no project: every picker fed from this list (the
+    // composer's folder menu, the hero chooser) listed it by its id, a bare UUID (cmux#53226).
+    return [...byPath.values()].filter((project) => !isAgentHome(project.cwd));
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
   const newTabProjectList = useMemo(
@@ -8641,7 +8643,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
       // Every folder: the chooser lists one row per repository and finds the rest by search.
-      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      projects: [...newTabProjects, ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
