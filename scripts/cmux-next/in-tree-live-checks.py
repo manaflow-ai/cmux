@@ -1608,6 +1608,7 @@ def check_resize_hitch(tab, pane):
         sampler = None
         RAW["resize_hitch_sample_error"] = repr(error)
     time.sleep(0.3)  # test harness: a few idle samples before the first drag
+    rpc("debug.layout_counters", {"reset": True})  # resize_steps from here (builds with ResizeStepTimes)
     rpc("debug.frames", {"action": "start"})
     work0 = work_counters()
     started = time.monotonic()
@@ -1629,10 +1630,12 @@ def check_resize_hitch(tab, pane):
     if os.path.exists(path):
         with open(path, errors="replace") as f:
             parsed = main_thread_counts(f.read())
-    RAW["resize_hitch"] = {"app_frames": app_frames, "work": work, "sample": parsed, "drag_s": drag_s}
+    steps = (rpc("debug.layout_counters") or {}).get("resize_steps")
+    RAW["resize_hitch"] = {"app_frames": app_frames, "work": work, "sample": parsed, "drag_s": drag_s, "resize_steps": steps}
     longest = (app_frames or {}).get("max_ms") if isinstance(app_frames, dict) else None
     row(longest is not None and longest <= 50, "resize_hitch",
         {"bug": 19, "in_tree": opts.in_tree, "drag_s": drag_s, "app_frames": frame_detail(app_frames), "work": work,
+         "resize_steps": {n: {m: v.get(m) for m in ("steps", "p50_ms", "p95_ms", "max_ms", "total_ms", "slowest")} for n, v in steps.items()} if isinstance(steps, dict) else steps,
          "sample": parsed, "sample_file": os.path.basename(path), "sample_attach_s": RAW.get("resize_hitch_attach_s"),
          "pass_if": "no app frame over 50 ms during the corner drags; the sample names what the main thread does"})
 
