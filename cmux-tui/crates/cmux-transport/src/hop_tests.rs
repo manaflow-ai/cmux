@@ -137,7 +137,7 @@ proptest! {
     #[test]
     fn decode_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..96)) {
         let _ = HopMsg::decode(&bytes);
-        let mut hop = bytes.clone();
+        let mut hop = bytes;
         hop.insert(0, HOP_MAGIC);
         if let Ok(message) = HopMsg::decode(&hop) {
             prop_assert_eq!(message.encode().unwrap(), hop);

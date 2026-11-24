@@ -52,30 +52,66 @@ Every hop/1 datagram starts `[u8 0xC1][u8 type]`.
   Several records in one DATA are R5's coalescing. `hop_seq` is per leg and per direction, starts at a random value
   and increments by one per DATA; it is the unit of repair.
   - class: 0 control (handshakes, keepalives), 1 interactive state (latest-wins, tagged), 2 input, 3 bulk, 4 media.
+  - Decoders refuse, in this order: a record cut short before its flags (`record_truncated`), a class above 4
+    (`class`), a flag bit other than bit 0 (`flags`), a tag on a class other than 1 (`tag_class`), a tag or length cut
+    short (`record_truncated`), length 0 (`empty_record`), a body past the datagram (`record_truncated`). A DATA with
+    no records is `no_records`. `cmux_transport::hop::decode_records` parses a DATA body (and the relay frame's
+    tagged-datagrams payload, which is the same record layout).
 - **NACK**: from a leg's receiver to its sender. Bit `i` of `bitmap` asks for `base + i`. `highest` is the highest
   `hop_seq` seen; `loss_permille` the loss it measured on this leg (the sender sets its FEC rate from it).
-- **PARITY**: XOR of `count` consecutive DATA datagrams starting at `first_seq`, each zero-padded to the longest;
-  `len_xor` is the XOR of their lengths. Recovers any one of them. Sent only when the leg's loss is above zero; the
-  rate (one PARITY per `count` DATA) is set from the reported loss. Never sent on the clean leg.
+- **PARITY**: XOR of `count` consecutive whole DATA datagrams (header included) starting at `first_seq`, each
+  zero-padded to the longest; `len_xor` is the XOR of their lengths. Recovers any one of them. Sent only when the
+  peer reports loss above zero (in NACK or PONG); the group size is 4 at 5% or more, 8 at 2% or more, else 16. A
+  group also closes `max(5 ms, RTT / 8)` after its last DATA (the tail of a burst) and `max(5 ms, RTT / 2)` after its
+  first (so its parity still beats a NACK round trip); a group of one is a copy. Never sent on the clean leg. The
+  receiver keeps raw DATA for recovery (128 seqs) only while its own measured loss is above zero or for 5 s after a
+  PARITY.
 - **BIND / BIND_OK**: the ticket is the one `/v1/ice` mints for this session (as TURN credentials are). A rebind
   from a new address with the same ticket moves the allocation (roam keeps the relayed port).
-- **PING / PONG**: leg RTT and keepalive, every 1 s when idle. `link_stat` reports both legs' RTT and loss.
+- **PING / PONG**: leg RTT and keepalive, every 1 s whether or not DATA flows (PONG carries the loss the peer
+  measured, so the sender's FEC rate follows it without a NACK). `link_stat` reports both legs' RTT and loss.
 
 ## Sender and receiver rules (sans-IO, `cmux_transport::hop`)
 
-- The sender keeps each DATA for repair until `max(2 x leg RTT, 50 ms)` past send, at most 256 KiB per leg; a
-  NACKed seq past that, or whose records are all superseded class-1, is not resent.
+- The sender keeps each DATA for repair until `4 x leg RTT + 50 ms` past send (at most 2 s, so all three asks are
+  covered), at most 256 KiB per leg; a NACKed seq past that, or whose records are all class-1 with a newer `key_seq`
+  of their key already sent, is not resent (R5 on).
+- Tail loss: a lost last DATA opens no gap the receiver sees, so the sender resends its last DATA once, `RTT +
+  reorder guard` after sending it, if no DATA followed (a tail-loss probe; a duplicate when nothing was lost). Head
+  loss (DATA before the first the receiver ever sees) is not repaired; the end-to-end layer (WireGuard's handshake
+  retry) covers it.
 - The receiver delivers records at once, out of order (WireGuard and the TCP inside it take reordering). On a gap it
   waits a reorder guard of `max(3 ms, RTT / 8)` then NACKs; it asks again after `1.5 x RTT`, at most 3 times.
   Duplicates are dropped by a 1024-seq window.
 - **Latest-wins (R5)**: in a leg's egress queue, a class-1 record replaces any queued class-1 record with the same
-  key and a lower `key_seq`. A queued record never jumps class 0 or reorders it; classes 2 and 3 are never dropped
-  by R5 (the queue's byte bound still applies as in `class_queue.rs`). When the queue holds more than one record the
-  sender packs them into one DATA up to the leg MTU.
+  key and a lower `key_seq`, in the older one's place; a class-1 record whose `key_seq` is at or below one queued or
+  already sent for its key is dropped. A queued record never jumps class 0 or reorders it; classes 2 to 4 are never
+  dropped by R5 (each class's byte bound, 16/64/64/256/256 KiB, drops its oldest; media also expires after 250 ms).
+  Classes 0, 1 and 2 go in strict order, then bulk and media share by bytes. When the queue holds more than one
+  record the sender packs them into one DATA up to the leg MTU (1200).
+- A leg in plain mode (toward an old Mac) sends each record as its bytes alone and classes what it receives by
+  shape; the first hop/1 datagram it receives switches it to hop/1.
+
+## Measured (deterministic sim, `cargo test -p cmux-transport --test hop_sim -- --nocapture`)
+
+Scenario 1, phone leg 70 ms RTT + 0-10 ms jitter and 3% loss each way, Mac leg 10 ms RTT clean, 60 s, phone input
+64 B / 20 ms and Mac bulk 1000 B / 5 ms, both with a 200 ms end-to-end resend (a TCP inside the tunnel):
+
+| | input p50 / p95 / p99 | bulk p99 | end-to-end resends | phone-leg bytes |
+|---|---|---|---|---|
+| plain forwarder | 47 / 51 / 249 ms | 248 ms | 456 | 12.6 MB |
+| hop/1 NACK only | 47 / 51 / 164 ms | 147 ms | 28 | 12.8 MB |
+| hop/1 NACK + FEC | 47 / 51 / 60 ms | 61 ms | 2 | 15.7 MB |
+
+Scenario 2, phone leg 150 ms RTT and 1% loss, the PoP's egress to the phone paced at 125 KB/s, 4 streams x 60 fps x
+600 B class-1 frames (144 KB/s) plus 100 KB/s bulk, 30 s: frame delay p50 / p95 is 535 / 538 ms with R5 off and 92 /
+99 ms with R5 on.
 
 ## Lockstep
 
 hop/1 is versioned by its first byte. Old phone (no hop/1): never binds the PoP, uses TURN. Old Mac: receives plain
 WireGuard from the relayed port. New Mac to old PoP: never happens (the Mac only wraps toward a port whose BIND_OK it
 saw advertised as `hop`). Golden vectors in `cmux-transport/tests/vectors/hop-frames.json` are checked by the Rust
-codec, the PoP and the DO's TypeScript copy of the tagged record.
+codec, the PoP and the DO's TypeScript copy of the tagged record. One case per line: `valid` yes or no, `type`, `hex`,
+the decoded fields as decimal strings (`records` as `class:key:key_seq:hex`, `-` when untagged), or `error` for a
+refused case; the file's `format` line gives the decode order.
