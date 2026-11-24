@@ -108,7 +108,7 @@ fn a_compressed_day_of_sends_stops_growing_on_disk_after_a_day() {
         crate::store::test_clock::advance(minute);
         let id = format!("s-{i:06}");
         outbox.add(delivery(&id, State::Queued, crate::store::now_ms())).unwrap();
-        outbox.update(&id, |d| d.state = State::Delivered);
+        let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
         if i % every == every - 1 {
             // A snapshot alone, so the sample is the book's size, not where the journal is
             // between two snapshots.
@@ -157,7 +157,7 @@ fn restart_loop_alone() {
             let id = format!("r-{round}-{i}");
             let now = crate::store::now_ms();
             outbox.add(delivery(&id, State::Queued, now)).unwrap();
-            outbox.update(&id, |d| d.state = State::Delivered);
+            let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
             if i % 8 == 0 {
                 outbox.compact();
             }

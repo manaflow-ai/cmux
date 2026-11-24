@@ -355,6 +355,17 @@ impl Outbox {
     }
 }
 
+/// A save [`Outbox::update`] asked for that the writer has not made yet is made now: a hub that
+/// goes (a restart, a test's reopen) leaves nothing of its own on the writer's queue.
+impl Drop for Outbox {
+    fn drop(&mut self) {
+        let wanted = self.0.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
+        if wanted > 0 {
+            self.0.save(wanted);
+        }
+    }
+}
+
 /// [`Outbox`]'s state.
 #[derive(Default)]
 pub struct OutboxState {
@@ -1404,7 +1415,7 @@ mod tests {
         for t in threads {
             t.join().unwrap();
         }
-        outbox.update("d-3", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-3", |d| d.state = State::Delivered);
         let restarted = Outbox::default();
         let pending = restarted.open(&path);
         assert_eq!(pending.len(), 63);
@@ -1520,9 +1531,9 @@ mod tests {
                 // A send's life: queued, delivering, attempted again, delivered.
                 let id = format!("d-{}", kept + n);
                 outbox.add(sized(kept + n, State::Queued)).unwrap();
-                outbox.update(&id, |d| d.state = State::Delivering);
-                outbox.update(&id, |d| d.attempts += 1);
-                outbox.update(&id, |d| d.state = State::Delivered);
+                let _ = outbox.update_saved(&id, |d| d.state = State::Delivering);
+                let _ = outbox.update_saved(&id, |d| d.attempts += 1);
+                let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
             }
             let after = (outbox.disk.lock().unwrap().written - start) / changes as u64;
             eprintln!("kept {kept}: before {before} B per change, after {after} B per change");
@@ -1577,7 +1588,7 @@ mod tests {
         for n in 0..3 {
             outbox.add(delivery(n)).unwrap();
         }
-        outbox.update("d-1", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-1", |d| d.state = State::Delivered);
         let journal = journal_path(&path);
         let mut torn = std::fs::read(&journal).unwrap();
         assert!(!torn.is_empty(), "small changes go to the journal");
@@ -1651,7 +1662,7 @@ mod tests {
         // The snapshot's rename fails: a folder that is not empty is in its place.
         std::fs::create_dir_all(path.join("occupied")).unwrap();
         outbox.disk.lock().unwrap().snapshot_next = true;
-        outbox.update("d-0", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-0", |d| d.state = State::Delivered);
         // The change is on disk in the journal, so it is saved; the snapshot waits for a later
         // try, not the next change.
         assert_eq!(outbox.disk.lock().unwrap().saved, outbox.book().changes);
@@ -1677,7 +1688,7 @@ mod tests {
         let outbox = Outbox::default();
         outbox.open(&path);
         outbox.add(delivery(0)).unwrap();
-        outbox.update("d-0", |d| d.state = State::Delivering);
+        let _ = outbox.update_saved("d-0", |d| d.state = State::Delivering);
         assert!(!read_saved(&path).deliveries["d-0"].settled());
         // The older daemon: delivers it and rewrites the snapshot, leaving the journal.
         let mut older = read_saved(&path).deliveries;
