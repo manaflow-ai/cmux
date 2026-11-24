@@ -84,6 +84,10 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // The turn's last assistant line on the main loop: Claude Code's own API error or not.
+        if kind == "assistant" && parent.is_none() {
+            *self.api_error.lock().await = super::api_error::text(line);
+        }
         if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
             || compaction_failed
@@ -534,7 +538,7 @@ impl Translator {
                 }
             }
             "control_request" => {
-                let req = line.get("request").cloned().unwrap_or(Value::Null);
+                let req = line.get("request").unwrap_or(&Value::Null);
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("").to_owned();
                 match req.get("subtype").and_then(Value::as_str) {
                     Some("can_use_tool") => {
@@ -566,7 +570,7 @@ impl Translator {
                             "kind": tool_kind(name),
                             "status": "pending",
                             "rawInput": input,
-                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(&req)}}
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(req)}}
                         });
                         with_edit(&mut call, name, &input);
                         out.push(Message::request(
@@ -580,13 +584,13 @@ impl Translator {
                         ));
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
-                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, req).await),
                     // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
                     Some("hook_callback")
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(policy_gate::GATE_CALLBACK) =>
                     {
-                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                        out.extend(self.gate_hook(&sid, &rid, req).await);
                     }
                     // Harness magic: a call whose answer is in the context already (dedupe.rs).
                     Some("hook_callback")
@@ -748,7 +752,11 @@ impl Translator {
                 }
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
-                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                // So is a "success" right after Claude Code's own API error line (`api_error.rs`).
+                let api_failure =
+                    super::api_error::failure(line, self.api_error.lock().await.take());
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+                    || api_failure.is_some();
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
@@ -932,7 +940,10 @@ impl Translator {
                     && stop != "max_turn_requests"
                 {
                     Err(RpcError::internal(
-                        line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                        api_failure
+                            .as_deref()
+                            .or_else(|| line.get("result").and_then(Value::as_str))
+                            .unwrap_or(sub),
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
