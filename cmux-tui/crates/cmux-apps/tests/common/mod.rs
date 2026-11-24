@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use cmux_apps::infer::{Inferred, infer};
 use cmux_apps::io::{
-    Answered, AppsTransport, Clock, Fs, Git, Listeners, Probe, Procs, Start, Started, Unanswered,
+    Answered, AppsTransport, Capture, Clock, Fs, Git, Listeners, Probe, Procs, Start, Started,
+    Unanswered,
 };
 use cmux_apps::platform::PlatformClient;
 use cmux_apps::publish::Host;
@@ -281,6 +282,8 @@ pub struct FakeAgent {
     pub secrets: RefCell<BTreeMap<String, BTreeMap<String, String>>>,
     /// An answer to use for every `/process-env` call instead of the app's secrets.
     pub process_env_answer: RefCell<Option<(u16, Value)>>,
+    /// An answer to use for every `/frame` upload instead of the 200.
+    pub frame_answer: RefCell<Option<(u16, Value)>>,
 }
 
 impl AppsTransport for FakeAgent {
@@ -317,6 +320,12 @@ impl AppsTransport for FakeAgent {
             let env = self.secrets.borrow().get(slug).cloned().unwrap_or_default();
             return answered(200, json!({"env": env}));
         }
+        if path.ends_with("/frame") {
+            if let Some((status, body)) = self.frame_answer.borrow().clone() {
+                return answered(status, body);
+            }
+            return answered(200, json!({"ok": true}));
+        }
         let app = json!({"id": "app_1", "slug": "web", "team": "team_abc", "url": "https://a-web--team_abc.preview.example"});
         if path.ends_with("/versions") {
             if let Some((status, body)) = self.versions_answer.borrow().clone() {
@@ -346,6 +355,38 @@ impl AppsTransport for FakeAgent {
     }
 }
 
+/// A tiny real PNG (1x1, opaque), what the fake browser renders.
+pub fn tiny_png() -> Vec<u8> {
+    cmux_apps::frame::Rgba { width: 1, height: 1, pixels: vec![10, 20, 30, 255] }.encode().unwrap()
+}
+
+/// The PNG bytes of a frame upload's `{png}` body (base64).
+pub fn decode_frame(sent: &Sent) -> Vec<u8> {
+    use base64::Engine as _;
+    let body = sent.body.as_ref().expect("a frame upload has a body");
+    assert_eq!(body.as_object().unwrap().len(), 1, "the body is only {{png}}: {body}");
+    let text = body.get("png").and_then(Value::as_str).expect("png is a string");
+    base64::engine::general_purpose::STANDARD.decode(text).expect("png is standard base64")
+}
+
+/// The browser: renders [`tiny_png`] for every port it is asked, or fails with `failure`.
+#[derive(Default)]
+pub struct FakeCapture {
+    pub ports: RefCell<Vec<u16>>,
+    pub failure: RefCell<Option<String>>,
+    pub png: RefCell<Option<Vec<u8>>>,
+}
+
+impl Capture for FakeCapture {
+    fn png(&self, port: u16) -> Result<Vec<u8>, String> {
+        self.ports.borrow_mut().push(port);
+        if let Some(failure) = self.failure.borrow().clone() {
+            return Err(failure);
+        }
+        Ok(self.png.borrow().clone().unwrap_or_else(tiny_png))
+    }
+}
+
 /// The agent's `apps.listener`, read from the fake `/proc` the way the agent reads the real one.
 pub struct FakeListeners<'a>(pub &'a FakeFs);
 
@@ -364,6 +405,7 @@ pub struct World {
     pub probe: FakeProbe,
     pub parent_env: Vec<(String, String)>,
     pub agent: FakeAgent,
+    pub capture: FakeCapture,
 }
 
 impl World {
@@ -376,6 +418,7 @@ impl World {
             probe: FakeProbe::answering(200),
             parent_env: vec![("PATH".into(), "/usr/bin:/bin".into())],
             agent: FakeAgent::default(),
+            capture: FakeCapture::default(),
         }
     }
 
@@ -389,6 +432,7 @@ impl World {
             probe: &self.probe,
             platform: &platform,
             listeners: &FakeListeners(&self.fs),
+            capture: &self.capture,
             apps_root: PathBuf::from("/state/apps"),
             parent_env: self.parent_env.clone(),
         };
@@ -409,6 +453,10 @@ impl World {
             .filter(|s| s.method != "GET" && !s.path.ends_with("/process-env"))
             .cloned()
             .collect()
+    }
+
+    pub fn frames(&self) -> Vec<Sent> {
+        self.agent.sent.borrow().iter().filter(|s| s.path.ends_with("/frame")).cloned().collect()
     }
 
     pub fn process_env_reads(&self) -> Vec<Sent> {

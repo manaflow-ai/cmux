@@ -114,6 +114,23 @@ struct EveryBrowserDetectionTests {
         #expect(safari.profiles.first?.availability(of: .cookies) == .available)
     }
 
+    /// A `cmux app try` copy (``ImportEnvironment/readsOtherAppContainers`` false) never looks in another app's
+    /// container (Leo 2026-11-22: "Data Access Blocked ... tried to access your data from other apps"): Safari
+    /// is still found from `~/Library/Safari`, without its container's cookies, and a browser whose only
+    /// folder is a container (DuckDuckGo) is not found.
+    @Test func aTryCopyNeverLooksInAnotherAppsContainer() throws {
+        let home = try Home(["Library/Safari/History.db",
+                             "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies",
+                             "Library/Containers/com.duckduckgo.macos.browser/Data/Library/Application Support/x"])
+        let copy = ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }, readsOtherAppContainers: false)
+        let sources = BrowserSourceDetector(environment: copy).detect()
+        let safari = try #require(sources.first { $0.browser == .safari })
+        #expect(safari.profiles.first?.availability(of: .cookies) == .absent, "Safari's cookies are in its container")
+        #expect(safari.profiles.first?.availability(of: .history) == .available)
+        #expect(!sources.contains { $0.browser.rawValue == "duckDuckGo" }, "DuckDuckGo's folder is in its container")
+        #expect(!copy.mayLook(at: home.url.appending(path: "Library/Containers/com.apple.Safari")))
+    }
+
     /// Orion is WebKit: its cookies are in WebKit's store for its bundle id.
     @Test func orionCookiesAreReadable() throws {
         let home = try Home(["\(Self.support)/Orion/Defaults/x", "Library/HTTPStorages/com.kagi.kagimacOS.binarycookies"])
