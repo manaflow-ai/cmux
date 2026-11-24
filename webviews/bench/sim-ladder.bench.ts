@@ -355,6 +355,31 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   });
   // Renderer CPU per third of the window, and the least of the three: other load on the machine only adds CPU, and
   // on a shared runner (load 25-60 on 32 cores) one rung read 681 ms/s for a minute where a quiet rerun read 40.
+  // A once-a-second trace over the windows: renderer CPU ms in the second, its ThreadPoolForeground share (V8's parallel GC
+  // workers), and the focused isolate's JS heap in MB. A burst that lands with a heap drop is a major collection.
+  const trace: string[] = [];
+  let tracing = true;
+  const sampler = (async () => {
+    let lastTicks = ticks0;
+    let lastPool = threadTicks(pids).get("ThreadPoolForeg") ?? 0;
+    while (tracing) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const nowTicks = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+      const pool = threadTicks(pids).get("ThreadPoolForeg") ?? 0;
+      const heapNow = await Promise.race([
+        items[0]!.cdp
+          .send("Performance.getMetrics")
+          .then((m) => Math.round((m.metrics.find((x) => x.name === "JSHeapUsedSize")?.value ?? 0) / 1048576))
+          .catch(() => -1),
+        new Promise<number>((resolve) => setTimeout(() => resolve(-1), 500)),
+      ]);
+      trace.push(
+        `${Math.round(((nowTicks - lastTicks) / ticksPerSecond) * 1000)}/${Math.round(((pool - lastPool) / ticksPerSecond) * 1000)}/${heapNow}`,
+      );
+      lastTicks = nowTicks;
+      lastPool = pool;
+    }
+  })();
   const thirds: number[] = [];
   let mark = ticks0;
   let markAt = t0;
@@ -396,6 +421,9 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     const after = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
     windows.push((((after - before) / ticksPerSecond) * 1000) / ((performance.now() - from) / 1000));
   }
+  tracing = false;
+  await sampler;
+  console.log(`SIM-LADDER   per-second cpu ms / pool ms / js heap MB: ${trace.join(" ")}`);
   const medianWindow = [...windows].sort((a, b) => a - b)[1]!;
   console.log(
     `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | median ${Math.round(medianWindow)}`,
