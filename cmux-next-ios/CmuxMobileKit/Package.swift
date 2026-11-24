@@ -140,7 +140,7 @@ let package = Package(
         .target(name: "CmuxMobileChief", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             .product(name: "CmuxChiefList", package: "CmuxChiefList"),
-            "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts",
+            "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -154,7 +154,7 @@ let package = Package(
         // daemon tree, acpmux chats, Feed events and Chief over the link.
         .target(name: "CmuxMobileLive", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileArtifacts", "CmuxMobileFeed", "CmuxMobileChief", "CmuxMobileTerminal",
-            "CmuxMobileBrowserStream",
+            "CmuxMobileBrowserStream", "CmuxMobileNotifications",
             // The classic app's leftovers after an update (ClassicLeftovers): the plan is Rust's.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
