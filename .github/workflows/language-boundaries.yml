@@ -50,11 +50,50 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/language_boundaries.py
+            scripts/ci/verdict_cache_key.py
             .github/language-boundaries.toml
+            .github/workflows/language-boundaries.yml
           sparse-checkout-cone-mode: false
 
-      - name: Check the changed files against the language boundaries
+      # A hash-keyed verdict (scripts/ci/verdict_cache_key.py; docs/ci/cmux-next-workflow-notes.md note-560): the
+      # key hashes what the check reads that the event names without a fetch (the head, the base's script, manifest
+      # and workflow, python). About 3 in 10 runs here repeat a head that already got a verdict (a description edit,
+      # a label, a re-push of the same commit), and those replay it: same check, same conclusion, same annotations,
+      # without the merge-ref fetch that is most of the job. A miss runs the check and stores its verdict (pass or
+      # fail; never an input error). The cache is the base branch's scope: only this base-code job and base pushes
+      # write it, never a pull request's code. An approval label means no key (the verdict then reads comments
+      # and events). On unless the repository variable CI_INPUT_RECEIPT_SKIP is `off`.
+      - name: Verdict key
+        id: key
+        if: vars.CI_INPUT_RECEIPT_SKIP != 'off'
+        continue-on-error: true
         env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/ci/verdict_cache_key.py ]; then
+            python3 scripts/ci/verdict_cache_key.py --check language-boundaries --head "$HEAD_SHA" \
+              --labels-json "$LABELS_JSON" --approval-labels leo-approved-port,react-port-ok \
+              --inputs scripts/ci/language_boundaries.py .github/language-boundaries.toml \
+                .github/workflows/language-boundaries.yml \
+              --output "$GITHUB_OUTPUT"
+          fi
+
+      - name: Look up the verdict
+        id: cached
+        if: steps.key.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/verdict
+          key: language-boundaries-verdict-v1-${{ steps.key.outputs.key }}
+
+      - name: Check the changed files against the language boundaries
+        id: check
+        env:
+          VERDICT_KEY: ${{ steps.key.outputs.key }}
+          VERDICT_HIT: ${{ steps.cached.outputs.cache-hit }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
@@ -68,6 +107,15 @@ jobs:
             # The pull request that adds the check: its base has no check to run yet.
             echo "::notice::The base has no language-boundaries check yet; nothing to check."
             exit 0
+          fi
+          verdict="$RUNNER_TEMP/verdict"
+          if [ -n "$VERDICT_KEY" ] && [ "$VERDICT_HIT" = true ] && [ -f "$verdict/exit" ] && [ -f "$verdict/out" ]; then
+            code="$(cat "$verdict/exit")"
+            if [ "$code" = 0 ] || [ "$code" = 1 ]; then
+              cat "$verdict/out"
+              echo "::notice title=language-boundaries::the verdict for these inputs (key $VERDICT_KEY) replayed from $(cat "$verdict/run" 2>/dev/null || echo 'an earlier run')"
+              exit "$code"
+            fi
           fi
           # The changed files from the PR's merge commit, not the files API: this runs on every push, label and
           # description edit (about 330 runs an hour on 2026-11-21), and each REST listing spent the repository's
@@ -115,4 +163,25 @@ jobs:
               || { echo "::error::Could not read the reviews; re-run this check."; exit 3; }
             set -- "$@" --events "$RUNNER_TEMP/events.jsonl" --notes "$RUNNER_TEMP/notes.jsonl"
           fi
-          python3 scripts/ci/language_boundaries.py "$@"
+          set +e
+          python3 scripts/ci/language_boundaries.py "$@" | tee "$RUNNER_TEMP/verdict-out"
+          code="${PIPESTATUS[0]}"
+          set -e
+          # A pass or a fail is the verdict of these inputs; 3 (could not read them) decides nothing, and neither does
+          # a REST listing (it can fail on a count that lags the push), so only a merge-ref verdict is stored.
+          if [ -n "$VERDICT_KEY" ] && [ "$format" = git-z ] && { [ "$code" = 0 ] || [ "$code" = 1 ]; }; then
+            mkdir -p "$verdict"
+            mv "$RUNNER_TEMP/verdict-out" "$verdict/out"
+            echo "$code" > "$verdict/exit"
+            echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$verdict/run"
+            echo "store=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Store the verdict
+        if: ${{ !cancelled() && steps.check.outputs.store == 'true' && steps.cached.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/verdict
+          key: language-boundaries-verdict-v1-${{ steps.key.outputs.key }}
