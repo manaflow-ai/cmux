@@ -997,6 +997,9 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// `daemon felt`: the felt-latency histograms (the net graph).
+    #[command(hide = true)]
+    DaemonFelt,
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1796,6 +1799,10 @@ pub enum DaemonCmd {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// The felt-latency histograms of the running daemon (the net graph): p50, p90 and p99 of what a
+    /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
+    /// start. Numbers and names only.
+    Felt,
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -2031,6 +2038,7 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
+            DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
