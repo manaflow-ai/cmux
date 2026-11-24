@@ -35026,6 +35026,137 @@
         }
       }
     },
+    "agentPane.error.gitMergeUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل GitHub الدمج لكنه لم يؤكده بعد. افتح طلب السحب لمعرفة ما إذا تم دمجه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub je prihvatio spajanje, ali ga nije potvrdio. Otvorite zahtjev za povlačenje da vidite je li spojen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub tog imod fletningen, men har ikke bekræftet den. Åbn pull requesten for at se, om den blev flettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub hat das Zusammenführen angenommen, aber nicht bestätigt. Öffne den Pull Request, um zu sehen, ob er zusammengeführt wurde."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub took the merge but hasn't confirmed it. Open the pull request to see whether it merged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub aceptó la fusión, pero no la ha confirmado. Abre la solicitud de incorporación para ver si se fusionó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub a accepté la fusion mais ne l'a pas confirmée. Ouvrez la pull request pour voir si elle a été fusionnée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ha accettato l'unione ma non l'ha confermata. Apri la pull request per vedere se è stata unita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub はマージを受け付けましたが、まだ確認していません。プルリクエストを開いてマージされたか確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub បានទទួលការបញ្ចូល ប៉ុន្តែមិនទាន់បញ្ជាក់ទេ។ សូមបើកសំណើទាញ ដើម្បីមើលថាតើវាត្រូវបានបញ្ចូលឬអត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub가 병합을 받았지만 아직 확인하지 않았습니다. 풀 리퀘스트를 열어 병합되었는지 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub tok imot sammenslåingen, men har ikke bekreftet den. Åpne pull requesten for å se om den ble slått sammen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub przyjął scalenie, ale go nie potwierdził. Otwórz pull request, aby sprawdzić, czy został scalony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub aceitou o merge, mas não o confirmou. Abra o pull request para ver se ele foi mesclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub принял слияние, но не подтвердил его. Откройте пул-реквест, чтобы узнать, было ли оно выполнено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub รับการผสานแล้วแต่ยังไม่ยืนยัน เปิดคำขอดึงเพื่อดูว่าผสานแล้วหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub birleştirmeyi aldı ancak onaylamadı. Birleştirilip birleştirilmediğini görmek için çekme isteğini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub прийняв злиття, але не підтвердив його. Відкрийте пул-реквест, щоб побачити, чи його злито."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub đã nhận yêu cầu hợp nhất nhưng chưa xác nhận. Hãy mở pull request để xem nó đã được hợp nhất chưa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 已接受合并，但尚未确认。请打开拉取请求查看是否已合并。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 已接受合併，但尚未確認。請開啟提取要求查看是否已合併。"
+          }
+        }
+      }
+    },
     "agentPane.error.gitMergeChanged": {
       "extractionState": "manual",
       "localizations": {
