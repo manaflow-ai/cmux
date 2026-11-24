@@ -46,9 +46,9 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
     /// cursor bends into the chevron and flies to its left, the word slides
     /// right, so the lockup lands centered.
     case glide
-    /// Glide with a slower opening blink: 450, 600 and 900 ms per blink
-    /// (Glide's is 300 ms), for comparing speeds; the rest of the reveal is
-    /// the same, later by the extra time.
+    /// Glide with a slower cursor: 450, 600 and 900 ms per blink (Glide's is
+    /// 300 ms), for comparing speeds. Both blinks and the hold before the move
+    /// follow the cycle (`CursorRhythm`); typing and the flight are the same.
     case glide450, glide600, glide900
 
     var id: Int { rawValue }
@@ -84,7 +84,7 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One opening cursor blink in Morph and Glide (on, then off), in seconds.
+    /// One cursor blink in Glide (on, then off), in seconds; Morph keeps 300 ms.
     var blinkCycle: Double {
         switch self {
         case .glide450: 0.45
@@ -121,7 +121,7 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         case .shimmer: 1.4
         case .morph: 1.5
         case .site: 1.6
-        case .glide, .glide450, .glide600, .glide900: 1.75 + OpeningBlink(cycle: blinkCycle).delay
+        case .glide, .glide450, .glide600, .glide900: CursorRhythm(cycle: blinkCycle, steady: true).moveAt + 0.75
         }
     }
 
@@ -599,21 +599,37 @@ struct WelcomeHeroBloom: View {
 
 // MARK: Morph and Glide
 
-/// The cursor's opening blink in Morph and Glide: it appears at 0.04 s, is on
-/// for 60% of `cycle` and off for 40%, then holds on for a beat (11/30 of the
-/// cycle) before the first letter. At Glide's 300 ms: off from 0.22 to 0.34 s,
-/// typing from 0.45 s.
-private struct OpeningBlink: Sendable {
+/// When the cursor shows in Morph and Glide. It appears at 0.04 s, is on for
+/// 60% of `cycle` and off for 40% (the opening blink), then holds on for a
+/// beat (11/30 of the cycle) before the first letter; typing is 0.1 s a
+/// letter.
+///
+/// Glide (`steady`) keeps that rhythm to the end: after the x the cursor
+/// stays on for 60% of the cycle, blinks off for 40%, and stays on for 60%
+/// again before it starts to bend into the chevron, so the last gap before
+/// the move is the gap between blinks. At 300 ms: off 0.22 to 0.34 s, typing
+/// from 0.45 s, off again 0.93 to 1.05 s, moving at 1.23 s.
+///
+/// Morph keeps its original timing: a quick blink from 0.86 to 0.98 s and the
+/// move at 1.0 s.
+private struct CursorRhythm: Sendable {
     var cycle: Double
+    var steady: Bool
 
     var onAt: Double { 0.04 }
     var offAt: Double { onAt + 0.6 * cycle }
     var backAt: Double { offAt + 0.4 * cycle }
     var typeStart: Double { backAt + cycle * 11 / 30 }
-    /// How much later than the 300 ms blink typing (and all that follows) starts.
-    var delay: Double { typeStart - OpeningBlink(cycle: 0.3).typeStart }
+    /// When the x is typed (the fourth letter).
+    var lastTyped: Double { typeStart + 0.3 }
+    var finalOffAt: Double { steady ? lastTyped + 0.6 * cycle : 0.86 }
+    var finalBackAt: Double { steady ? finalOffAt + 0.4 * cycle : 0.98 }
+    /// When the cursor starts to bend into the chevron and fly home.
+    var moveAt: Double { steady ? finalBackAt + 0.6 * cycle : 1.0 }
 
-    func isOff(_ t: Double) -> Bool { t >= offAt && t < backAt }
+    func isOff(_ t: Double) -> Bool {
+        (t >= offAt && t < backAt) || (t >= finalOffAt && t < finalBackAt)
+    }
 }
 
 /// A block cursor in the chevron's gradient blinks, types "cmux" in Geist
@@ -634,9 +650,7 @@ struct WelcomeHeroMorph: View {
     var body: some View {
         let word = Self.word
         let centered = variant != .morph
-        let opening = OpeningBlink(cycle: variant.blinkCycle)
-        // Everything after the opening blink runs this much later than at 300 ms.
-        let later = opening.delay
+        let rhythm = CursorRhythm(cycle: variant.blinkCycle, steady: centered)
         let xh = word.xHeight
         let chevronHeight = xh * 1.42
         let chevronWidth = chevronHeight * Chevron.aspect
@@ -650,7 +664,7 @@ struct WelcomeHeroMorph: View {
         let height = chevronHeight
         // Glide flies home over a little longer: two shapes move at once.
         let flight = centered ? 0.5 : 0.42
-        HeroStack(t: t, taglineAt: (centered ? 1.45 : 1.3) + later, spacing: 22, name: variant.name) {
+        HeroStack(t: t, taglineAt: rhythm.moveAt + (centered ? 0.45 : 0.3), spacing: 22, name: variant.name) {
             Canvas { context, size in
                 typealias E = IntroEase
                 let scale = size.width / width
@@ -661,14 +675,14 @@ struct WelcomeHeroMorph: View {
 
                 // Typing: one letter per 0.1 s; the cursor steps after each,
                 // measured from the word's left edge.
-                let typedAt = word.glyphs.indices.map { opening.typeStart + 0.1 * Double($0) }
+                let typedAt = word.glyphs.indices.map { rhythm.typeStart + 0.1 * Double($0) }
                 let step = xh * 0.1
                 var cursorOffset: CGFloat = 0
                 for (glyph, at) in zip(word.glyphs, typedAt) {
                     let p = CGFloat(E.outQuint(E.seg(t, at, at + 0.08)))
                     cursorOffset += (glyph.x + glyph.advance + step - cursorOffset) * p
                 }
-                let m = E.inOut(E.seg(t, 1.0 + later, 1.0 + later + flight))
+                let m = E.inOut(E.seg(t, rhythm.moveAt, rhythm.moveAt + flight))
 
                 // Where the word is typed: at its lockup place (Morph), or with
                 // the typed line's ink (first letter to the cursor's right edge)
@@ -681,9 +695,8 @@ struct WelcomeHeroMorph: View {
 
                 // The cursor, drawn first: on its way home it passes behind
                 // the letters, which stay crisp over it.
-                // Off: the opening blink, and one quick blink once the word is typed.
-                let blink = opening.isOff(t) || ((0.86 + later)..<(0.98 + later)).contains(t)
-                if t >= opening.onAt, !blink {
+                // Off: the opening blink, and one blink once the word is typed.
+                if t >= rhythm.onAt, !rhythm.isOff(t) {
                     // A block a little taller than the x-height, where typing left it.
                     let block = CGRect(x: typingWordX + cursorOffset, y: baseline + xh * 0.1 - blockHeight,
                                        width: blockWidth, height: blockHeight)

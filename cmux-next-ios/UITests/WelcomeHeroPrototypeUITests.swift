@@ -42,7 +42,7 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
     }
 
-    /// Glide at each opening-blink speed (300, 450, 600 and 900 ms per blink)
+    /// Glide at each cursor speed (300, 450, 600 and 900 ms per blink)
     /// plays its whole reveal on a pinned launch, in light then in dark: the
     /// cursor blinks in the middle, the word types out centered, then slides
     /// right as the cursor flies home. The step's recording is the evidence
@@ -54,8 +54,8 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
                 let app = launch(arguments: ["-cmux-mobile-welcome-hero", name] + appearance(dark))
                 XCTAssertTrue(element(app, id: "welcome.wordmark.\(name)").waitForExistence(timeout: 20), "\(name): wordmark missing")
                 XCTAssertFalse(app.buttons["welcome.hero.morph"].exists, "a pinned launch must not show the picker")
-                // The slowest reveal is 2.6 s; every launch waits the same.
-                _ = app.staticTexts["__never__"].waitForExistence(timeout: 3.5)
+                // The slowest reveal is 3.8 s; every launch waits the same.
+                _ = app.staticTexts["__never__"].waitForExistence(timeout: 4.5)
                 XCTAssertTrue(element(app, label: "Your Macs, in your pocket").exists, "\(name): tagline missing")
                 XCTAssertTrue(app.buttons["Continue with Google"].exists)
                 capture("\(name)-\(dark ? "dark" : "light")")
