@@ -75,6 +75,9 @@ struct ChatComposer: View {
     @State private var placedCollapsible: Bool?
 
     var body: some View {
+        #if DEBUG
+        let _ = InputLatencyTrace.shared?.count("composer_body")
+        #endif
         VStack(spacing: Self.suggestionsGap) {
             if !slashMatches.isEmpty {
                 slashSuggestions
