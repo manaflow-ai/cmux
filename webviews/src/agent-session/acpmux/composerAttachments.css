@@ -602,6 +602,7 @@
 .acpmux-attachment-file .acpmux-attachment-remove {
   top: 8px;
 }
+[data-composer-buttons-visible] .acpmux-attachment-remove,
 .acpmux-attachment:hover .acpmux-attachment-remove,
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
@@ -1222,6 +1223,11 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-attachment:is(:hover, :focus-within) > .acpmux-source-badge {
   opacity: 0;
+}
+/* Leave the removal button its corner while keeping the attachment source visible. */
+[data-composer-buttons-visible] .acpmux-attachment:not(.acpmux-file-chip) > .acpmux-source-badge {
+  right: auto;
+  left: 4px;
 }
 .acpmux-attachment-document > .acpmux-source-badge { top: 20px; }
 /* A file chip's rides its file glyph's top-right corner, clear of the chip's ×. */
