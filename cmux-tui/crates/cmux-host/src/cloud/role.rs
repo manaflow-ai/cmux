@@ -1115,6 +1115,8 @@ impl Worker {
         match result {
             BindResult::Bound(bound, first_ticket) => {
                 self.bind_backoff.reset();
+                // The compiler cache settings the bind kept, for acpmux (`sccache_env.rs`).
+                crate::sccache_env::publish(&self.paths);
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
@@ -1400,7 +1402,12 @@ impl Worker {
         let reqs = live.session.idle_window(window, now);
         self.drive(reqs);
         let Some(live) = self.live.as_mut() else { return };
-        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+        let snapshot = super::workload::read_snapshot(self.paths.root(), now);
+        // Whether acpmux runs at all: none for a count's lifetime makes 0 turns a known 0.
+        let reqs = live.session.acpmux_running(snapshot.as_ref().map(|s| s.acpmux_running()), now);
+        self.drive(reqs);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match snapshot {
             // The first probe has no CPU baseline yet: it changes nothing.
             Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
                 Some(workload) => Some(workload),
