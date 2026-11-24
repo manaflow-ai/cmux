@@ -12,7 +12,7 @@
 // `replace` names it: the form sends that only for the id it added itself (a retry, or the save
 // after Fetch Models). Such a retry with an empty key field keeps the key it stored (`AddTarget`).
 
-import { userMessage } from "./userMessage";
+import { OWNER_SENTENCE, userMessage } from "./userMessage";
 
 /** `anthropic-endpoint` runs Claude Code on it; `openai-endpoint` an OpenAI-compatible client. */
 export type EndpointKind = "anthropic-endpoint" | "openai-endpoint";
@@ -20,16 +20,21 @@ export type EndpointKind = "anthropic-endpoint" | "openai-endpoint";
 /** What the host's add takes for an endpoint (`cmux.chief.backend.add`). */
 export interface EndpointBackend {
   kind: EndpointKind;
+  preset?: string;
   name: string;
   baseUrl: string;
   /** One model id, or several comma separated (the first is the default), or `*`. */
   model: string;
+  servesCloud?: boolean;
+  validateEndpoint?: boolean;
   /** Absent: no key (a keyless server), or with `replace` the one the form's earlier add stored. */
   apiKey?: string;
   /** The harness id to write (the host makes one from `name` without it). */
   id?: string;
   /** The same id as `id`: write the form's own earlier add again. */
   replace?: string;
+  /** The saved endpoint revision expected by this edit. */
+  edit?: string;
 }
 
 /** One step of `_acpmux/harness/doctor {id, prompt: true}`. */
@@ -148,11 +153,11 @@ export function modelList(text: string): string[] {
 
 /** acpmux's model id rule (byo_endpoint.rs `check_model`): one word, no quotes, braces or `$`. */
 export function validModel(id: string): boolean {
-  return id.length > 0 && id.length <= 200 && !/[\s{}$"'\\]/.test(id);
+  return id.length > 0 && new TextEncoder().encode(id).length <= 200 && !/[\s\p{Cc}{}$"'\\]/u.test(id);
 }
 
 /** acpmux's URL rule (`check_base_url`): https, or http only to this machine; no user or key. */
-export function endpointUrlProblem(url: string): "missing" | "invalid" | "insecure" | null {
+export function endpointUrlProblem(url: string): "missing" | "invalid" | "insecure" | "query" | null {
   const text = url.trim();
   if (!text) return "missing";
   let parsed: URL;
@@ -162,7 +167,19 @@ export function endpointUrlProblem(url: string): "missing" | "invalid" | "insecu
     return "invalid";
   }
   if (parsed.username || parsed.password || parsed.hash || /[{}$"\\]/.test(text)) return "invalid";
-  const local = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(parsed.hostname);
+  if (text.includes("?")) return "query";
+  const host = parsed.hostname.replace(/\.$/, "");
+  const ipv4 = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+  const [a = 0, b = 0] = host.split(".").map(Number);
+  const local =
+    ["localhost", "[::1]"].includes(host) ||
+    host.endsWith(".local") ||
+    (ipv4 &&
+      (a === 127 ||
+        a === 10 ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        (a === 100 && b >= 64 && b <= 127)));
   if (parsed.protocol === "https:") return null;
   if (parsed.protocol === "http:") return local ? null : "insecure";
   return "invalid";
@@ -282,7 +299,7 @@ export const endpointBusy = (status: EndpointStatus) =>
 
 /** A host refusal as the person reads it: one plain sentence by code (`userMessage`), never the
  *  refusal's own text. */
-export const failureText = (failure: unknown) => userMessage(failure);
+export const failureText = (failure: unknown) => userMessage(failure, { "cmux.agents.endpoint_check": OWNER_SENTENCE });
 
 /** The host's real hello turn for `harness`: `passed`, or `failed` with the first failing step. */
 export async function checkEndpoint(

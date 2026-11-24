@@ -130,6 +130,7 @@ export function keysQuery(store: SettingsStore) {
 
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
+  if (focus === "claude-login" || focus === "codex-login" || focus === "gemini-login") return "models";
   // An old Personalization part link opens the page that draws that part now (legacyLinks.ts).
   const legacy = legacyPart(section, focus);
   if (legacy) return legacy.section;
@@ -138,7 +139,11 @@ export function routeSection(section: string | undefined, focus: string | undefi
 }
 
 /** One read a section draws from: its query options, and whether a stale copy refreshes. */
-export type SectionRead = { options: { queryKey: readonly unknown[] }; revalidate: boolean };
+export type SectionRead = {
+  options: { queryKey: readonly unknown[] };
+  revalidate: boolean;
+  paintWhileLoading?: boolean;
+};
 
 /** Every read `section` draws from; empty for a section with only schema rows. */
 export function sectionReads(store: SettingsStore, section: string): SectionRead[] {
@@ -149,10 +154,15 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
   if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
-  if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+  if (cards.has("accounts") || cards.has("models"))
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("models") || cards.has("cloudModels"))
-    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+    reads.push({
+      options: { queryKey: settingsKeys.models },
+      revalidate: false,
+      paintWhileLoading: true,
+    });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
@@ -176,10 +186,10 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
 export async function ensureSection(queryClient: QueryClient, store: SettingsStore, section: string): Promise<void> {
   const category = categoryById(section);
   await Promise.all([
-    // The section's cards' code: each card is its own chunk (components/cardModules.tsx).
     loadCards([...category.lead, ...category.trail]),
-    ...sectionReads(store, section).map(({ options, revalidate }) =>
-      queryClient.ensureQueryData({ ...options, revalidateIfStale: revalidate }).catch(() => undefined),
-    ),
+    ...sectionReads(store, section).map(({ options, revalidate, paintWhileLoading }) => {
+      const read = queryClient.ensureQueryData({ ...options, revalidateIfStale: revalidate }).catch(() => undefined);
+      if (!paintWhileLoading) return read;
+    }),
   ]);
 }

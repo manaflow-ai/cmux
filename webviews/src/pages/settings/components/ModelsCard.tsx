@@ -1,1126 +1,421 @@
-// Settings > Models (cmux-tui/docs/model-connections.md): which subscription or key each thread runs
-// on. Your connections lists this person's Mac logins, ChatGPT plan sign-ins and API keys in the order
-// a thread tries them (drag a row, or Move Up / Move Down in its menu), each with its routing switch,
-// plus Spread usage. Organization connections lists the team's shared keys, which
-// every member's threads use after their own; owners and admins add, replace and remove the keys.
-// Members holds the team's policy for members' own connections, editable only by owners and admins.
-// Add a Connection (the "+", or `#/settings/models?focus=models.add`, which cmux://settings/models/add
-// opens) is a sheet with a search field: Subscriptions (ChatGPT through Continue with ChatGPT; Claude
-// Code through `claude setup-token` in a cmux terminal tab and a paste field for the token it prints)
-// and API keys (a password field and an optional label). A pasted key or token lives only in the open
-// form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
-// again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with
-// Set Up for Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
-// A Claude login's Sign In Again, on a host that signs in in place, shows the sign-in card under the
-// row (logins done right; Leo, 2026-11-22: "this is simply logins, done righr."): the CLI's own login
-// when it is signed out, else a new Claude account, as the host's `connectClaude` picks; a daemon
-// without the in-place sign-in, or a host without it, keeps `connectClaude` (its terminal sign-in).
-import { useEffect, useId, useRef, useState, type DragEvent } from "react";
-import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
-import { Button } from "../../../ui/Button";
-import { Dialog } from "../../../ui/Dialog";
-import { Input } from "../../../ui/Input";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
-import { useSettingsRouter, useSettingsState, useStore } from "../context";
-import { Select } from "../editors/Select";
+import { useSearch } from "@tanstack/react-router";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Skeleton } from "../../../ui/Skeleton";
+import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
-import { planName } from "../harnesses";
-import { Icon } from "../icons";
-import { SETTINGS_SENTENCES, type ModelConnection, type ModelProvider, type ModelsRun, type ModelsState } from "../ops";
-import { sectionHref } from "../router";
+import { agentBrandSpec } from "../../../agent-session/shared/agentBrands.generated";
+import { CLOUD_CHATGPT_SIGN_IN_READY } from "../../../agent-session/shared/cloudModelConnections";
+import {
+  canAddProvider,
+  cloudProviderForFamily,
+  providerById,
+  providerDisabledReason,
+  providerName,
+} from "../providerCatalog";
+import type { ModelConnection } from "../ops";
+import { revealRow } from "../keyboard";
+import { CLOUD_MODELS_ADD_FOCUS, CLOUD_MODELS_FOCUS, MODELS_ADD_FOCUS, type SettingsSearch } from "../router";
 import { t } from "../strings";
-import { userMessage } from "../../shared/userMessage";
-import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
-import { parseAccountRow } from "../../shared/signIn/accountSignIn";
-import { useSettingsSignIn } from "./useSettingsSignIn";
+import { GroupHeader } from "./GroupHeader";
+import { ModelConnectionDialog } from "./ModelConnectionDialog";
+import { ModelConnectionRow, ModelRow, type RowAction } from "./ModelConnectionRow";
+import { ModelProviderPicker } from "./ModelProviderPicker";
+import { MembersSection, OrganizationSection } from "./ModelsTeamSections";
+import { SettingsErrorRow } from "./SettingsErrorRow";
+import {
+  isCloudSubscription,
+  moveId,
+  providerFamily,
+  tokenTimeRemaining,
+  updateEndpointCloud,
+  useModelsRun,
+  type Run,
+  type SetupSelection,
+} from "./modelConnections";
 
-/** The route focus that opens Add a Connection (cmux://settings/models/add). */
-export const MODELS_ADD_FOCUS = "models.add";
-/** Where a ChatGPT plan's usage is managed (the plan's own page). */
-export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
-
-/** Product names, shown as they are in every language. */
-export const PROVIDERS: Record<ModelProvider, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  openrouter: "OpenRouter",
-  google: "Google",
-  xai: "xAI",
-};
-const KEY_PROVIDERS: ModelProvider[] = ["anthropic", "openai", "openrouter", "google", "xai"];
-const AGENT_NAMES: Record<"claude" | "codex", string> = { claude: "Claude", codex: "Codex" };
-
-/** The brand mark a connection shows (agentBrands.generated.ts names). */
-function markOf(connection: Pick<ModelConnection, "kind" | "provider">): string {
-  if (connection.kind === "claude-login" || connection.kind === "claude-token") return "claude";
-  if (connection.kind === "codex-login" || connection.kind === "chatgpt-plan") return "openai";
-  return (
-    { anthropic: "anthropic", openai: "openai", openrouter: "openrouter", google: "gemini", xai: "grok" } as const
-  )[connection.provider];
-}
-
-/** "Authenticated as alex@example.com · ChatGPT Pro", "API key", or "Not signed in". */
-export function connectionAuthText(connection: ModelConnection): string {
-  if (!connection.signedIn) return t("settingsWindow.harnesses.notAuthenticated");
-  if (connection.kind === "api-key") return t("settingsWindow.harnesses.accounts.apiKey");
-  const plan = planName(connection.families[0] ?? "", connection.plan);
-  if (connection.email) {
-    return plan
-      ? t("settingsWindow.harnesses.accounts.authenticatedAsPlan", connection.email, plan)
-      : t("settingsWindow.harnesses.accounts.authenticatedAs", connection.email);
-  }
-  return plan ? t("settingsWindow.harnesses.authenticatedPlan", plan) : t("settingsWindow.harnesses.authenticated");
-}
-
-/** A ChatGPT sign-in's failure code in plain words. */
-export function chatgptErrorText(code: string): string {
-  if (code === "access_denied") return t("settingsWindow.models.chatgpt.errorDenied");
-  if (code === "no_chatgpt_account") return t("settingsWindow.models.chatgpt.errorNoPlan");
-  return t("settingsWindow.models.chatgpt.errorOther");
-}
-
-/** `ids` with `id` moved to `to` (an index into the list). */
-export function moveId(ids: string[], id: string, to: number): string[] {
-  const rest = ids.filter((other) => other !== id);
-  rest.splice(Math.max(0, Math.min(to, rest.length)), 0, id);
-  return rest;
-}
-
-export type Run = (gesture: ModelsRun) => Promise<boolean>;
-
-/** A card's gestures to the host: `run` sends one and resolves whether the host took it; `busy` while
- * one is out, `error` the last refusal's text (shown under the card). */
-export function useModelsRun(): { busy: boolean; error: string | null; run: Run } {
-  const store = useStore();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run: Run = (gesture) => {
-    setBusy(true);
-    setError(null);
-    return store
-      .runModels(gesture)
-      .then(
-        (refusal) => {
-          setError(refusal);
-          return refusal === null;
-        },
-        (failure: unknown) => {
-          setError(userMessage(failure, SETTINGS_SENTENCES));
-          return false;
-        },
-      )
-      .finally(() => setBusy(false));
-  };
-  return { busy, error, run };
-}
-
-/** The Settings > Cloud row (CloudModelsCard.tsx) that sets up what a This Mac only connection serves. */
-export function cloudFocusOf(connection: Pick<ModelConnection, "kind" | "families">): string {
-  if (connection.kind === "api-key") return "cloud.apiKey";
-  return connection.families.includes("codex") ? "cloud.chatgpt" : "cloud.claude";
-}
+type Selection = (SetupSelection | RowAction) & { returnTo?: HTMLElement };
+type SetupVisit = { request: string; ids: Set<string>; connected: boolean };
+const skeletonRows = [0, 1, 2];
 
 export function ModelsCard({ focus }: { focus: string | null }) {
+  return <ModelConnectionsCard focus={focus} cloud={false} />;
+}
+
+export function CloudModelsCard({ focus, reveal }: { focus: string | null; reveal: boolean }) {
+  return <ModelConnectionsCard focus={focus} cloud reveal={reveal} />;
+}
+
+function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; cloud: boolean; reveal?: boolean }) {
+  const { models, modelsSettled } = useSettingsState();
+  const search = useSearch({ strict: false }) as SettingsSearch;
+  const { open } = search;
+  const fromSend = cloud && search.fromSend;
+  const family = cloud ? search.provider?.trim().toLowerCase() : undefined;
+  const request = JSON.stringify([focus, family, open, fromSend]);
+  const add = cloud ? CLOUD_MODELS_ADD_FOCUS : MODELS_ADD_FOCUS;
+  const addFocus = focus?.startsWith(add + ".") ? focus.slice(add.length + 1).split(".", 1)[0] : undefined;
+
+  const available = models?.personal.available === true;
+  const loading = !available && !modelsSettled;
   const store = useStore();
-  const models = useSettingsState().models;
-  const { busy, error, run } = useModelsRun();
-  const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
-  useEffect(() => {
-    if (focus === MODELS_ADD_FOCUS) setAdding(true);
-  }, [focus]);
-  // Whether the host signs in in place (its sign-in accounts), for a Claude login's Sign In Again.
-  useEffect(() => {
-    void store.refreshAccounts();
-  }, [store]);
-  if (!models) return null;
-  return (
-    <div className="models" data-card="models" aria-busy={busy}>
-      <p className="row-help models-lead">{t("settingsWindow.models.subtitle")}</p>
-      {error && (
-        <p className="row-error" role="alert" data-models-error="">
-          {error}
-        </p>
-      )}
-      <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding(true)} />
-      <OrganizationSection models={models} busy={busy} run={run} />
-      {models.members && <MembersSection members={models.members} busy={busy} run={run} />}
-      {adding && <AddConnectionSheet models={models} busy={busy} run={run} onClose={() => setAdding(false)} />}
-    </div>
-  );
-}
-
-function SectionHeader({ title, help, children }: { title: string; help: string; children?: React.ReactNode }) {
-  return (
-    <div className="models-header">
-      <div>
-        <h3 className="group-title">{title}</h3>
-        <p className="row-help">{help}</p>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function AddButton({
-  label,
-  disabled,
-  onClick,
-  id,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick(): void;
-  id: string;
-}) {
-  return (
-    <Button
-      type="button"
-      className="button models-add"
-      aria-label={label}
-      title={label}
-      data-models-action={id}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <Icon name="plus" />
-    </Button>
-  );
-}
-
-export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["chatgpt"]; busy: boolean; run: Run }) {
-  if (chatgpt.attempt) {
-    return (
-      <output className="models-chatgpt" data-chatgpt="pending">
-        <span className="row-help">{t("settingsWindow.models.chatgpt.waiting")}</span>
-        <Button
-          type="button"
-          className="button"
-          data-models-action="cancelChatGPT"
-          disabled={busy}
-          onClick={() => void run({ action: "cancelChatGPT" })}
-        >
-          {t("settingsWindow.cancel")}
-        </Button>
-      </output>
-    );
-  }
-  if (chatgpt.error) {
-    return (
-      <div className="models-chatgpt" data-chatgpt="error">
-        <span className="row-error" role="alert">
-          {chatgptErrorText(chatgpt.error)}
-        </span>
-        <Button
-          type="button"
-          className="button"
-          data-models-action="retryChatGPT"
-          disabled={busy}
-          onClick={() => void run({ action: "connectChatGPT" })}
-        >
-          {t("settingsWindow.models.tryAgain")}
-        </Button>
-      </div>
-    );
-  }
-  return null;
-}
-
-function PersonalSection({
-  models,
-  busy,
-  run,
-  onAdd,
-}: {
-  models: ModelsState;
-  busy: boolean;
-  run: Run;
-  onAdd(): void;
-}) {
+  const { busy, error, run, clearError } = useModelsRun();
+  const [saving, setSaving] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [handled, setHandled] = useState<string | null>(null);
+  const [setupVisit, setSetupVisit] = useState<SetupVisit | null>(null);
+  const [formError, setFormError] = useState(false);
   const spreadId = useId();
-  const { connections, spread, available } = models.personal;
-  const [dragging, setDragging] = useState<string | null>(null);
-  const ids = connections.map((connection) => connection.id);
-  const order = (next: string[]) => {
-    if (next.join("\n") !== ids.join("\n")) void run({ action: "order", ids: next });
+  const section = useRef<HTMLElement>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const startingDevice = useRef(false);
+  const locked = busy || saving;
+  const connections = models?.personal.connections ?? [];
+  const cloudRows = connections.filter((c) => isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud));
+  const localRows = connections.map((connection) =>
+    connection.kind === "claude-login" && typeof models?.claudeLogin?.signedIn === "boolean"
+      ? { ...connection, signedIn: models.claudeLogin.signedIn }
+      : connection,
+  );
+  const routeRows = cloud ? cloudRows : localRows.filter((c) => c.kind !== "native-login");
+  const nativeCloud: ModelConnection | undefined =
+    cloud && models?.cloudClaudeLogin?.phase === "connected"
+      ? {
+          id: "claude-cloud-login",
+          kind: "claude-login",
+          provider: "anthropic",
+          families: ["claude"],
+          label: "Claude Code",
+          signedIn: true,
+          servesCloud: true,
+          enabled: true,
+          email: null,
+          plan: null,
+          defaultFor: [],
+        }
+      : undefined;
+  const displayed = cloud
+    ? [...(nativeCloud ? [nativeCloud] : []), ...routeRows]
+    : // The old Claude token only ever served Cloud: it lives in Cloud models.
+      [...routeRows.filter((c) => c.kind !== "claude-token"), ...localRows.filter((c) => c.kind === "native-login")];
+  const claudeAvailable = models?.claudeCodeAvailable;
+  const cloudUnavailable = models?.cloudClaudeLogin?.phase === "disabled";
+  const cloudClaudeMachine = models?.cloudClaudeLogin?.machineName;
+  useEffect(() => {
+    if (available && (cloud ? !cloudUnavailable : claudeAvailable !== false)) {
+      void store.runModels({ action: "checkClaudeLogin", cloud });
+    }
+  }, [available, cloud, claudeAvailable, cloudUnavailable, cloudClaudeMachine, store]);
+  const now = Date.now();
+  const cloudRunnerStatus = (connection: ModelConnection): "updating" | "offline" | "notReady" | undefined => {
+    const runner = connection.launchHarness;
+    if (!runner) return undefined;
+    const subscription = connection.kind === "grok-plan" || connection.kind === "copilot-plan";
+    const confirmed = subscription ? models?.cloudSubscriptionHarnesses : models?.cloudHarnesses;
+    if (confirmed?.includes(runner)) return undefined;
+    const pending = subscription ? models?.cloudSubscriptionRunnersPending : models?.cloudEndpointRunnersPending;
+    if (pending) return "updating";
+    return models?.cloudRunnersOffline ? "offline" : "notReady";
   };
+  const usable = (c: ModelConnection) => c.enabled && c.signedIn && tokenTimeRemaining(c, now) > 0;
+  const ready = cloudRows.filter((c) => c.servesCloud && usable(c) && !cloudRunnerStatus(c));
+  const servesFamily = (c: ModelConnection, family: string) => (c.cloudFamilies ?? c.families).includes(family);
+  const canToggleCloud = (c: ModelConnection) =>
+    (c.canServeCloud ?? c.servesCloud) && (c.kind === "api-key" || (c.kind === "endpoint" && !!c.endpoint));
+  const cloudOff =
+    family && !ready.some((c) => servesFamily(c, family))
+      ? cloudRows.find((c) => canToggleCloud(c) && !c.servesCloud && usable(c) && servesFamily(c, family))
+      : undefined;
+  const targetFor = (id: string) => {
+    const provider = providerById(id);
+    if (!provider || (provider.kind !== "subscription" && provider.kind !== "claude-login" && id !== "kimi-code"))
+      return undefined;
+    const family = providerFamily(provider);
+    if (!family) return undefined;
+    const matches = (c: ModelConnection) => isCloudSubscription(c) && servesFamily(c, family);
+    return (ready.find(matches) ?? cloudRows.find(matches))?.id;
+  };
+  const requestedId = family
+    ? family === "codex" && fromSend && !CLOUD_CHATGPT_SIGN_IN_READY
+      ? "openai"
+      : cloudProviderForFamily(family)
+    : addFocus;
+  const requested = requestedId ? providerById(requestedId) : undefined;
+  const requestedDisabled =
+    requested && providerDisabledReason(requested, models?.claudeCodeAvailable, cloud, models?.claudeLogin?.error);
+  const device = models?.chatgptDevice?.phase;
+  const deviceProvider = models?.deviceProvider ?? "chatgpt";
+  const devicePreset = deviceProvider === "kimi" ? "kimi-code" : deviceProvider;
+  const claudeLogin = cloud ? models?.cloudClaudeLogin : models?.claudeLogin;
+  const capture = claudeLogin?.phase;
+  const devicePending = device === "starting" || device === "waiting" || device === "cancelling";
+  const claudePending =
+    capture === "preparing" || capture === "approving" || capture === "code" || capture === "cancelling";
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (reveal && !family) revealRow(section.current);
+  }, [reveal, family, open]);
+  if (available && handled !== request && !locked) {
+    setHandled(request);
+    setFormError(false);
+    setOpenMenuId(cloudOff?.id ?? null);
+    setPickerOpen((focus === add && !family) || !!requestedDisabled);
+    const resume = !family && (!focus || (cloud && focus === CLOUD_MODELS_FOCUS));
+    const id =
+      !cloudOff && requested && !requestedDisabled && canAddProvider(requested, cloud)
+        ? requested.id
+        : resume && devicePending
+          ? devicePreset
+          : resume && claudePending
+            ? "claude"
+            : undefined;
+    const resumingDevice = id === devicePreset && devicePending;
+    setSelection(id ? { id, target: family && !resumingDevice ? targetFor(id) : undefined } : null);
+    setSetupVisit(open && family ? { request, ids: new Set(ready.map(({ id }) => id)), connected: false } : null);
+  }
+  const currentVisit = setupVisit?.request === request ? setupVisit : null;
+  if (
+    currentVisit &&
+    !currentVisit.connected &&
+    available &&
+    family &&
+    ready.some((c) => servesFamily(c, family) && !currentVisit.ids.has(c.id))
+  ) {
+    setSetupVisit({ ...currentVisit, connected: true });
+  }
+  const ids = routeRows.map(({ id }) => id);
+  const order = (next: string[]) => {
+    if (locked || next.every((id, index) => id === ids[index])) return;
+    const reordered = next.values();
+    const visible = new Set(ids);
+    const ordered = connections
+      .filter(({ kind }) => kind !== "native-login")
+      .map((c) => (visible.has(c.id) ? (reordered.next().value ?? c.id) : c.id));
+    void rowRun({ action: "order", ids: ordered });
+  };
+  const setup = selection && "id" in selection ? selection : undefined;
+  const rowAction = selection && "kind" in selection ? selection : undefined;
+  const editingConnection = setup?.edit ? connections.find((c) => c.id === setup.target) : undefined;
+  const active = setup && (!setup.edit || editingConnection) ? providerById(setup.id) : undefined;
+  const awaitingSignIn =
+    active?.id === devicePreset
+      ? devicePending || locked
+      : (active?.id === "claude" || active?.id === "claude-login") && (claudePending || locked);
+  const activeRow = setup?.target
+    ? displayed.find((c) => c.id === setup.target)
+    : displayed.find((c) => c.id === setup?.id);
+  const pick = (next: SetupSelection | RowAction, trigger?: HTMLElement | null) => {
+    if ("id" in next && !next.edit) {
+      const provider = providerById(next.id);
+      if (provider && providerDisabledReason(provider, models?.claudeCodeAvailable, cloud, models?.claudeLogin?.error))
+        return;
+    }
+    if (formError) clearError();
+    setFormError(false);
+    setPickerOpen(false);
+    setSelection({ ...next, returnTo: trigger ?? selection?.returnTo });
+  };
+  const close = () => {
+    if (!selection) return;
+    const trigger = selection.returnTo;
+    const removingTrigger =
+      rowAction?.kind === "disconnect" &&
+      trigger?.dataset.menu === `connection-${rowAction.connection.id}` &&
+      !store.getSnapshot().models?.personal.connections.some((c) => c.id === rowAction.connection.id);
+    returnFocus.current = trigger?.isConnected && !removingTrigger ? trigger : addButton.current;
+    setSelection((current) => (current === selection ? null : current));
+    if (formError) clearError();
+  };
+  const dismiss = () => {
+    close();
+    if (startingDevice.current || (setup?.id === devicePreset && (device === "waiting" || device === "starting"))) {
+      void rowRun({ action: "cancelChatGPTDevice" });
+    } else if ((setup?.id === "claude" || setup?.id === "claude-login") && (busy || claudePending)) {
+      void rowRun({ action: "cancelClaudeLogin", cloud });
+    }
+  };
+  const rowRun: Run = (gesture) => {
+    setFormError(false);
+    return run(gesture);
+  };
+  const panelRun: Run = (gesture) => {
+    setFormError(true);
+    if (gesture.action !== "connectChatGPTDevice") return run(gesture);
+    startingDevice.current = true;
+    return run(gesture).finally(() => {
+      startingDevice.current = false;
+    });
+  };
+
+  const [endpointError, setEndpointError] = useState<string | null>(null);
+  const toggleCloud = (connection: ModelConnection) => {
+    setEndpointError(null);
+    if (connection.kind !== "endpoint") {
+      void rowRun({ action: "setCloud", id: connection.id, on: !connection.servesCloud });
+      return;
+    }
+    setSaving(true);
+    void updateEndpointCloud(store, connection)
+      .then(setEndpointError)
+      .finally(() => setSaving(false));
+  };
+  const unsupported =
+    cloud &&
+    (!requested || !canAddProvider(requested, true)) &&
+    (!family || !cloudRows.some((connection) => servesFamily(connection, family)))
+      ? (family ?? requested?.id)
+      : undefined;
+  const unsupportedBrand = unsupported && !requested ? agentBrandSpec(unsupported) : undefined;
   return (
-    <section className="group" data-models-section="personal">
-      <SectionHeader title={t("settingsWindow.models.personal.title")} help={t("settingsWindow.models.personal.help")}>
-        <AddButton label={t("settingsWindow.models.add")} id="add" disabled={busy || !available} onClick={onAdd} />
-      </SectionHeader>
-      <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={run} />
-      <div className="rows">
-        {!available && (
-          <div className="row" data-empty="">
-            <span className="row-help">{t("settingsWindow.models.personal.unavailable")}</span>
-          </div>
-        )}
-        {available && connections.length === 0 && (
-          <div className="row" data-empty="">
-            <span className="row-help">{t("settingsWindow.models.personal.empty")}</span>
-          </div>
-        )}
-        {connections.map((connection, index) => (
-          <ConnectionRow
-            key={connection.id}
-            connection={connection}
-            index={index}
-            count={connections.length}
-            cloudCovered={cloudCovered(connections, connection)}
-            busy={busy}
-            run={run}
-            dragging={dragging === connection.id}
-            onDragStart={() => setDragging(connection.id)}
-            onDragEnd={() => setDragging(null)}
-            onDrop={() => {
-              if (dragging) order(moveId(ids, dragging, index));
-              setDragging(null);
-            }}
-            onMove={(to) => order(moveId(ids, connection.id, to))}
-          />
-        ))}
-      </div>
-      <div className="rows">
-        <div className="row" data-models-row="spread">
-          <div className="row-main">
-            <div className="row-label" id={spreadId}>
-              <div className="row-title">{t("settingsWindow.models.spread.title")}</div>
-              <div className="row-help">{t("settingsWindow.models.spread.help")}</div>
-            </div>
-            <div className="row-control">
-              <Switch
-                checked={spread}
-                disabled={busy || !available}
-                labelId={spreadId}
-                onToggle={(on) => void run({ action: "spread", on })}
+    <div className="models" data-card={cloud ? "cloudModels" : "models"} aria-busy={locked || loading}>
+      <section className="group" data-models-section="personal" tabIndex={reveal ? -1 : undefined} ref={section}>
+        <GroupHeader
+          title={t(cloud ? "settingsWindow.cloud.models.title" : "settingsWindow.models.personal.title")}
+          help={t(cloud ? "settingsWindow.cloud.models.help" : "settingsWindow.models.personal.help")}
+        />
+        <div className="rows models-rows models-connections">
+          {loading && <ConnectionsSkeleton />}
+          {!loading && !available && (
+            <SettingsErrorRow
+              message={t("settingsWindow.models.personal.unavailable")}
+              retry={() => void store.refreshModels()}
+            />
+          )}
+          {error && !formError && <SettingsErrorRow message={error} />}
+          {endpointError && <SettingsErrorRow message={endpointError} />}
+          {available && unsupported && (
+            <div className="row" data-cloud-coming-soon="">
+              <ModelRow
+                mark={requested?.mark ?? { agent: unsupported }}
+                label={requested ? providerName(requested) : (unsupportedBrand?.name ?? unsupported)}
+                detail={t("settingsWindow.cloud.status.comingSoon")}
               />
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/** Whether another connection already serves Cloud for `connection`'s row (Settings > Cloud's rule): a
- * This Mac only login then needs no Set Up for Cloud link, since a Cloud chat already has what it uses. */
-export function cloudCovered(connections: ModelConnection[], connection: ModelConnection): boolean {
-  const row = cloudFocusOf(connection);
-  return connections.some((c) => c.servesCloud && c.enabled && c.signedIn && cloudFocusOf(c) === row);
-}
-
-function ConnectionRow({
-  connection,
-  index,
-  count,
-  cloudCovered: covered,
-  busy,
-  run,
-  dragging,
-  onDragStart,
-  onDragEnd,
-  onDrop,
-  onMove,
-}: {
-  connection: ModelConnection;
-  index: number;
-  count: number;
-  cloudCovered: boolean;
-  busy: boolean;
-  run: Run;
-  dragging: boolean;
-  onDragStart(): void;
-  onDragEnd(): void;
-  onDrop(): void;
-  onMove(to: number): void;
-}) {
-  const nameId = useId();
-  const router = useSettingsRouter();
-  const [confirming, setConfirming] = useState(false);
-  const listed = useSettingsState().accounts?.signInAccounts;
-  const store = useStore();
-  // A finished sign-in reads Models again, so the row shows the login signed in.
-  const signIn = useSettingsSignIn(() => void store.refreshModels());
-  const builtin = connection.kind === "codex-login" || connection.kind === "claude-login";
-  const plan = connection.kind === "chatgpt-plan";
-  const reauth: ModelsRun | null = plan
-    ? { action: "connectChatGPT", id: connection.id }
-    : connection.kind === "claude-login"
-      ? { action: "connectClaude" }
-      : null;
-  const over = (event: DragEvent) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-  };
-  return (
-    <div
-      className="row models-connection"
-      data-connection={connection.id}
-      data-dragging={dragging ? "" : undefined}
-      onDragOver={over}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDrop();
-      }}
-    >
-      <div className="row-main">
-        <span
-          className="models-grip"
-          draggable={!busy && count > 1}
-          aria-hidden="true"
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", connection.id);
-            onDragStart();
-          }}
-          onDragEnd={onDragEnd}
-        >
-          <Icon name="grip" />
-        </span>
-        <span className="accounts-mark" aria-hidden="true">
-          <AgentMark agent={markOf(connection)} size={16} />
-        </span>
-        <div className="row-label">
-          <div className="row-title" id={nameId}>
-            {connection.label}
-            {connection.defaultFor.length > 0 && (
-              <span className="accounts-badge" data-connection-default="">
-                {t("settingsWindow.harnesses.accounts.default")}
-              </span>
-            )}
-          </div>
-          <div className="row-help" data-connection-auth={connection.signedIn ? "signedIn" : "signedOut"}>
-            {connectionAuthText(connection)}
-          </div>
-          {!connection.servesCloud && (
-            <div className="row-help" data-connection-local="">
-              {t("settingsWindow.models.thisMacOnly")}
-              {!covered && (
-                <>
-                  {" · "}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="link-button"
-                    data-models-action="setUpForCloud"
-                    onClick={() => router.history.push(sectionHref("cloud", cloudFocusOf(connection)))}
-                  >
-                    {t("settingsWindow.models.setUpForCloud")}
-                  </Button>
-                </>
-              )}
+          )}
+          {available && cloud && !unsupported && displayed.length === 0 && (
+            <div className="row">
+              <p className="row-help">{t("settingsWindow.cloud.models.empty")}</p>
             </div>
           )}
-          {plan && (
-            <div className="row-help" data-chatgpt-plan="">
-              {t("settingsWindow.models.chatgptPlan")}
-              {" · "}
-              <a className="channel-link" href={CHATGPT_USAGE_URL} target="_blank" rel="noreferrer">
-                {t("settingsWindow.models.manageUsage")}
-              </a>
-            </div>
-          )}
-        </div>
-        <div className="row-control">
-          <Switch
-            checked={connection.enabled}
-            disabled={busy}
-            labelId={nameId}
-            onToggle={(on) => void run({ action: "enable", id: connection.id, on })}
-          />
-          <Menu>
-            <MenuButton
-              className="button models-more"
-              label={t("settingsWindow.models.more", connection.label)}
-              data-menu={`connection-${connection.id}`}
-              disabled={busy}
-            >
-              <Icon name="ellipsis" />
-            </MenuButton>
-            <MenuPopup align="end">
-              <MenuItem data-value="moveUp" disabled={index === 0} onSelect={() => onMove(index - 1)}>
-                {t("settingsWindow.models.moveUp")}
-              </MenuItem>
-              <MenuItem data-value="moveDown" disabled={index === count - 1} onSelect={() => onMove(index + 1)}>
-                {t("settingsWindow.models.moveDown")}
-              </MenuItem>
-              {reauth && (
-                <MenuItem
-                  data-value="signInAgain"
-                  onSelect={() => {
-                    if (reauth.action !== "connectClaude" || !signIn.inPlace) return void run(reauth);
-                    // The CLI's own Claude login when it is signed out, else a new Claude account.
-                    const own = (listed ?? [])
-                      .flatMap((raw) => parseAccountRow(raw) ?? [])
-                      .find((row) => row.family === "claude" && row.builtin);
-                    signIn.begin("claude", own && !own.signedIn ? own.id : null, () => void run(reauth));
-                  }}
-                >
-                  {t("settingsWindow.models.signInAgain")}
-                </MenuItem>
-              )}
-              {!builtin && (
-                <MenuItem data-value="remove" onSelect={() => setConfirming(true)}>
-                  {t("settingsWindow.remove")}
-                </MenuItem>
-              )}
-            </MenuPopup>
-          </Menu>
-        </div>
-      </div>
-      {signIn.running && (
-        <div className="harness-sign-in" data-connection-sign-in={connection.id}>
-          <DeviceSignInCard family={signIn.running.family} view={signIn.running.view} look="inline" {...signIn.card} />
-        </div>
-      )}
-      {confirming && (
-        <div className="accounts-body">
-          <div className="accounts-form" role="alertdialog" aria-labelledby={nameId} data-connection-remove="">
-            <span className="row-help">{t("settingsWindow.models.removeConfirm", connection.label)}</span>
-            <div className="accounts-buttons">
-              <Button
-                danger
-                type="button"
-                className="button danger"
-                data-models-action="confirmRemove"
-                disabled={busy}
-                onClick={() => {
-                  setConfirming(false);
-                  void run({ action: "remove", id: connection.id });
+          {available &&
+            displayed.map((connection, index) => (
+              <ModelConnectionRow
+                key={connection.id}
+                connection={connection}
+                index={ids.indexOf(connection.id) >= 0 ? ids.indexOf(connection.id) : index}
+                count={ids.length}
+                tools={models.connectionTools === true}
+                cloud={cloud}
+                busy={locked}
+                now={now}
+                cloudRunnerStatus={cloud ? cloudRunnerStatus(connection) : undefined}
+                focusRequest={
+                  (!cloud && focus === connection.id) ||
+                  (openMenuId === connection.id && cloudOff?.id === connection.id)
+                    ? request
+                    : undefined
+                }
+                menuOpen={openMenuId === connection.id}
+                onMenuOpenChange={(open) => {
+                  setOpenMenuId((current) => (open ? connection.id : current === connection.id ? null : current));
                 }}
-              >
-                {t("settingsWindow.remove")}
-              </Button>
-              <Button type="button" className="button" onClick={() => setConfirming(false)}>
-                {t("settingsWindow.cancel")}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OrganizationSection({ models, busy, run }: { models: ModelsState; busy: boolean; run: Run }) {
-  const { team, canEdit, keys } = models.organization;
-  const [adding, setAdding] = useState(false);
-  const unset = keys.find((key) => !key.set)?.agent ?? null;
-  return (
-    <section className="group" data-models-section="organization">
-      <SectionHeader title={t("settingsWindow.models.org.title")} help={t("settingsWindow.models.org.help")}>
-        {team && canEdit && (
-          <AddButton
-            label={t("settingsWindow.models.org.add")}
-            id="orgAdd"
-            disabled={busy || unset === null || adding}
-            onClick={() => setAdding(true)}
-          />
-        )}
-      </SectionHeader>
-      <div className="rows">
-        {!team && (
-          <div className="row" data-empty="">
-            <span className="row-help">{t("settingsWindow.models.org.noTeam")}</span>
-          </div>
-        )}
-        {team && keys.every((key) => !key.set) && !adding && (
-          <div className="row" data-empty="">
-            <span className="row-help">{t("settingsWindow.models.org.empty")}</span>
-          </div>
-        )}
-        {team &&
-          keys
-            .filter((key) => key.set)
-            .map((key) => (
-              <OrgKeyRow key={key.agent} agent={key.agent} last4={key.last4} canEdit={canEdit} busy={busy} run={run} />
+                run={rowRun}
+                connecting={activeRow === connection && (awaitingSignIn || (!!setup?.edit && locked))}
+                onMove={(to) => order(moveId(ids, connection.id, to))}
+                onSetup={pick}
+                onAction={pick}
+                onCloudChange={cloud && canToggleCloud(connection) ? () => toggleCloud(connection) : undefined}
+              />
             ))}
-        {team && canEdit && adding && unset && (
-          <OrgKeyForm
-            agents={keys.filter((key) => !key.set).map((key) => key.agent)}
-            busy={busy}
-            run={run}
-            onDone={() => setAdding(false)}
-          />
-        )}
-        {team && !canEdit && (
-          <div className="row">
-            <span className="row-help" data-models-note="">
-              {t("settingsWindow.models.org.readOnly")}
-            </span>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function OrgKeyRow({
-  agent,
-  last4,
-  canEdit,
-  busy,
-  run,
-}: {
-  agent: "claude" | "codex";
-  last4: string | null;
-  canEdit: boolean;
-  busy: boolean;
-  run: Run;
-}) {
-  const [mode, setMode] = useState<"idle" | "edit" | "confirm">("idle");
-  const name = t("settingsWindow.models.org.key", AGENT_NAMES[agent]);
-  return (
-    <div className="row accounts-row" data-org-key={agent}>
-      <div className="row-main">
-        <span className="accounts-mark" aria-hidden="true">
-          <AgentMark agent={agent} size={16} />
-        </span>
-        <div className="row-label">
-          <div className="row-title">{name}</div>
-          <div className="row-help">
-            {last4 ? t("settingsWindow.models.org.keyEnds", last4) : t("settingsWindow.models.org.keySet")}
-          </div>
-        </div>
-        {canEdit && mode === "idle" && (
-          <div className="accounts-buttons">
-            <Button
-              type="button"
-              className="button"
-              data-models-action="orgReplace"
-              disabled={busy}
-              onClick={() => setMode("edit")}
-            >
-              {t("settingsWindow.models.org.replace")}
-            </Button>
-            <Button
-              danger
-              type="button"
-              className="button danger"
-              data-models-action="orgRemove"
-              disabled={busy}
-              onClick={() => setMode("confirm")}
-            >
-              {t("settingsWindow.remove")}
-            </Button>
-          </div>
-        )}
-      </div>
-      {canEdit && mode === "confirm" && (
-        <div className="accounts-body">
-          <div className="accounts-form" role="alertdialog">
-            <span className="row-help">{t("settingsWindow.models.org.removeConfirm", name)}</span>
-            <div className="accounts-buttons">
-              <Button
-                danger
-                type="button"
-                className="button danger"
-                data-models-action="orgConfirmRemove"
-                disabled={busy}
-                onClick={() => {
-                  setMode("idle");
-                  void run({ action: "orgKey", agent, key: null });
-                }}
-              >
-                {t("settingsWindow.remove")}
-              </Button>
-              <Button type="button" className="button" onClick={() => setMode("idle")}>
-                {t("settingsWindow.cancel")}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {canEdit && mode === "edit" && (
-        <div className="accounts-body">
-          <OrgKeyForm agents={[agent]} busy={busy} run={run} onDone={() => setMode("idle")} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OrgKeyForm({
-  agents,
-  busy,
-  run,
-  onDone,
-}: {
-  agents: Array<"claude" | "codex">;
-  busy: boolean;
-  run: Run;
-  onDone(): void;
-}) {
-  const agentLabel = useId();
-  const [agent, setAgent] = useState(agents[0] ?? "claude");
-  const [key, setKey] = useState("");
-  const send = () => {
-    const value = key.trim();
-    if (!value || busy) return;
-    // The key leaves the page's state before it is sent.
-    setKey("");
-    onDone();
-    void run({ action: "orgKey", agent, key: value });
-  };
-  return (
-    <form
-      className="accounts-form"
-      data-org-key-form=""
-      onSubmit={(event) => {
-        event.preventDefault();
-        send();
-      }}
-    >
-      {agents.length > 1 && (
-        <div className="row-main">
-          <div className="row-label">
-            <div className="row-title" id={agentLabel}>
-              {t("settingsWindow.models.org.agent")}
-            </div>
-          </div>
-          <div className="row-control">
-            <Select
-              value={agent}
-              disabled={busy}
-              labelId={agentLabel}
-              onChange={(value) => setAgent(value === "codex" ? "codex" : "claude")}
-            >
-              {agents.map((option) => (
-                <option key={option} value={option}>
-                  {AGENT_NAMES[option]}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-      )}
-      <Input
-        className="field"
-        type="password"
-        aria-label={t("settingsWindow.models.key.field")}
-        autoComplete="off"
-        spellCheck={false}
-        maxLength={4096}
-        value={key}
-        onChange={(event) => setKey(event.target.value)}
-      />
-      <div className="accounts-buttons">
-        <Button type="submit" className="button" data-models-action="orgSave" disabled={busy || !key.trim()}>
-          {t("settingsWindow.models.key.add")}
-        </Button>
-        <Button
-          type="button"
-          className="button"
-          onClick={() => {
-            setKey("");
-            onDone();
-          }}
-        >
-          {t("settingsWindow.cancel")}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function MembersSection({
-  members,
-  busy,
-  run,
-}: {
-  members: NonNullable<ModelsState["members"]>;
-  busy: boolean;
-  run: Run;
-}) {
-  const ownId = useId();
-  const runoutId = useId();
-  const rows = [
-    {
-      id: ownId,
-      row: "ownConnections",
-      title: t("settingsWindow.models.members.own"),
-      help: t("settingsWindow.models.members.ownHelp"),
-      checked: members.ownConnections,
-      toggle: (on: boolean) => void run({ action: "members", ownConnections: on }),
-    },
-    {
-      id: runoutId,
-      row: "chooseRunout",
-      title: t("settingsWindow.models.members.runout"),
-      help: t("settingsWindow.models.members.runoutHelp"),
-      checked: members.chooseRunout,
-      toggle: (on: boolean) => void run({ action: "members", chooseRunout: on }),
-    },
-  ];
-  return (
-    <section className="group" data-models-section="members">
-      <SectionHeader title={t("settingsWindow.models.members.title")} help={t("settingsWindow.models.members.help")} />
-      <div className="rows">
-        {rows.map((row) => (
-          <div className="row" key={row.row} data-models-row={row.row}>
-            <div className="row-main">
-              <div className="row-label" id={row.id}>
-                <div className="row-title">{row.title}</div>
-                <div className="row-help">{row.help}</div>
-              </div>
-              <div className="row-control">
-                <Switch
-                  checked={row.checked}
-                  disabled={busy || !members.canEdit}
-                  labelId={row.id}
-                  onToggle={row.toggle}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-        {!members.canEdit && (
-          <div className="row">
-            <span className="row-help" data-models-note="">
-              {t("settingsWindow.models.members.readOnly")}
-            </span>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/** Where Add a Connection opens: its list (null), or straight on one way in (Settings > Cloud's Set Up). */
-export type SheetStart = "chatgpt" | "claude" | ModelProvider | null;
-
-type Choice =
-  | { kind: "chatgpt"; title: string; detail: string }
-  | { kind: "claude"; title: string; detail: string }
-  | { kind: "key"; provider: ModelProvider; title: string; detail: string };
-
-const SUBSCRIPTIONS: Choice[] = [
-  { kind: "chatgpt", title: "ChatGPT", detail: "chatgpt.com" },
-  { kind: "claude", title: "Claude Code", detail: "claude.ai" },
-];
-
-const keyChoice = (provider: ModelProvider): Choice => ({
-  kind: "key",
-  provider,
-  title: PROVIDERS[provider],
-  detail: t("settingsWindow.models.sheet.apiKey"),
-});
-
-function startChoice(start: SheetStart): Choice | null {
-  if (start === null) return null;
-  return SUBSCRIPTIONS.find((choice) => choice.kind === start) ?? keyChoice(start as ModelProvider);
-}
-
-export function AddConnectionSheet({
-  models,
-  busy,
-  run,
-  onClose,
-  start = null,
-}: {
-  models: ModelsState;
-  busy: boolean;
-  run: Run;
-  onClose(): void;
-  start?: SheetStart;
-}) {
-  const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<Choice | null>(() => startChoice(start));
-  const keys: Choice[] = KEY_PROVIDERS.map(keyChoice);
-  const needle = query.trim().toLocaleLowerCase();
-  const matches = (choice: Choice) =>
-    !needle || `${choice.title} ${choice.detail}`.toLocaleLowerCase().includes(needle);
-  const groups = [
-    {
-      id: "subscriptions",
-      title: t("settingsWindow.models.sheet.subscriptions"),
-      choices: SUBSCRIPTIONS.filter(matches),
-    },
-    { id: "keys", title: t("settingsWindow.models.sheet.apiKeys"), choices: keys.filter(matches) },
-  ].filter((group) => group.choices.length > 0);
-  // A ChatGPT sign-in that finishes with a new connection closes the sheet; Cancel or a failure keeps it.
-  const { attempt, error } = models.chatgpt;
-  const count = models.personal.connections.length;
-  const before = useRef<number | null>(null);
-  useEffect(() => {
-    if (attempt) {
-      if (before.current === null) before.current = count;
-    } else if (before.current !== null) {
-      const added = !error && count > before.current;
-      before.current = null;
-      if (added) onClose();
-    }
-  }, [attempt, error, count, onClose]);
-  const title = t("settingsWindow.models.add");
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-      label={title}
-      className="ui-glass ui-glass-floats models-sheet"
-    >
-      <div className="models-sheet-body" data-models-sheet="">
-        <header className="models-sheet-header">
-          {picked && (
-            <Button type="button" className="button" data-models-action="back" onClick={() => setPicked(null)}>
-              {t("settingsWindow.models.sheet.back")}
-            </Button>
-          )}
-          <h2>{picked ? picked.title : title}</h2>
-        </header>
-        {!picked && (
-          <>
-            <Input
-              className="field"
-              type="search"
-              aria-label={t("settingsWindow.models.sheet.search")}
-              placeholder={t("settingsWindow.models.sheet.search")}
-              autoComplete="off"
-              spellCheck={false}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+          {available && (
+            <ModelProviderPicker
+              cloud={cloud}
+              claudeCodeAvailable={models?.claudeCodeAvailable}
+              claudeError={models?.claudeLogin?.error}
+              open={pickerOpen}
+              setOpen={setPickerOpen}
+              trigger={addButton}
+              disabled={locked}
+              handingOff={!!active}
+              onPick={(id) => pick({ id }, addButton.current)}
             />
-            {groups.length === 0 && <p className="row-help">{t("settingsWindow.models.sheet.noMatch")}</p>}
-            {groups.map((group) => (
-              <div key={group.id} className="models-sheet-group" data-models-group={group.id}>
-                <h3 className="group-title">{group.title}</h3>
-                <div className="models-sheet-choices">
-                  {group.choices.map((choice) => (
-                    <button
-                      key={choice.kind === "key" ? choice.provider : choice.kind}
-                      type="button"
-                      className="models-sheet-choice"
-                      data-models-choice={choice.kind === "key" ? choice.provider : choice.kind}
-                      onClick={() => setPicked(choice)}
-                    >
-                      <span className="accounts-mark" aria-hidden="true">
-                        <AgentMark
-                          agent={
-                            choice.kind === "key"
-                              ? markOf({ kind: "api-key", provider: choice.provider })
-                              : choice.kind === "chatgpt"
-                                ? "openai"
-                                : "claude"
-                          }
-                          size={16}
-                        />
-                      </span>
-                      <span className="models-sheet-choice-text">
-                        <strong>{choice.title}</strong>
-                        <small>{choice.detail}</small>
-                      </span>
-                    </button>
-                  ))}
+          )}
+        </div>
+        {currentVisit?.connected && (
+          <output className="row-help" data-cloud-connected="">
+            {fromSend ? t("settingsWindow.models.setup.starting") : t("settingsWindow.models.setup.connected")}
+          </output>
+        )}
+      </section>
+      <ModelConnectionDialog
+        visit={request}
+        cloud={cloud}
+        provider={available ? active : undefined}
+        models={models ?? undefined}
+        busy={locked}
+        setSaving={setSaving}
+        error={formError ? error : null}
+        target={setup?.target}
+        edit={editingConnection}
+        onKeyReplaced={setup?.onKeyReplaced}
+        rowAction={rowAction}
+        run={panelRun}
+        returnFocus={returnFocus}
+        onClose={close}
+        onDismiss={dismiss}
+      />
+      {!cloud && (
+        <>
+          <section className="group" data-models-section="policy">
+            <GroupHeader title={t("settingsWindow.models.catalog.policy")} />
+            <div className="rows models-rows">
+              <div className="row" data-models-row="spread">
+                <div className="row-main">
+                  <div className="row-label" id={spreadId}>
+                    <div className="row-title">{t("settingsWindow.models.spread.title")}</div>
+                    <div className="row-help">{t("settingsWindow.models.spread.help")}</div>
+                  </div>
+                  <div className="row-control">
+                    <Switch
+                      checked={models?.personal.spread ?? false}
+                      disabled={locked || !available}
+                      labelId={spreadId}
+                      onToggle={(on) => void rowRun({ action: "spread", on })}
+                    />
+                  </div>
                 </div>
               </div>
-            ))}
-          </>
-        )}
-        {picked?.kind === "chatgpt" && (
-          <div className="accounts-form" data-models-way="chatgpt">
-            <p className="row-help">{t("settingsWindow.models.chatgpt.help")}</p>
-            {attempt || error ? (
-              <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={run} />
-            ) : (
-              <div className="accounts-buttons">
-                <Button
-                  type="button"
-                  className="button"
-                  variant="solid"
-                  data-models-action="connectChatGPT"
-                  disabled={busy}
-                  onClick={() => void run({ action: "connectChatGPT" })}
-                >
-                  {t("settingsWindow.models.chatgpt.continue")}
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
-        {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
-      </div>
-    </Dialog>
-  );
-}
-
-function KeyForm({
-  provider,
-  busy,
-  run,
-  onDone,
-}: {
-  provider: ModelProvider;
-  busy: boolean;
-  run: Run;
-  onDone(): void;
-}) {
-  const keyId = useId();
-  const labelId = useId();
-  const [key, setKey] = useState("");
-  const [label, setLabel] = useState("");
-  const send = () => {
-    const value = key.trim();
-    if (!value || busy) return;
-    const named = label.trim();
-    const gesture: ModelsRun = named
-      ? { action: "addKey", provider, key: value, label: named }
-      : { action: "addKey", provider, key: value };
-    // The key leaves the page's state before it is sent; a refusal asks for it again.
-    setKey("");
-    void run(gesture).then((ok) => ok && onDone());
-  };
-  return (
-    <form
-      className="accounts-form"
-      data-models-way="key"
-      data-models-key-form={provider}
-      onSubmit={(event) => {
-        event.preventDefault();
-        send();
-      }}
-    >
-      <p className="row-help">{t("settingsWindow.models.key.help", PROVIDERS[provider])}</p>
-      <label className="row-help" id={keyId}>
-        {t("settingsWindow.models.key.field")}
-      </label>
-      <Input
-        className="field"
-        type="password"
-        aria-labelledby={keyId}
-        autoComplete="off"
-        spellCheck={false}
-        maxLength={4096}
-        value={key}
-        disabled={busy}
-        onChange={(event) => setKey(event.target.value)}
-      />
-      <label className="row-help" id={labelId}>
-        {t("settingsWindow.models.key.label")}
-      </label>
-      <Input
-        className="field"
-        aria-labelledby={labelId}
-        autoComplete="off"
-        maxLength={128}
-        placeholder={PROVIDERS[provider]}
-        value={label}
-        disabled={busy}
-        onChange={(event) => setLabel(event.target.value)}
-      />
-      <div className="accounts-buttons">
-        <Button type="submit" className="button" data-models-action="addKey" disabled={busy || !key.trim()}>
-          {t("settingsWindow.models.key.add")}
-        </Button>
-        <Button
-          type="button"
-          className="button"
-          onClick={() => {
-            setKey("");
-            onDone();
-          }}
-        >
-          {t("settingsWindow.cancel")}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/** Whether `token` reads as a Claude setup token; shared with the chat's model picker. */
-export { isClaudeToken };
-
-/** Add a Connection > Claude Code: step 1 opens a cmux terminal tab running `claude setup-token`,
- * step 2 takes the token it prints. The token leaves the page's state before it is sent. */
-function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDone(): void }) {
-  const tokenId = useId();
-  const labelId = useId();
-  const [token, setToken] = useState("");
-  const [label, setLabel] = useState("");
-  const pasted = token.trim();
-  const valid = isClaudeToken(pasted);
-  const send = () => {
-    if (!valid || busy) return;
-    const named = label.trim();
-    setToken("");
-    void run(
-      named ? { action: "addClaudeToken", token: pasted, label: named } : { action: "addClaudeToken", token: pasted },
-    ).then((ok) => ok && onDone());
-  };
-  return (
-    <form
-      className="accounts-form"
-      data-models-way="claude"
-      data-models-claude-form=""
-      onSubmit={(event) => {
-        event.preventDefault();
-        send();
-      }}
-    >
-      <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
-      <div className="row-title">{t("settingsWindow.models.claude.step1")}</div>
-      <div className="accounts-buttons">
-        <Button
-          type="button"
-          className="button"
-          data-models-action="claudeSetupToken"
-          disabled={busy}
-          onClick={() => void run({ action: "claudeSetupToken" })}
-        >
-          {t("settingsWindow.models.claude.openTerminal")}
-        </Button>
-      </div>
-      <label className="row-title" id={tokenId}>
-        {t("settingsWindow.models.claude.step2")}
-      </label>
-      <Input
-        className="field"
-        type="password"
-        aria-labelledby={tokenId}
-        autoComplete="off"
-        spellCheck={false}
-        maxLength={4096}
-        value={token}
-        disabled={busy}
-        onChange={(event) => setToken(event.target.value)}
-      />
-      {pasted !== "" && !valid && (
-        <p className="row-error" role="alert" data-claude-token-invalid="">
-          {t("settingsWindow.models.claude.invalid")}
-        </p>
+            </div>
+          </section>
+          {models && (
+            <OrganizationSection key={models.organization.team?.id} models={models} busy={locked} run={rowRun} />
+          )}
+          {models?.organization.team && models.members?.canEdit && (
+            <MembersSection members={models.members} busy={locked} run={rowRun} />
+          )}
+        </>
       )}
-      <label className="row-help" id={labelId}>
-        {t("settingsWindow.models.key.label")}
-      </label>
-      <Input
-        className="field"
-        aria-labelledby={labelId}
-        autoComplete="off"
-        maxLength={128}
-        placeholder="Claude Code"
-        value={label}
-        disabled={busy}
-        onChange={(event) => setLabel(event.target.value)}
-      />
-      <div className="accounts-buttons">
-        <Button type="submit" className="button" data-models-action="addClaudeToken" disabled={busy || !valid}>
-          {t("settingsWindow.models.claude.add")}
-        </Button>
-        <Button
-          type="button"
-          className="button"
-          onClick={() => {
-            setToken("");
-            onDone();
-          }}
-        >
-          {t("settingsWindow.cancel")}
-        </Button>
-      </div>
-    </form>
+    </div>
+  );
+}
+
+function ConnectionsSkeleton() {
+  return (
+    <div data-models-connections-loading="">
+      <output className="visually-hidden">{t("settingsWindow.models.loading")}</output>
+      {skeletonRows.map((row) => (
+        <div className="row accounts-row" key={row} aria-hidden="true">
+          <div className="row-main">
+            <Skeleton className="models-skeleton-mark" />
+            <div className="row-label">
+              <Skeleton className="cloud-skeleton-title" shape="line" />
+              <Skeleton className="cloud-skeleton-detail" shape="line" />
+            </div>
+            <Skeleton className="cloud-skeleton-control" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

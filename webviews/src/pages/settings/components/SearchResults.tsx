@@ -1,10 +1,10 @@
 import { memo, useMemo, useState, lazy, Suspense } from "react";
-import { shownCategories, sidebarSections } from "../categories";
+import { categoryById, shownCategories, sidebarSections } from "../categories";
 import { shallowEqual, useSettingsSelector, useStore, useSettingsRouter } from "../context";
 import type { SettingsState } from "../store";
 import { Icon } from "../icons";
-import { sectionHref } from "../router";
-import { filterRows, filterPages } from "../search";
+import { CLOUD_MODELS_FOCUS, sectionHref } from "../router";
+import { filterRows, filterPages, modelSettingsMatches } from "../search";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
@@ -52,9 +52,13 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
   // Pages the words name (their title, or the words of cards that draw no schema rows, such as
   // Devices' Screen sharing and Control): a link to each, above the rows.
-  const pages = useMemo(() => filterPages({ query, devBuild }), [devBuild, query]);
+  const modelMatches = modelSettingsMatches(query);
+  const pages = useMemo(() => {
+    const hits = filterPages({ query, devBuild });
+    return modelMatches.models && !hits.some((page) => page.id === "models") ? [categoryById("models"), ...hits] : hits;
+  }, [devBuild, modelMatches.models, query]);
   const router = useSettingsRouter();
-  const empty = shown.size === 0 && pages.length === 0;
+  const empty = shown.size === 0 && pages.length === 0 && !modelMatches.cloud;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -68,7 +72,7 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
           {empty && query.trim() ? <AskCmuxRow words={query} onAsk={() => void store.askCmux(query)} /> : null}
         </div>
       </div>
-      {pages.length > 0 && (
+      {(pages.length > 0 || modelMatches.cloud) && (
         <div className="search-pages" data-search-pages="">
           {pages.map((page) => {
             const section = sidebarSections.find((run) => run.categories.includes(page.id))?.title;
@@ -88,6 +92,20 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
               </button>
             );
           })}
+          {modelMatches.cloud && (
+            <button
+              type="button"
+              className="ask-cmux search-page"
+              data-page-hit="cloudModels"
+              onClick={() => router.history.push(sectionHref("cloud", CLOUD_MODELS_FOCUS))}
+            >
+              <Icon name="arrow.turn.down.right" />
+              <span className="ask-cmux-text">
+                <span className="ask-cmux-title">{t("settingsWindow.cloud.models.title")}</span>
+                <span className="ask-cmux-words">{text(categoryById("cloud").title)}</span>
+              </span>
+            </button>
+          )}
         </div>
       )}
       {categories.map((category) => {

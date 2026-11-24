@@ -2,10 +2,10 @@ import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
-import { parseLocation, sectionHref } from "../router";
+import { CLOUD_MODELS_FOCUS, parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";
 import { rowsByKey } from "../schema";
-import { filterRows } from "../search";
+import { filterRows, modelSettingsMatches } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
@@ -125,7 +125,10 @@ export function SettingsApp() {
       scope: "user",
       revision: state.revision,
     })[0]?.rows[0];
-    if (first) reveal(first.key);
+    const matches = modelSettingsMatches(query);
+    if (matches.models) go("models");
+    else if (matches.cloud) go("cloud", CLOUD_MODELS_FOCUS);
+    else if (first) reveal(first.key);
     // Nothing matches: Return asks cmux for it, as the row under "No settings match." does.
     else if (query.trim()) void store.askCmux(query);
   };

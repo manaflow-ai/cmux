@@ -87,6 +87,10 @@ export type SettingsPageVariant = VariantBase & {
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
   models?: ModelsState | null;
+  /** Hold the connection list in flight while the Cloud page draws its loading rows. */
+  modelsLoading?: boolean;
+  /** Hold a provider check while its form draws the checking state. */
+  modelAccessChecking?: boolean;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello

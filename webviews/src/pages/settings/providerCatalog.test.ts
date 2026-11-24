@@ -1,0 +1,89 @@
+import { canAddProvider, cloudProviderForFamily, providerById } from "./providerCatalog";
+import { expect, test } from "bun:test";
+import { providerCatalog, providerGroupName, providerGroups, searchProviders } from "./providerCatalog";
+
+test("the catalog has distinct providers and at least one entry in each group", () => {
+  expect(new Set(providerCatalog.map(({ id }) => id)).size).toBe(providerCatalog.length);
+  for (const group of providerGroups) expect(providerCatalog.some((provider) => provider.group === group)).toBe(true);
+});
+
+test("provider links use HTTPS except for local loopback endpoints", () => {
+  for (const provider of providerCatalog) {
+    for (const value of [provider.baseUrl, provider.keyUrl, provider.docsUrl]) {
+      if (!value) continue;
+      const url = new URL(value);
+      expect(url.username).toBe("");
+      expect(url.password).toBe("");
+      if (provider.group === "local" && value === provider.baseUrl && url.protocol === "http:") {
+        expect(url.hostname).toBe("localhost");
+      } else {
+        expect(url.protocol).toBe("https:");
+      }
+    }
+  }
+});
+
+test("the Settings browser admits exactly the catalog's key pages", async () => {
+  const catalogUrls = new Set(
+    providerCatalog.flatMap(({ keyUrl, regions }) => [
+      ...(keyUrl ? [keyUrl] : []),
+      ...(regions?.map((region) => region.keyUrl) ?? []),
+    ]),
+  );
+  const policyFile = new URL(
+    "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/SettingsModelKeyPages.swift",
+    import.meta.url,
+  );
+  const swift = await Bun.file(policyFile).text();
+  const nativeUrls = new Set(Array.from(swift.matchAll(/"(https:\/\/[^"]+)"/g), ([, url]) => url));
+  expect([...nativeUrls].sort()).toEqual([...catalogUrls].sort());
+});
+
+test("search finds providers by name, group and host", () => {
+  expect(searchProviders("API.DEEPSEEK.COM").map(({ id }) => id)).toEqual(["deepseek"]);
+  expect(searchProviders("moonshot kimi").map(({ id }) => id)).toEqual(["kimi-code", "moonshot"]);
+  expect(searchProviders(providerGroupName("codingPlans"))).toEqual(
+    providerCatalog.filter((provider) => provider.group === "codingPlans"),
+  );
+  expect(searchProviders("localhost").map(({ id }) => id)).toEqual(["ollama", "lm-studio"]);
+});
+
+test("subscription families resolve to their Cloud provider", () => {
+  expect(cloudProviderForFamily("codex")).toBe("chatgpt");
+  expect(cloudProviderForFamily("claude")).toBe("claude");
+  expect(cloudProviderForFamily("grok")).toBe("grok");
+  expect(cloudProviderForFamily("github-copilot")).toBe("copilot");
+  expect(cloudProviderForFamily("cursor")).toBeUndefined();
+  expect(cloudProviderForFamily("cursor-agent")).toBeUndefined();
+});
+
+test("Cloud accepts endpoint setup before a machine reports its runners", () => {
+  const endpoint = providerCatalog.find(({ id }) => id === "deepseek")!;
+  const local = providerCatalog.find(({ id }) => id === "ollama")!;
+  const bedrock = providerCatalog.find(({ id }) => id === "bedrock")!;
+  expect(canAddProvider(endpoint, true)).toBe(true);
+  expect(canAddProvider(local, true)).toBe(false);
+  expect(canAddProvider(bedrock, false)).toBe(true);
+});
+
+test("Connect offers the same subscriptions and coding plans in both settings sections", () => {
+  for (const cloud of [false, true]) {
+    const offered = providerCatalog.filter((provider) => canAddProvider(provider, cloud));
+    expect(offered.filter(({ group }) => group === "subscriptions").map(({ id }) => id)).toEqual([
+      "chatgpt",
+      "claude",
+      "grok",
+      "copilot",
+    ]);
+    expect(
+      offered
+        .filter(({ group }) => group === "codingPlans")
+        .map(({ id }) => id)
+        .sort(),
+    ).toEqual(["glm-coding-plan", "kimi-code", "minimax-coding-plan", "morph", "ollama-cloud", "opencode-go"]);
+  }
+});
+
+test("Qwen uses the international endpoint", () => {
+  expect(providerById("qwen")?.baseUrl).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1");
+});

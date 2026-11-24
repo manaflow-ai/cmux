@@ -87,6 +87,8 @@ import {
   type JoinConsentSurface,
   type KeysState,
   type ModelsRun,
+  type ModelsAccessRun,
+  type ModelsAccessResult,
   type ModelsState,
   type AgentToolsCardRun,
   type AgentToolsCardState,
@@ -160,6 +162,7 @@ export type SettingsState = {
   devices: DevicesState | null;
   /** Settings > Models; null until read, or when the host has none. */
   models: ModelsState | null;
+  modelsSettled: boolean;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -179,6 +182,7 @@ export type CacheView = {
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
   models?: ModelsData | undefined;
+  modelsSettled?: boolean;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -225,6 +229,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
     models: cache.models ?? null,
+    modelsSettled: cache.modelsSettled ?? false,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -276,8 +281,8 @@ export class SettingsStore {
     });
     this.queryClient.setQueryDefaults(settingsKeys.models, {
       queryFn: () => this.native("cmux.settings.models.state"),
-      // A page that opened before this Mac's agent service was up reads again until it answers.
       refetchInterval: (query) => modelsRetryMs(query.state.data as ModelsState | undefined),
+      retry: false,
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -946,14 +951,23 @@ export class SettingsStore {
    * words (userMessage), null when it took the gesture. */
   async runModels(run: ModelsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.models.run", run);
-    await this.refreshModels();
-    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+    if (run.action !== "checkClaudeLogin" && run.action !== "closeKeyPage") await this.refreshModels();
+    return reply.ok ? (reply.value.failure ?? null) : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** Reads the provider's model list without refreshing or changing saved connections. */
+  async checkModelsAccess(run: ModelsAccessRun): Promise<ModelsAccessResult> {
+    const reply = await this.request("cmux.settings.models.run", run);
+    if (!reply.ok) return { failure: userMessage(reply.error, SETTINGS_SENTENCES) };
+    if (Array.isArray(reply.value.models)) return { models: reply.value.models };
+    return { failure: reply.value.failure ?? t("settingsWindow.models.access.unavailable") };
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
-  async runHarnesses(run: HarnessesRun): Promise<void> {
-    await this.request("cmux.settings.harnesses.run", run);
+  async runHarnesses(run: HarnessesRun): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.settings.harnesses.run", run);
     await this.fetchNative(settingsKeys.harnesses);
+    return reply;
   }
 
   /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
@@ -1025,11 +1039,20 @@ export class SettingsStore {
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
-  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
+  ): Promise<{ state: CloudEnvironmentsState | null; failed: boolean; unsupported: boolean }> {
     const reply = await this.request("cmux.settings.environments.run", run);
     const state = await this.environments();
-    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
-    return { state, error: reply.value?.error ?? null };
+    const error = reply.ok ? reply.value?.error : reply.error.message;
+    const listUnavailable = "cloud.environment.list is not available yet";
+    const unsupported =
+      state?.unsupported === true ||
+      (run.action === "refresh" &&
+        (error === listUnavailable || state?.error === listUnavailable || (!reply.ok && isUnsupported(reply.error))));
+    return {
+      state,
+      unsupported,
+      failed: !unsupported && (!reply.ok || Boolean(error || state?.error) || state === null),
+    };
   }
 
   /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
@@ -1191,6 +1214,7 @@ export class SettingsStore {
   cacheView(): CacheView {
     const scopeState = this.queryClient.getQueryState(settingsKeys.scope("user"));
     const hostState = this.queryClient.getQueryState(settingsKeys.host);
+    const modelsState = this.queryClient.getQueryState<ModelsData>(settingsKeys.models);
     return {
       scope: this.queryClient.getQueryData<ScopeData>(settingsKeys.scope("user")),
       scopeSettled: scopeState !== undefined && scopeState.status !== "pending",
@@ -1200,6 +1224,8 @@ export class SettingsStore {
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
       models: this.queryClient.getQueryData<ModelsData>(settingsKeys.models),
+      modelsSettled:
+        modelsState !== undefined && modelsState.status !== "pending" && modelsState.fetchStatus !== "fetching",
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -1220,6 +1246,7 @@ export class SettingsStore {
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&
       last.cache.models === cache.models &&
+      last.cache.modelsSettled === cache.modelsSettled &&
       last.cache.themeColors === cache.themeColors
     )
       return last.state;
@@ -1595,7 +1622,7 @@ export function valueOf(state: SettingsState, key: string): unknown {
   return row ? row.value : rowsByKey.get(key)?.default;
 }
 
-/** How soon the Models state is read again: only while this Mac's connections could not be listed. */
+/** Refresh while this Mac's model connections are unavailable. */
 export function modelsRetryMs(state: ModelsState | undefined): number | false {
   return state && !state.personal.available ? 2000 : false;
 }

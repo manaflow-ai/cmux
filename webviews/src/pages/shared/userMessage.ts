@@ -23,6 +23,8 @@ const SHARED: Readonly<Record<string, string>> = {
   unreachable: "error.disconnected",
   timeout: "error.disconnected",
   "cmux.protocol.unknown_op": "error.unsupported",
+  "cmux.agents.unavailable": "error.disconnected",
+  "cmux.agents.unsupported": "error.unsupported",
   "cmux.agents.exists": "error.agentExists",
 };
 

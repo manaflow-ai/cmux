@@ -707,36 +707,76 @@ export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
 export type ModelConnectionKind =
   | "codex-login"
   | "claude-login"
+  | "native-login"
   | "subscription"
   | "chatgpt-plan"
   | "claude-token"
-  | "api-key";
+  | "grok-plan"
+  | "copilot-plan"
+  | "kimi-plan"
+  | "api-key"
+  | "endpoint";
 
 /** A model provider a connection pays (product names, shown as they are). */
-export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
+export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "vertex-express" | "xai";
 
 /** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
 export type ModelConnection = {
   /** The acpmux route id. */
   id: string;
   kind: ModelConnectionKind;
-  provider: ModelProvider;
+  provider: string;
   families: string[];
   label: string;
   /** Shown on this local page only. */
   email: string | null;
   plan: string | null;
   signedIn: boolean;
+  signInReason?: "keychain_other_build" | null;
   /** The routing switch: a disabled connection serves no thread. */
   enabled: boolean;
   defaultFor: string[];
   /** False: only this Mac's own chats can use it (a Mac login Cloud threads cannot reach). */
   servesCloud: boolean;
+  /** Eligible even when Cloud use has been turned off for this connection. */
+  canServeCloud?: boolean;
+  cloudFamilies?: string[];
+  launchHarness?: string | null;
+  /** True for a saved key that can be checked against its provider's standard endpoint. */
+  canCheckAccess?: boolean;
+  /** Unix seconds for a Claude token captured on this Mac. */
+  expiresAt?: number | null;
+  /** Non-secret editing fields for a locally owned endpoint profile. */
+  endpoint?: {
+    kind: "anthropic-endpoint" | "openai-endpoint";
+    preset?: string;
+    baseUrl: string;
+    models: string[];
+    revision: string;
+  } | null;
+  /** The host can replace this key without changing the connection's identity. */
+  canReplaceKey?: boolean;
+};
+
+export type ClaudeLogin = {
+  phase: "idle" | "preparing" | "approving" | "code" | "cancelling" | "connected" | "disabled" | "failed";
+  error: string | null;
+  apiKey?: boolean;
+  signedIn?: boolean | null;
+  machineName?: string | null;
 };
 
 /** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
  * the members policy, and a ChatGPT sign-in in flight. */
 export type ModelsState = {
+  /** Older hosts omit the route tools. */
+  connectionTools?: boolean;
+  cloudHarnesses?: string[];
+  cloudSubscriptionHarnesses?: string[];
+  cloudEndpointRunnersPending?: boolean;
+  cloudRunnersOffline?: boolean;
+  cloudSubscriptionRunnersPending?: boolean;
+  claudeCodeAvailable?: boolean | null;
   /** `available`: false when this Mac's daemon does not list connections. */
   personal: { connections: ModelConnection[]; spread: boolean; available: boolean };
   organization: {
@@ -749,24 +789,65 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  chatgptDevice?: ChatGPTDeviceState;
+  deviceProvider?: ModelDeviceProvider;
+  deviceRegion?: string | null;
+  claudeLogin?: ClaudeLogin;
+  cloudClaudeLogin?: ClaudeLogin;
 };
 
-/** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
- * the app moves it into the Keychain and passes acpmux or the team only a reference.
- * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+export type ModelDeviceProvider = "chatgpt" | "grok" | "copilot" | "kimi" | "openrouter";
+
+export type ChatGPTDeviceState =
+  | { phase: "idle" | "starting" | "cancelling" }
+  | { phase: "waiting"; userCode: string; verificationURL: string; expiresAt: number }
+  | { phase: "connected"; id: string }
+  | { phase: "failed"; error: string; actual?: string; expected?: string };
+
+/** Settings model gestures use the existing Keychain for saved API keys. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
   | { action: "enable"; id: string; on: boolean }
+  | { action: "rename"; id: string; name: string }
   | { action: "remove"; id: string }
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
-  | { action: "connectClaude" }
-  | { action: "claudeSetupToken" }
-  | { action: "addClaudeToken"; token: string; label?: string }
-  | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
+  | {
+      action: "connectChatGPTDevice";
+      provider?: ModelDeviceProvider;
+      id?: string;
+      openBrowser?: boolean;
+      region?: string;
+      servesCloud?: boolean;
+    }
+  | { action: "openChatGPTDevice" }
+  | { action: "closeKeyPage"; url: string }
+  | { action: "checkClaudeLogin" | "cancelClaudeLogin" | "signOutClaude"; cloud: boolean }
+  | { action: "connectClaude"; cloud?: boolean; replace?: string }
+  | { action: "finishClaudeLogin"; cloud: boolean; code: string }
+  | { action: "cancelChatGPTDevice" }
+  | { action: "setCloud"; id: string; on: boolean }
+  | {
+      action: "addKey";
+      provider: ModelProvider;
+      key: string;
+      label?: string;
+      verifyAccess?: boolean;
+      servesCloud?: boolean;
+      replace?: string;
+    }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
-  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
+  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean }
+  | ModelsAccessRun;
+
+export type ModelsAccessRun = { action: "checkAccess" } & (
+  | { id: string }
+  | { provider: ModelProvider; key: string }
+  | { baseUrl: string; key?: string }
+);
+
+export type ModelsAccessResult = { models: string[] } | { failure: string };
 
 export type AccountsState = {
   github?: GitHubConnectionState;
@@ -1048,6 +1129,8 @@ export type CloudEnvironmentRow = {
 export type CloudEnvironmentsState = {
   /** False on the classic Cloud path or while signed out: the card explains instead of listing. */
   available: boolean;
+  /** The server does not serve environments. Older hosts omit this field. */
+  unsupported?: boolean;
   loading: boolean;
   environments: CloudEnvironmentRow[];
   error: string | null;
@@ -2095,7 +2178,7 @@ export type SettingsOps = {
   /** Native: Settings > Models, the person's and the organization's connections (model-connections.md). */
   "cmux.settings.models.state": [Record<string, never>, ModelsState];
   /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
-  "cmux.settings.models.run": [ModelsRun, unknown];
+  "cmux.settings.models.run": [ModelsRun, Partial<{ models: string[]; failure: string }>];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */

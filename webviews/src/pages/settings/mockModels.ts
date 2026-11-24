@@ -1,7 +1,6 @@
 // l10n-allow-file: fixture data (sample addresses, machine and team names), not shipped UI.
 // Fixture states of Settings > Models (ModelsCard.tsx) as the app's `cmux.settings.models.state`
 // answers them (cmux-tui/docs/model-connections.md), and the mock host's answer to the card's gestures.
-import { isClaudeToken } from "../../agent-session/shared/claudeSetupToken";
 import type { ModelConnection, ModelsRun, ModelsState } from "./ops";
 
 const codexLogin: ModelConnection = {
@@ -71,11 +70,15 @@ const openrouterKey: ModelConnection = {
   signedIn: true,
   enabled: false,
   defaultFor: [],
-  // Only Anthropic and OpenAI keys reach Cloud chats (acpmux connections.rs `serves_cloud`).
   servesCloud: false,
+  canServeCloud: true,
+  cloudFamilies: ["claude"],
+  canCheckAccess: true,
+  canReplaceKey: true,
 };
 
 const empty: ModelsState = {
+  connectionTools: true,
   personal: { connections: [], spread: true, available: true },
   organization: { team: null, canEdit: false, keys: [] },
   members: null,
@@ -83,6 +86,7 @@ const empty: ModelsState = {
 };
 
 const macLogins: ModelsState = {
+  connectionTools: true,
   personal: {
     connections: [codexLogin, claudeLogin, chatgptPlan, claudeToken, openrouterKey],
     spread: true,
@@ -100,8 +104,8 @@ const macLogins: ModelsState = {
   chatgpt: { attempt: null, error: null },
 };
 
-/** Settings > Cloud's states (CloudModelsCard.tsx): only this Mac's CLI logins (healthy here, nothing
- * for Cloud), a Claude Code token, a ChatGPT plan, and that plan signed out or turned off. */
+/** Model connection states: only this Mac's CLI logins (healthy here, nothing
+ * for Cloud), a Claude Code token, and a ChatGPT plan. */
 const personalOnly = (connections: ModelConnection[]): ModelsState => ({
   ...empty,
   personal: { connections, spread: true, available: true },
@@ -109,19 +113,48 @@ const personalOnly = (connections: ModelConnection[]): ModelsState => ({
 const macOnly = personalOnly([codexLogin, claudeLogin]);
 const claudeForCloud = personalOnly([codexLogin, claudeLogin, claudeToken]);
 const chatgptForCloud = personalOnly([codexLogin, claudeLogin, chatgptPlan]);
-const chatgptSignedOut = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, signedIn: false }]);
-const chatgptOff = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, enabled: false }]);
+
+export function mockChatGPTDevice(
+  expiresAt = Math.floor(Date.now() / 1000) + 900,
+  provider?: ModelsState["deviceProvider"],
+) {
+  return {
+    phase: "waiting",
+    userCode: provider === "openrouter" ? "" : "MOCK-1234",
+    verificationURL:
+      provider === "grok"
+        ? "https://accounts.x.ai/oauth2/device"
+        : provider === "copilot"
+          ? "https://github.com/login/device"
+          : provider === "kimi"
+            ? "https://www.kimi.ai/code/authorize_device"
+            : provider === "openrouter"
+              ? ""
+              : "https://auth.openai.com/codex/device",
+    expiresAt,
+  } as const;
+}
+
+export const chatgptDeviceError = (error: string): ModelsState => ({
+  ...macOnly,
+  chatgptDevice: { phase: "failed", error },
+});
 
 export const mockModels = {
   empty,
   macLogins,
   macOnly,
+  signedOut: personalOnly([codexLogin, claudeLogin].map((c) => ({ ...c, signedIn: false }))),
+  claudeTokenOnly: personalOnly([claudeToken]),
+  claudeApproving: { ...macOnly, cloudClaudeLogin: { phase: "approving", error: null } },
+  claudeCode: { ...macOnly, cloudClaudeLogin: { phase: "code", error: null } },
+  claudeCancelling: { ...macOnly, cloudClaudeLogin: { phase: "cancelling", error: null } },
+  claudeTimedOut: { ...macOnly, cloudClaudeLogin: { phase: "failed", error: "expired" } },
+  claudeFailed: { ...claudeForCloud, cloudClaudeLogin: { phase: "failed", error: "failed" } },
+  claudeMissing: { ...macOnly, cloudClaudeLogin: { phase: "disabled", error: "cli_missing" } },
+  claudeMacOnly: personalOnly([claudeLogin]),
   claudeForCloud,
   chatgptForCloud,
-  chatgptSignedOut,
-  chatgptOff,
-  chatgptPending: { ...macLogins, chatgpt: { attempt: "attempt-1", error: null } },
-  chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_chatgpt_account" } },
   member: {
     ...macLogins,
     organization: { ...macLogins.organization, canEdit: false, keys: [{ agent: "claude", set: true, last4: null }] },
@@ -152,6 +185,11 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     case "enable":
       find(run.id);
       return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, enabled: run.on } : c)) });
+    case "rename":
+      find(run.id);
+      return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, label: run.name } : c)) });
+    case "checkAccess":
+      return state;
     case "remove": {
       const found = find(run.id);
       if (found.kind === "codex-login" || found.kind === "claude-login")
@@ -162,24 +200,49 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return { ...state, chatgpt: { attempt: "attempt-mock", error: null } };
     case "cancelChatGPT":
       return { ...state, chatgpt: { attempt: null, error: null } };
-    case "connectClaude":
-      return connections.some((c) => c.kind === "claude-login")
-        ? state
-        : personal({ connections: [...connections, { ...claudeLogin, defaultFor: [] }] });
-    case "claudeSetupToken":
-      // The app opens a terminal tab running `claude setup-token`; the state does not change.
+    case "connectChatGPTDevice":
+      return {
+        ...state,
+        deviceProvider: run.provider ?? "chatgpt",
+        deviceRegion: run.region,
+        chatgptDevice: mockChatGPTDevice(undefined, run.provider),
+      };
+    case "openChatGPTDevice":
       return state;
-    case "addClaudeToken": {
-      if (!isClaudeToken(run.token)) throw new Error("not a Claude setup token");
-      const id = nextId("claude-token", connections);
-      // The token itself never lands in the state: the app keeps it in the Keychain.
+    case "cancelChatGPTDevice":
+      return { ...state, chatgptDevice: { phase: "idle" } };
+    case "setCloud": {
+      const connection = find(run.id);
+      if (connection.kind !== "api-key" || !(connection.canServeCloud ?? connection.servesCloud))
+        throw new Error("setCloud needs an eligible API-key connection");
       return personal({
-        connections: [...connections, { ...claudeToken, id, label: run.label?.trim() || "Claude Code token" }],
+        connections: connections.map((c) => (c.id === run.id ? { ...c, servesCloud: run.on } : c)),
       });
     }
+    case "closeKeyPage":
+    case "checkClaudeLogin":
+      return state;
+    case "connectClaude":
+      if (run.cloud) return { ...state, cloudClaudeLogin: { phase: "preparing", error: null } };
+      return { ...state, claudeLogin: { phase: "approving", error: null } };
+    case "finishClaudeLogin":
+      return { ...state, [run.cloud ? "cloudClaudeLogin" : "claudeLogin"]: { phase: "approving", error: null } };
+    case "cancelClaudeLogin":
+    case "signOutClaude":
+      return { ...state, [run.cloud ? "cloudClaudeLogin" : "claudeLogin"]: { phase: "idle", error: null } };
     case "addKey": {
       if (!run.key.trim()) throw new Error("a key is required");
+      if (run.replace) {
+        const connection = find(run.replace);
+        if (!connection.canReplaceKey || connection.provider !== run.provider)
+          throw new Error("replacement needs a matching API-key connection");
+        return personal({
+          connections: connections.map((c) => (c.id === run.replace ? { ...c, signedIn: true } : c)),
+        });
+      }
       const provider = KEY_PROVIDERS[run.provider];
+      const launch = { openrouter: "claude", google: "gemini", xai: "grok" }[run.provider as string];
+      const canServeCloud = true;
       // The key itself never lands in the state: the app keeps it in the Keychain.
       const added: ModelConnection = {
         id: nextId(`${run.provider}-key`, connections),
@@ -192,7 +255,11 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         signedIn: true,
         enabled: true,
         defaultFor: [],
-        servesCloud: run.provider === "anthropic" || run.provider === "openai",
+        servesCloud: canServeCloud && (run.servesCloud ?? true),
+        canServeCloud,
+        cloudFamilies: launch ? [launch] : [...provider.families],
+        canCheckAccess: true,
+        canReplaceKey: true,
       };
       return personal({ connections: [...connections, added] });
     }
@@ -219,7 +286,7 @@ const KEY_PROVIDERS: Record<ModelConnection["provider"], { label: string; famili
   openai: { label: "OpenAI API key", families: ["codex"] },
   openrouter: { label: "OpenRouter API key", families: ["claude", "codex"] },
   google: { label: "Google AI API key", families: ["gemini"] },
-  xai: { label: "xAI API key", families: ["codex"] },
+  xai: { label: "xAI API key", families: ["grok"] },
 };
 
 /** acpmux's id for a new route: `base`, then `base-2`, `base-3`, ... (the first one free). */
