@@ -67,7 +67,7 @@ struct ListPullToRefreshProbe: UIViewRepresentable {
                 self?.began += 1
                 self?.publish()
                 await self?.action?()
-                self?.publish()
+                DispatchQueue.main.async { self?.publish() }
             }
             offsetObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.scrolled() }
@@ -100,8 +100,19 @@ struct ListPullToRefreshProbe: UIViewRepresentable {
                   let control, let scrollView else { return }
             // UIKit's own pan target ran first: it bounces to the top. The control opens its slot
             // there (as from Workspaces' `scrollViewWillEndDragging`); the bounce then ends in it.
+            let insetBefore = scrollView.contentInset.top
             var target = CGPoint(x: 0, y: -scrollView.adjustedContentInset.top)
             control.willEndDragging(targetContentOffset: &target)
+            // UIKit's bounce already aims at the top it read before the slot opened (a SwiftUI
+            // List gives no `scrollViewWillEndDragging` to retarget), so it would park the rows
+            // over the slot and hide the wheel: send the list to the new top instead.
+            if scrollView.contentInset.top != insetBefore {
+                let top = CGPoint(x: 0, y: -scrollView.adjustedContentInset.top)
+                DispatchQueue.main.async { [weak scrollView] in
+                    guard let scrollView, !scrollView.isDragging else { return }
+                    scrollView.setContentOffset(top, animated: true)
+                }
+            }
             awaitRest()
         }
 
