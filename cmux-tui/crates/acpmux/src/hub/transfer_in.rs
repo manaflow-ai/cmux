@@ -176,9 +176,10 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        // The whole log with no move: off the runtime's workers (`qos::off_worker`).
+        // Its `transferred` records, from the kind index (a whole log's parse was minutes of a
+        // big chat's move, cmux#54461), off the runtime's workers (`qos::off_worker`).
         let _ = crate::qos::off_worker(|| {
-            self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            self.store.scan_kinds(&session.id, &["transferred"], &mut |e: EventRecord| {
                 // The daemon's own records only: an agent's update may carry any kind.
                 moved |= e.dir == "mux" && e.kind == "transferred";
                 !moved
@@ -230,11 +231,13 @@ impl Hub {
             let landed = if let Some(transfer_id) = value.get("transferId").and_then(Value::as_str)
             {
                 let mut landed = false;
-                let _ = self.store.scan(id, 0, &mut |event: EventRecord| {
-                    landed |= event.kind == "transferred_in"
-                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                    !landed
-                });
+                let _ =
+                    self.store.scan_kinds(id, &["transferred_in"], &mut |event: EventRecord| {
+                        landed |= event.kind == "transferred_in"
+                            && event.msg.get("transferId").and_then(Value::as_str)
+                                == Some(transfer_id);
+                        !landed
+                    });
                 landed
             } else {
                 false
@@ -341,11 +344,12 @@ impl Hub {
             super::transfer::is_plain_id(outer_id),
         ) {
             let mut landed = false;
-            let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
-                landed |= event.kind == "transferred_in"
-                    && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                !landed
-            });
+            let _ =
+                self.store.scan_kinds(outer_id, &["transferred_in"], &mut |event: EventRecord| {
+                    landed |= event.kind == "transferred_in"
+                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
+                    !landed
+                });
             landed
         } else {
             false
@@ -901,9 +905,9 @@ impl Hub {
         let here = self.session_get(session_id);
         let mut landed = false;
         if let Some(session) = here {
-            // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).
+            // Its `transferred_in` records, from the kind index, off the runtime's workers.
             let _ = crate::qos::off_worker(|| {
-                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                self.store.scan_kinds(&session.id, &["transferred_in"], &mut |e: EventRecord| {
                     landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
                     !landed
                 })

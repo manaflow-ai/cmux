@@ -732,6 +732,13 @@ impl Hub {
             }
         }
         files.sort();
+        // A whole move into a chat with no log here yet: its records go in as segment `000000`,
+        // one buffered write synced and renamed once, as a staged prefix's do, not one locked
+        // write each (a 1 GB chat's history was a million of them under the freeze, cmux#54461).
+        let mut whole = match staged {
+            None => self.whole_history_writer(id)?,
+            Some(_) => None,
+        };
         for f in files {
             use std::io::BufRead as _;
             let file = std::fs::File::open(&f)
@@ -756,10 +763,40 @@ impl Hub {
                     rec.seq
                 );
                 last = last.max(rec.seq);
-                self.store.append(id, &rec)?;
+                match whole.as_mut() {
+                    Some(writer) => writer.write(&rec)?,
+                    None => self.store.append(id, &rec)?,
+                }
+            }
+        }
+        if let Some(writer) = whole {
+            writer.commit()?;
+            // Its kind index, in one pass from the page cache: the finish's queue and inbox reads
+            // take it, not a parse of the whole log under the freeze (`index_staged`).
+            if let Err(error) = self.store.scan_kinds(id, &["queued"], &mut |_| true) {
+                tracing::debug!(session = %id, "moved history not indexed: {error:#}");
             }
         }
         Ok(last)
+    }
+
+    /// The store's writer of chat `id`'s segment `000000`, when the store writes one into a folder
+    /// and the chat has no segment there yet (a failed import's retry may have some: it appends).
+    fn whole_history_writer(
+        &self,
+        id: &str,
+    ) -> anyhow::Result<Option<Box<dyn crate::store::HistoryWriter + '_>>> {
+        if !self.store.writes_history() {
+            return Ok(None);
+        }
+        let Some(dir) = self.store.session_dir(id) else { return Ok(None) };
+        let has_segment = std::fs::read_dir(dir.join("events")).is_ok_and(|entries| {
+            entries.flatten().any(|e| e.path().extension().is_some_and(|x| x == "ndjson"))
+        });
+        if has_segment {
+            return Ok(None);
+        }
+        self.store.history_writer(id)
     }
 
     /// The staged prefix as chat `id`'s segment `000000`, which the store never appends to and

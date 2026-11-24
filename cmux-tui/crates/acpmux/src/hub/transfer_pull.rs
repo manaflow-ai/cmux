@@ -163,7 +163,8 @@ impl Hub {
             return None;
         }
         let mut landed = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Its `transferred_in` records, from the kind index, not a parse of the whole log.
+        let _ = self.store.scan_kinds(&session.id, &["transferred_in"], &mut |e: EventRecord| {
             landed |= e.kind == "transferred_in" && *field(&e.msg, "transferId") == transfer_id;
             !landed
         });
