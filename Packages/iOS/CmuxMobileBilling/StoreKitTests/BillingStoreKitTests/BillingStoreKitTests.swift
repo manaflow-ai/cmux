@@ -154,11 +154,32 @@ final class BillingStoreKitTests: XCTestCase {
         let postsBeforeExpiry = rig.server.posts.count
         try rig.session.expireSubscription(productIdentifier: CmuxProduct.proMonthly)
         rig.dump("after expireSubscription")
-        try await rig.eventually("the expired entitlement dropped") { await self.rig.entitledProductIDs().isEmpty }
+        // StoreKit Testing can still renew at expireSubscription although its
+        // renewal info already says auto-renew is off (run 45344114175: a
+        // RENEWAL #1 with autoRenew=true appeared at expiry). Each such
+        // renewal is expired in turn, once, so the test still ends on an
+        // expired subscription.
+        var expiredRenewals: Set<UInt> = [testTransaction.identifier]
+        try await rig.eventually("the expired entitlement dropped") {
+            if await self.rig.entitledProductIDs().isEmpty { return true }
+            let renewals = self.rig.testTransactions(CmuxProduct.proMonthly).filter {
+                !expiredRenewals.contains($0.identifier) && ($0.expirationDate ?? .distantPast) > Date()
+            }
+            for renewal in renewals {
+                expiredRenewals.insert(renewal.identifier)
+                print("[storekit] StoreKit renewed #\(renewal.identifier) at expiry with auto-renew off; expiring it")
+                try? self.rig.session.expireSubscription(productIdentifier: CmuxProduct.proMonthly)
+            }
+            return false
+        }
         let expiryPosts = rig.server.posts.dropFirst(postsBeforeExpiry)
-        XCTAssertTrue(expiryPosts.allSatisfy { $0.payload.transactionID == transactionID && $0.payload.revocationDate == nil },
-                      "expiry creates no transaction")
-        print("[storekit] expiry re-delivered the transaction \(expiryPosts.count) time(s)")
+        XCTAssertTrue(expiryPosts.allSatisfy { $0.payload.revocationDate == nil }, "expiry revokes nothing")
+        XCTAssertTrue(expiryPosts.allSatisfy {
+            $0.payload.transactionID == transactionID
+                || ($0.payload.originalTransactionID == cancelled.originalTransactionID && $0.payload.transactionReason == "RENEWAL")
+        }, "expiry creates no transaction but StoreKit Testing's stray renewal of the same subscription")
+        print("[storekit] expiry re-delivered the transaction \(expiryPosts.filter { $0.payload.transactionID == transactionID }.count) "
+            + "time(s); stray renewals posted: \(expiryPosts.filter { $0.payload.transactionID != transactionID }.count)")
 
         rig.server.receiveExpiredNotification(originalTransactionID: cancelled.originalTransactionID)
         await rig.model.refresh()
