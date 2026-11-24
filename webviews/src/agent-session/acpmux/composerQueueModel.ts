@@ -1,17 +1,19 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { Translate } from "./i18n";
 import { withoutSkillDollars, type SkillCatalog } from "./slashCommands";
+import { retryErrorDetail, retryErrorSummary } from "./subagents/retryState";
 
 export type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
 /// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
-/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
+/// cause, with its error's readable sentences under them. Never the resume's raw prompt, which names
+/// the agent id and tells the agent how to resume it, nor the error's host and request id (cmux#51938).
 export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
   const retry = entry.retry;
   if (!retry) return withoutSkillDollars(entry.prompt, skills);
-  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
-    .filter(Boolean)
-    .join("\n");
+  const why = retryErrorSummary(t, retry.error);
+  const name = `${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim();
+  return [why ? `${name} · ${why}` : name, retryErrorDetail(retry.error)].filter(Boolean).join("\n");
 }
 
 /// Why a held prompt waits, by what the person can do about it (RFD 0026, machine 2's `Held`).

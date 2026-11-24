@@ -1029,14 +1029,34 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 }
 /* acpmux's ask to resume a failed subagent (ComposerQueue.tsx `entry.retry`): "Resume subagent"
    before the subagent's name, the prompt's own words never drawn (Leo, 2026-10-30: "this looks weird
-   and unrendered"). Opened, the error follows on its own line. */
+   and unrendered"). After the name, the cause in a word or two, dim ("Overloaded"); opened, the
+   error's readable sentences follow on their own line at the label's size, never its gateway host
+   or request id (cmux#51938, Austin 2026-11-23: "its really bad, why do we have this?"). The label
+   and cause sit on the name's baseline with no line box of their own, so the row is one even line
+   whatever their size. */
+.acpmux-queued-kind[data-kind="retry"],
+.acpmux-queued-why {
+  vertical-align: baseline;
+  line-height: 0;
+}
 .acpmux-queued-kind[data-kind="retry"] {
-  vertical-align: top;
   margin-right: 6px;
+}
+.acpmux-queued-why {
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-queued-why::before {
+  content: "·";
+  margin: 0 4px;
 }
 .acpmux-queued-detail {
   display: block;
   color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* The prompts the pane holds for the folder's trust answer (ComposerQueue.tsx, trustHeld.ts) follow
    one note, drawn as the paused note is but muted: it waits on the trust question above, not on an

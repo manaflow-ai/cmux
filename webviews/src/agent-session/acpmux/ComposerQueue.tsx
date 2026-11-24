@@ -61,6 +61,8 @@ import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { claimedReply } from "./conversation/waitingAskStore";
 import { type QueuedEntry, shownText, heldReason } from "./composerQueueModel";
+import { retryErrorDetail, retryErrorSummary } from "./subagents/retryState";
+import { copyTextResult } from "./conversation/clipboard";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { focusRoute } from "../../ui/focusRoute";
@@ -998,6 +1000,14 @@ export const ComposerQueue = React.memo(function ComposerQueue({
             className="acpmux-quick-menu acpmux-queued-more"
             label={t("composer.queueActions")}
           >
+            {entry.retry?.error && (
+              <MenuItem
+                className="acpmux-quick-item"
+                onSelect={() => void copyTextResult(entry.retry?.error ?? "").catch(() => false)}
+              >
+                {t("turn.failure.copyError")}
+              </MenuItem>
+            )}
             {onChange && (
               <MenuItem className="acpmux-quick-item" shortcut="↩" onSelect={() => setEditing(entry.id)}>
                 {t("composer.queueEditMessage")}
@@ -1065,8 +1075,13 @@ export const ComposerQueue = React.memo(function ComposerQueue({
                   {t("composer.queuedSubagentRetry")}
                 </span>
                 {entry.retry.name ?? entry.retry.agentId}
-                {open.has(entry.id) && entry.retry.error && (
-                  <span className="acpmux-queued-detail">{entry.retry.error}</span>
+                {/* The cause in a word or two, dim, on the same line; opened, the provider's own
+                    sentences without its host or request id (cmux#51938). The raw text is Copy error's. */}
+                {retryErrorSummary(t, entry.retry.error) && (
+                  <span className="acpmux-queued-why">{retryErrorSummary(t, entry.retry.error)}</span>
+                )}
+                {open.has(entry.id) && retryErrorDetail(entry.retry.error) && (
+                  <span className="acpmux-queued-detail">{retryErrorDetail(entry.retry.error)}</span>
                 )}
               </>
             ) : (

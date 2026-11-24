@@ -1163,12 +1163,56 @@ test("acpmux's ask to resume a subagent is a labelled row with the subagent's na
   expect(text.querySelector('.acpmux-queued-kind[data-kind="retry"]')?.textContent).toBe(
     "composer.queuedSubagentRetry",
   );
-  expect(text.textContent).toBe("composer.queuedSubagentRetryCap context cost");
+  // After the name, the cause in a word (cmux#51938).
+  expect(text.textContent).toBe("composer.queuedSubagentRetryCap context costcomposer.queuedRetryWhy.overloaded");
   expect(text.textContent).not.toContain("agent id");
   // Opened, the error follows on its own line; the row keeps its actions.
   await act(async () => text.click());
   expect(text.querySelector(".acpmux-queued-detail")?.textContent).toBe("529");
   expect(actions(container, "r-1").length).toBe(3);
+});
+
+test("a resume that failed on a 529 is one line naming the cause, its host and request id never drawn", async () => {
+  // cmux#51938 (Austin, 2026-11-23: "its really bad, why do we have this?"): the row dumped Claude
+  // Code's whole 529 text, its gateway host and request id, over four lines.
+  const error =
+    "Agent terminated early due to an API error: API Error: Repeated 529 Overloaded errors. The API is at " +
+    "capacity — this is usually temporary. Try again in a moment. If it persists, check your inference " +
+    "gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 529, request id req_016L";
+  const copied: string[] = [];
+  const clipboard = { writeText: async (text: string) => void copied.push(text) };
+  const container = await render(
+    async () => true,
+    async () => true,
+    [{ id: "r-2", prompt: "Your subagent …", retry: { name: "Auto mode core crate", agentId: "a1", error } }],
+  );
+  Object.defineProperty(dom!.window.navigator, "clipboard", { configurable: true, value: clipboard });
+  Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: clipboard });
+  const text = container.querySelector<HTMLButtonElement>('[data-prompt-id="r-2"] .acpmux-queued-text')!;
+  expect(text.querySelector(".acpmux-queued-why")?.textContent).toBe("composer.queuedRetryWhy.overloaded");
+  expect(text.querySelector(".acpmux-queued-detail")).toBeNull();
+  for (const plumbing of ["ts.net", "req_016L", "Agent terminated", "server_error"])
+    expect(text.textContent).not.toContain(plumbing);
+  // Opened: the provider's sentences, still no host or request id.
+  await act(async () => text.click());
+  expect(text.querySelector(".acpmux-queued-detail")?.textContent).toBe(
+    "Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.",
+  );
+  expect(text.textContent).not.toContain("ts.net");
+  expect(text.textContent).not.toContain("req_016L");
+  // The whole text, for a bug report, is the ⋯ menu's Copy error.
+  expect(await openMore(container, "r-2")).toContain("turn.failure.copyError");
+  await act(async () => menuItem("turn.failure.copyError").click());
+  await settle();
+  expect(copied).toEqual([error]);
+});
+
+test("a person's queued prompt offers no Copy error", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  expect(await openMore(container, "p-1")).not.toContain("turn.failure.copyError");
 });
 
 test("a truncated resume row's tooltip is the row's own text, never the raw prompt or its agent id", async () => {
@@ -1192,7 +1236,7 @@ test("a truncated resume row's tooltip is the row's own text, never the raw prom
   await act(async () => {
     button.dispatchEvent(new Pointer("pointerover", { bubbles: true, relatedTarget: dom!.window.document.body }));
   });
-  expect(button.title).toBe("composer.queuedSubagentRetry Cap context cost\n529");
+  expect(button.title).toBe("composer.queuedSubagentRetry Cap context cost · composer.queuedRetryWhy.overloaded\n529");
   expect(button.title).not.toContain("agent id");
   expect(button.title).not.toContain("af0cbece62b15d0e1");
   expect(button.title).not.toContain("SendMessage");

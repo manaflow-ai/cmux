@@ -148,6 +148,35 @@ export default agentPaneEntry({
         ],
       },
     },
+    "queued-subagent-resume": {
+      composerLook: "claude",
+      note: "acpmux's queued ask to resume a subagent that failed on a 529 (cmux#51938, Austin 2026-11-23: \"its really bad, why do we have this?\"): one line, the subagent's name and the cause in a word (\"Overloaded\"), its actions on that line. Clicked, the provider's sentences follow, never the gateway host or request id; the raw text is the ⋯ menu's Copy error.",
+      snapshot: {
+        ...started({ isWorking: true }),
+        queue: [
+          {
+            id: "q-resume",
+            prompt: 'Your subagent "Auto mode core crate" (agent id a1b2c3) failed on a transient upstream error.',
+            retry: {
+              name: "Auto mode core crate",
+              agentId: "a1b2c3",
+              error:
+                "Agent terminated early due to an API error: API Error: Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment. If it persists, check your inference gateway (gateway.example.ts.net:4016). (error type server_error, HTTP 529, request id req_016L",
+            },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      },
+      play: async (ctx) => {
+        const select = () =>
+          ctx.document.querySelector<HTMLButtonElement>('[data-prompt-id="q-resume"] .acpmux-queued-text');
+        await ctx.waitFor(select);
+        const row = select()!;
+        if (row.textContent?.includes("ts.net") || row.textContent?.includes("req_"))
+          throw new Error("the resume row drew the error's host or request id");
+        if (!row.querySelector(".acpmux-queued-why")) throw new Error("the resume row names no cause");
+      },
+    },
     awaiting: {
       note: "A new chat before its session reports effort and access: the effort this harness last showed and acpmux's kept start mode, or nothing; never grey bars.",
       ready: { newSession: true },
