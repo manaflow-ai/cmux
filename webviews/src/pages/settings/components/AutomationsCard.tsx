@@ -647,6 +647,7 @@ function AutomationForm({
           rows={6}
           spellCheck={false}
           value={spec.action.prompt}
+          aria-label={t("settingsWindow.autocloud.form.prompt")}
           data-autocloud-prompt=""
           onChange={(event) => setAction({ prompt: event.target.value })}
         />
@@ -656,6 +657,7 @@ function AutomationForm({
         <input
           type="checkbox"
           checked={spec.action.postBack !== "none"}
+          aria-label={t("settingsWindow.autocloud.form.postBack")}
           data-autocloud-postback=""
           onChange={(event) => setAction({ postBack: event.target.checked ? "comment" : "none" })}
         />
@@ -665,6 +667,7 @@ function AutomationForm({
         <input
           type="checkbox"
           checked={spec.action.openPr === true}
+          aria-label={t("settingsWindow.autocloud.form.openPr")}
           data-autocloud-openpr=""
           onChange={(event) => setAction({ openPr: event.target.checked })}
         />

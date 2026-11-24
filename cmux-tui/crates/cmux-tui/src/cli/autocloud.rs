@@ -379,7 +379,7 @@ fn check_condition(c: &Value) -> Result<Value, String> {
     };
     let mut out = json!({"path": path, "op": op});
     if !value.is_null() {
-        out["value"] = value;
+        put(&mut out, "value", value);
     }
     Ok(out)
 }
@@ -408,15 +408,15 @@ fn check_action(a: &Value) -> Result<Value, String> {
         if model.len() > 128 {
             return Err("the model is at most 128 characters".into());
         }
-        out["model"] = json!(model);
+        put(&mut out, "model", json!(model));
     }
     match text_field(a, "postBack") {
         None => {}
-        Some(p @ ("comment" | "none")) => out["postBack"] = json!(p),
+        Some(p @ ("comment" | "none")) => put(&mut out, "postBack", json!(p)),
         Some(_) => return Err("postBack is comment or none".into()),
     }
     if let Some(open) = a.get("openPr").and_then(Value::as_bool) {
-        out["openPr"] = json!(open);
+        put(&mut out, "openPr", json!(open));
     }
     Ok(out)
 }
@@ -466,7 +466,7 @@ pub(super) fn check_spec(spec: &Value) -> Result<Value, String> {
         "guardrails": guardrails,
     });
     if let Some(enabled) = spec.get("enabled").and_then(Value::as_bool) {
-        out["enabled"] = json!(enabled);
+        put(&mut out, "enabled", json!(enabled));
     }
     Ok(out)
 }
@@ -497,26 +497,28 @@ pub(super) fn render(template: &str, scope: &Value) -> (String, Vec<String>) {
     let mut out = String::with_capacity(template.len());
     let mut missing = vec![];
     let mut rest = template;
-    while let Some(start) = rest.find("{{") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            out.push_str(&rest[start..]);
+    while let Some((before, after_open)) = rest.split_once("{{") {
+        out.push_str(before);
+        let Some((inner, after)) = after_open.split_once("}}") else {
+            out.push_str("{{");
+            out.push_str(after_open);
             rest = "";
             break;
         };
-        let name = after[..end].trim();
+        let name = inner.trim();
         let known = ["event.", "trigger.", "run."].iter().any(|p| name.starts_with(p));
         match lookup(scope, name).and_then(scalar_text) {
             Some(text) if known => out.push_str(&text),
             _ => {
-                out.push_str(&rest[start..start + 2 + end + 2]);
+                out.push_str("{{");
+                out.push_str(inner);
+                out.push_str("}}");
                 if !missing.iter().any(|m| m == name) {
                     missing.push(name.to_owned());
                 }
             }
         }
-        rest = &after[end + 2..];
+        rest = after;
     }
     out.push_str(rest);
     (out, missing)
@@ -844,11 +846,12 @@ pub(super) fn trigger_text(trigger: &Value) -> String {
             format!("Schedule · {} · {}", clip(cron, 60), clip(zone, 64))
         }
         Some(other) => {
-            let mut name = clip(other, 40).replace('_', " ");
-            if let Some(first) = name.get(..1) {
-                name = first.to_uppercase() + &name[1..];
+            let name = clip(other, 40).replace('_', " ");
+            let mut chars = name.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+                None => name,
             }
-            name
         }
         None => "No trigger".to_owned(),
     }
@@ -1011,9 +1014,11 @@ pub(super) fn api_error(status: u16, body: &Value) -> Value {
         .or_else(|| field("/message"))
         .unwrap_or_else(|| format!("the cmux platform answered HTTP {status}"));
     let mut error = error_json(&code, &message);
-    error["error"]["status"] = json!(status);
+    if let Some(inner) = error.get_mut("error") {
+        put(inner, "status", json!(status));
+    }
     if status == 404 && !code.starts_with("automation.") {
-        error["available"] = json!(false);
+        put(&mut error, "available", json!(false));
     }
     error
 }
@@ -1121,9 +1126,13 @@ pub(super) fn answer(verb: &Verb, status: u16, body: &Value, now_ms: i64) -> Val
             if let Some(secret) =
                 body.get("secret").and_then(Value::as_str).filter(|s| !s.is_empty())
             {
-                out["secret"] = json!(secret);
-                out["secretText"] = json!(
-                    "Copy this secret now; it is not shown again. Sign each POST: x-cmux-webhook-signature is sha256= and the HMAC-SHA256 of the timestamp, delivery id and body, with x-cmux-webhook-timestamp and x-cmux-webhook-delivery (or Standard Webhooks headers)."
+                put(&mut out, "secret", json!(secret));
+                put(
+                    &mut out,
+                    "secretText",
+                    json!(
+                        "Copy this secret now; it is not shown again. Sign each POST: x-cmux-webhook-signature is sha256= and the HMAC-SHA256 of the timestamp, delivery id and body, with x-cmux-webhook-timestamp and x-cmux-webhook-delivery (or Standard Webhooks headers)."
+                    ),
                 );
             }
             out
@@ -1157,7 +1166,7 @@ async fn run(common: &Common, verb: &Verb, input: Option<Value>) -> Value {
             Ok(mut checked) => {
                 if let Verb::Update { .. } = verb {
                     match spec.get("revision").and_then(Value::as_i64) {
-                        Some(rev) => checked["revision"] = json!(rev),
+                        Some(rev) => put(&mut checked, "revision", json!(rev)),
                         None => {
                             return error_json(
                                 "cli.invalid_args",
@@ -1371,6 +1380,13 @@ pub(super) fn run_words(words: &[String], json_out: bool) -> i32 {
     };
     print(&answer, json_out);
     if answer.get("ok").and_then(Value::as_bool) == Some(true) { 0 } else { 1 }
+}
+
+/// Sets `key` on a JSON object (a no-op on anything else): the non-panicking form of `v[key] = value`.
+fn put(v: &mut Value, key: &str, value: Value) {
+    if let Some(map) = v.as_object_mut() {
+        map.insert(key.to_owned(), value);
+    }
 }
 
 #[cfg(test)]
