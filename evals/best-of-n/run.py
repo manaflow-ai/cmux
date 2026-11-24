@@ -30,11 +30,25 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import sys
 import time
 
 HERE = Path(__file__).resolve().parent
 TASKS = HERE / "tasks"
+# Task sets: `tasks` (small, saturated for current models) and `tasks_hard` (aimed at single ~0.3-0.5).
+SETS = ("tasks", "tasks_hard")
+
+
+def use_set(work: Path, chosen: str | None = None) -> str:
+    """Point TASKS at the work dir's task set: `setup --set` records it in WORK/task_set, the rest read it."""
+    global TASKS
+    marker = work / "task_set"
+    name = chosen or (marker.read_text().strip() if marker.is_file() else "tasks")
+    if name not in SETS:
+        sys.exit(f"run.py: no task set {name} (sets: {', '.join(SETS)})")
+    TASKS = HERE / name
+    return name
 SCHEMA = "best-of-n-results/v1"
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -137,6 +151,26 @@ def hidden_tests(name: str, folder: Path) -> tuple[int, int, list[str]]:
     return res["passed"], res["total"], res["failures"]
 
 
+def check() -> int:
+    """Each task's hidden tests pass on its reference.py and fail on its starter: the set is solvable and not free."""
+    bad = 0
+    for name in tasks(None):
+        with tempfile.TemporaryDirectory() as tmp:
+            for src, want in (("reference.py", True), ("starter.py", False)):
+                if not (TASKS / name / src).is_file():
+                    print(f"{name}: no {src}")
+                    bad += src == "reference.py"
+                    continue
+                folder = Path(tmp) / src.removesuffix(".py") / name
+                folder.mkdir(parents=True)
+                shutil.copy(TASKS / name / src, folder / f"{name}.py")
+                passed, total, fails = hidden_tests(name, folder)
+                solved = passed == total and total > 0
+                print(f"{name} {src}: {passed}/{total}" + ("" if solved == want else f"  WRONG {fails[:3]}"))
+                bad += solved != want
+    return 1 if bad else 0
+
+
 def score(work: Path, wait_s: float, out: Path | None) -> dict:
     state = json.loads((work / "state.json").read_text())
     deadline = time.time() + wait_s
@@ -172,7 +206,7 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
     doc = {
         "schema": SCHEMA,
         "measured_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "task_set": "cmux evals/best-of-n/tasks",
+        "task_set": f"cmux evals/best-of-n/{TASKS.name}",
         "model": state["model"], "attempts": state["attempts"], "reviewer": state["reviewer"],
         "effort": state.get("effort"),
         "n_tasks": len(done), "n_started": len(rows),
@@ -191,9 +225,11 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("setup", "start", "score"):
+    for name in ("setup", "start", "score", "check"):
         p = sub.add_parser(name)
-        p.add_argument("--work", type=Path, required=True)
+        p.add_argument("--work", type=Path, required=name != "check")
+        if name in ("setup", "check"):
+            p.add_argument("--set", choices=SETS, default="tasks")
         if name == "start":
             p.add_argument("--model", default="claude/haiku")
             p.add_argument("--attempts", type=int, default=4)
@@ -204,10 +240,18 @@ def main() -> None:
             p.add_argument("--wait", type=float, default=3600)
             p.add_argument("--out", type=Path)
     a = ap.parse_args()
+    if a.cmd == "check":
+        use_set(Path("/nonexistent"), a.set)
+        sys.exit(check())
     work = a.work.resolve()
     if a.cmd == "setup":
-        print(setup(work))
-    elif a.cmd == "start":
+        use_set(work, a.set)
+        repo = setup(work)
+        (work / "task_set").write_text(a.set + "\n")
+        print(repo)
+        return
+    use_set(work)
+    if a.cmd == "start":
         if a.attempts < 2:
             sys.exit("run.py: --attempts must be at least 2 (a race needs two candidates)")
         start(work, a.model, a.attempts, a.reviewer, a.effort, a.tasks)
