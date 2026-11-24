@@ -114,9 +114,20 @@ async fn a_peer_link_that_asks_gets_patches_of_the_masked_row_and_a_resync() {
     // The link missed a row: it asks, and the row comes whole with the next number.
     let ask = json!({"sessionId": OWN});
     link.send(Message::request(20, method::MUX_SESSION_RESYNC, ask).to_line()).await.unwrap();
-    let whole = row_notice(&mut link_out).await;
+    // Rows sent before the ask (a rename can send more than one) come first, numbered on.
+    let mut last = 2;
+    let whole = loop {
+        let line = row_notice(&mut link_out).await;
+        if line["params"]["recordKind"] == "resync" {
+            break line;
+        }
+        assert_eq!(line["method"], method::MUX_SESSION_PATCH, "{line}");
+        assert_eq!(line["params"]["baseRowSeq"], last, "{line}");
+        assert!(crate::server::session_patch::apply(&mut held, &line["params"]["patch"]));
+        last += 1;
+    };
     assert_eq!(whole["method"], method::MUX_SESSION_CHANGED, "{whole}");
-    assert_eq!(whole["params"]["rowSeq"], 3);
+    assert_eq!(whole["params"]["rowSeq"], last + 1, "the next number, not a restart");
     assert!(!whole.to_string().contains(&token), "the whole row is masked too");
     // The patch made the row the peer would have sent whole.
     assert_eq!(held, whole["params"]["session"]);
@@ -146,10 +157,15 @@ async fn a_link_that_does_not_ask_gets_whole_rows_as_before() {
     let (_old, mut old_out) = watching(&hub, Origin::Peer, Value::Null).await;
     for (i, name) in ["one", "two", "three"].into_iter().enumerate() {
         rename(&cli, 10 + i as i64, name).await;
-        let line = row_notice(&mut old_out).await;
+        // A rename can send more than one row (the name, then the list's order): each whole.
+        let line = next(&mut old_out, |l| {
+            l["method"] == method::MUX_SESSION_PATCH
+                || (l["method"] == method::MUX_SESSION_CHANGED
+                    && l["params"]["session"]["name"] == name)
+        })
+        .await;
         assert_eq!(line["method"], method::MUX_SESSION_CHANGED, "{line}");
         assert!(line["params"].get("rowSeq").is_none(), "{line}");
-        assert_eq!(line["params"]["session"]["name"], name);
     }
     // Resync to a connection that did not ask sends nothing.
     let (old, mut old_out) = watching(&hub, Origin::Peer, json!(false)).await;

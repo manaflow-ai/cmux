@@ -21,10 +21,10 @@
 //! Version 2 (`sessionChangedDelta: 2`, what a peer daemon's link asks, `peer_row_patch.rs`):
 //! a connection that reads text masked (a peer's, `peer_text.rs`) gets patches too, diffed from
 //! the masked row, so a patch carries no text its whole row would not; and
-//! `_acpmux/session_resync {sessionId}` makes the daemon forget what the connection holds of a
-//! chat and send its row whole now, with the next `rowSeq`, for a client that missed a row. A
-//! daemon before version 2 reads `2` as not asking (it took only `true`) and sends whole rows,
-//! so a new link and an old daemon work as before. Before this a peer's link got every change
+//! `_acpmux/session_resync {sessionId}` makes the daemon send a chat's row whole now, with the
+//! next `rowSeq` (never a restart, so no patch numbered before it reads as one after it), for
+//! a client that missed a row. A daemon before version 2 reads `2` as not asking (it took only
+//! `true`) and sends whole rows, so a new link and an old daemon work as before. Before this a peer's link got every change
 //! of every attached chat whole: 142 KiB a turn on a desktop pair (transport pair matrix, long
 //! cell, 2026-11-24).
 //!
@@ -160,6 +160,8 @@ struct Sent {
     full: bool,
     row_seq: u64,
     shape: Shape,
+    /// The client asked for it whole (`resync`): the next change goes whole, numbered on.
+    resend: bool,
 }
 
 /// Per connection: whether it asked for patches, and the shape of each chat's last row it heard.
@@ -183,6 +185,7 @@ impl SentRows {
         let shape = shape_of(row);
         if let Some(sent) = self.rows.get_mut(session)
             && sent.full == full
+            && !sent.resend
         {
             let patch = diff(&sent.shape, row).unwrap_or_else(|| json!({}));
             sent.row_seq += 1;
@@ -196,13 +199,21 @@ impl SentRows {
         {
             self.rows.remove(&gone);
         }
-        self.rows.insert(session.to_owned(), Sent { full, row_seq, shape });
+        self.rows.insert(session.to_owned(), Sent { full, row_seq, shape, resend: false });
         Change::Whole { row_seq }
     }
 
     /// The chat is gone (purged): its next row, under the same id, goes out whole.
     pub(crate) fn forget(&mut self, session: &str) {
         self.rows.remove(session);
+    }
+
+    /// The client no longer holds `session`'s row: the next change goes whole with the next
+    /// `rowSeq`, so no patch numbered before it can read as one of the row after it.
+    pub(crate) fn resend(&mut self, session: &str) {
+        if let Some(sent) = self.rows.get_mut(session) {
+            sent.resend = true;
+        }
     }
 }
 
@@ -241,7 +252,7 @@ pub(super) fn send_row(conn: &Conn, key: &str, full: bool, row: &Value, notice: 
 }
 
 /// `_acpmux/session_resync {sessionId}` (version 2): the client no longer holds the chat's row
-/// (it missed one, or let it go): the daemon forgets what it sent and sends the row whole now,
+/// (it missed one, or let it go): the daemon sends the row whole now,
 /// as `session_changed` with the next `rowSeq`. `{"sent": false}` for a connection that did not
 /// ask for patches, which hears every row whole anyway.
 pub(super) fn resync(
@@ -256,7 +267,7 @@ pub(super) fn resync(
     if !conn.session_delta.load(Ordering::SeqCst) {
         return Ok(json!({"sent": false}));
     }
-    forget(conn, id);
+    conn.sent_rows.lock_or_recover().resend(id);
     let s = hub.resolve(id)?;
     let full = conn.sub_opts(id).is_some() || conn.watch_tools.load(Ordering::SeqCst);
     let row = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
@@ -405,6 +416,13 @@ mod tests {
         assert!(matches!(
             rows.change("s", true, &json!({"a": 2})),
             Change::Patch { row_seq: 3, .. }
+        ));
+        // A resync: whole, numbered on; patches after it.
+        rows.resend("s");
+        assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 4 }));
+        assert!(matches!(
+            rows.change("s", true, &json!({"a": 3})),
+            Change::Patch { row_seq: 5, .. }
         ));
         rows.forget("s");
         assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 1 }));
