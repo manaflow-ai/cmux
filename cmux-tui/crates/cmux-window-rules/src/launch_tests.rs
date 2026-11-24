@@ -262,6 +262,7 @@ fn pending(window_open: bool, home_ready: bool, moved: bool, active: Option<&str
         window_open,
         home_ready,
         moved,
+        moved_since_restore: moved,
     }
 }
 
@@ -420,4 +421,25 @@ fn fresh_landing_reads_and_answers_camel_case_json() {
         serde_json::to_value(fresh_landing(&bare)).unwrap(),
         serde_json::json!({"kind": "saved"})
     );
+}
+
+/// Review F1 of #46087: the person left the restored workspace or page and came back before Home was listed.
+/// Leaving drops the pending landing for good (`movedSinceRestore`, latched by the app), so Home appearing later
+/// lands nothing.
+#[test]
+fn a_pending_home_landing_stays_dropped_after_the_person_left_and_came_back() {
+    let read = |moved: bool, moved_since_restore: bool, home_ready: bool| -> PendingHome {
+        serde_json::from_value(serde_json::json!({
+            "window": "front", "active": "front", "windowOpen": true, "homeReady": home_ready,
+            "moved": moved, "movedSinceRestore": moved_since_restore
+        }))
+        .unwrap()
+    };
+    // Left: the landing stops.
+    assert_eq!(pending_home(&read(true, true, false)), HomeStep::Stop);
+    // Back at the restored place, Home not listed yet, then listed: still no landing.
+    assert_eq!(pending_home(&read(false, true, false)), HomeStep::Stop);
+    assert_eq!(pending_home(&read(false, true, true)), HomeStep::Stop);
+    // Never left: Home lands once listed.
+    assert_eq!(pending_home(&read(false, false, true)), HomeStep::Land { window: "front".into() });
 }
