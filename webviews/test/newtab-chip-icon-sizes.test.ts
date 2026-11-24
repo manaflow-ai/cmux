@@ -206,7 +206,9 @@ await requireBrowserLane("newtab-chip-icon-sizes.test.ts", async () => {
         // Opened, Details keeps its size.
         await page.click(".acpmux-start-failure summary");
         await page.waitForSelector(".acpmux-start-failure details[open]");
-        const opened = await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-start-failure summary")!).fontSize);
+        const opened = await page.evaluate(
+          () => getComputedStyle(document.querySelector(".acpmux-start-failure summary")!).fontSize,
+        );
         expect(opened, where).toBe(sizes[0] ?? "");
       } finally {
         await page.close();
