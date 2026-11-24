@@ -70,19 +70,38 @@ public struct TerminalTUIRowMove: Equatable, Sendable {
 
 /// The glide that turns a full-screen app's row jumps into motion: when a frame shows the content
 /// `n` rows further, the band is first drawn where the last frame's rows were (``offset`` is
-/// `-n` rows), then slides to its place at a steady speed, so it arrives about when the app's next
-/// jump is due (``interval``, learned from the jumps so far). With jumps every few frames the
-/// rows move a few points each frame, as a shell's scrollback does, instead of standing still and
-/// then jumping.
+/// `-n` rows), then slides to its place.
+///
+/// Leo, 2026-11-24: "for scrolling on iphone, honestly, theres a world in which we dont bother
+/// scrolling 'line by line' so to speak. we can still highlight text and whatnot, but... we can
+/// just treat the scroll like any pedestrian scroll." So while the finger (or its fling) is
+/// scrolling, the band slides at the finger's own speed (``wheel(dy:at:)``: the wheel's points
+/// times the rows the app moves per wheel point, learned from its jumps), like a plain scroll
+/// view: the rows move every frame, as far as the finger moved, never a row at a time. Once the
+/// finger stops, what is left eases into place (``settleTime``). With no wheel seen (the app
+/// scrolled by itself, a cursor key) it slides at a steady speed that arrives about when the
+/// app's next jump is due (``interval``).
 public struct TerminalTUIRowGlide: Equatable, Sendable {
     /// Points the current frame's band is drawn from its place: positive is down.
     public private(set) var offset: CGFloat = 0
-    /// Points per second the band slides toward its place.
+    /// Points per second the band slides toward its place (no finger: the app's cadence).
     private var speed: CGFloat = 0
     /// When the last jump came (seconds, the media clock).
     private var lastJump: CFTimeInterval?
     /// The time between the app's jumps, as last measured (seconds).
     public private(set) var interval: CFTimeInterval = TerminalTUIRowGlide.startInterval
+
+    /// The finger's speed in content points per second (its wheel times ``rowsPerWheelPoint``).
+    public private(set) var fingerSpeed: CGFloat = 0
+    /// Content points the app moves per wheel point (Claude Code moves three rows per wheel
+    /// report), learned from each jump over the wheel sent since the one before.
+    public private(set) var rowsPerWheelPoint: CGFloat = 1
+    private var sentSinceJump: CGFloat = 0
+    private var lastWheel: CFTimeInterval?
+    /// Seconds of display frames since the last wheel (``step(dt:)``).
+    private var idle: CFTimeInterval = 0
+    /// A wheel was seen in this burst: the finger leads the glide.
+    private var fingerLeads = false
 
     /// Before two jumps are seen: about two frames at 60 Hz plus a round trip on Wi-Fi.
     public static let startInterval: CFTimeInterval = 0.05
@@ -94,14 +113,40 @@ public struct TerminalTUIRowGlide: Equatable, Sendable {
     /// The glide ends a little before the next jump is due, so a late jump never finds the band
     /// still sliding (the next jump would cut that slide short).
     public static let lead: CGFloat = 0.85
+    /// No wheel for this long (seconds): the finger stopped, and the rest eases into place.
+    public static let fingerIdle: CFTimeInterval = 0.08
+    /// The ease's time constant once the finger stopped (seconds), and its slowest speed
+    /// (points per second) so it always ends.
+    public static let settleTime: CFTimeInterval = 0.05
+    public static let settleFloor: CGFloat = 60
+    /// The learned ratio stays within these (a stray frame match cannot make it absurd).
+    public static let ratioRange: ClosedRange<CGFloat> = 0.25...8
 
     public init() {}
 
     public var isGliding: Bool { offset != 0 }
 
+    /// A wheel report of `dy` points went to the app at `time` (seconds, the media clock):
+    /// the finger's speed, in the content points the app will move.
+    public mutating func wheel(dy: CGFloat, at time: CFTimeInterval) {
+        guard dy != 0 else { return }
+        sentSinceJump += abs(dy)
+        defer {
+            lastWheel = time
+            idle = 0
+            fingerLeads = true
+        }
+        guard let lastWheel, time - lastWheel < Self.burstGap else {
+            fingerSpeed = 0
+            return
+        }
+        let measured = abs(dy) * rowsPerWheelPoint / CGFloat(max(time - lastWheel, Self.shortestInterval / 2))
+        fingerSpeed = fingerSpeed == 0 ? measured : 0.5 * fingerSpeed + 0.5 * measured
+    }
+
     /// A frame presented at `time` shows the content `rows` rows further (``TerminalTUIRowMove``):
-    /// the band starts where the last frame's rows were. What remained of an earlier glide is let
-    /// go (the band shows the new frame now), so the band never trails more than one jump.
+    /// the band starts where the last frame's rows were, plus what the glide had not yet slid
+    /// (up to one more row, the edge rows the smoother keeps for the gap).
     public mutating func jumped(rows: Int, rowHeight: CGFloat, at time: CFTimeInterval) {
         guard rows != 0, rowHeight > 0 else { return }
         if let lastJump, time - lastJump < Self.burstGap {
@@ -109,7 +154,18 @@ public struct TerminalTUIRowGlide: Equatable, Sendable {
             interval = 0.5 * interval + 0.5 * measured
         }
         lastJump = time
-        offset = -CGFloat(rows) * rowHeight
+        // The display clock stops at rest: a jump that comes after the finger stopped eases.
+        if let lastWheel { idle = max(idle, time - lastWheel) }
+        let moved = CGFloat(rows) * rowHeight
+        if sentSinceJump > 0 {
+            let ratio = abs(moved) / sentSinceJump
+            let clamped = min(Self.ratioRange.upperBound, max(Self.ratioRange.lowerBound, ratio))
+            rowsPerWheelPoint = 0.5 * rowsPerWheelPoint + 0.5 * clamped
+            sentSinceJump = 0
+        }
+        let carried = (offset != 0 && (offset < 0) == (moved > 0)) ? offset : 0
+        let limit = abs(moved) + rowHeight
+        offset = max(-limit, min(limit, carried - moved))
         speed = abs(offset) / (CGFloat(interval) * Self.lead)
     }
 
@@ -117,8 +173,17 @@ public struct TerminalTUIRowGlide: Equatable, Sendable {
     /// whether it is still sliding.
     @discardableResult
     public mutating func step(dt: CFTimeInterval) -> Bool {
+        let dt = max(0, min(0.05, dt))
+        idle += dt
         guard offset != 0 else { return false }
-        let move = speed * CGFloat(max(0, min(0.05, dt)))
+        let move: CGFloat
+        if fingerLeads, idle < Self.fingerIdle, fingerSpeed > 0 {
+            move = fingerSpeed * CGFloat(dt)
+        } else if fingerLeads {
+            move = max(abs(offset) * CGFloat(1 - exp(-dt / Self.settleTime)), Self.settleFloor * CGFloat(dt))
+        } else {
+            move = speed * CGFloat(dt)
+        }
         offset = abs(offset) <= move ? 0 : offset - move * (offset > 0 ? 1 : -1)
         return offset != 0
     }
@@ -129,6 +194,11 @@ public struct TerminalTUIRowGlide: Equatable, Sendable {
         speed = 0
         lastJump = nil
         interval = Self.startInterval
+        fingerSpeed = 0
+        sentSinceJump = 0
+        lastWheel = nil
+        idle = 0
+        fingerLeads = false
     }
 }
 

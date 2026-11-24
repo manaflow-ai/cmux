@@ -21,8 +21,9 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var dragBegan: () -> Void = {}
     /// The drag ended with no fling, was cancelled, or its fling ended or stopped.
     var panEnded: () -> Void = {}
-    /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
-    var wheelSent: () -> Void = {}
+    /// A wheel report of `dy` points went to the surface (the smoother's finger speed; DEBUG:
+    /// cmux#48951's round trip).
+    var wheelSent: (CGFloat) -> Void = { _ in }
 
     private weak var surface: TerminalSurfaceView?
     private(set) var pan: UIPanGestureRecognizer?
@@ -95,7 +96,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         guard let wheel, let surface, isEnabled() else { return }
         surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum)
         tapClick.scrolled(at: CACurrentMediaTime())
-        wheelSent()
+        wheelSent(wheel.dy)
     }
 
     private func startMomentum(_ fling: TerminalTUIMomentum) {

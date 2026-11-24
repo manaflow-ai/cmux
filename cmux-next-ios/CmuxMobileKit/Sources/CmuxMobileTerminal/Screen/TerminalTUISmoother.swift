@@ -9,8 +9,8 @@ import UIKit
 /// While the finger scrolls the app (from each wheel report until ``watch`` after the last), every
 /// presented frame's rows are matched to the previous frame's (``TerminalTUIRowMove``). When the app
 /// moved its rows, the band that moved is drawn where the last frame's rows were and glides to its
-/// place (``TerminalTUIRowGlide``) a few points per display frame, so the rows move as a shell's
-/// scrollback does instead of standing still and then jumping three rows.
+/// place (``TerminalTUIRowGlide``) at the finger's own speed, so the rows move as a shell's
+/// scrollback does, like any plain scroll, instead of standing still and then jumping three rows.
 ///
 /// The glide is drawn on a layer over Ghostty's own, inside the surface: the presented frame's band
 /// (the same IOSurface, cropped, no draw) at the glide's offset, and the edge rows the last frame
@@ -57,9 +57,12 @@ final class TerminalTUISmoother {
         }
     }
 
-    /// A wheel report went to the app: watch its frames, from the frame on screen now.
-    func wheelSent() {
-        watchUntil = CACurrentMediaTime() + Self.watch
+    /// A wheel report of `dy` points went to the app: watch its frames, from the frame on screen
+    /// now, and the finger's speed leads the glide (``TerminalTUIRowGlide/wheel(dy:at:)``).
+    func wheelSent(dy: CGFloat) {
+        let now = CACurrentMediaTime()
+        watchUntil = now + Self.watch
+        glide.wheel(dy: dy, at: now)
         if rows == nil, let frame = read() {
             rows = frame.rows
             keepEdges()

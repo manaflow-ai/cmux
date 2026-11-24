@@ -4300,9 +4300,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             panFrames.begin(.tui, rows: documentRows)
         }
         tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
-        tuiScroll.wheelSent = { [weak self] in
+        tuiScroll.wheelSent = { [weak self] dy in
             guard let self else { return }
-            tuiSmoother.wheelSent()
+            tuiSmoother.wheelSent(dy: dy)
             #if DEBUG
             rttLog.wheelSent()
             #endif

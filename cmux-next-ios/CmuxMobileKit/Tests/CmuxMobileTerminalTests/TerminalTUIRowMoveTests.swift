@@ -70,6 +70,65 @@ final class TerminalTUIRowMoveTests: XCTestCase {
         XCTAssertEqual(glide.interval, 0.1, accuracy: 0.002)
     }
 
+    /// Leo, 2026-11-24: "we can just treat the scroll like any pedestrian scroll." A steady
+    /// drag over an app that moves three rows per wheel row: the rows move every frame, by the
+    /// finger's own amount, never a row at a time, and never stand still while the finger moves.
+    func testWhileTheFingerMovesTheRowsMoveWithItEveryFrame() {
+        var glide = TerminalTUIRowGlide()
+        let rowHeight: CGFloat = 17
+        let frame = 1.0 / 120
+        // The finger: 120 points per second, a wheel report every frame.
+        let fingerPerFrame: CGFloat = 1
+        var t = 1.0, sent: CGFloat = 0, appTravel: CGFloat = 0
+        var positions: [CGFloat] = []
+        for _ in 0..<240 {
+            t += frame
+            glide.wheel(dy: fingerPerFrame, at: t)
+            sent += fingerPerFrame
+            // The app: three rows for each row of wheel, about 70 ms late.
+            let due = (max(0, sent - 70 * 0.12) / rowHeight).rounded(.down) * 3 * rowHeight
+            if due > appTravel {
+                glide.jumped(rows: Int((due - appTravel) / rowHeight), rowHeight: rowHeight, at: t)
+                appTravel = due
+            }
+            glide.step(dt: frame)
+            positions.append(appTravel + glide.offset)
+        }
+        // Past the first jumps (learning the app's three rows per wheel row): smooth motion.
+        let smooth = TerminalScrollSmoothness(positions: Array(positions.dropFirst(60)))
+        XCTAssertNotNil(smooth)
+        XCTAssertLessThan(smooth?.stillShare ?? 1, 0.1)
+        XCTAssertLessThan(smooth?.stepP95 ?? 99, rowHeight / 2)
+        XCTAssertEqual(Double(glide.rowsPerWheelPoint), 3, accuracy: 0.6)
+    }
+
+    func testWhenTheFingerStopsTheRestEasesIntoPlace() {
+        var glide = TerminalTUIRowGlide()
+        glide.wheel(dy: 4, at: 1.0)
+        glide.wheel(dy: 4, at: 1.0 + 1.0 / 60)
+        glide.jumped(rows: 3, rowHeight: 17, at: 1.2)
+        XCTAssertEqual(glide.offset, -51)
+        var t = 0.0
+        while glide.step(dt: 1.0 / 120) { t += 1.0 / 120 }
+        XCTAssertEqual(glide.offset, 0)
+        XCTAssertLessThan(t, 0.4)
+    }
+
+    func testAJumpKeepsWhatTheGlideHadNotSlidUpToARowMore() {
+        var glide = TerminalTUIRowGlide()
+        glide.wheel(dy: 1, at: 1.0)
+        glide.jumped(rows: 3, rowHeight: 17, at: 1.01)
+        glide.jumped(rows: 3, rowHeight: 17, at: 1.02)
+        // 102 points behind is more than a jump and a row: it is drawn 68 behind.
+        XCTAssertEqual(glide.offset, -68)
+        // A jump the other way starts fresh.
+        glide.jumped(rows: -2, rowHeight: 17, at: 1.03)
+        XCTAssertEqual(glide.offset, 34)
+        glide.stop()
+        XCTAssertEqual(glide.offset, 0)
+        XCTAssertEqual(glide.rowsPerWheelPoint, 1)
+    }
+
     func testSmoothnessOfJumpsAndOfAGlide() {
         // Three rows every six frames: still most of the time, a jump of three rows.
         let jumps = (0..<60).map { CGFloat(($0 / 6) * 51) }
