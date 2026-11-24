@@ -56,7 +56,7 @@ pane beside the terminal:
                   page view, no panel or page window, the page fits <= 100 ms after the pane
   popup_float     (10) a 520 x 420 window.open popup has inner 520 x 420 within 2 pt and a window smaller than the
                   screen, with the opener windowed and in full screen
-  omnibar_narrow  (15) at pane widths 480/360/300/260 with a long URL, the omnibar text area ends before every icon
+  omnibar_narrow  (15) at pane widths 480/360/300/260/200 with a long URL, the omnibar text area ends before every icon
                   to its right in the bar, and the bar stays in the toolbar
   key_route       (23) the page focused by tab.focus from the terminal, no click: its view is the first responder, a
                   real letter reaches it, real Cmd-Shift-Return zooms and unzooms its pane, real Cmd-D splits it (real
@@ -1661,7 +1661,7 @@ def check_popup_float(tab, pane):
 
 
 def check_omnibar_narrow(tab, pane):
-    """Bug 15: with a long URL, at page-pane widths 480, 360, 300 and 260 pt (divider drags), the omnibar's text area
+    """Bug 15: with a long URL, at page-pane widths 480, 360, 300, 260 and 200 pt (divider drags), the omnibar's text area
     (and its field) ends before every icon to its right inside the bar, starts after every icon to its left, and the
     bar stays inside the toolbar (debug.omnibar pointer frames, window points from the top left)."""
     layers = main_layers()
@@ -1669,7 +1669,7 @@ def check_omnibar_narrow(tab, pane):
     if not frame:
         row("INFO", "omnibar_narrow", {"note": "no in-tree page view"})
         return
-    for width in (480, 360, 300, 260):
+    for width in (480, 360, 300, 260, 200):
         layers = main_layers()
         frame = page_view(pane, layers)
         divider = vertical_divider_near(frame[0], layers) if frame else None
