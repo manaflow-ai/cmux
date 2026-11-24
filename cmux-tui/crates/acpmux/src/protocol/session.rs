@@ -986,6 +986,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude peer sessions before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and
+    /// sessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the
+    /// chats a list shows on their own (capability `session-list-top-level-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_level_only: Option<bool>,
     /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<String>,
