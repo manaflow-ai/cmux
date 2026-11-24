@@ -12057,24 +12057,24 @@ CmuxNextCloud	class	CloudRefuseRedirects	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextCloud	extension	Duration	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCore.swift	milliseconds for FFI requests
 CmuxNextCloud	extension	CloudStartCore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCore.swift	asks Rust starts_as_person, copies_through_store, shell_quoted, plan_request
 CmuxNextCloud	extension	CloudMachineRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCore.swift	create request init for a send
-CmuxNextCloud	struct	CloudMoveCLI	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	process runner; args and answers read by Rust moves::cli; answer DTOs
+CmuxNextCloud	struct	CloudMoveCLI	0	MIXED	32	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	process runner and Rust-answer DTOs; real logic left in Swift: preflight size and refusal parsing, spare-warm reply readers, gateway serves, strand, seed-field fallback
 CmuxNextCloud	struct	CloudMoveCLIUnanswered	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	FFI did not answer error
 CmuxNextCloud	struct	CloudStartSetup	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudStartProgress.swift	start setup progress DTO decoded from Rust
 CmuxNextCloud	struct	CloudStartInfo	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudStartProgress.swift	start info DTO
 CmuxNextCloud	struct	SeedProgress	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudStartProgress.swift	progress DTO; reader asks Rust seed_read; main-actor feed glue
-CmuxNextCloud	struct	CloudLegacyPin	0	PLATFORM	0	20	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudLegacyPin.swift	reads manifest file; rules in Rust moves::pin
+CmuxNextCloud	struct	CloudLegacyPin	0	MIXED	0	20	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudLegacyPin.swift	reads manifest file; rules in Rust moves::pin; Codable pin mirror
 CmuxNextCloud	extension	CloudExecResult	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudLegacyPin.swift	asks Rust legacy_update
-CmuxNextCloud	struct	CloudMoveFolder	0	PLATFORM	0	20	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	asks Rust folder ops; isFolder disk read
-CmuxNextCloud	struct	CloudNewWorkspacePlan	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	asks Rust plan, route, copy_step; push loop glue
+CmuxNextCloud	struct	CloudMoveFolder	0	MIXED	49	8	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	normalized path rule, copyKey hash and remote suffix still in Swift (Rust moves::folder has the same normalized); isFolder disk read; folder fields mirror
+CmuxNextCloud	struct	CloudNewWorkspacePlan	0	MIXED	41	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	route mapping and copy_step loop in Swift; Route/Refusal/Outcome/CopyFailure mirror Rust types
 CmuxNextCloud	enum	CloudNewWorkspaceMachine	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	Rust new_workspace_machine answer
-CmuxNextCloud	class	CloudMoveRetries	0	PLATFORM	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; ledger rules in Rust moves::ledger
+CmuxNextCloud	class	CloudMoveRetries	0	MIXED	0	43	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; Retry and Shown mirror the Rust ledger; ledger rules in Rust moves::ledger
 CmuxNextCloud	extension	CloudMoveRetries.Retry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	retry accessors
-CmuxNextCloud	struct	CloudMoveAlwaysGrants	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; grant rules in Rust
-CmuxNextCloud	class	CloudMovedChats	0	PLATFORM	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMovedChats.swift	defaults I/O; ledger rules in Rust
+CmuxNextCloud	struct	CloudMoveAlwaysGrants	0	MIXED	0	33	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; Scope and Grant mirror the Rust grant; grant rules in Rust
+CmuxNextCloud	class	CloudMovedChats	0	MIXED	4	49	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMovedChats.swift	defaults I/O; Entry and BroughtBack mirror the Rust ledger; Entry.shown builds a Retry.Shown; ledger rules in Rust
 CmuxNextCloud	enum	CloudTaskKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudAutosize.swift	Rust task_kind answer
 CmuxNextCloud	struct	CloudAutosizeRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudAutosize.swift	autosize DTO
 CmuxNextCloud	struct	CloudSizePick	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudAutosize.swift	size pick DTO
-CmuxNextCloud	struct	CloudWorkPick	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWorkPick.swift	runs git and lists the folder; Rust work_pick reads them
+CmuxNextCloud	struct	CloudWorkPick	0	MIXED	15	36	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWorkPick.swift	runs git and lists the folder; pick fields and Facts/Picked mirror Rust work_pick; git fact chain and env in Swift
 CmuxNextCloud	struct	CloudWait	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWait.swift	main-actor observation with deadlines; rules in Rust moves::wait
 CmuxNextCloud	extension	CloudWait	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWait.swift	start wait sequencing (linked, retriedOnce, relinkedOnce, ended); dropped-link and relink rules in Rust
 CmuxNextCloud	struct	CloudOutdatedMachine	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWait.swift	update-then-copy sequencing; refusal and relink rules in Rust
