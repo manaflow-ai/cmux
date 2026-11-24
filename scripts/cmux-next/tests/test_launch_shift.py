@@ -208,5 +208,22 @@ class PerceivedTests(unittest.TestCase):
             self.assertEqual(ls.summarize(root, marks={"terminal_input_accepted": 990})["total"]["tti_ms"], 990)
 
 
+class RelaunchBenchMedianTests(unittest.TestCase):
+    def test_the_medians_carry_the_perceived_numbers(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("relaunch_shift_bench", Path(__file__).resolve().parent.parent / "relaunch-shift-bench.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        rounds = [{"total": {"settled_match_ms": ms, "shift_score": score, "tti_ms": 800, "tti_mark": "window_usable",
+                             "first_frame_is_final": final, "alpha_changes": 0}}
+                  for ms, score, final in ((900, 0, True), (1300, 0.12, False), (950, 0.02, True))]
+        median = bench.median_of(rounds)
+        self.assertEqual((median["settled_match_ms"], median["shift_score"], median["tti_ms"]), (950, 0.02, 800))
+        self.assertTrue(median["first_frame_is_final"])
+        self.assertEqual(median["first_frame_final_rounds"], "2/3")
+        self.assertTrue(ls.headline(median).startswith(
+            "PERCEIVED settled_match_ms=950 shift_score=0.02 tti_ms=800 first_frame_is_final=true"))
+
+
 if __name__ == "__main__":
     unittest.main()

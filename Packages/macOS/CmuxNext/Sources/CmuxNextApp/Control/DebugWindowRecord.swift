@@ -247,7 +247,7 @@ final class DebugWindowRecord {
                 if !processMs.isEmpty { frames["processMs"] = processMs }
                 if !series.cells.isEmpty { frames["cells"] = series.cells }
                 for (key, value) in launch { frames[key] = value }
-                if !movedRects.isEmpty { frames["movedRects"] = movedRects.map { $0.map(\.json) } }
+                if !movedRects.isEmpty { frames["movedRects"] = movedRects.map { frame in frame.map { $0.json } } }
                 if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }
             done()
