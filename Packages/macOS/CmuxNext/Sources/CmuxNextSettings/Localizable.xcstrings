@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.cloud.autoCloud": {
+      "comment": "Settings row title: Auto in the new chat Where menu may place a chat on a Cloud machine",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Places Chats in Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضع الخيار التلقائي المحادثات في السحابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski smješta razgovore u oblak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto placerer chats i skyen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto legt Chats in der Cloud an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto coloca los chats en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto place les discussions dans le cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto colloca le chat nel cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動でチャットをクラウドに配置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិដាក់ការជជែកក្នុងពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동으로 채팅을 클라우드에 배치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto plasserer chatter i skyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto umieszcza czaty w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto coloca conversas na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто размещает чаты в облаке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติวางแชตบนคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik, sohbetleri buluta yerleştirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто розміщує чати в хмарі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động đặt cuộc trò chuyện trên đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动将聊天放到云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動將聊天放到雲端"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoCloud.help": {
+      "comment": "Settings row help: where Auto runs a new chat",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل الخيار التلقائي المحادثة الجديدة على جهاز Mac هذا عندما تتوفر مساحة، وإلا فعلى جهاز سحابي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski pokreće novi razgovor na ovom Macu kada ima mjesta, inače na mašini u oblaku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto kører en ny chat på denne Mac, når der er plads, ellers på en maskine i skyen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto startet einen neuen Chat auf diesem Mac, wenn Platz ist, sonst auf einem Cloud-Rechner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto ejecuta un chat nuevo en este Mac cuando tiene espacio; si no, en una máquina en la nube."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto lance une nouvelle discussion sur ce Mac s’il a de la place, sinon sur une machine cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto avvia una nuova chat su questo Mac quando c’è spazio, altrimenti su una macchina cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動では、このMacに余裕があれば新しいチャットをここで実行し、なければクラウドのマシンで実行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិដំណើរការការជជែកថ្មីលើ Mac នេះ ពេលវាមានកន្លែង បើមិនដូច្នោះទេ លើម៉ាស៊ីនពពក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동은 이 Mac에 여유가 있으면 새 채팅을 여기서 실행하고, 아니면 클라우드 머신에서 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto kjører en ny chat på denne Macen når det er plass, ellers på en maskin i skyen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto uruchamia nowy czat na tym Macu, gdy jest miejsce, a w przeciwnym razie na maszynie w chmurze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto executa uma nova conversa neste Mac quando há espaço; caso contrário, em uma máquina na nuvem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто запускает новый чат на этом Mac, если есть место, иначе на облачной машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติจะเรียกใช้แชตใหม่บน Mac เครื่องนี้เมื่อมีที่ว่าง ไม่เช่นนั้นจะใช้เครื่องบนคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik, yer olduğunda yeni sohbeti bu Mac’te, yoksa bir bulut makinesinde çalıştırır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто запускає новий чат на цьому Mac, коли є місце, інакше на хмарній машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động chạy cuộc trò chuyện mới trên máy Mac này khi còn chỗ, nếu không thì trên máy đám mây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动会在这台 Mac 有空间时在此运行新聊天，否则在云端机器上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動會在這台 Mac 有空間時在此執行新聊天，否則在雲端機器上執行。"
+          }
+        }
+      }
+    },
     "settings.agentPane.followUpMode": {
       "comment": "Settings > Agent Chat: title of the row that picks what Return does with a message sent while the agent is working (steer it into the running turn or queue it for after)",
       "extractionState": "manual",
