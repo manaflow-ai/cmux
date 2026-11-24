@@ -161,7 +161,6 @@ fn malformed_conversation_tab_splits_are_refused() {
         page(json!({"split":{"direction":"right"}})),
         page(json!({"pane":source,"split":{"direction":"sideways"}})),
         page(json!({"pane":source,"split":{"direction":"right","pane_id":"nope"}})),
-        page(json!({"pane":source,"split":{"direction":"right","extra":1}})),
         page(json!({"workspace":workspace,"split":{"direction":"right"}})),
     ];
     let panes = mux.with_state(|state| state.panes.len());
@@ -170,6 +169,10 @@ fn malformed_conversation_tab_splits_are_refused() {
         assert_eq!(mux.with_state(|state| state.panes.len()), panes, "{request} created a pane");
         assert_eq!(pane_tabs(&mux, source), vec![terminal], "{request} created a tab");
     }
+    // A split field this daemon does not know (a newer client's) is dropped: the split runs.
+    let newer = page(json!({"pane":source,"split":{"direction":"right","from_a_newer_client":1}}));
+    assert!(run(&mux, newer.clone()).is_ok(), "{newer} must run");
+    assert_eq!(mux.with_state(|state| state.panes.len()), panes + 1, "{newer} made one pane");
     mux.shutdown();
 }
 

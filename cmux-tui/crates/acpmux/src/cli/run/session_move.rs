@@ -64,6 +64,7 @@ use std::process::Command as StdCommand;
 
 #[path = "session_move_hub.rs"]
 mod hub;
+pub(crate) use hub::move_out;
 #[path = "session_move_link.rs"]
 mod link;
 
@@ -72,6 +73,8 @@ mod preflight;
 use link::SLOW_COPY;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
+#[path = "session_move_target_ask.rs"]
+mod target_ask;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -159,7 +162,10 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
 
 /// How long a move waits, after its commit, for this machine to list the chat reachable on the
 /// target (`await_arrival`), and how often it asks. The row is there within a poll or two of
-/// the commit while the link is up; the bound is for a link that is down.
+/// the commit while the link is up; the bound is for a link on its way back (connecting,
+/// reconnecting, degraded). A link that is offline (never reached and its attempts failed,
+/// removed, or its token refused) ends the wait at once (`link_gone`): no row comes from it
+/// within the bound, and waiting it out cost every such move the whole 5 s.
 const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -198,6 +204,25 @@ fn arrived(reply: &Value, id: &str) -> Result<(), String> {
     Err(why)
 }
 
+/// Why the peer `name` in a `_acpmux/peers` answer will not list a moved chat within the
+/// arrival bound: its link is offline (never reached and its attempts failed, or removed), or
+/// a person must act (its token refused, the peer too old). None while it is up or on its way.
+fn link_gone(peers: &Value, name: &str) -> Option<String> {
+    let peer = peers
+        .get("peers")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let link = peer.get("link").or_else(|| peer.get("state")).and_then(Value::as_str)?;
+    if !matches!(link, "offline" | "authFailed" | "updateRequired") {
+        return None;
+    }
+    Some(match peer.get("error").and_then(Value::as_str) {
+        Some(error) => format!("peer {link}: {error}"),
+        None => format!("peer {link}"),
+    })
+}
+
 /// Waits, at most `bound`, asking every `poll` (one request for all still waited on), until
 /// `observer` lists every moved chat in `there` as reachable on its new machine (`arrived`): a move
 /// that ends before then leaves `ls` showing it unknown, its peer reconnecting, though it runs
@@ -211,6 +236,8 @@ async fn await_arrival(
 ) -> Vec<(String, String)> {
     let deadline = tokio::time::Instant::now() + bound;
     let mut left = entries.to_vec();
+    // Chats already named late because their peer link is offline.
+    let mut done: Vec<(String, String)> = Vec::new();
     loop {
         let keys: Vec<&str> = left.iter().map(|(key, _)| key.as_str()).collect();
         let reply = observer
@@ -228,7 +255,30 @@ async fn await_arrival(
             }
         }
         if late.is_empty() || tokio::time::Instant::now() + poll > deadline {
-            return late.into_iter().map(|(_, id, why)| (id, why)).collect();
+            return done
+                .into_iter()
+                .chain(late.into_iter().map(|(_, id, why)| (id, why)))
+                .collect();
+        }
+        // A chat whose peer link is offline is not coming within the bound: name it now.
+        let mut gone = Vec::new();
+        if late.iter().any(|(key, _, _)| key.contains('/')) {
+            if let Ok(peers) = observer.request("_acpmux/peers", json!({})).await {
+                late.retain(|(key, id, _)| {
+                    let peer = key.split_once('/').map(|(peer, _)| peer);
+                    match peer.and_then(|peer| link_gone(&peers, peer)) {
+                        Some(why) => {
+                            gone.push((id.clone(), why));
+                            false
+                        }
+                        None => true,
+                    }
+                });
+            }
+        }
+        done.extend(gone);
+        if late.is_empty() {
+            return done;
         }
         left = late.into_iter().map(|(key, id, _)| (key, id)).collect();
         tokio::time::sleep(poll).await;
@@ -260,11 +310,10 @@ async fn settle_arrivals(observer: &Client, outcomes: &mut [Outcome]) {
         o.reachable = Some(why.is_none());
         if let Some((_, why)) = why {
             eprintln!(
-                "move: {}: moved to {}, but this machine does not list it reachable there after \
-                 {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                "move: {}: moved to {}, but this machine does not list it reachable there \
+                 ({why}); it runs there, and `acpmux ls` shows it once the link is up",
                 o.name,
                 o.host.as_deref().unwrap_or("?"),
-                ARRIVAL_WAIT.as_secs()
             );
         }
     }
@@ -299,6 +348,8 @@ pub(crate) struct MoveArgs {
     /// `--from-snapshot`: the chats start on the target from this machine's copy of them
     /// (`session_move_snapshot.rs`), for a machine that does not answer.
     pub from_snapshot: bool,
+    /// `--as HARNESS`: the chats land on the target's harness HARNESS, one for the same agent.
+    pub as_harness: Option<String>,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -397,9 +448,6 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     // `--from`: the chats' daemon is the peer's, reached through a forward of its local socket.
     let (src, source, home, _src_forward) = match &args.from {
         None => {
-            if names_here(&args.host, &here) {
-                bail!("the chats are on this machine already: name another machine");
-            }
             let home =
                 dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
             (local.clone(), Source::Here, home, None)
@@ -426,38 +474,94 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     if ids.is_empty() {
         bail!("no chat to move: name one or more, or pass --all-idle");
     }
-    // A machine no ssh peer names, that the team hub lists as one of the person's: the move goes
-    // through the hub, the target pulling it (`session_move_hub.rs`).
-    if matches!(source, Source::Here)
+    let mut holders = Vec::with_capacity(ids.len());
+    for key in &ids {
+        holders.push(if matches!(source, Source::Here) && !args.all_idle {
+            hub::holder(&local, key, &here, &peers).await?
+        } else {
+            None
+        });
+    }
+    if holders.iter().any(Option::is_some)
+        && (args.cwd.is_some()
+            || args.dry_run
+            || args.carry_changes
+            || args.leave_dirty
+            || args.host == "auto")
+    {
+        bail!(
+            "a move from a hub machine needs a named target or local and supports --after-turn, --interrupt and --timeout"
+        );
+    }
+    let drive_here = holders.iter().any(Option::is_none);
+    if drive_here && matches!(source, Source::Here) && names_here(&args.host, &here) {
+        bail!("the chats are on this machine already: name another machine");
+    }
+    let hub_target = if drive_here
+        && matches!(source, Source::Here)
         && args.host != "auto"
         && peer_ssh(&peers, &args.host).is_none()
     {
-        return hub::run(&src, &ids, &args, &home, json_out).await;
-    }
-    let here_target = match &source {
-        Source::Peer { .. } if names_here(&args.host, &here) => {
-            Some(Target { name: here.clone(), ssh: String::new(), probed: Some(local_daemon()?) })
+        if args.carry_changes {
+            bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        _ => None,
+        Some(hub::resolve(&src, &args.host).await.with_context(|| {
+            format!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+                args.host
+            )
+        })?)
+    } else {
+        None
     };
-    let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
-    targets.observer = Some(local);
-    targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
+    let mut targets = if drive_here && hub_target.is_none() {
+        let here_target = match &source {
+            Source::Peer { .. } if names_here(&args.host, &here) => Some(Target {
+                name: here.clone(),
+                ssh: String::new(),
+                probed: Some(local_daemon()?),
+            }),
+            _ => None,
+        };
+        let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
+        targets.observer = Some(local.clone());
+        targets.exclude_source(&source, crate::placement::load_registry().as_ref())?;
+        Some(targets)
+    } else {
+        None
+    };
     let mut outcomes = Vec::new();
-    for key in &ids {
-        let outcome = move_one_from(&src, &source, key, &args, &home, &mut targets).await;
+    let mut rows = Vec::new();
+    let mut hub_outcomes = Vec::new();
+    for (key, holder) in ids.iter().zip(holders) {
+        let row = if let Some((holder, session)) = holder {
+            hub::ask_holder(&local, &holder, &session, &args, &here).await
+        } else if let Some(target) = &hub_target {
+            hub::one(&src, key, &args, &home, target).await
+        } else {
+            let targets = targets.as_mut().context("missing move target")?;
+            let o = move_one_from(&src, &source, key, &args, &home, targets).await;
+            if !json_out {
+                print_outcome(&o, args.dry_run);
+            }
+            outcomes.push(o);
+            continue;
+        };
+        if json_out {
+            rows.push(serde_json::to_value(&row)?);
+        }
+        let outcome = row.into_outcome();
         if !json_out {
             print_outcome(&outcome, args.dry_run);
         }
-        outcomes.push(outcome);
+        hub_outcomes.push(outcome);
     }
     if !args.dry_run {
-        let observer = targets.observer.as_deref().unwrap_or(&src);
+        let observer = targets.as_ref().and_then(|t| t.observer.as_deref()).unwrap_or(&src);
         settle_arrivals(observer, &mut outcomes).await;
     }
-    let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
     if json_out {
-        let rows: Vec<Value> = outcomes
+        let local_rows: Vec<Value> = outcomes
             .iter()
             .map(|o| {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
@@ -466,6 +570,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                        "preflight": o.preflight, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
+        rows.splice(0..0, local_rows);
+    }
+    outcomes.extend(hub_outcomes);
+    if json_out {
+        let failed = outcomes.iter().filter(|o| o.error.is_some()).count();
         print_json(&json!({"moves": rows, "failed": failed}));
     }
     match not_moved(&outcomes) {
@@ -537,6 +646,7 @@ fn carried_text(o: &Outcome) -> String {
 pub(super) async fn end_stale(
     sessions: &[String],
     from: Option<&str>,
+    take_back: bool,
     json_out: bool,
 ) -> Result<()> {
     if sessions.is_empty() {
@@ -563,7 +673,14 @@ pub(super) async fn end_stale(
     let mut failed = 0;
     for key in sessions {
         let ended = match resolve_id(&src, key).await {
-            Ok(id) => src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await,
+            Ok(id) => {
+                let ask = if take_back {
+                    json!({"sessionId": id, "takeBack": true})
+                } else {
+                    json!({"sessionId": id})
+                };
+                src.request("_acpmux/transfer_end_stale", ask).await
+            }
             Err(e) => Err(e),
         };
         match ended {
@@ -630,6 +747,7 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
         from: None,
         slow_ok: false,
         from_snapshot: false,
+        as_harness: None,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
@@ -816,7 +934,32 @@ async fn move_steps(
         }
         anyhow!(e)
     })?;
+    // The target is asked what `transfer_receive` will ask, before anything is frozen or copied:
+    // a refusal it can give without the bytes ends the move (and the dry run) here, in its words.
+    let opened =
+        waiting(&o.name, "opening the target's daemon", target_ask::open(&target, &remote)).await?;
+    let ask = target_ask::ask(&opened.dst, &id, &info, args.as_harness.as_deref());
+    let asked = waiting(&o.name, "asking the target to take it", ask).await;
+    let answer = match asked {
+        Ok(answer) => answer,
+        Err(e) => {
+            o.error_code = target_ask::refusal_code(&e);
+            opened.close().await;
+            return Err(e);
+        }
+    };
     if args.dry_run {
+        opened.close().await;
+        if answer == target_ask::Answer::Unasked {
+            // An older acpmux there: nothing says the move would land, so the dry run does not.
+            o.error_code = Some("target_unasked");
+            bail!(
+                "{} could not be asked whether it takes this chat: its acpmux is older than \
+                 this check (update acpmux there; a move without --dry-run still asks it at \
+                 the copy)",
+                target.name
+            );
+        }
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, snapshot: false, .. } => {
@@ -845,12 +988,11 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    // The target's daemon first: the chat's history is staged there before the freeze when both
+    // The target's daemon: the chat's history is staged there before the freeze when both
     // daemons can (`transfer::precopy`), so the freeze moves only what follows.
     let name = o.name.clone();
-    let connecting = super::transfer::connect_target(&target.ssh, &remote.socket);
-    let (forward, dst_client, dst_init) =
-        waiting(&name, "connecting to the target's daemon", connecting).await?;
+    // Its client is the one the target was asked on above, before anything froze.
+    let target_ask::Opened { forward, dst: dst_client, init: dst_init } = opened;
     // Both ends come back after a dropped forward or a daemon swap mid-move (`move_end.rs`).
     let dst_reach = if target.ssh.is_empty() {
         Reach::Socket { path: PathBuf::from(&remote.socket) }
@@ -871,7 +1013,8 @@ async fn move_steps(
     if staged.is_none() {
         super::transfer::whole_freeze_refusal(&mut src_end, &id).await?;
     }
-    let begun = begin_waiting(&mut src_end, &id, &name, watch, args, staged.as_ref()).await?;
+    let mut begun = begin_waiting(&mut src_end, &id, &name, watch, args, staged.as_ref()).await?;
+    begun.as_harness = args.as_harness.clone();
     let prepared = waiting(
         &name,
         "making its folder on the target",
@@ -879,7 +1022,7 @@ async fn move_steps(
     )
     .await;
     let record = match prepared {
-        Ok(p) => p,
+        Ok(record) => record,
         Err(e) => {
             super::transfer::abort_move(&mut src_end, &id, &begun).await;
             return Err(e);
@@ -938,7 +1081,7 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target: the checkout read again (it may have changed
 /// before the freeze), its branch pushed, the folder made there. Returns the move's record
-/// (`movedTo`).
+/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,

@@ -5,6 +5,38 @@
 use super::*;
 
 wire_op! {
+    /// Enroll the calling install's machine as a host in the team directory.
+    HostEnrollOp {
+        name: "host.enroll",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Install],
+        params: HostEnrollParams,
+        result: Host,
+        error: HostEnrollError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostEnrollParams {
+    pub name: String,
+    pub platform: Platform,
+}
+
+wire_errors! {
+    /// The error codes host.enroll declares.
+    HostEnrollError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate.
     HostNetworkBindOp {
         name: "host.network.bind",
@@ -859,37 +891,5 @@ wire_enum! {
     IntegrationPolicySetParamsGithubScope {
         LinkingUserRepos = "linking_user_repos",
         Installation = "installation",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParamsGithub {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<IntegrationPolicySetParamsGithubScope>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub require_org_admin: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_workflows: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub allowed_providers: Option<Option<Vec<IntegrationProvider>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub github: Option<IntegrationPolicySetParamsGithub>,
-}
-
-wire_errors! {
-    /// The error codes integration.policy.set declares.
-    IntegrationPolicySetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyLocked = "policy.locked",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }
