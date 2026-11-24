@@ -887,6 +887,28 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+
+  Since 2026-11-24, a resumable upload may add `upload_id` and `offset`.
+  `upload_id` is exactly 36 lowercase hexadecimal or `-` characters, and
+  `offset` is a byte offset represented as a number or decimal string, default
+  zero. The upload folder uses `device-<SHA-256 of lowercase phone device ID>`
+  in place of the link session so the same phone can resume after redial.
+  The host keeps the partial file at `<upload-folder>/.<upload_id>.part`,
+  truncates it to `offset`, and first answers `{"have":offset}\n`. If the
+  requested offset is past the partial file, it answers
+  `{"error":"resume_gap","have":length}\n` and closes `resume_gap`. An offset
+  within the part but beyond the declared size closes `bad_request`.
+  Data is acknowledged with `{"ack":bytes}\n` after each MiB and when the
+  stream stops. An overlapping attempt that still finds the part busy after
+  two seconds closes `busy`. Once `size` bytes are present, the host flushes
+  and syncs the partial file, publishes it under the safe name, and answers
+  `{"path","size"}\n` before closing `eof`. A link close or a 120-second
+  period without data keeps the partial file. The latter answers its last ack
+  and closes `stalled`. Receiving more than `size` bytes deletes the partial
+  file and closes `bad_request`. Resumable replies are one JSON object per
+  newline-terminated line. The host removes resumable parts older than 24 hours
+  when it next opens that upload folder. Uploads without `upload_id` retain the
+  legacy reply framing and interruption behavior.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)

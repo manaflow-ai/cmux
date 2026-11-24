@@ -2,6 +2,7 @@
 //! listed here is closed with `unknown_service`.
 
 use std::collections::{HashMap, HashSet};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,7 +11,8 @@ use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_mobile_link::{ChannelEvent, IncomingChannel, names};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, SeekFrom};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, timeout};
@@ -27,7 +29,7 @@ use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
 #[derive(Debug, Clone)]
 pub struct Peer {
     pub device_id: String,
-    /// The link session (a UUID): one `upload` folder per session.
+    /// The link session (a UUID). Legacy uploads use one folder per session.
     pub session_id: String,
     /// The link's media lane (browser video as RTP: a WebRTC track or UDP
     /// inside the WireGuard tunnel), if the
@@ -70,6 +72,17 @@ pub async fn serve(
     peer: Peer,
     link: Arc<crate::pairing::LinkAuth>,
     incoming: IncomingChannel,
+) {
+    serve_with_upload_timeout(config, peer, link, incoming, UPLOAD_STALL_TIMEOUT).await;
+}
+
+/// Serve a channel with a host-selected inactivity deadline for resumable uploads.
+pub async fn serve_with_upload_timeout(
+    config: Arc<ServiceConfig>,
+    peer: Peer,
+    link: Arc<crate::pairing::LinkAuth>,
+    incoming: IncomingChannel,
+    upload_timeout: Duration,
 ) {
     let IncomingChannel { service, args, lane, channel } = incoming;
     let (mut sender, mut receiver) = channel.split();
@@ -153,7 +166,7 @@ pub async fn serve(
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
-        "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "upload" => upload(&config, &peer, &args, &sender, receiver, upload_timeout).await,
         "version" => version(&config, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
@@ -253,6 +266,10 @@ pub const LINK_PROTOCOL: u32 = 2;
 /// The largest message the daemon's acpmux WebSocket sends or takes (acpmux `server/mod.rs`
 /// `WS_MAX_MESSAGE_BYTES`).
 const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+const UPLOAD_STALL_TIMEOUT: Duration = Duration::from_secs(120);
+const UPLOAD_ACK_BYTES: u64 = 1 << 20;
+const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
@@ -2059,15 +2076,28 @@ fn with_pane_folder(reply: Option<&Value>, line: Vec<u8>) -> Vec<u8> {
 /// The folder an `upload` writes to. With `cwd` (a folder of one of the
 /// Mac's tabs, or inside a shared root): `<cwd>/.cmux/attachments/phone-<session>`,
 /// next to acpmux's own attachments, so the agent of that workspace reads
-/// it without leaving its folder. Without: `<uploads>/<session>`.
-async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -> Result<PathBuf, Refusal> {
+/// it without leaving its folder. Without: `<uploads>/<session>`. Resumable
+/// uploads use a per-phone directory in place of the link session.
+async fn upload_folder(
+    config: &ServiceConfig,
+    peer: &Peer,
+    cwd: Option<&str>,
+    resumable: bool,
+) -> Result<PathBuf, Refusal> {
     let session: String =
         peer.session_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(36).collect();
     if session.is_empty() {
         return Err(Refusal::new("bad_request", "no link session"));
     }
+    // The link's session id changes on redial. Scope resumable parts to this phone
+    // across links, without putting a peer-supplied path component on disk.
+    let scope = if resumable {
+        format!("device-{:x}", Sha256::digest(peer.device_id.to_ascii_lowercase().as_bytes()))
+    } else {
+        session
+    };
     let Some(cwd) = cwd else {
-        let folder = config.uploads_dir.join(&session);
+        let folder = config.uploads_dir.join(&scope);
         create_private_dir(&config.uploads_dir)?;
         create_private_dir(&folder)?;
         return Ok(folder);
@@ -2083,7 +2113,7 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
     if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
         return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
     }
-    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{session}"));
+    let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{scope}"));
     std::fs::create_dir_all(&folder)
         .map_err(|e| Refusal::new("io", format!("cannot create the upload folder: {e}")))?;
     // `.cmux` or `attachments` may be a symlink out of the workspace.
@@ -2132,27 +2162,38 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
 /// data frames; hostd writes them to a new file of the upload folder
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
-/// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short or long upload leaves no file. Any `size` is
-/// accepted: the bytes stream to disk as they arrive (attachments have no
-/// size cap). `size` may be a JSON number or a decimal string (the app's
-/// channel arguments are strings).
+/// channel closes with that code. Legacy uploads remove an incomplete part.
+/// Resumable uploads retain it for a later attempt. Nothing is overwritten,
+/// nothing is executed, and any `size` is accepted: the bytes stream to disk
+/// as they arrive (attachments have no size cap). `size` may be a JSON number
+/// or a decimal string (the app's channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
     sender: &ChannelSender,
     receiver: ChannelReceiver,
+    stall_timeout: Duration,
 ) -> Result<(), Refusal> {
-    match receive_upload(config, peer, args, receiver).await {
+    let resumable = args.get("upload_id").is_some();
+    match receive_upload(config, peer, args, sender, receiver, stall_timeout).await {
         Ok((path, size)) => {
             tracing::info!(size, phone = peer.device_id, "upload saved");
-            let reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+            let mut reply = serde_json::json!({"path": path.to_string_lossy(), "size": size}).to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Ok(())
         }
         Err(refusal) => {
-            let reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable && refusal.code == "resume_gap" {
+                return Err(refusal);
+            }
+            let mut reply = serde_json::json!({"error": refusal.code, "message": refusal.reason}).to_string();
+            if resumable {
+                reply.push('\n');
+            }
             let _ = sender.send(Bytes::from(reply)).await;
             Err(refusal)
         }
@@ -2163,7 +2204,9 @@ async fn receive_upload(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
+    sender: &ChannelSender,
     mut receiver: ChannelReceiver,
+    stall_timeout: Duration,
 ) -> Result<(PathBuf, u64), Refusal> {
     let name = args
         .get("name")
@@ -2177,7 +2220,93 @@ async fn receive_upload(
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
-    let folder = upload_folder(config, peer, cwd).await?;
+    let upload_id = args.get("upload_id");
+    if let Some(value) = upload_id {
+        let id = value
+            .as_str()
+            .filter(|id| {
+                id.len() == 36 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'-'))
+            })
+            .ok_or_else(|| Refusal::new("bad_request", "invalid upload_id"))?;
+        let offset = match args.get("offset") {
+            None => Some(0),
+            Some(Value::String(s)) if s.bytes().all(|b| b.is_ascii_digit()) => s.parse().ok(),
+            Some(value) => value.as_u64(),
+        }
+        .ok_or_else(|| Refusal::new("bad_request", "invalid offset"))?;
+        let folder = upload_folder(config, peer, cwd, true).await?;
+        cleanup_stale_upload_parts(&folder);
+        let part = folder.join(format!(".{id}.part"));
+        let io_error = |e: std::io::Error| Refusal::new("io", e.to_string());
+        // Drop the descriptor before waking a retry, including on cancellation.
+        let _release;
+        let raw = open_upload_part(&part).await?;
+        _release = UploadLockRelease;
+        let meta = raw.metadata().map_err(io_error)?;
+        if !meta.is_file() || meta.nlink() != 1 {
+            return Err(Refusal::new("io", "the upload part must be a regular file with one link"));
+        }
+        // A preceding writer may have published and unlinked this inode between open and lock.
+        let named =
+            std::fs::symlink_metadata(&part).map_err(|_| Refusal::new("busy", "upload part changed"))?;
+        if (named.dev(), named.ino()) != (meta.dev(), meta.ino()) {
+            return Err(Refusal::new("busy", "upload part changed"));
+        }
+        let mut file = tokio::fs::File::from_std(raw);
+        confine_open(std::slice::from_ref(&folder), &file)?;
+        let length = meta.len();
+        if offset > length {
+            let _ =
+                sender.send(Bytes::from(format!("{{\"error\":\"resume_gap\",\"have\":{length}}}\n"))).await;
+            return Err(Refusal::new("resume_gap", format!("the upload has {length} bytes")));
+        }
+        if offset > size {
+            return Err(Refusal::new("bad_request", "offset exceeds the declared size"));
+        }
+        file.set_len(offset).await.map_err(io_error)?;
+        file.seek(SeekFrom::Start(offset)).await.map_err(io_error)?;
+        let _ = sender.send(Bytes::from(format!("{{\"have\":{offset}}}\n"))).await;
+        let mut received = offset;
+        let mut last_ack = offset;
+        while received < size {
+            let data = async {
+                loop {
+                    match receiver.recv().await {
+                        Some(ChannelEvent::Data(bytes)) if bytes.is_empty() => continue,
+                        event => return event,
+                    }
+                }
+            };
+            let bytes = match timeout(stall_timeout, data).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => bytes,
+                ended => {
+                    file.flush().await.map_err(io_error)?;
+                    send_upload_ack(sender, received).await;
+                    return Err(if ended.is_err() {
+                        Refusal::new("stalled", "upload stalled waiting for data")
+                    } else {
+                        Refusal::new("bad_request", "the upload ended early")
+                    });
+                }
+            };
+            if bytes.len() as u64 > size - received {
+                let _ = std::fs::remove_file(&part);
+                return Err(Refusal::new("bad_request", "more bytes than the declared size"));
+            }
+            file.write_all(&bytes).await.map_err(io_error)?;
+            received += bytes.len() as u64;
+            if received < size && received - last_ack >= UPLOAD_ACK_BYTES {
+                file.flush().await.map_err(io_error)?;
+                send_upload_ack(sender, received).await;
+                last_ack = received;
+            }
+        }
+        file.flush().await.map_err(io_error)?;
+        send_upload_ack(sender, received).await;
+        file.sync_all().await.map_err(io_error)?;
+        return Ok((publish_upload(&folder, &name, &part)?, size));
+    }
+    let folder = upload_folder(config, peer, cwd, false).await?;
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
@@ -2213,6 +2342,81 @@ async fn receive_upload(
         let _ = std::fs::remove_file(&part);
     })?;
     Ok((path, size))
+}
+
+// A phone's local channel close can finish just before hostd releases the file.
+// Wake immediate retries when a writer finishes, including writers on another link.
+static UPLOAD_UNLOCKED: std::sync::LazyLock<tokio::sync::watch::Sender<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(()).0);
+
+struct UploadLockRelease;
+
+impl Drop for UploadLockRelease {
+    fn drop(&mut self) {
+        UPLOAD_UNLOCKED.send_replace(());
+    }
+}
+
+async fn open_upload_part(part: &Path) -> Result<std::fs::File, Refusal> {
+    let open = async {
+        let mut unlocked = UPLOAD_UNLOCKED.subscribe();
+        loop {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(part)
+                .map_err(|e| Refusal::new("io", e.to_string()))?;
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(std::fs::TryLockError::WouldBlock) => drop(file),
+                Err(std::fs::TryLockError::Error(e)) => return Err(Refusal::new("io", e.to_string())),
+            }
+            let _ = unlocked.changed().await;
+        }
+    };
+    timeout(Duration::from_secs(2), open)
+        .await
+        .map_err(|_| Refusal::new("busy", "another channel is writing this upload"))?
+}
+
+async fn send_upload_ack(sender: &ChannelSender, received: u64) {
+    let _ = sender.send(Bytes::from(format!("{{\"ack\":{received}}}\n"))).await;
+}
+
+fn cleanup_stale_upload_parts(folder: &Path) {
+    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let stale = |meta: &std::fs::Metadata| {
+        meta.is_file()
+            && meta
+                .modified()
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > UPLOAD_PART_MAX_AGE)
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let bytes = name.as_encoded_bytes();
+        if !bytes.strip_prefix(b".").is_some_and(|rest| rest.ends_with(b".part")) {
+            continue;
+        }
+        let path = entry.path();
+        if !entry.metadata().is_ok_and(|meta| stale(&meta)) {
+            continue;
+        }
+        // Recheck under the writer's lock. A retry may have reopened the part during the scan.
+        let Ok(file) = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&path)
+        else {
+            continue;
+        };
+        if file.try_lock().is_ok() && file.metadata().is_ok_and(|meta| stale(&meta) && meta.nlink() == 1) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 #[cfg(test)]
