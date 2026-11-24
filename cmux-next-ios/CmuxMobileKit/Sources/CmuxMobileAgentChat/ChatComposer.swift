@@ -40,6 +40,7 @@ struct ChatComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     /// Picked videos Photos is still copying out (a large one takes seconds): a chip each.
     @State private var preparingVideos = 0
+    @State private var optimizingImageIDs = Set<String>()
     /// An attachment tapped before sending: previewed full screen.
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
@@ -214,7 +215,9 @@ struct ChatComposer: View {
         let id = UUID().uuidString
         attachments.append(AgentAttachment(id: id, kind: .image, name: name, data: data,
                                            fileURL: fileURL, byteCount: byteCount ?? data.count))
+        optimizingImageIDs.insert(id)
         Task {
+            defer { optimizingImageIDs.remove(id) }
             let optimized = await AgentImageOptimizer.optimizeAsync(data)
             guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
             attachments[index].data = optimized
@@ -606,7 +609,7 @@ struct ChatComposer: View {
                 .padding(-4)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(state == .empty)
+        .disabled(state == .empty || !optimizingImageIDs.isEmpty)
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
@@ -628,6 +631,7 @@ struct ChatComposer: View {
     }
 
     private func send(steer: Bool) {
+        guard optimizingImageIDs.isEmpty else { return }
         // A cmux command typed alone runs here, as on the Mac; it is never sent to the agent.
         // A cmux command is cmux's whether the menu offers it here or not (the Mac's
         // `composerCommand`): one it can't run now is refused, never sent to the agent.
