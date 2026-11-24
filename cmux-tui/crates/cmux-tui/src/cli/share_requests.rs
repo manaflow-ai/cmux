@@ -171,7 +171,7 @@ fn run(global: &GlobalArgs, ask: &Ask) -> i32 {
             let listed = share_rows(&data, share.as_deref());
             if global.output == OutputMode::Human {
                 print!("{}", shares_text(&listed));
-                return if share.is_some() && listed.is_empty() { 1 } else { 0 };
+                return 0;
             }
             wire::print_local_success(&json!({"shares": listed}), global.output)
         }
@@ -225,7 +225,7 @@ fn shares_text(rows: &[Value]) -> String {
             .and_then(Value::as_array)
             .is_some_and(|invitees| !invitees.is_empty())
         {
-            "only invited people".to_owned()
+            "named invitations".to_owned()
         } else {
             "access unspecified".to_owned()
         };
@@ -358,7 +358,7 @@ mod tests {
             shares_text(&rows),
             "s1: anyone on team_0123456789abcdef0123 (talk) https://room.example/i/s1\n".to_owned()
                 + "s2: anyone with the link (view)\n"
-                + "s3: only invited people\n"
+                + "s3: named invitations\n"
                 + "s4: access unspecified\n"
         );
     }
