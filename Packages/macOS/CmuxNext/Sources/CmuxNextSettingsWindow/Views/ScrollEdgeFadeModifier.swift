@@ -15,15 +15,25 @@ struct ScrollEdgeFadeModifier: ViewModifier {
         tracked(content)
             .mask {
                 GeometryReader { proxy in
-                    let fade = min(Metrics.scrollEdgeFade / max(proxy.size.height, 1), 0.4)
-                    LinearGradient(stops: [
-                        .init(color: edges.contains(.top) ? .clear : .black, location: 0),
-                        .init(color: .black, location: edges.contains(.top) ? fade : 0),
-                        .init(color: .black, location: edges.contains(.bottom) ? 1 - fade : 1),
-                        .init(color: edges.contains(.bottom) ? .clear : .black, location: 1),
-                    ], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(stops: Self.stops(edges: edges, height: proxy.size.height), startPoint: .top, endPoint: .bottom)
                 }
             }
+    }
+
+    /// The eased bands of `ScrollEdgeFadeView`: smoothstep from the edge to full ink, the bottom
+    /// band taller than the top's, so neither ends in a line.
+    static func stops(edges: ScrollEdges, height: CGFloat) -> [Gradient.Stop] {
+        let h = max(height, 1), n = ScrollEdgeFadeView.bandSamples
+        let top = min(Metrics.scrollEdgeFade / h, 0.4), bottom = min(Metrics.scrollEdgeFadeBottom / h, 0.4)
+        let topStops = (0...n).map { i -> Gradient.Stop in
+            let t = CGFloat(i) / CGFloat(n)
+            return .init(color: .black.opacity(edges.contains(.top) ? ScrollEdgeFadeView.ease(t) : 1), location: top * t)
+        }
+        let bottomStops = (0...n).map { i -> Gradient.Stop in
+            let t = CGFloat(i) / CGFloat(n)
+            return .init(color: .black.opacity(edges.contains(.bottom) ? ScrollEdgeFadeView.ease(1 - t) : 1), location: 1 - bottom + bottom * t)
+        }
+        return topStops + bottomStops
     }
 
     /// Tracks the hidden edges from the scroll geometry on macOS 15 and newer;
