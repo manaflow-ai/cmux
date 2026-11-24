@@ -31,7 +31,10 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
-A `full-ci` label on the pull request starts every callee its types allow.
+A `full-ci` label on the pull request starts every callee its types allow. Into feat-cmux-next a non-draft head
+runs the cheap tier until the land adds `land-ci` (scripts/ci/head_tier.py's at-land rule); that label event
+routes the same head with the full tier, by its changed files, and the `ci tier: full` / `ci tier: cheap` marker
+jobs of pr-router.yml tell land-judge which tier the head ran.
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -132,9 +135,12 @@ def route(event: dict, callees: dict, files: list[str] | None,
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
+    # The land's `land-ci` (or `full-ci`) on a head re-runs it with the full tier: every callee that runs on a
+    # push of that head listens to this label event as it does to `synchronize` (head_tier's at-land rule).
+    listens = "synchronize" if added in (FULL_CI, head_tier.LAND_CI) else action
     start, why = [], {}
     for name, config in sorted(callees.items()):
-        if action not in config["types"]:
+        if listens not in config["types"]:
             why[name] = f"does not listen to '{action}'"
             continue
         if added and (added == FULL_CI or added in config.get("labels", [])):
@@ -230,9 +236,17 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     return problems
 
 
-def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None) -> None:
+def marker_tier(decided: tuple[str, str]) -> str:
+    """The tier marker job this head reports (pr-router.yml `ci tier: full` / `ci tier: cheap`): land-judge adds
+    `land-ci` to a head whose `ci tier: cheap` is green and whose `ci tier: full` is not. A fast-track change
+    (docs, tests, copy) is `full`: its callees run after the merge, so the land asks for nothing more."""
+    return "cheap" if decided[0] in ("cheap", "none") else "full"
+
+
+def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None, tier: str = "full") -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
+        out.write(f"tier={tier}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -251,8 +265,9 @@ def main(argv: list[str]) -> int:
     if mode == "route":
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
-        start, why = route(event, callees, files, decided=head_tier.decide("pull_request", event))
-        write_outputs(start, why, files)
+        decided = head_tier.decide("pull_request", event)
+        start, why = route(event, callees, files, decided=decided)
+        write_outputs(start, why, files, marker_tier(decided))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

@@ -191,7 +191,7 @@ else
       --summary "$GITHUB_STEP_SUMMARY" || true
   fi
 fi
-# A draft head, or a base merge into a PR idle 24 h, runs the cheap tier: the Linux checks and the
+# A draft head, a head not yet landing (no land-ci), or a base merge into a PR idle 24 h, runs the cheap tier: the Linux checks and the
 # cargo fast tier, no Mac tier (scripts/ci/head_tier.py; a later line of an output wins).
 head_tier=""
 if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]]; then
@@ -199,7 +199,7 @@ if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]]; then
 fi
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
   printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
-  echo "- head tier $head_tier (a draft, or a base merge into a PR idle 24 h): Linux checks and the cargo fast tier only; the Mac tiers run when it is marked ready, or on the next push (an empty commit does) once it has a new commit of its own or the full-ci label; adding the label alone does not re-run this workflow." >> "$GITHUB_STEP_SUMMARY"
+  echo "- head tier $head_tier (a draft, a head not yet landing, or a base merge into a PR idle 24 h): Linux checks and the cargo fast tier only; the Mac tiers run on this head when the land adds the land-ci label (land-judge does), or with full-ci." >> "$GITHUB_STEP_SUMMARY"
 fi
 # Whether this pull request changes the cmux-tui it would test against:
 # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,

@@ -18,11 +18,19 @@ head before any merge. How a draft gets the full tier: mark it ready for review 
 not listen to `labeled` (it would start on every label of every PR), so there the label takes effect at the next
 push: push a commit (an empty one does) after adding it.
 
+At-land rule (goal ci-min-per-pr-14; Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time,
+period."): every non-draft head ran the full tier, about 4.3 heads per merge. A non-draft head into feat-cmux-next
+now runs the cheap tier too (the Linux checks and what its diff routes there); the full tier runs once, at land:
+land-judge sees the router's `ci tier: cheap` marker green and no `ci tier: full`, adds the `land-ci` label, and the
+router, ci.yml and cmux-next.yml re-run the same head on that `labeled` event with the full tier, which land-judge
+then requires green on the exact head it merges. `full-ci` still gives the full tier on any head, and so does any
+event that is not a pull request. CI_FULL_TIER_AT_LAND=0 gives every non-draft head the full tier again.
+
 Idle rule (cmuxterm-hq docs/ci/idle-pr-heads-2026-11-21.md, hq#16419): a head that only merges the base into a
 pull request whose own last commit is more than 24 hours old gets the tier `none`: the router starts nothing, and
 ci.yml and cmux-next.yml run it like a draft. Base merges were 37% of PR runner-minutes over 11-13..19, most on
-PRs nobody was working on. A PR that is landing runs its full tier at the land's own merge run, a fresh commit
-brings the full tier back, and so does the `full-ci` label.
+PRs nobody was working on. A PR that is landing gets its full tier from the land (the `land-ci` label), a fresh commit
+brings the cheap tier back, and the `land-ci` or `full-ci` label the full tier.
 
 Switches: the repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off. Stdlib only; anything unreadable gives
@@ -39,6 +47,10 @@ import sys
 import time
 
 FULL_CI = "full-ci"
+# The land's request for the full tier (land-judge adds it when the head ran only the cheap tier).
+LAND_CI = "land-ci"
+# Bases whose non-draft heads wait for the land to get the full tier: land-judge lands these.
+AT_LAND_BASES = ("feat-cmux-next",)
 IDLE_HOURS = 24
 
 
@@ -52,22 +64,29 @@ def idle(facts: dict | None, now: float, hours: float = IDLE_HOURS) -> bool:
 
 
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
-         idle_switch: str = "1") -> tuple[str, str]:
-    """(tier, reason) for one event. Anything not a draft or idle pull request head is `full`."""
+         idle_switch: str = "1", land_switch: str = "1") -> tuple[str, str]:
+    """(tier, reason) for one event. A pull request head into an AT_LAND_BASES base is `cheap` until the land
+    asks for the full tier with LAND_CI (or FULL_CI); anything else not a draft or idle head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     if FULL_CI in labels:
         return "full", "full-ci label"
+    if LAND_CI in labels:
+        return "full", "land-ci label: the land asked for the full tier on this head"
     if (idle_switch or "1").strip() != "0" and event.get("action") == "synchronize" and idle(
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
-                        f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
+                        f"{IDLE_HOURS} h: nothing runs until a new commit, the land (land-ci), or full-ci")
     if (switch or "1").strip() == "0":
         return "full", "CI_DRAFT_CHEAP_TIER=0"
     if pr.get("draft") is True:
         return "cheap", "draft pull request: the full tier runs when it is marked ready for review (or with full-ci)"
+    base = str((pr.get("base") or {}).get("ref") or "")
+    if (land_switch or "1").strip() != "0" and base in AT_LAND_BASES:
+        return "cheap", (f"not landing yet: the full tier runs once, when the land adds the {LAND_CI} label to "
+                         f"this head (or with {FULL_CI})")
     return "full", "ready for review"
 
 
@@ -126,10 +145,11 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     """tier() for this run: its switches from the environment, the head's facts read only when they can matter."""
     switch = os.environ.get("CI_DRAFT_CHEAP_TIER", "1")
     idle_switch = os.environ.get("CI_IDLE_BASE_MERGE_SKIP", "1")
+    land_switch = os.environ.get("CI_FULL_TIER_AT_LAND", "1")
     labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
     wanted = (event_name in ("pull_request", "pull_request_target") and idle_switch.strip() != "0"
-              and FULL_CI not in labels)
-    return tier(event_name, event, switch, head_facts(event) if wanted else None, None, idle_switch)
+              and FULL_CI not in labels and LAND_CI not in labels)
+    return tier(event_name, event, switch, head_facts(event) if wanted else None, None, idle_switch, land_switch)
 
 
 def _load(path: str) -> dict:
