@@ -6,14 +6,22 @@
 //! it there with the app's own Move to Cloud. Every decision is cmux-cloud-start-core's
 //! [`hybrid::step`]; this file only runs its effects.
 //!
+//! On for a Pro plan, `CMUX_HYBRID_START=1`, or cmux-next.json `cloud.autoCloud: true` with no env.
 //! Off (no Pro plan, `CMUX_HYBRID_START=0`, `hybrid-chat-start` disabled, signed out, or no agent
 //! here the chat could start with: [`local_harness`]), or a start the chat here cannot take
 //! ([`takes`]), the Cloud start runs exactly as before.
 //!
 //! What the driver feeds [`hybrid::step`]: `TurnStarted` and `TurnEnded` from acpmux's own
-//! `_acpmux/wait` (`running`, then `ready`), never tool events, so a move is due only between
-//! turns. The machine: `cmux vm new --wait`'s create and wait ([`vm_ready::new_and_wait`]), or for
+//! `_acpmux/wait` (`running`, then `ready`), and `ToolStarted`/`ToolEnded` from the chat's updates
+//! ([`tool_event`]), so a move is due between turns or between tool calls. The machine: `cmux vm new --wait`'s create and wait ([`vm_ready::new_and_wait`]), or for
 //! an existing machine a resume and the same wait ([`vm_ready::wait_until_ready`]).
+//!
+//! Each Show also sets the chat's acpmux tags to the stage and machine
+//! ([`hybrid_tools::STAGE_TAG`], [`hybrid_tools::MACHINE_TAG`]): acpmux holds the chat's tool calls
+//! while the machine boots and runs them there once it is ready (acpmux `hub/hybrid_hold.rs`),
+//! each one the same call, longer (Leo, 2026-11-23: "It's like an extended tool call"). The
+//! drive's end sets the stage to its last (`none` when the chat stays here), so no call waits on
+//! a driver that is gone.
 
 use std::collections::VecDeque;
 use std::io::Write as _;
@@ -22,7 +30,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use cmux_cloud_start_core::hybrid::{self, Account, Cloud, Effect, Event, Off, State};
-use cmux_cloud_start_core::hybrid_show;
+use cmux_cloud_start_core::{hybrid_show, hybrid_tools};
 use serde_json::{Value, json};
 
 use super::super::agents::chat;
@@ -113,6 +121,7 @@ fn flag() -> Option<bool> {
     crate::feature_flags::hybrid_chat_start_flag(
         &|name| std::env::var(name).ok(),
         &crate::feature_flags::disables,
+        &cmux_tui_core::user_settings::auto_cloud,
     )
 }
 
@@ -492,6 +501,8 @@ struct Live {
     machine: Option<String>,
     began: Instant,
     deadline: Instant,
+    /// The app's acpmux, where the chat runs and its tags live.
+    socket: Option<PathBuf>,
     send: mpsc::Sender<Msg>,
     events: mpsc::Receiver<Msg>,
     /// The turn watcher and the machine's start: this driver owns them, and they end with its
@@ -634,9 +645,10 @@ impl Live {
         let watched = session.to_owned();
         let (tools, tooled, tool_socket) = (send.clone(), session.to_owned(), socket.clone());
         let deadline = began + DRIVE_DEADLINE;
+        let turn_socket = socket.clone();
         let spawned = std::thread::Builder::new()
             .name("hybrid-start-turns".into())
-            .spawn(move || watch_turns(watched, socket, watcher));
+            .spawn(move || watch_turns(watched, turn_socket, watcher));
         let mut threads = match spawned {
             Ok(thread) => vec![thread],
             // No turn events: the chat is taken as closed, so nothing moves it.
@@ -656,10 +668,46 @@ impl Live {
             machine: (target != "new").then(|| target.to_owned()),
             began,
             deadline,
+            socket,
             send,
             events,
             threads,
             pending: false,
+        }
+    }
+}
+
+/// The chat's tags for `cloud` on `machine` (module docs): the machine only once it is known.
+pub(super) fn boot_tags(cloud: Cloud, machine: Option<&str>) -> Value {
+    let mut tags = json!({hybrid_tools::STAGE_TAG: hybrid_tools::stage_tag(cloud)});
+    if let Some(machine) = machine.filter(|machine| !machine.is_empty()) {
+        tags[hybrid_tools::MACHINE_TAG] = json!(machine);
+    }
+    tags
+}
+
+/// The stage tag the drive leaves behind: its last stage, or `none` when the chat stays here
+/// (stopped before the machine was ready, or the drive ran out), so no tool call waits on it.
+pub(super) fn end_stage(state: &State) -> Cloud {
+    match state.cloud {
+        Cloud::Live | Cloud::Failed => state.cloud,
+        _ => Cloud::None,
+    }
+}
+
+impl Live {
+    /// Sets the chat's stage tags (module docs); they live until the drive could still run.
+    fn tag(&self, cloud: Cloud) {
+        let left = (self.deadline + MACHINE_GRACE).saturating_duration_since(Instant::now());
+        let tags = boot_tags(cloud, self.machine.as_deref());
+        let set = chat::acp::set_tags(
+            &self.session,
+            &tags,
+            left.as_secs().max(1),
+            self.socket.as_deref(),
+        );
+        if let Err(error) = set {
+            println!("{}", json!({"log": format!("no stage tag: {error}")}));
         }
     }
 }
@@ -749,6 +797,7 @@ impl Drive for Live {
         if let Err(error) = signal_show(&self.session, &show) {
             println!("{}", json!({"log": format!("no show signal: {error}")}));
         }
+        self.tag(cloud);
     }
 
     fn log(&mut self, line: &str) {
@@ -796,6 +845,7 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
     println!("{}", json!({"plan": plan}));
     let mut live = Live::new(global, &session, &target);
     let state = drive(&mut live);
+    live.tag(end_stage(&state));
     // A thread still waiting (a turn watch's slice) ends with this process.
     let left = live.threads.iter().filter(|thread| !thread.is_finished()).count();
     println!("{}", json!({"done": state, "threads_left": left}));
