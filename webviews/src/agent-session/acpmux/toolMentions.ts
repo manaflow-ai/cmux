@@ -12,6 +12,9 @@
 import type { StringKey, Translate } from "./i18n";
 import { codeSpans, type SlashCommand } from "./slashCommands";
 
+/// Computer Use's tile (the midnight cursor): the composer's @computer-use and the setup window's head.
+export const COMPUTER_USE_TILE = new URL("./icons/computerUseTile.png", import.meta.url).href;
+
 export type ToolMentionId = "computer-use" | "browser-use";
 
 export type ToolMention = {
@@ -20,6 +23,8 @@ export type ToolMention = {
   label: StringKey;
   hint: StringKey;
   icon: string;
+  /** A full-color picture drawn in place of `icon` (the menus' rows and both badges), when it has one. */
+  image?: string;
   /** What a typed word may start to name it (`@comp`, `@brow`, `@cu`). */
   words: readonly string[];
 };
@@ -30,6 +35,8 @@ export const TOOL_MENTIONS: readonly ToolMention[] = [
     label: "mention.computerUse",
     hint: "mention.computerUseHint",
     icon: "computeruse.observe",
+    // Lucas 2026-11-23: "lets use this icon here for computer use" (the midnight cursor tile).
+    image: COMPUTER_USE_TILE,
     words: ["computer-use", "computer use", "cu"],
   },
   {
@@ -84,6 +91,7 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
     description: t(tool.hint),
     source: "extension",
     icon: tool.icon,
+    image: tool.image,
     label: t(tool.label),
   }));
 }
