@@ -5,6 +5,9 @@ import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileTransport
@@ -1243,9 +1246,30 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10)
+    var holdWindow: Duration = .seconds(10) {
+        didSet {
+            #if canImport(CmuxMobileLinkFFI)
+            outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
+            #endif
+        }
+    }
+    /// Each held prompt's intent, by its `promptId`.
+    private var intents: [String: AgentClientIntent] = [:]
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
+    /// up): their order, their hold, and the ones given back past it.
+    private let outbox = ChatPromptOutbox(holdMs: 10_000, seed: 0)
+    private var wake: Task<Void, Never>?
+
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
+    var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        outbox.unwritten().compactMap { id in intents[id].map { ($0, tapped[id] ?? ContinuousClock.now) } }
+    }
+    private var tapped: [String: ContinuousClock.Instant] = [:]
+    #else
     private(set) var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+    #endif
 
     /// A prompt is held for the chat's real source (``takeHeld()``); anything else has nothing
     /// to act on yet and says why.
@@ -1256,35 +1280,81 @@ final class PendingAgentSource: AgentSessionSource {
     /// Holds `intent`, aged from `since` (a prompt handed over from an earlier loading source
     /// keeps its first send's time, so the hold is one window in all).
     func hold(_ intent: AgentClientIntent, since at: ContinuousClock.Instant) {
-        guard case .prompt = intent else {
+        guard case .prompt(let text, _, _, let promptID, let resend) = intent else {
             let reason = "Connecting to \(summary.macName)…"
             for continuation in continuations { continuation.yield(.clientError(reason)) }
             return
         }
+        #if canImport(CmuxMobileLinkFFI)
+        guard outbox.push(promptId: promptID, text: text, attachmentIds: [], resend: resend,
+                          tappedMs: ChatPromptClock.milliseconds(at),
+                          nowMs: ChatPromptClock.milliseconds(at)) else { return }
+        intents[promptID] = intent
+        tapped[promptID] = at
+        expireDue()
+        #else
+        _ = (text, promptID, resend)
         held.append((intent, at))
-        let wait = max(.zero, holdWindow - (ContinuousClock.now - at))
-        Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            self?.expire(sentAt: at)
-        }
+        #endif
     }
 
     /// The held prompts with their send times, for the chat's next source (the coordinator, as
     /// it builds it). They are no longer this source's to return.
     func takeHeld() -> [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        #if canImport(CmuxMobileLinkFFI)
+        let taken = outbox.drainUnwritten().compactMap { taken in
+            intents.removeValue(forKey: taken.promptId).map { ($0, tapped.removeValue(forKey: taken.promptId) ?? ChatPromptClock.instant(taken.tappedMs)) }
+        }
+        intents = [:]
+        tapped = [:]
+        wake?.cancel()
+        return taken
+        #else
         defer { held = [] }
         return held
+        #endif
     }
 
     /// The prompt sent at `sentAt` waited out the window: it and every prompt after it come back
     /// to the composer (none goes after an earlier one that did not), as `AcpmuxSessionSource` does.
     func expire(sentAt: ContinuousClock.Instant) {
+        #if canImport(CmuxMobileLinkFFI)
+        guard let id = outbox.unwritten().first(where: { tapped[$0] == sentAt }) else { return }
+        gaveBack(outbox.giveUpFrom(promptId: id).map(\.promptId))
+        #else
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
         held.removeSubrange(index...)
+        gaveBack(dropped.map(\.intent))
+        #endif
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// Gives back what is past the hold now, and wakes for the next hold.
+    private func expireDue() {
+        let nowMs = ChatPromptClock.milliseconds(ContinuousClock.now)
+        gaveBack(outbox.expire(nowMs: nowMs).map(\.promptId))
+        wake?.cancel()
+        guard let wait = outbox.nextWakeMs(nowMs: nowMs) else { wake = nil; return }
+        wake = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int64(clamping: wait)))
+            guard !Task.isCancelled else { return }
+            self?.expireDue()
+        }
+    }
+
+    private func gaveBack(_ ids: [String]) {
+        gaveBack(ids.compactMap { id in
+            tapped[id] = nil
+            return intents.removeValue(forKey: id)
+        })
+    }
+    #endif
+
+    private func gaveBack(_ dropped: [AgentClientIntent]) {
         let seconds = max(1, Int(holdWindow.components.seconds))
         let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
-        for (intent, _) in dropped {
+        for intent in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {
                 continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
