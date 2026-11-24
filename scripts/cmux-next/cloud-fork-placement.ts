@@ -172,17 +172,22 @@ async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
 }
 
 /** A cmux access token for a fresh install (P-256 key, challenge, signed nonce): what the app sends the platform. */
-async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string }> {
+async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string; renew: () => Promise<string> }> {
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cloud journey jr-${tag.slice(3)}`, device_name: "cloud fork placement", platform: "linux" }, `${tag}-install`);
   const user = String(inst?.user ?? userId);
-  const ch = await http("POST", `${apiBase}/v1/auth/challenge`, { user, install: inst.id, ...(team ? { team } : {}) }, {});
-  if (ch.status !== 200) throw new Error(`challenge: HTTP ${ch.status}`);
-  const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`)));
-  const tok = await http("POST", `${apiBase}/v1/auth/token`, { user, install: inst.id, nonce: ch.body.nonce, signature: Buffer.from(sig).toString("base64url") }, {}, 25_000);
-  if (tok.status !== 200 || typeof tok.body?.access_token !== "string") throw new Error(`token: HTTP ${tok.status}`);
-  return { id: String(inst.id), token: tok.body.access_token };
+  // The token outlives a few minutes only: a 10-run drill plus duress answered 401 machine.unauthorized from about
+  // minute 12 (run 45473883603). renew() signs a fresh challenge with the same install's key, as the app does.
+  const renew = async (): Promise<string> => {
+    const ch = await http("POST", `${apiBase}/v1/auth/challenge`, { user, install: inst.id, ...(team ? { team } : {}) }, {});
+    if (ch.status !== 200) throw new Error(`challenge: HTTP ${ch.status}`);
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`)));
+    const tok = await http("POST", `${apiBase}/v1/auth/token`, { user, install: inst.id, nonce: ch.body.nonce, signature: Buffer.from(sig).toString("base64url") }, {}, 25_000);
+    if (tok.status !== 200 || typeof tok.body?.access_token !== "string") throw new Error(`token: HTTP ${tok.status}`);
+    return tok.body.access_token;
+  };
+  return { id: String(inst.id), token: await renew(), renew };
 }
 
 async function splitPhases(api: Api, parent: string, tag: string, run: number, journey: { secrets: string[] }, cleanup: string[]): Promise<SplitRow> {
@@ -266,12 +271,18 @@ async function main(): Promise<number> {
   const user = await api.op("user.ensure", {}, `${tag}-ensure`);
   const install = await mintInstallToken(api, backend.api, String(user?.id ?? user?.user?.id ?? ""), tag, team);
   secrets.push(install.token);
-  const platformHeaders = () => ({ authorization: `Bearer ${install.token}`, ...(team ? { "x-cmux-team": team } : {}) });
+  let bearer = install.token;
+  const renewToken = async () => {
+    bearer = await install.renew();
+    secrets.push(bearer);
+  };
+  const platformHeaders = () => ({ authorization: `Bearer ${bearer}`, ...(team ? { "x-cmux-team": team } : {}) });
   const journey = { secrets };
   const rows: RunRow[] = [];
   for (let run = 1; run <= runs; run++) {
     const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [] };
     try {
+      if (run > 1) await renewToken();
       const t0 = Date.now();
       const created = await api.op("cloud.machine.create", { name: `cloud fork placement ${tag} ${run}`, size: CHAT_START_SIZE }, `${tag}-parent-${run}`);
       row.parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
@@ -329,6 +340,7 @@ async function main(): Promise<number> {
       d.parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
       await waitMachine(api, d.parent, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
       await firstExec(directExec(api, d.parent, journey), 120_000);
+      await renewToken();
       await Promise.all(
         Array.from({ length: duressN }, async (_, i) => {
           try {
