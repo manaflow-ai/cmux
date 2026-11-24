@@ -46,6 +46,8 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         // A move of the chat under way, as its client reports it, and what a move copies
         // (`hub/transfer_live.rs`).
         obj.insert("moveProgress".into(), hub.move_progress(&s.id));
+        // A move whose target has not said whether it took the chat (`transfer_watch.rs`).
+        obj.insert("moveUndecided".into(), hub.move_undecided(&s));
         obj.insert("historyBytes".into(), json!(hub.history_bytes(&s.id)));
     }
     // The session env reaches the unix socket only: no summary or
