@@ -186,7 +186,7 @@ impl ApiClient {
     /// A new HTTP client with the API's timeouts.
     pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        reqwest::Client::builder()
+        cmux_egress::client_builder("cmux_mobile_link::api")
             .timeout(std::time::Duration::from_secs(20))
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()

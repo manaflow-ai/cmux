@@ -1,9 +1,8 @@
 {
  "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
- "ungated": 82,
- "file_count": 68,
+ "ungated": 78,
+ "file_count": 64,
  "by_language": {
-  "rs": 4,
   "swift": 78
  },
  "files": {
@@ -208,18 +207,6 @@
   },
   "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/AccountDeletionCheck.swift": {
    "urlsession-shared": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-host/src/auth.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-host/src/services.rs": {
-   "ws-connect": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/api.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/signaling.rs": {
-   "ws-connect": 1
   }
  }
 }

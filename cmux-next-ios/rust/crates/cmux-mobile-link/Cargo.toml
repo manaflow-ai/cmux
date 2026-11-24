@@ -29,6 +29,7 @@ flate2.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 reqwest.workspace = true
+cmux-egress.workspace = true
 rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
 serde.workspace = true

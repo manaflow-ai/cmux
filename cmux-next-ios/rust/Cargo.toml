@@ -21,6 +21,8 @@ cmux-mobile-link = { path = "crates/cmux-mobile-link" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
+# The egress gate: every client and WebSocket checks its host against docs/privacy.md first.
+cmux-egress = { path = "../../cmux-tui/crates/cmux-egress" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 # The terminal composer's Send: one keyed request, kept across a reconnect.
 cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
@@ -52,7 +54,7 @@ flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 getrandom = "0.3"
 libc = "0.2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
