@@ -135,6 +135,12 @@ extension SidebarViewComponents {
         set { list.hoverCard.thumbnails.provider = newValue }
     }
 
+    /// A tab's live picture for the split miniature while a card shows it (#51768); nil asks ``tabPictures`` once per show.
+    public var tabPictureWatcher: SidebarTabThumbnails.Watcher? {
+        get { list.hoverCard.thumbnails.watcher }
+        set { list.hoverCard.thumbnails.watcher = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 

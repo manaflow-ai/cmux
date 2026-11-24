@@ -203,7 +203,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.paneShape.thumbnails = thumbnails
         body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
         self.body = body
+        body.paneShape.picturesTiles = false  // not shown yet: its tiles are watched once it shows
         fill(body, with: workspace, ws, in: list)
+        body.paneShape.picturesTiles = true
         body.setResources(resources.report)
         return cardBody(body, in: list)
     }
@@ -282,6 +284,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardDeactivated(_ id: HoverTargetID) {
         if detailsRequested == id { detailsRequested = nil }
         resources.close()
+        body?.paneShape.stopRefreshing()  // no picture is taken for a card that hid
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
         body?.tabList.onClose = nil

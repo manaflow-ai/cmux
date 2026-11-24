@@ -110,6 +110,9 @@ final class SidebarBridge {
             return timelines.entries(found.0, agents: found.1.store.agents, limit: limit)
         }
         container.sidebarView.tabPictures = { [weak services] in await services?.previews.previewImage(for: .init($0.rawValue), maxPixelSize: $1) }  // #51768
+        container.sidebarView.tabPictureWatcher = { [weak services] tab, size, onPicture in
+            services?.previews.watch.watch(tab.rawValue, maxPixelSize: size, onPicture: onPicture) ?? {}
+        }
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()

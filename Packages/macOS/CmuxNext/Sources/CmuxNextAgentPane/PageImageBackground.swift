@@ -47,15 +47,21 @@ enum PageImageBackground {
     /// itself, clear pixels kept, when the page is transparent (`color` with alpha below 1).
     @MainActor
     static func fill(_ page: NSImage, _ color: ThemeRGB) -> NSImage {
-        guard isOpaque(color) else { return page }
-        guard let image = page.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+        guard isOpaque(color), let image = page.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let flat = flatten(image, color) else { return page }
+        return NSImage(cgImage: flat, size: page.size)
+    }
+
+    /// `image` drawn over `color` at its pixel size, with no alpha; nil when no context could be made. Runs on any
+    /// thread (a hover card's chat picture is flattened off the main thread, `AgentPanePictures`).
+    nonisolated static func flatten(_ image: CGImage, _ color: ThemeRGB) -> CGImage? {
+        guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return page }
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
         let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         context.setFillColor(color.cgColor)
         context.fill(bounds)
         context.draw(image, in: bounds)
-        return context.makeImage().map { NSImage(cgImage: $0, size: page.size) } ?? page
+        return context.makeImage()
     }
 }

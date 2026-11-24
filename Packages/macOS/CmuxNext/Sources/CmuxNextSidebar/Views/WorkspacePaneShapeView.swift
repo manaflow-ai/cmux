@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
-import CmuxNextWakeups
 
 /// The hover card's miniature of a workspace's splits (``SidebarPaneShape``): one rounded tile per pane at its
 /// real share of the screen showing the pane's front tab as it last looked (``SidebarTabThumbnails``, #51768), the
@@ -9,8 +8,9 @@ import CmuxNextWakeups
 /// loading page, a shell showing only its prompt) its tile says what it is: its icon, title and folder or host.
 /// Leo 2026-11-22 (ask-890db939a2): "i have this layout. so. the preview should be able to depict that."
 ///
-/// While the card shows, its pictures refresh every ``refreshInterval``; a tile keeps its picture until a newer one
-/// lands, so it never flashes back to the mark.
+/// While the card shows, each tile's tab is watched (``SidebarTabThumbnails/watch(_:maxPixelSize:changed:)``): a new
+/// picture lands only after its content changed, and none is taken once the card hides. A tile keeps its picture until
+/// a newer one lands, so it never flashes back to the mark.
 final class WorkspacePaneShapeView: NSView {
     /// The miniature's height; its width is the card's text column.
     static let height: CGFloat = 64
@@ -19,8 +19,6 @@ final class WorkspacePaneShapeView: NSView {
     static let markSize: CGFloat = 12
     /// The size pictures are asked at: a tile is at most the card's text column wide, at 2x.
     static let pictureSize = CGSize(width: 640, height: 320)
-    /// How long after its last pictures a showing card asks for newer ones (a running terminal, a chat that moved on).
-    static let refreshInterval: Duration = .seconds(1)
 
     var shape: SidebarPaneShape? {
         didSet {
@@ -45,8 +43,10 @@ final class WorkspacePaneShapeView: NSView {
 
     /// Where the tiles' pictures come from: the hover card controller's store (a test's own).
     var thumbnails = SidebarTabThumbnails()
-    /// The next refresh while the card shows; one-shot, scheduled again by each refresh.
-    private let refreshTimer = DemandTimer(owner: "sidebar.hover-card.pane-pictures")
+    /// Whether ``refreshThumbnails()`` watches or asks: false while the card is only made ahead of its first show.
+    var picturesTiles = true
+    /// The stops of the tiles' live pictures while the card shows, by tab.
+    private var watches: [TabID: @MainActor () -> Void] = [:]
 
     override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: Self.height) }
@@ -59,24 +59,36 @@ final class WorkspacePaneShapeView: NSView {
         setAccessibilityIdentifier("cmux.sidebar.hoverCard.paneShape")
     }
 
-    nonisolated deinit { refreshTimer.cancel() }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     // MARK: Pictures
 
-    /// Asks for each tile's newest picture now and keeps asking while the card shows (the card calls this on each
-    /// show). The last pictures draw meanwhile.
+    /// Watches each tile's tab while the card shows (the card calls this on each show and content change; a tab that
+    /// left the miniature stops), or, with no watcher, asks once for its newest picture. The last pictures draw meanwhile.
     func refreshThumbnails() {
-        guard let shape, thumbnails.provider != nil else { return stopRefreshing() }
-        for tab in shape.tabs {
+        guard let shape, picturesTiles, thumbnails.watcher != nil || thumbnails.provider != nil else { return stopRefreshing() }
+        let shown = Set(shape.tabs)
+        for (tab, stop) in watches where !shown.contains(tab) {
+            stop()
+            watches[tab] = nil
+        }
+        for tab in shape.tabs where watches[tab] == nil {
+            if let stop = thumbnails.watch(tab, maxPixelSize: Self.pictureSize, changed: { [weak self] in self?.needsDisplay = true }) {
+                watches[tab] = stop
+                continue
+            }
             Task { [weak self, thumbnails] in  // task-owner: one bounded picture request; a closed card ignores it
                 if await thumbnails.refresh(tab, maxPixelSize: Self.pictureSize) { self?.needsDisplay = true }
             }
         }
-        // hover-timing: picture refresh cadence while the card shows, not a delay
-        refreshTimer.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.refreshTick() }
+    }
+
+    /// The card hid (or was only warmed): no tile's tab is watched any more; the next show watches them again.
+    func stopRefreshing() {
+        let stops = watches.values
+        watches = [:]
+        stops.forEach { $0() }
     }
 
     /// The tab whose picture tile `index` shows, when it has one (tests).
@@ -106,14 +118,6 @@ final class WorkspacePaneShapeView: NSView {
         guard let panes = shape?.frames(in: .zero, gap: 0), panes.indices.contains(index), let tab = panes[index].pane.tab else { return nil }
         return labels[tab]
     }
-
-    private func refreshTick() {
-        // A card put away (ordered out, hidden or closed) stops asking; its next show starts again.
-        guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return stopRefreshing() }
-        refreshThumbnails()
-    }
-
-    private func stopRefreshing() { refreshTimer.cancel() }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

@@ -73,6 +73,8 @@ final class TabHoverCardController: HoverCardSource {
     /// Group chips' summary card body, reused chip to chip.
     private var groupBody: GroupHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
+    /// Stops the live picture of the tab the card shows (``TabPreviewProvider/watchPreview(for:maxPixelSize:onImage:)``).
+    private var thumbnailWatch: (@MainActor () -> Void)?
     /// Recently hovered tabs' thumbnails.
     var thumbnails = TabThumbnailCache()
     /// Each recently hovered tab's last measured sample and when it was taken, shown
@@ -239,6 +241,7 @@ final class TabHoverCardController: HoverCardSource {
     func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
         thumbnailTask?.cancel()
+        stopThumbnailWatch()
         bodyID = nil
         // A card that hides starts its next show blank, never with this tab's image.
         // Its frame stays as it is while it fades out.
@@ -289,6 +292,7 @@ final class TabHoverCardController: HoverCardSource {
     /// The strip's theme changed: the kept pictures show the old theme, so the next card asks again.
     func themeChanged() {
         thumbnails.removeAll()
+        previewProvider?.invalidatePreviews()
         // A card on screen takes its tab's picture in the new theme now (it fades in).
         if let id = bodyID, coordinator.isShowing(id), let tab = tabID(id), !tab.isGroupChip,
            TabTunables.hoverPreviews.value == .full {
@@ -302,12 +306,25 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private func loadThumbnail(for id: TabID) {
-        guard thumbnails.image(for: id) == nil, let provider = previewProvider else { return }
-        thumbnailTask?.cancel()
+        stopThumbnailWatch()
+        guard let provider = previewProvider else { return }
         let scale = strip?.window?.backingScaleFactor ?? 2
         let size = CGSize(width: TabHoverCardView.thumbnailSize.width * scale, height: TabHoverCardView.thumbnailSize.height * scale)
         let target = Self.targetID(id)
         let asked = ContinuousClock.now
+        // A live picture: the tab's last one now, then a new one each time its content changes while the card shows.
+        var landed = false  // only the first picture may fade in; later ones replace it in place
+        if let stop = provider.watchPreview(for: id, maxPixelSize: size, onImage: { [weak self] image in
+            guard let self, self.bodyID == target, self.thumbnails.image(for: id) !== image else { return }
+            self.thumbnails.insert(image, for: id)
+            self.body?.setThumbnail(image, fades: !landed && ContinuousClock.now - asked > Self.instantPicture)
+            landed = true
+        }) {
+            thumbnailWatch = stop
+            return
+        }
+        guard thumbnails.image(for: id) == nil else { return }
+        thumbnailTask?.cancel()
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
@@ -323,6 +340,11 @@ final class TabHoverCardController: HoverCardSource {
 }
 
 extension TabHoverCardController {
+    private func stopThumbnailWatch() {
+        thumbnailWatch?()
+        thumbnailWatch = nil
+    }
+
     /// Where a tab's hover card opens: below a strip at the top of its
     /// pane, above one at the bottom (`tabs.barPosition`, R109).
     static func placement(for position: TabBarPosition) -> HoverCardPlacement {

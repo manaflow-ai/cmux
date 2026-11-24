@@ -88,8 +88,8 @@ public final class TerminalSession {
             if isRenderingSuspended != oldValue { frameChanges.wake() } // shown or hidden: its kept frame follows
         }
     }
-    /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
-    nonisolated let frameChanges = TerminalFrameChanges()
+    /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``) and a shown hover card's picture.
+    public nonisolated let frameChanges = TerminalFrameChanges()
     /// ``close()`` ran: the launch frame keeper forgets this terminal.
     private(set) var isClosed = false
 
@@ -146,6 +146,8 @@ public final class TerminalSession {
     var mirrorDemand = 0 {
         didSet { surfaceView.mirrorDemand = mirrorDemand }
     }
+    /// A shown hover card's frame hook (``watchPicture(_:)``); nil while no card shows this terminal.
+    var pictureWatchPresented: (@Sendable () -> Void)?
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e

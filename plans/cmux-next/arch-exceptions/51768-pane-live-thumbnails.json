@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-24",
+  "row": "app_lines",
+  "allow": 79,
+  "why": "cmux https://github.com/manaflow-ai/cmux/issues/51768 (Leo 2026-11-24: live pane pictures in the hover cards, cached, rapid, very low cost). The App owns the only map from a tab id to its live content (TabContentCache's terminals and browsers, the made chat views), so it says how each kind of tab is pictured live: TabPreviewSource+Watch builds a PanePictureWatch.Source per kind from those (revision, change observer, capture), the browser observer lives in CmuxNextBrowser, TabPreviewSource implements TabPreviewProvider.watchPreview, and SidebarBridge sets SidebarView.tabPictureWatcher. When a watched tab is pictured is Rust (cmux-pane-pictures, PanePictureSchedule); the watch, its cache and timers are in CmuxNextBridge (PanePictureWatch); a chat's picture and push hook in CmuxNextAgentPane; a terminal's change watch in CmuxNextTerminal.",
+  "author": "lane/pane-live-thumbnails agent (claude opus)",
+  "owner": "lane/pane-live-thumbnails agent (claude opus)",
+  "receipt": "Review (claude opus subagent a5474d10b0da8ca5a): SHIP at cfe9060f3dd4fc1141dc91af77e10ec82a4b1039",
+  "expiry": "2026-12-24"
+}

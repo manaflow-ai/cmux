@@ -38,10 +38,20 @@ nonisolated final class TerminalPresents: Sendable {
     private let layer = Mutex<ObjectIdentifier?>(nil)
     private let lastPresent = Mutex<Present?>(nil)
     private let presented = Atomic<UInt64>(0)
+    /// Runs once at the next frame shown (``onNextPresent(_:)``): a hover card's picture of a changed terminal.
+    private let nextPresent = Mutex(NextPresent())
+
+    /// ``nextPresent``'s closure, kept in a struct so the lock never re-wraps it (#40144).
+    private struct NextPresent {
+        var body: (@Sendable () -> Void)?
+    }
 
     init(prediction: TerminalEchoPrediction?) {
         self.prediction = prediction
     }
+
+    /// `body` runs once (on the present's thread) when Ghostty next shows a frame; replaces an earlier one not yet run.
+    func onNextPresent(_ body: @escaping @Sendable () -> Void) { nextPresent.withLock { $0.body = body } }
 
     /// The last frame Ghostty showed on the layer; nil before the first.
     var last: Present? { lastPresent.withLock { $0 } }
@@ -60,6 +70,7 @@ nonisolated final class TerminalPresents: Sendable {
     func record(_ present: Present) {
         lastPresent.withLock { $0 = present }
         presented.add(1, ordering: .relaxed)
+        if let next = nextPresent.withLock({ next in defer { next.body = nil }; return next.body }) { next() }
         prediction?.presentedFrame()
         let layer = self.layer.withLock { $0 }
         guard let layer else { return }

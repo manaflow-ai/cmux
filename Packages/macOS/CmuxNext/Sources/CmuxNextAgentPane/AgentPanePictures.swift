@@ -50,8 +50,53 @@ public final class AgentPanePictures {
     /// A new picture of tab `key`'s chat, at most `maxPixelSize`, when it is on screen and its last is older than
     /// ``freshness``; nil asks the caller for its last kept one.
     public func freshPicture(_ key: String, fit maxPixelSize: CGSize) async -> CGImage? {
+        await newPicture(key, fit: maxPixelSize, within: Self.freshness)
+    }
+
+    /// What a card watching tab `key` (`PanePictureWatch`) gets of its chat now: a new picture when it is on screen and
+    /// painted (``Live/picture(_:)``), ``Live/hidden`` when it cannot be pictured now (hidden or not painted yet: its
+    /// next push or show tells the watch again), ``Live/busy`` while another picture of it is taken, ``Live/failed``
+    /// when the engine gave none. The watch, not a freshness, spaces these out.
+    public func livePicture(_ key: String, fit maxPixelSize: CGSize) async -> Live {
+        guard let chat = view(key), chat.model.newTab == nil, chat.model.hasPainted,
+              AgentPaneHibernationCapture(view: chat).isOnScreen else { return .hidden }
+        guard !inFlight.contains(key) else { return .busy }
+        return await newPicture(key, fit: maxPixelSize, within: .zero).map(Live.picture) ?? .failed
+    }
+
+    /// A live picture's result (``livePicture(_:fit:)``).
+    public enum Live {
+        case picture(CGImage)
+        case hidden
+        case busy
+        case failed
+    }
+
+    /// How many pushes `key`'s chat page got (``AgentPaneTransport/pushCount``): its picture is current while this
+    /// has not moved. Nil when the chat has no view.
+    public func revision(_ key: String) -> UInt64? { view(key).map { UInt64($0.model.transport.pushCount) } }
+
+    /// Tells `changed` once the chat page of `key` drew a frame after a push (its content moved), coalesced to one
+    /// frame wait at a time; returns the stop. For a card watching the chat (`PanePictureWatch`); a hidden chat gets no
+    /// pushes (it sheds its stream), so it costs nothing until it shows.
+    public func observe(_ key: String, _ changed: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        guard let chat = view(key) else { return {} }
+        var waiting = false
+        chat.model.transport.onPageRan = { [weak chat] in
+            guard !waiting, let chat else { return }
+            waiting = true
+            let drew = { waiting = false; changed() }
+            if let page = chat.page { page.afterNextFrame(drew) } else { drew() }
+        }
+        return { [weak chat] in
+            waiting = false
+            chat?.model.transport.onPageRan = nil
+        }
+    }
+
+    private func newPicture(_ key: String, fit maxPixelSize: CGSize, within freshness: Duration) async -> CGImage? {
         // The page picture starts in this turn, right after the on-screen check: a later start could picture it hidden.
-        guard let chat = startable(key, within: Self.freshness),
+        guard let chat = startable(key, within: freshness),
               let kept = await finish(await Self.picture(of: chat), of: chat, key: key) else { return nil }
         let side = Int(min(maxPixelSize.width, maxPixelSize.height))
         return side >= Self.side ? kept : await Task.detached(priority: .userInitiated) { AgentPaneVideoInfo.scaled(kept, toFit: side) }.value
@@ -68,8 +113,16 @@ public final class AgentPanePictures {
         }
     }
 
+    /// A ``side`` px picture of `chat`'s page with its clear areas kept (a scaled PNG, `PageWebView.picture`), drawn
+    /// over the color under the page when that is opaque, off the main thread. Not ``AgentPaneView/pageImage()``: a
+    /// Chromium JPEG has no alpha, so a chat over a see-through window came out a flat white or black tile (#51838).
     private static func picture(of chat: AgentPaneView) async -> CGImage? {
-        await chat.pageImage()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        guard let page = chat.page else { return await chat.pageImage()?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
+        chat.model.transport.beforePageWork?()  // a frozen page thaws first
+        let under = chat.performWithTheme { AgentPaneTheme.underPageColor(chat.themeTokens, surface: chat.surfaceKind) }
+        guard let image = await page.picture(maxPixelWidth: CGFloat(side)) else { return nil }
+        guard PageImageBackground.isOpaque(under) else { return image }
+        return await Task.detached(priority: .userInitiated) { PageImageBackground.flatten(image, under) ?? image }.value
     }
 
     /// `key`'s painted, on-screen chat, not pictured within `freshness` nor being pictured; marks it in flight.

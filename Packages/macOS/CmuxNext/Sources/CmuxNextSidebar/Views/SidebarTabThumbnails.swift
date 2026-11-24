@@ -3,7 +3,8 @@ public import CoreGraphics
 /// Pictures of tabs for the hover card's split miniature (``WorkspacePaneShapeView``, #51768): each tile shows its
 /// pane's front tab as it last looked, not only its kind's mark.
 ///
-/// The sidebar's hover card controller owns one; the app sets its ``provider`` (`SidebarView.tabPictures`) (its tab previews: a terminal's live frame, a page's capture, a chat's picture). Every
+/// The sidebar's hover card controller owns one; the app sets its ``watcher`` (`SidebarView.tabPictureWatcher`: live
+/// pictures while a card shows) and its ``provider`` (`SidebarView.tabPictures`) (its tab previews: a terminal's live frame, a page's capture, a chat's picture). Every
 /// card shares the pictures kept here, so a card opened again draws its last pictures at once, with no empty
 /// frame, while it asks for newer ones; a reply with no picture keeps the one shown.
 ///
@@ -17,6 +18,13 @@ public final class SidebarTabThumbnails {
 
     /// Where pictures come from; nil draws marks only.
     public var provider: Provider?
+
+    /// Shows a tab live to the given closure while a card shows it (its last picture now, then each new one after its
+    /// content changed); returns the stop. The app's `PanePictureWatch`.
+    public typealias Watcher = @MainActor (TabID, CGSize, @escaping @MainActor (CGImage) -> Void) -> (@MainActor () -> Void)
+
+    /// Live pictures; nil asks ``provider`` once per show instead.
+    public var watcher: Watcher?
 
     /// How many tabs' pictures stay: a few cards' worth, about 6 MB at most of 640 px pictures.
     static let capacity = 24
@@ -41,6 +49,16 @@ public final class SidebarTabThumbnails {
         let isNew = images[tab] !== image
         store(image, for: tab)  // also marks it the most recently asked
         return isNew
+    }
+
+    /// Watches `tab` (``watcher``): each new picture is kept and `changed` runs. Nil when there is no watcher.
+    func watch(_ tab: TabID, maxPixelSize: CGSize, changed: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        guard let watcher else { return nil }
+        return watcher(tab, maxPixelSize) { [weak self] image in
+            guard let self, self.images[tab] !== image else { return }
+            self.store(image, for: tab)
+            changed()
+        }
     }
 
     private func store(_ image: CGImage, for tab: TabID) {

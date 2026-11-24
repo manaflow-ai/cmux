@@ -70,6 +70,11 @@ import CmuxNextCompat
     var afterAnalyze: (@MainActor () async -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
+    /// How many pushes reached the page: a hover card's picture of the chat is current while this has not moved.
+    public var pushCount: Int { deliveries }
+    /// Runs each time the page ran a push (its content moved), while a hover card watches the chat
+    /// (`AgentPanePictures.observe`); nil otherwise.
+    public var onPageRan: (@MainActor () -> Void)?
     private var pacerStorage: any AgentPaneTransportPacer
     public var pacer: any AgentPaneTransportPacer {
         get { pacerStorage }
@@ -575,6 +580,7 @@ import CmuxNextCompat
         deliver(event) { [weak self] in
             guard let self, self.deliveries == delivery else { return }
             self.pacer.delivered()
+            self.onPageRan?()
         }
         if batch.closed != nil { pacer.reset() }
         return AgentPaneFlush(delivered: batch.closed == nil, more: more)
