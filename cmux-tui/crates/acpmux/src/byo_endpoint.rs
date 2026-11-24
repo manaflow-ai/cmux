@@ -12,10 +12,15 @@
 //! - **openai-endpoint**: OpenCode (`opencode acp`) with
 //!   `OPENCODE_CONFIG_CONTENT` (inline config, which wins over the global and
 //!   project config) defining provider `byo` on `@ai-sdk/openai-compatible`
-//!   with every model, and `"model": "byo/<first model>"`; the key comes from
-//!   `CMUX_BYO_API_KEY` (a Keychain reference) through OpenCode's `{env:…}`
-//!   substitution. A keyless endpoint's config names no key, and the spawn
-//!   removes an inherited `CMUX_BYO_API_KEY` from every endpoint harness.
+//!   with every model, and `"model": "byo/<first model>"`. An Azure Foundry /
+//!   Azure OpenAI host (those reject `max_tokens`) is provider `azure` on
+//!   `@ai-sdk/azure` with `useCompletionUrls`, and `"model": "azure/<first
+//!   model>"`. OpenCode reads `useCompletionUrls` only for provider id
+//!   `azure`; any other id uses the Responses API, which replays encrypted
+//!   reasoning Azure then rejects. The key comes from `CMUX_BYO_API_KEY` (a
+//!   Keychain reference) through OpenCode's `{env:…}` substitution. A keyless
+//!   endpoint's config names no key, and the spawn removes an inherited
+//!   `CMUX_BYO_API_KEY` from every endpoint harness.
 //!
 //! An endpoint harness holds one or more models (the picker lists each; the
 //! first is the default). [`ALL_MODELS`] in the list asks for every model the
@@ -285,11 +290,114 @@ pub struct Endpoint<'a> {
     pub models: &'a [String],
     /// None: the endpoint takes no key, and the profile names no Keychain item.
     pub keychain_item: Option<&'a str>,
+    /// Profile `icon` (a brand id or a file next to the profile). None: `claude` or `opencode`.
+    pub icon: Option<&'a str>,
+    /// Profile `command`. None: `claude` or `opencode` from the PATH.
+    pub program: Option<&'a str>,
 }
 
 fn toml_string(s: &str) -> String {
     // A JSON string is a valid TOML basic string.
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+}
+
+/// Effort levels OpenCode offers for an OpenAI-family model, lowest first. Empty when Azure
+/// lists no `reasoning_effort` for the model, or when Chat Completions rejects every effort
+/// once tools are sent (gpt-5.6, gpt-6). The config then declares `efforts = []` and no
+/// `reasoning_options`, so the picker offers no menu.
+///
+/// `az cognitiveservices model list` does not report these levels. The ladders are the ones
+/// on Azure's reasoning-models page: `minimal` is only the original gpt-5, gpt-5-mini and
+/// gpt-5-nano, and gpt-5.1 and later reject it.
+fn reasoning_efforts(model: &str) -> &'static [&'static str] {
+    const MINIMAL: &[&str] = &["minimal", "low", "medium", "high"];
+    const TIERS: &[&str] = &["low", "medium", "high"];
+    const NONE: &[&str] = &["none", "low", "medium", "high"];
+    const XHIGH: &[&str] = &["none", "low", "medium", "high", "xhigh"];
+
+    // A generic endpoint may name the model `org/gpt-5`; the family is the last segment.
+    // A deployment dated `gpt-5.1-2025-11-13` is the same model as `gpt-5.1`.
+    let raw = model.rsplit('/').next().unwrap_or(model).to_ascii_lowercase();
+    let id = without_release_date(&raw);
+    // Chat models and o1-mini take no reasoning_effort. gpt-5.6 and gpt-6 accept tools on
+    // Chat Completions only when effort is omitted or `none`.
+    let no_effort = id.ends_with("-chat")
+        || id == "o1-mini"
+        || id.starts_with("gpt-5.6")
+        || id.starts_with("gpt-6");
+    if no_effort {
+        return &[];
+    }
+    if o_series(id) {
+        return TIERS;
+    }
+    match id {
+        "gpt-5-pro" => &["high"],
+        "gpt-5-codex" => TIERS,
+        "gpt-5" | "gpt-5-mini" | "gpt-5-nano" => MINIMAL,
+        "gpt-5.1-codex-max" | "gpt-5.4" | "gpt-5.5" => XHIGH,
+        "gpt-5.4-mini" | "gpt-5.4-nano" => NONE,
+        _ if id.starts_with("gpt-5.4-") || id.starts_with("gpt-5.5-") => XHIGH,
+        _ if id.starts_with("gpt-5.1")
+            || id.starts_with("gpt-5.2")
+            || id.starts_with("gpt-5.3") =>
+        {
+            NONE
+        }
+        _ => &[],
+    }
+}
+
+/// `name-YYYY-MM-DD` without that date, so a deployment named with its release date matches
+/// the model the Azure docs describe.
+fn without_release_date(id: &str) -> &str {
+    let Some(stem) = id.get(..id.len().saturating_sub(11)) else { return id };
+    let date = &id[stem.len()..];
+    let bytes = date.as_bytes();
+    let dated = bytes.len() == 11
+        && bytes[0] == b'-'
+        && bytes[1..5].iter().all(u8::is_ascii_digit)
+        && bytes[5] == b'-'
+        && bytes[6..8].iter().all(u8::is_ascii_digit)
+        && bytes[8] == b'-'
+        && bytes[9..11].iter().all(u8::is_ascii_digit)
+        && !stem.is_empty();
+    if dated { stem } else { id }
+}
+
+/// One `[models] list` entry: the picker id and the efforts Azure accepts. An empty `efforts`
+/// is a declaration that the model has no effort menu.
+fn model_toml(provider_key: &str, model: &str) -> String {
+    let id = toml_string(&format!("{provider_key}/{model}"));
+    let efforts = reasoning_efforts(model)
+        .iter()
+        .map(|effort| toml_string(effort))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{{ id = {id}, efforts = [{efforts}] }}")
+}
+
+/// `o1`, `o3`, `o4` or `o5`, including a suffix such as `-mini` or `-pro`. A dated deployment
+/// name (`o4-mini-2026-01-01`) still counts; `o10` and `o2` do not.
+fn o_series(id: &str) -> bool {
+    let Some(rest) = id.strip_prefix('o') else { return false };
+    let (series, tail) = match rest.split_once('-') {
+        Some((series, tail)) => (series, Some(tail)),
+        None => (rest, None),
+    };
+    matches!(series, "1" | "3" | "4" | "5") && tail.is_none_or(|tail| !tail.is_empty())
+}
+
+/// `resourceName` for an Azure OpenAI / Foundry host, or none. `@ai-sdk/openai-compatible` sends
+/// `max_tokens`, which those models refuse; `@ai-sdk/azure` with `useCompletionUrls` sends Chat
+/// Completions and `max_completion_tokens`, and builds the host from this name.
+fn azure_resource(base: &str) -> Option<&str> {
+    if !(base.contains(".openai.azure.com") || base.contains(".services.ai.azure.com")) {
+        return None;
+    }
+    let host = base.split("://").nth(1)?.split('/').next()?;
+    let name = host.split('.').next()?;
+    (!name.is_empty()).then_some(name)
 }
 
 /// The profile file text.
@@ -322,8 +430,10 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
                 .iter()
                 .map(|(k, v)| format!("{k} = {}\n", toml_string(v)))
                 .collect();
+            let icon = toml_string(e.icon.unwrap_or("claude"));
+            let command = toml_string(e.program.unwrap_or("claude"));
             format!(
-                "{head}icon = \"claude\"\nprotocol = \"claude-stdio\"\ncommand = \"claude\"\n\n\
+                "{head}icon = {icon}\nprotocol = \"claude-stdio\"\ncommand = {command}\n\n\
                  [capabilities]\npermission_modes = true\nresume = true\n\n\
                  [defaults]\nmodel = {m}\n\n[models]\nlist = [{list}]\n\n\
                  [env]\nANTHROPIC_BASE_URL = {}\n{item_line}ANTHROPIC_MODEL = {m}\n{slots}{marker}",
@@ -331,26 +441,59 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             )
         }
         Kind::OpenAi => {
-            let full = |m: &str| format!("{OPENCODE_PROVIDER}/{m}");
+            // OpenCode's `azure` loader is the only one that reads `useCompletionUrls` and
+            // sends Chat Completions (`sdk.chat`). A provider named `byo` falls through to
+            // `@ai-sdk/azure`'s Responses default. Responses returns encrypted reasoning and
+            // replays it on the next turn; Azure then answers `invalid_encrypted_content`.
+            // An Azure host is therefore provider `azure`. Every other endpoint stays `byo`.
+            let resource = azure_resource(e.base_url);
+            let provider_key = if resource.is_some() { "azure" } else { OPENCODE_PROVIDER };
+            let full = |m: &str| format!("{provider_key}/{m}");
             let first = full(e.models.first().map(String::as_str).unwrap_or_default());
             // Every model in the provider: OpenCode reports these, and a chat starts on any.
+            // A reasoner's ladder is `reasoning_options` (models.dev's effort control). OpenCode
+            // turns that into variants and advertises the ACP effort option, the composer's picker.
+            // The profile list declares the same ladder, including an empty one: an omitted
+            // `efforts` lets the picker copy the levels of whichever model the chat is running.
             let mut models = serde_json::Map::new();
             for m in e.models {
-                models.insert(m.clone(), serde_json::json!({"name": m}));
+                let efforts = reasoning_efforts(m);
+                let model = if efforts.is_empty() {
+                    serde_json::json!({"name": m})
+                } else {
+                    serde_json::json!({
+                        "name": m,
+                        "reasoning_options": [{"type": "effort", "values": efforts}],
+                    })
+                };
+                models.insert(m.clone(), model);
             }
             // apiKey is the env reference (never a value), and only when the profile names a
             // Keychain item: a keyless endpoint's config reads no variable, so a stray
             // CMUX_BYO_API_KEY in some env never reaches it (the spawn removes it too:
             // [`clear_inherited`]). A key comes only with an add (`--key`, Settings).
-            let mut options = serde_json::json!({"baseURL": e.base_url});
+            // Foundry / Azure OpenAI: `@ai-sdk/azure` builds the host from `resourceName` and
+            // `useCompletionUrls` (Chat Completions + `max_completion_tokens`). A plain
+            // `baseURL` with `@ai-sdk/openai` hits Responses and resets; with both baseURL and
+            // resourceName, Azure's SDK can 404 some deployments.
+            let mut options = match resource {
+                Some(name) => serde_json::json!({
+                    "resourceName": name,
+                    "apiVersion": "v1",
+                    "useCompletionUrls": true,
+                }),
+                None => serde_json::json!({"baseURL": e.base_url}),
+            };
             if let (Some(_), Some(map)) = (e.keychain_item, options.as_object_mut()) {
                 let key = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
                 map.insert("apiKey".to_owned(), key);
             }
+            let npm =
+                if resource.is_some() { "@ai-sdk/azure" } else { "@ai-sdk/openai-compatible" };
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
-                "provider": {OPENCODE_PROVIDER: {
-                    "npm": "@ai-sdk/openai-compatible",
+                "provider": {provider_key: {
+                    "npm": npm,
                     "name": e.name,
                     "options": options,
                     "models": models,
@@ -358,11 +501,17 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
                 "model": first,
                 "small_model": first,
             });
-            let list =
-                e.models.iter().map(|m| toml_string(&full(m))).collect::<Vec<_>>().join(", ");
+            let list = e
+                .models
+                .iter()
+                .map(|model| model_toml(provider_key, model))
+                .collect::<Vec<_>>()
+                .join(", ");
             let f = toml_string(&first);
+            let icon = toml_string(e.icon.unwrap_or("opencode"));
+            let command = toml_string(e.program.unwrap_or("opencode"));
             format!(
-                "{head}icon = \"opencode\"\nprotocol = \"acp\"\ncommand = \"opencode\"\nargs = [\"acp\"]\n\n\
+                "{head}icon = {icon}\nprotocol = \"acp\"\ncommand = {command}\nargs = [\"acp\"]\n\n\
                  [capabilities]\npermission_modes = true\nresume = true\n\n\
                  [defaults]\nmodel = {f}\n\n[models]\nlist = [{list}]\n\n\
                  [auth]\ndocs = \"https://opencode.ai/docs/providers/\"\n\n\
@@ -719,3 +868,7 @@ pub(crate) fn clears(name: &str, profile_env: &BTreeMap<String, String>) -> bool
 #[cfg(all(test, unix))]
 #[path = "byo_endpoint_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "byo_endpoint_reasoning_tests.rs"]
+mod reasoning_tests;

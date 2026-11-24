@@ -14,6 +14,11 @@ export function isPlumbingCall(update: any): boolean {
   return typeof tool === "string" && PLUMBING_TOOLS.has(tool);
 }
 
+/// Foundry's wait (`foundry_gate.rs`, id `foundry-line-…`). The live line names it while it runs.
+export function isFoundryWait(tool: { id?: unknown } | null | undefined): boolean {
+  return typeof tool?.id === "string" && tool.id.startsWith("foundry-line-");
+}
+
 /// A completed plumbing call stays in the source row for Find/copy/export, but does not count as
 /// work in the turn summary. The one predicate for both: presentation filters the same call from
 /// the visible step list (mcpPresentation.ts `visibleToolItems`), so a call is never hidden from
@@ -23,6 +28,8 @@ export function isPlumbingCall(update: any): boolean {
 /// same way: the whole record draws such a result of a hidden call as nothing.
 export function isCompletedPlumbingTool(tool: any): boolean {
   if (tool?.awaitingCall === true) return true;
+  // Once the model starts, the wait is finished and draws nothing. A failed one stays.
+  if (isFoundryWait(tool)) return tool.status === "completed";
   const name = tool?.provenance?.claudeTool ?? tool?.provenance?.claudeCodeToolName;
   if (tool?.status !== "completed" || typeof name !== "string" || !PLUMBING_TOOLS.has(name) || tool.title !== name)
     return false;

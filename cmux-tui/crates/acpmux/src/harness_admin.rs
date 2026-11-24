@@ -106,6 +106,12 @@ pub struct AddParams {
     pub models: Vec<String>,
     /// Endpoint examples: the Keychain item that holds the key.
     pub keychain_item: Option<String>,
+    /// Endpoint examples: a profile `icon` (a brand id or a file next to the profile).
+    /// Not taken from `_acpmux/harness/add` JSON; callers set it in code (Foundry's PNG).
+    pub icon: Option<String>,
+    /// Endpoint examples: the agent CLI's path when the login PATH does not list it. Code only,
+    /// as `icon` (Foundry's `~/.opencode/bin/opencode`).
+    pub program: Option<String>,
 }
 
 impl AddParams {
@@ -185,6 +191,8 @@ impl AddParams {
             base_url: text("baseUrl")?,
             models,
             keychain_item: text("keychainItem")?,
+            icon: None,
+            program: None,
         })
     }
 }
@@ -754,6 +762,8 @@ fn add_endpoint(
         base_url: &base_url,
         models: &models,
         keychain_item: item.as_deref(),
+        icon: p.icon.as_deref(),
+        program: p.program.as_deref(),
     });
     ensure_dir(dir)?;
     let delete = |account: &str| {

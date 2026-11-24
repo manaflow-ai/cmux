@@ -26,6 +26,7 @@ import {
   rememberResolvedAlias,
   rememberResolvedDefault,
   resolvedModel,
+  withoutByoPrefix,
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
@@ -53,7 +54,7 @@ import {
   useHarnessSetup,
   type HarnessSetup,
 } from "./harnessSetup";
-import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
+import { installCommand } from "./harnesses/harnessRows";
 import { installProgress, plainInstallFailure } from "./harnesses/installRetry";
 import { postNative } from "./native";
 import { rememberPick } from "./lastPick";
@@ -643,15 +644,15 @@ export function ComposerPickers({
   const setupCwd = folder ?? summary?.cwd;
   const setUpPick = (pick: SetupRequest) => {
     const { notInstalled, login, ...picked } = pick;
-    const install = notInstalled ? INSTALL_COMMANDS[pick.harness] : undefined;
+    const entry = pickerCatalog?.harnesses.find(
+      (candidate) => (candidate.acpmuxHarness ?? candidate.id) === pick.harness,
+    );
+    const install = notInstalled ? installCommand(pick.harness, entry?.family) : undefined;
     // No command installs it here: the Harnesses page offers its setup page.
     if (notInstalled && !install) {
       onAddAgent?.();
       return;
     }
-    const entry = pickerCatalog?.harnesses.find(
-      (candidate) => (candidate.acpmuxHarness ?? candidate.id) === pick.harness,
-    );
     startHarnessSetup(picked, {
       native: postNative,
       ...(setupCwd ? { cwd: setupCwd } : {}),
@@ -888,7 +889,7 @@ export function ComposerPickers({
           : starting
             ? { id: startingPick, name: starting }
             : { name: harnessOnly };
-  const modelName = named.name;
+  const modelName = named.name ? withoutByoPrefix(named.name) : named.name;
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
@@ -1285,7 +1286,7 @@ export function ComposerPickers({
   const heldListed = held?.model ? heldEntry?.models.find((choice) => choice.id === held.model) : undefined;
   const heldName = held
     ? held.model
-      ? (heldRow?.name ?? heldListed?.name ?? modelIdName(held.model, t))
+      ? withoutByoPrefix(heldRow?.name ?? heldListed?.name ?? modelIdName(held.model, t))
       : (held.name ?? heldEntry?.name ?? held.harness)
     : undefined;
   const heldEffort = held?.effort ?? (held?.model ? heldRow?.defaultEffort : undefined);

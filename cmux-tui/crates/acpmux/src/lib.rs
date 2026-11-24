@@ -108,6 +108,7 @@ pub mod fork_place;
 mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
+pub mod foundry;
 pub mod frame_compress;
 /// The always-on frame tally of the visible chat (`_acpmux/perf {op:"frames"}`).
 pub mod frame_tally;

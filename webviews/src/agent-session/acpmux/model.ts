@@ -1646,6 +1646,9 @@ export type AcpmuxSnapshot = {
     unavailable?: string;
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
+    /** `_acpmux/harnesses` `programMissing`: its program is not on this machine, so a chat on it
+     * cannot start until it is installed. */
+    programMissing?: true;
     /** acpmux's `_acpmux/harnesses` named no default harness (default_harness.rs): New Tab starts
      * on no agent until one is picked. */
     noDefault?: true;

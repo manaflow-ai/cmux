@@ -8168,6 +8168,13 @@
       "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud)."
     }
   },
+  "settingsWindow.models.foundry.region": {
+    "source": "Region",
+    "identityLocales": {
+      "de": "Region is the standard German noun for an Azure region, spelled as in English.",
+      "pl": "Region is the standard Polish noun for an Azure region, spelled as in English."
+    }
+  },
   "settingsWindow.models.org.agent": {
     "source": "Agent",
     "identityLocales": {

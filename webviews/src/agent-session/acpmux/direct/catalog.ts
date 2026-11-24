@@ -38,7 +38,9 @@ export function normalizeFolderProfiles(value: any): AcpmuxSnapshot["catalog"] {
 }
 
 /// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.
+/// A profile's `[models] list` gives plain ids, wrapped as the Chief picker does.
 export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["models"][number] {
+  if (typeof model === "string") model = { id: model };
   const entry: AcpmuxSnapshot["catalog"][number]["models"][number] = {
     id: String(model?.id ?? model?.modelId),
     name: typeof model?.name === "string" ? model.name : undefined,
@@ -134,5 +136,6 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
     ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
+    ...(harness.programMissing === true ? { programMissing: true as const } : {}),
   };
 }

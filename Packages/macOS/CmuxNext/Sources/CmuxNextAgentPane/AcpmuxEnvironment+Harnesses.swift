@@ -120,6 +120,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case connectionsKeyAdd = "_acpmux/connections/key.add"
     /// A Claude setup token's `keychain:ITEM` reference (`{secret, label?}`) as a `claude-token` connection.
     case claudeTokenAdd = "_acpmux/connections/claude_token.add"
+    /// `{step}`: Microsoft Foundry's setup (`install`, `login`) or its harness `on` / `off`.
+    case connectionsFoundrySet = "_acpmux/connections/foundry.set"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -147,6 +149,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .accountSignInCancel, .accountSwitch, .accountReadiness: .seconds(20)
         // The daemon holds a finish until the approval or the sign-in's expiry (`agent_login::EXPIRY`, 15 min).
         case .accountSignInFinish: .seconds(16 * 60)
+        // OpenCode and the Azure CLI installs (600 s each), or a browser sign-in and Azure's resources.
+        case .connectionsFoundrySet: .seconds(1200)
         }
     }
 }

@@ -34,6 +34,8 @@ public final class SettingsModels {
     private(set) var connections: [JSONValue] = []
     /// acpmux's `spread`; the page shows the setting's value when there is one.
     private(set) var daemonSpread = true
+    /// acpmux's Microsoft Foundry `{az, opencode, account, enabled}`.
+    private(set) var foundry: JSONValue?
     /// Whether acpmux answered `_acpmux/connections` at the last read.
     private(set) var available = false
     private(set) var read = false
@@ -107,6 +109,7 @@ public final class SettingsModels {
             ],
             "members": members,
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
+            "foundry": foundry ?? .null,
         ]
     }
 
@@ -155,6 +158,7 @@ public final class SettingsModels {
     func apply(_ reply: JSONValue) {
         connections = (reply["connections"]?.arrayValue ?? []).compactMap(Self.connection)
         if let on = reply["spread"]?.boolValue { daemonSpread = on }
+        foundry = reply["foundry"]
         available = true
         onConnections?()
     }
@@ -246,6 +250,18 @@ public final class SettingsModels {
             if let writeSpreadSetting { try await writeSpreadSetting(on) }
             let environment = try requireDaemon()
             try await push(spread: on, environment)
+        case "foundry":
+            guard let step = params["step"]?.stringValue else {
+                throw PageError.invalidParams("foundry needs a step")
+            }
+            var args: [String: any Sendable] = ["step": step]
+            if let region = params["region"]?.stringValue {
+                args["region"] = region
+            }
+            // The daemon bundled in an older cmux turns Foundry off for any call that is not
+            // `{on: true}` (`connections.rs` before `step`). Region and the setup steps must say on.
+            args["on"] = step != "off"
+            try await mutate(.connectionsFoundrySet, args)
         case "enable":
             guard let id = listedID(params), let on = params["on"]?.boolValue else { throw PageError.invalidParams("enable needs a listed id and on") }
             _ = try await daemon(try requireDaemon(), .accountSet, ["id": id, "enabled": on])

@@ -48,8 +48,9 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   ```
   `id` is the route id. `enabled` is the existing routing switch. `serves_cloud` is false only when
   the connection cannot be served through the gateway (none today; reserved).
-- `_acpmux/connections/order.set` `{ "ids": ["..."] }` -> state. Unknown ids are an error; missing
-  ids keep their default order after the listed ones. Stored in `<acpmux home>/routes/bindings.json`
+- `_acpmux/connections/order.set` `{ "ids": ["..."] }` -> state. Unknown ids are an error (the
+  Foundry harness token `foundry` is allowed, so its row keeps its placement); missing ids keep
+  their default order after the listed ones. Stored in `<acpmux home>/routes/bindings.json`
   as `connection_order`, `spread`.
 - `_acpmux/connections/spread.set` `{ "on": bool }` -> state.
 - `_acpmux/connections/chatgpt.begin` `{ "id": "optional existing chatgpt-plan id (reauth)" }`
@@ -74,6 +75,25 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
 - `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"? }` -> state.
   The app stores the pasted key in the Keychain first (as `cmux.chief.backend.add` does) and passes
   only the reference.
+- `_acpmux/connections/foundry.set` `{ "step": "install"|"login"|"on"|"off"|"region", "region"? }`
+  -> state (`foundry.rs`). `install` puts OpenCode and the Azure CLI on this Mac; `login` runs
+  `az login` in the browser; `on` makes the resource group `cmux` (tagged `managed-by=cmux`), one
+  AIServices account named `cmux-{hash}-{region}` (default region `eastus2`), and the OpenCode
+  endpoint harness `foundry` (`icon = "foundry.png"`, `@ai-sdk/azure` as provider id `azure`
+  with `useCompletionUrls`, so OpenCode sends Chat Completions / `max_completion_tokens`; any
+  other provider id ignores the flag and uses Responses, which replays encrypted reasoning Azure
+  then rejects). `region` creates that account in the new
+  region, rewrites the harness, then deletes and purges the old cmux account (models redeploy on
+  first use); `off` removes the harness. State's `foundry` is
+  `{ az, opencode, account, enabled, region, regions, order, install? }`, where `order` is the Foundry row's
+  index in `connection_order` (null for the default, the end): Foundry is a harness, not a
+  connection, but its token (`foundry`) may ride in `connection_order` so its row keeps the spot the
+  person dragged it to. `install` is present only while Install is running: each of OpenCode and the
+  Azure CLI has `{state, detail}` for its bar. Settings lists it in Your connections once ready (This Mac only); until then
+  Add a Connection > Cloud providers walks the steps, and the row's menu offers Move Up / Move Down
+  and Switch Region. A model deploys on its first turn and waits until Azure serves
+  it (`hub/foundry_gate.rs`); a failed deploy fails the turn. A harness whose program is missing is
+  `programMissing` (Foundry installs OpenCode by family).
 - Notification `_acpmux/connections.changed` with `ConnectionsState`.
 
 ### Sign in with ChatGPT (Codex's own sign-in, cmux#45774)
@@ -140,6 +160,9 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
     };
     members: { ownConnections: boolean; chooseRunout: boolean; canEdit: boolean } | null;
     chatgpt: { attempt: string | null; error: string | null };
+    foundry: { az: boolean; opencode: boolean; account: string | null; enabled: boolean;
+      region: string | null; regions: string[]; order: number | null;
+      install?: { opencode?: { state: string; detail: string }; az?: { state: string; detail: string } } | null } | null;
   };
   type ModelConnection = { id: string; kind: "codex-login" | "claude-login" | "subscription" | "chatgpt-plan" | "api-key";
     provider: "openai" | "anthropic" | "openrouter" | "google" | "xai"; families: string[]; label: string;
@@ -150,7 +173,8 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
   `{action:"connectChatGPT", id?}`, `{action:"cancelChatGPT"}`, `{action:"connectClaude"}`
   (existing Claude account sign-in), `{action:"addKey", provider, key, label?}` (the app moves `key`
   into the Keychain; it never reaches acpmux or disk otherwise), `{action:"orgKey", agent, key|null}`
-  (existing `team.agent_key.set|remove`), `{action:"members", ownConnections?, chooseRunout?}`.
+  (existing `team.agent_key.set|remove`), `{action:"members", ownConnections?, chooseRunout?}`,
+  `{action:"foundry", step, region?}`.
 - Stream `cmux.settings.models.changed` -> `ModelsState`.
 - Settings layout: new sidebar category `models` ("Models"), card `models`, in
   `schemas/settings/source/page-layout.json`, placed right after Agents. Route

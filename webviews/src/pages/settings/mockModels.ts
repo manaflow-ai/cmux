@@ -2,7 +2,7 @@
 // Fixture states of Settings > Models (ModelsCard.tsx) as the app's `cmux.settings.models.state`
 // answers them (cmux-tui/docs/model-connections.md), and the mock host's answer to the card's gestures.
 import { isClaudeToken } from "../../agent-session/shared/claudeSetupToken";
-import type { ModelConnection, ModelsRun, ModelsState } from "./ops";
+import { FOUNDRY_ROW, type ModelConnection, type ModelsRun, type ModelsState } from "./ops";
 
 const codexLogin: ModelConnection = {
   id: "codex-login",
@@ -80,6 +80,7 @@ const empty: ModelsState = {
   organization: { team: null, canEdit: false, keys: [] },
   members: null,
   chatgpt: { attempt: null, error: null },
+  foundry: null,
 };
 
 const macLogins: ModelsState = {
@@ -98,6 +99,7 @@ const macLogins: ModelsState = {
   },
   members: { ownConnections: true, chooseRunout: false, canEdit: true },
   chatgpt: { attempt: null, error: null },
+  foundry: null,
 };
 
 /** Settings > Cloud's states (CloudModelsCard.tsx): only this Mac's CLI logins (healthy here, nothing
@@ -143,12 +145,35 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
   };
   switch (run.action) {
     case "order": {
-      for (const id of run.ids) find(id);
-      const listed = run.ids.map(find);
-      return personal({ connections: [...listed, ...connections.filter((c) => !run.ids.includes(c.id))] });
+      // The Foundry harness token rides along to keep its row's placement; it is no connection.
+      const connIds = run.ids.filter((id) => id !== FOUNDRY_ROW);
+      for (const id of connIds) find(id);
+      const listed = connIds.map(find);
+      const next = personal({ connections: [...listed, ...connections.filter((c) => !run.ids.includes(c.id))] });
+      if (!state.foundry) return next;
+      const at = run.ids.indexOf(FOUNDRY_ROW);
+      return { ...next, foundry: { ...state.foundry, order: at < 0 ? null : at } };
     }
     case "spread":
       return personal({ spread: run.on });
+    case "foundry": {
+      const was = state.foundry ?? {
+        az: false,
+        opencode: false,
+        account: null,
+        enabled: false,
+        region: null,
+        regions: ["eastus2", "southindia"],
+      };
+      const patch = {
+        install: { az: true, opencode: true },
+        login: { account: "alex@example.com" },
+        region: { region: run.region ?? was.region, enabled: true },
+        on: { enabled: true, region: run.region ?? "eastus2" },
+        off: { enabled: false },
+      }[run.step];
+      return { ...state, foundry: { ...was, ...patch } };
+    }
     case "enable":
       find(run.id);
       return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, enabled: run.on } : c)) });

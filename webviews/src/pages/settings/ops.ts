@@ -759,7 +759,31 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  /** Microsoft Foundry: OpenCode and az on this Mac, the account az signed in to, its harness on,
+   * and the Azure region of its cmux account. Null until acpmux answers. */
+  foundry: {
+    /** Omitted when this daemon did not report the tool. That is unknown, not missing. */
+    az?: boolean;
+    opencode?: boolean;
+    account: string | null;
+    enabled: boolean;
+    region: string | null;
+    /** Omitted by a daemon that predates the region list. The page then offers the current region. */
+    regions?: string[];
+    /** Where the person dragged the Foundry row among their connections (its index in the stored
+     * order); null or omitted leaves it at the end. */
+    order?: number | null;
+    /** Set only while Install is running: each tool's short status. Absent once the run ends. */
+    install?: {
+      opencode?: { state: string; detail: string };
+      az?: { state: string; detail: string };
+    } | null;
+  } | null;
 };
+
+/** The Foundry row's id in the connection order (acpmux's `foundry::HARNESS_ID`): a harness, not a
+ * connection, so it rides in the stored order only to keep its row's drag placement. */
+export const FOUNDRY_ROW = "foundry";
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
@@ -767,6 +791,11 @@ export type ModelsState = {
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
+  | {
+      action: "foundry";
+      step: "install" | "login" | "on" | "off" | "region";
+      region?: string;
+    }
   | { action: "enable"; id: string; on: boolean }
   | { action: "remove"; id: string }
   | { action: "connectChatGPT"; id?: string }

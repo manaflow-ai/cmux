@@ -9,6 +9,9 @@ import { replacedFrom } from "./sessionIndex";
 import { agentKey } from "../shared/agentKey";
 import { agentBrand } from "../shared/agentBrands.generated";
 
+/** Microsoft Foundry's OpenCode endpoint harness: same family as OpenCode, its own picker tab. */
+export const FOUNDRY_HARNESS = "foundry";
+
 // The composer's model catalog as data (decision M2; contract .cmux-scratch/nx-model-catalog/
 // CONTRACT.md). Three layers meet here: the cmux catalog (the server's projection of the public
 // model feed plus cmux overrides, delivered by the app host, else the snapshot bundled with the
@@ -366,15 +369,18 @@ export function buildPickerCatalog({
   };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
+  // Foundry runs OpenCode but keeps its own tab and mark (not an OpenCode route).
+  const ofFamily = (entry: AcpmuxHarness, families: readonly string[]) =>
+    entry.id !== FOUNDRY_HARNESS && families.includes(familyOf(entry));
   const harnesses = layered.harnesses.map((harness) => {
-    const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
+    const members = acpmux.filter((entry) => ofFamily(entry, harness.families));
     for (const member of members) covered.add(member.id);
     return catalogHarness(harness, members, join);
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
     if (hidden.has(harness.id))
-      for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
+      for (const entry of acpmux) if (ofFamily(entry, harness.families)) covered.add(entry.id);
   for (const entry of acpmux) {
     if (!covered.has(entry.id) && !hidden.has(entry.id)) harnesses.push(uncataloguedHarness(entry, join));
   }
@@ -521,7 +527,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   // A profile of a catalogued agent ("claude-sr2" is Claude Code) runs that agent's releases: they
   // name the release its session pins, and the aliases the agent names as one fold into it.
-  const key = agentKey(familyOf(entry));
+  // Foundry is OpenCode under the hood but lists only its own Azure models, never OpenCode's kin.
+  const key = entry.id === FOUNDRY_HARNESS ? undefined : agentKey(familyOf(entry));
   const kin = join.catalog.harnesses.find(
     (harness) => harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
   );
@@ -560,7 +567,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     brand: declaredBrand ?? agentBrand(entry.id) ?? null,
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
-    installed: true,
+    // A profile whose program is missing (Foundry on a Mac with no OpenCode) offers its install.
+    installed: entry.programMissing !== true,
     pickable: entryPickable(entry),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     ...(entry.probeFailed ? { probeFailed: true } : {}),

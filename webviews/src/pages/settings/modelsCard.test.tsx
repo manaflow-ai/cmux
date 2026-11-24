@@ -53,7 +53,10 @@ test("Move Down sends the whole new order, and the rows follow", async () => {
   const down = document.querySelector<HTMLElement>('[role="menuitem"][data-value="moveDown"]')!;
   await click(down);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "order", ids: ["claude-login", "codex-login", "chatgpt", "claude-token", "openrouter-key"] },
+    {
+      action: "order",
+      ids: ["claude-login", "codex-login", "chatgpt", "claude-token", "openrouter-key"],
+    },
   ]);
   expect(connectionIds(rendered)).toEqual(["claude-login", "codex-login", "chatgpt", "claude-token", "openrouter-key"]);
 });
@@ -189,13 +192,202 @@ test("the mock refuses what acpmux refuses and names new routes as acpmux does",
     servesCloud: false,
   });
   const tokened = runMockModels(state, { action: "addClaudeToken", token: "sk-ant-oat01-x" });
-  expect(tokened.personal.connections.at(-1)).toMatchObject({ id: "claude-token-2", label: "Claude Code token" });
-  const anthropic = runMockModels(mockModels.empty, { action: "addKey", provider: "anthropic", key: "k" });
+  expect(tokened.personal.connections.at(-1)).toMatchObject({
+    id: "claude-token-2",
+    label: "Claude Code token",
+  });
+  const anthropic = runMockModels(mockModels.empty, {
+    action: "addKey",
+    provider: "anthropic",
+    key: "k",
+  });
   expect(anthropic.personal.connections[0]).toMatchObject({
     id: "anthropic-key",
     label: "Anthropic API key",
     servesCloud: true,
   });
+});
+
+const foundryUnset = {
+  az: false,
+  opencode: false,
+  account: null,
+  enabled: false,
+  region: null,
+  regions: ["eastus2", "southindia"],
+};
+const foundryReady = {
+  az: true,
+  opencode: true,
+  account: "alex@example.com",
+  enabled: true,
+  region: "eastus2",
+  regions: ["eastus2", "southindia"],
+};
+
+test("Microsoft Foundry sets up under Cloud providers, a step at a time, then is a connection", async () => {
+  expect(
+    card(await render({ ...mockModels.empty, foundry: foundryUnset })).querySelector('[data-models-row="foundry"]'),
+  ).toBeNull();
+  const shown = await render({ ...mockModels.empty, foundry: foundryUnset });
+  await click(action(card(shown), "add")!);
+  expect(sheet()?.textContent).toContain("Cloud providers");
+  expect(sheet()?.querySelector('[data-models-choice="foundry"]')?.textContent).toContain("Azure CLI");
+  await click(sheet()!.querySelector('[data-models-choice="foundry"]')!);
+  expect(action(sheet()!, "foundry.login")).toBeNull();
+  expect(sheet()?.textContent).toContain("Install OpenCode & Azure CLI");
+  expect(sheet()?.textContent).toContain("cmux uses the CLI to provision model deployments from Azure.");
+  expect(sheet()?.querySelector('[data-state="current"]')?.textContent).toBe("1");
+  await click(action(sheet()!, "foundry.install")!);
+  await click(action(sheet()!, "foundry.login")!);
+  expect(action(sheet()!, "foundry.on")?.textContent).toBe("Enable");
+  await click(action(sheet()!, "foundry.on")!);
+  expect(shown.provider.modelRuns).toEqual([
+    { action: "foundry", step: "install" },
+    { action: "foundry", step: "login" },
+    { action: "foundry", step: "on", region: "eastus2" },
+  ]);
+  expect(sheet()).toBeNull();
+  const row = card(shown).querySelector<HTMLElement>('[data-models-row="foundry"]')!;
+  expect(row.textContent).toContain("Authenticated as alex@example.com");
+  expect(row.textContent).toContain("This Mac only");
+  expect(row.querySelector('[data-models-action="setUpForCloud"]')).toBeNull();
+  expect(connectionIds(shown)).toEqual([]);
+  await click(row.querySelector('[role="switch"]')!);
+  expect(shown.provider.modelRuns.at(-1)).toEqual({ action: "foundry", step: "off", region: "eastus2" });
+});
+
+const regionDialog = () => document.querySelector<HTMLElement>("[data-models-region]");
+
+test("Foundry's install step names only the tool that is missing", async () => {
+  const shown = await render({ ...mockModels.empty, foundry: { ...foundryUnset, opencode: true } });
+  await click(action(card(shown), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="foundry"]')!);
+  expect(sheet()?.textContent).toContain("Install Azure CLI");
+  expect(sheet()?.textContent).not.toContain("Install OpenCode & Azure CLI");
+});
+
+test("Foundry's Switch Region is a region list on the row, not the setup sheet", async () => {
+  const shown = await render({ ...mockModels.empty, foundry: foundryReady });
+  const row = card(shown).querySelector<HTMLElement>('[data-models-row="foundry"]')!;
+  await click(row.querySelector('[data-menu="connection-foundry"]')!);
+  await click(document.querySelector<HTMLElement>('[role="menuitem"][data-value="switchRegion"]')!);
+  expect(sheet()).toBeNull();
+  expect(regionDialog()?.textContent).not.toContain("OpenCode");
+  expect(action(regionDialog()!, "foundry.region")!.textContent).toBe("Switch");
+  expect(action(regionDialog()!, "foundry.region")!.disabled).toBe(true);
+  await changeValue(regionDialog()!.querySelector<HTMLSelectElement>("select")!, "southindia");
+  expect(action(regionDialog()!, "foundry.region")!.disabled).toBe(false);
+  await click(action(regionDialog()!, "foundry.region")!);
+  expect(shown.provider.modelRuns).toEqual([{ action: "foundry", step: "region", region: "southindia" }]);
+  expect(regionDialog()).toBeNull();
+});
+
+test("a Foundry status that omits the tool flags still lists the row", async () => {
+  const shown = await render({
+    ...mockModels.empty,
+    foundry: { account: "alex@example.com", enabled: false, region: "eastus2" },
+  });
+  const row = card(shown).querySelector<HTMLElement>('[data-models-row="foundry"]')!;
+  expect(row).not.toBeNull();
+  await click(action(card(shown), "add")!);
+  expect(sheet()?.textContent ?? "").not.toContain("OpenCode + Azure CLI");
+});
+
+test("Switch Region with no regions list does not take over the page", async () => {
+  const shown = await render({
+    ...mockModels.empty,
+    foundry: { ...foundryReady, regions: undefined },
+  });
+  const row = card(shown).querySelector<HTMLElement>('[data-models-row="foundry"]')!;
+  await click(row.querySelector('[data-menu="connection-foundry"]')!);
+  await click(document.querySelector<HTMLElement>('[role="menuitem"][data-value="switchRegion"]')!);
+  expect(sheet()).toBeNull();
+  expect(regionDialog()?.querySelector("select")?.textContent).toContain("eastus2");
+  expect(row.textContent).not.toContain("undefined is not an object");
+  shown.store.runModels = async () => ({ summary: "could not switch", detail: null });
+  await click(row.querySelector('[role="switch"]')!);
+  expect(row.querySelector("[data-models-foundry-error]")?.textContent).toContain("could not switch");
+});
+
+test("Foundry reorders like a connection: Move Up sends the whole order and its row follows", async () => {
+  const rowOrder = (rendered: Rendered) =>
+    [...card(rendered).querySelectorAll<HTMLElement>("[data-connection], [data-models-row='foundry']")].map(
+      (row) => row.dataset.connection ?? row.dataset.modelsRow,
+    );
+  const rendered = await render({ ...mockModels.macLogins, foundry: foundryReady });
+  // Foundry starts at the end of the list; Move Up puts it before the last connection.
+  expect(rowOrder(rendered).at(-1)).toBe("foundry");
+  await click(card(rendered).querySelector('[data-menu="connection-foundry"]')!);
+  await click(document.querySelector<HTMLElement>('[role="menuitem"][data-value="moveUp"]')!);
+  expect(rendered.provider.modelRuns).toEqual([
+    {
+      action: "order",
+      ids: ["codex-login", "claude-login", "chatgpt", "claude-token", "foundry", "openrouter-key"],
+    },
+  ]);
+  expect(rowOrder(rendered)).toEqual([
+    "codex-login",
+    "claude-login",
+    "chatgpt",
+    "claude-token",
+    "foundry",
+    "openrouter-key",
+  ]);
+});
+
+test("Foundry's error opens the host's message", async () => {
+  const shown = await render({ ...mockModels.empty, foundry: foundryReady });
+  const row = card(shown).querySelector<HTMLElement>('[data-models-row="foundry"]')!;
+  shown.store.runModels = async () => ({
+    summary: "Something went wrong. Try again.",
+    detail: "no capacity in southindia",
+  });
+  await click(row.querySelector('[role="switch"]')!);
+  const failure = row.querySelector<HTMLElement>("[data-models-foundry-error]")!;
+  expect(failure.textContent).toContain("Something went wrong. Try again.");
+  expect(failure.textContent).not.toContain("no capacity in southindia");
+  const arrow = failure.querySelector("button")!;
+  expect(arrow.getAttribute("aria-expanded")).toBe("false");
+  await click(arrow);
+  expect(arrow.getAttribute("aria-expanded")).toBe("true");
+  expect(failure.textContent).toContain("no capacity in southindia");
+});
+
+test("Foundry's connect spinner leaves other connection switches free", async () => {
+  const { act } = await import("react");
+  const shown = await render({
+    ...mockModels.macLogins,
+    foundry: { ...foundryReady, enabled: false, region: null },
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = shown.store.runModels.bind(shown.store);
+  shown.store.runModels = async (gesture) => {
+    if (gesture.action === "foundry") await held;
+    return original(gesture);
+  };
+  const row = card(shown).querySelector<HTMLElement>('[data-models-row="foundry"]')!;
+  await act(async () => {
+    row.querySelector<HTMLElement>('[role="switch"]')!.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(row.getAttribute("aria-busy")).toBe("true");
+  expect(row.querySelector('[role="switch"]')).not.toBeNull();
+  expect(row.querySelector(".models-foundry-spinner")).not.toBeNull();
+  const other = card(shown).querySelector<HTMLElement>('[data-connection="codex-login"] [role="switch"]')!;
+  expect(other.getAttribute("aria-disabled") === "true" || (other as HTMLButtonElement).disabled).toBe(false);
+  await act(async () => {
+    release();
+    await held;
+    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(shown.provider.modelRuns).toEqual([{ action: "foundry", step: "on" }]);
+  expect(row.querySelector('[role="switch"]')).not.toBeNull();
 });
 
 test("the Models state is read again only while this Mac's connections can't be listed", async () => {

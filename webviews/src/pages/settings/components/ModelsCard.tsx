@@ -1,25 +1,30 @@
 // Settings > Models (cmux-tui/docs/model-connections.md): which subscription or key each thread runs
-// on. Your connections lists this person's Mac logins, ChatGPT plan sign-ins and API keys in the order
-// a thread tries them (drag a row, or Move Up / Move Down in its menu), each with its routing switch,
-// plus Spread usage. Organization connections lists the team's shared keys, which
-// every member's threads use after their own; owners and admins add, replace and remove the keys.
-// Members holds the team's policy for members' own connections, editable only by owners and admins.
-// Add a Connection (the "+", or `#/settings/models?focus=models.add`, which cmux://settings/models/add
-// opens) is a sheet with a search field: Subscriptions (ChatGPT through Continue with ChatGPT; Claude
-// Code through `claude setup-token` in a cmux terminal tab and a paste field for the token it prints)
-// and API keys (a password field and an optional label). A pasted key or token lives only in the open
-// form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
-// again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with
-// Set Up for Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
+// on. Your connections lists this person's Mac logins, ChatGPT plan sign-ins, API keys and Microsoft
+// Foundry once set up (This Mac only; its own spinner; Add a Connection > Cloud providers walks its
+// setup) in the order a thread tries them (drag a row, or Move Up / Move Down in its menu; Foundry
+// reorders the same way, its placement kept even though a thread picks it, not falls back to it),
+// each with its routing switch, plus Spread usage. Organization connections lists the
+// team's shared keys, which every member's threads use after their own; owners and admins add,
+// replace and remove the keys. Members holds the team's policy for members' own connections,
+// editable only by owners and admins. Add a Connection (the "+", or `#/settings/models?focus=models.add`,
+// which cmux://settings/models/add opens) is a sheet with a search field: Subscriptions (ChatGPT
+// through Continue with ChatGPT; Claude Code through `claude setup-token` in a cmux terminal tab and a
+// paste field for the token it prints), API keys (a password field and an optional label), and Cloud
+// providers (Microsoft Foundry's setup). Foundry's ⋯ menu opens a small region dialog on the row,
+// and a failure there is the row's own error, not another screen. A pasted key or token lives only in the open form until it is
+// sent, then is cleared; the app moves it into the Keychain and the page never sees it again. A Mac
+// login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with Set Up for
+// Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
 // A Claude login's Sign In Again, on a host that signs in in place, shows the sign-in card under the
 // row (logins done right; Leo, 2026-11-22: "this is simply logins, done righr."): the CLI's own login
 // when it is signed out, else a new Claude account, as the host's `connectClaude` picks; a daemon
 // without the in-place sign-in, or a host without it, keeps `connectClaude` (its terminal sign-in).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
 import { Button } from "../../../ui/Button";
-import { Dialog } from "../../../ui/Dialog";
+import { Dialog, DialogTitle } from "../../../ui/Dialog";
 import { Input } from "../../../ui/Input";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
@@ -27,13 +32,15 @@ import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
 import { Icon } from "../icons";
-import { SETTINGS_SENTENCES, type ModelConnection, type ModelProvider, type ModelsRun, type ModelsState } from "../ops";
+import { FOUNDRY_ROW, type ModelConnection, type ModelProvider, type ModelsRun, type ModelsState } from "../ops";
 import { sectionHref } from "../router";
+import { refusalOf } from "../store";
 import { t } from "../strings";
 import { userMessage } from "../../shared/userMessage";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
 import { parseAccountRow } from "../../shared/signIn/accountSignIn";
 import { useSettingsSignIn } from "./useSettingsSignIn";
+import foundryMark from "../foundry.png";
 
 /** The route focus that opens Add a Connection (cmux://settings/models/add). */
 export const MODELS_ADD_FOCUS = "models.add";
@@ -87,32 +94,87 @@ export function moveId(ids: string[], id: string, to: number): string[] {
   return rest;
 }
 
+/** The drag/reorder wiring a row (a connection or Foundry) gets: its spot, the list length, and the
+ * gestures its grip and Move Up/Down menu fire. `busy` is the list's own ordering gesture. */
+type RowDrag = {
+  index: number;
+  count: number;
+  busy: boolean;
+  dragging: boolean;
+  onDragStart(): void;
+  onDragEnd(): void;
+  onDrop(): void;
+  onMove(to: number): void;
+};
+
+/** Let a drop land on a row. */
+const dragOver = (event: DragEvent) => {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+};
+
+/** A row's drag handle, shared by every connection row. */
+function Grip({ id, drag }: { id: string; drag: RowDrag }) {
+  return (
+    <span
+      className="models-grip"
+      draggable={!drag.busy && drag.count > 1}
+      aria-hidden="true"
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", id);
+        drag.onDragStart();
+      }}
+      onDragEnd={drag.onDragEnd}
+    >
+      <Icon name="grip" />
+    </span>
+  );
+}
+
+/** The row container every connection shares: a drop target that reports its drag state. */
+function rowDrop(drag: RowDrag) {
+  return {
+    "data-dragging": drag.dragging ? "" : undefined,
+    onDragOver: dragOver,
+    onDrop: (event: DragEvent) => {
+      event.preventDefault();
+      drag.onDrop();
+    },
+  };
+}
+
 export type Run = (gesture: ModelsRun) => Promise<boolean>;
 
 /** A card's gestures to the host: `run` sends one and resolves whether the host took it; `busy` while
- * one is out, `error` the last refusal's text (shown under the card). */
-export function useModelsRun(): { busy: boolean; error: string | null; run: Run } {
+ * one is out, `error` the last refusal's sentence, `detail` the host's own message when it says more. */
+export function useModelsRun(): { busy: boolean; error: string | null; detail: string | null; run: Run } {
   const store = useStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
   const run: Run = (gesture) => {
     setBusy(true);
     setError(null);
+    setDetail(null);
     return store
       .runModels(gesture)
       .then(
         (refusal) => {
-          setError(refusal);
-          return refusal === null;
+          setError(refusal?.summary ?? null);
+          setDetail(refusal?.detail ?? null);
+          return refusal == null;
         },
         (failure: unknown) => {
-          setError(userMessage(failure, SETTINGS_SENTENCES));
+          const refusal = refusalOf(failure);
+          setError(refusal.summary);
+          setDetail(refusal.detail);
           return false;
         },
       )
       .finally(() => setBusy(false));
   };
-  return { busy, error, run };
+  return { busy, error, detail, run };
 }
 
 /** The Settings > Cloud row (CloudModelsCard.tsx) that sets up what a This Mac only connection serves. */
@@ -124,7 +186,7 @@ export function cloudFocusOf(connection: Pick<ModelConnection, "kind" | "familie
 export function ModelsCard({ focus }: { focus: string | null }) {
   const store = useStore();
   const models = useSettingsState().models;
-  const { busy, error, run } = useModelsRun();
+  const { busy, error, detail, run } = useModelsRun();
   const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
   useEffect(() => {
     if (focus === MODELS_ADD_FOCUS) setAdding(true);
@@ -137,11 +199,7 @@ export function ModelsCard({ focus }: { focus: string | null }) {
   return (
     <div className="models" data-card="models" aria-busy={busy}>
       <p className="row-help models-lead">{t("settingsWindow.models.subtitle")}</p>
-      {error && (
-        <p className="row-error" role="alert" data-models-error="">
-          {error}
-        </p>
-      )}
+      {error && <RunError key={`${error}\0${detail ?? ""}`} summary={error} detail={detail} />}
       <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding(true)} />
       <OrganizationSection models={models} busy={busy} run={run} />
       {models.members && <MembersSection members={models.members} busy={busy} run={run} />}
@@ -239,11 +297,28 @@ function PersonalSection({
 }) {
   const spreadId = useId();
   const { connections, spread, available } = models.personal;
+  const foundry = foundryListed(models.foundry) ? models.foundry : null;
   const [dragging, setDragging] = useState<string | null>(null);
+  // The draggable list is the connections plus the Foundry row, which rides along at its stored
+  // index (`foundry.order`); FOUNDRY_ROW is its id in the order a reorder sends.
   const ids = connections.map((connection) => connection.id);
+  if (foundry) ids.splice(Math.min(foundry.order ?? ids.length, ids.length), 0, FOUNDRY_ROW);
   const order = (next: string[]) => {
     if (next.join("\n") !== ids.join("\n")) void run({ action: "order", ids: next });
   };
+  const rowDrag = (id: string, index: number): RowDrag => ({
+    index,
+    count: ids.length,
+    busy,
+    dragging: dragging === id,
+    onDragStart: () => setDragging(id),
+    onDragEnd: () => setDragging(null),
+    onDrop: () => {
+      if (dragging) order(moveId(ids, dragging, index));
+      setDragging(null);
+    },
+    onMove: (to) => order(moveId(ids, id, to)),
+  });
   return (
     <section className="group" data-models-section="personal">
       <SectionHeader title={t("settingsWindow.models.personal.title")} help={t("settingsWindow.models.personal.help")}>
@@ -256,30 +331,28 @@ function PersonalSection({
             <span className="row-help">{t("settingsWindow.models.personal.unavailable")}</span>
           </div>
         )}
-        {available && connections.length === 0 && (
+        {available && connections.length === 0 && !foundry && (
           <div className="row" data-empty="">
             <span className="row-help">{t("settingsWindow.models.personal.empty")}</span>
           </div>
         )}
-        {connections.map((connection, index) => (
-          <ConnectionRow
-            key={connection.id}
-            connection={connection}
-            index={index}
-            count={connections.length}
-            cloudCovered={cloudCovered(connections, connection)}
-            busy={busy}
-            run={run}
-            dragging={dragging === connection.id}
-            onDragStart={() => setDragging(connection.id)}
-            onDragEnd={() => setDragging(null)}
-            onDrop={() => {
-              if (dragging) order(moveId(ids, dragging, index));
-              setDragging(null);
-            }}
-            onMove={(to) => order(moveId(ids, connection.id, to))}
-          />
-        ))}
+        {ids.map((id, index) => {
+          if (id === FOUNDRY_ROW) {
+            return foundry ? (
+              <FoundryRow key={id} foundry={foundry} available={available} drag={rowDrag(id, index)} />
+            ) : null;
+          }
+          const connection = connections.find((c) => c.id === id);
+          return connection ? (
+            <ConnectionRow
+              key={id}
+              connection={connection}
+              cloudCovered={cloudCovered(connections, connection)}
+              run={run}
+              drag={rowDrag(id, index)}
+            />
+          ) : null;
+        })}
       </div>
       <div className="rows">
         <div className="row" data-models-row="spread">
@@ -303,6 +376,210 @@ function PersonalSection({
   );
 }
 
+/** Microsoft Foundry in Your connections: its own connect/disconnect (not a route), no Cloud setup.
+ * It reorders like a connection (its token rides in the stored order); `busy` is the list's ordering
+ * gesture, separate from `running`, Foundry's own connect/region gesture. */
+function FoundryRow({
+  foundry,
+  available,
+  drag,
+}: {
+  foundry: NonNullable<ModelsState["foundry"]>;
+  available: boolean;
+  drag: RowDrag;
+}) {
+  const { index, count, busy, onMove } = drag;
+  const nameId = useId();
+  const { busy: running, error, detail, run } = useModelsRun();
+  const [regionOpen, setRegionOpen] = useState(false);
+  return (
+    <div
+      className="row models-connection"
+      data-models-row="foundry"
+      aria-busy={running || undefined}
+      {...rowDrop(drag)}
+    >
+      <div className="row-main">
+        <Grip id={FOUNDRY_ROW} drag={drag} />
+        <span className="accounts-mark" aria-hidden="true">
+          <FoundryMark />
+        </span>
+        <div className="row-label">
+          <div className="row-title" id={nameId}>
+            Microsoft Foundry
+          </div>
+          <div className="row-help" data-connection-auth={foundry.account ? "signedIn" : "signedOut"}>
+            {foundry.account
+              ? t("settingsWindow.harnesses.accounts.authenticatedAs", foundry.account)
+              : t("settingsWindow.harnesses.notAuthenticated")}
+          </div>
+          <div className="row-help" data-connection-local="">
+            {t("settingsWindow.models.thisMacOnly")}
+          </div>
+        </div>
+        <div className="row-control">
+          {running && <Spinner size={16} loading look="track" className="models-foundry-spinner" />}
+          <Switch
+            checked={foundry.enabled}
+            disabled={!available || running}
+            labelId={nameId}
+            onToggle={(on) =>
+              void run({
+                action: "foundry",
+                step: on ? "on" : "off",
+                ...(foundry.region ? { region: foundry.region } : {}),
+              })
+            }
+          />
+          <Menu>
+            <MenuButton
+              className="button models-more"
+              label={t("settingsWindow.models.more", "Microsoft Foundry")}
+              data-menu="connection-foundry"
+              disabled={running}
+            >
+              <Icon name="ellipsis" />
+            </MenuButton>
+            <MenuPopup align="end">
+              <MenuItem data-value="moveUp" disabled={index === 0 || busy} onSelect={() => onMove(index - 1)}>
+                {t("settingsWindow.models.moveUp")}
+              </MenuItem>
+              <MenuItem data-value="moveDown" disabled={index === count - 1 || busy} onSelect={() => onMove(index + 1)}>
+                {t("settingsWindow.models.moveDown")}
+              </MenuItem>
+              <MenuItem data-value="switchRegion" disabled={!foundry.enabled} onSelect={() => setRegionOpen(true)}>
+                {t("settingsWindow.models.foundry.switchRegion")}
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        </div>
+      </div>
+      {regionOpen && <FoundryRegionDialog foundry={foundry} run={run} onClose={() => setRegionOpen(false)} />}
+      {error && <RunError key={`${error}\0${detail ?? ""}`} summary={error} detail={detail} />}
+    </div>
+  );
+}
+
+/** A refused Models gesture: the short sentence, and an arrow that opens the host's own message.
+ * Re-key on the text so a new failure starts closed. */
+function RunError({ summary, detail }: { summary: string; detail: string | null }) {
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
+  return (
+    <div className="models-run-error" data-models-error="" data-models-foundry-error="">
+      <span className="models-grip" aria-hidden="true" />
+      <div className="models-run-error-body">
+        <div className="models-run-error-line">
+          {detail && (
+            <button
+              type="button"
+              className="models-run-error-toggle"
+              aria-expanded={open}
+              aria-controls={detailId}
+              onClick={() => setOpen((shown) => !shown)}
+            >
+              <Icon name="chevron" />
+            </button>
+          )}
+          <p className="row-error" role="alert">
+            {summary}
+          </p>
+        </div>
+        {open && detail && (
+          <p className="models-run-error-detail" id={detailId}>
+            {detail}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The daemon's region list, or just the current region when an older daemon omits it. */
+function foundryRegions(foundry: { regions?: string[] | null; region?: string | null }): string[] {
+  return foundry.regions ?? (foundry.region ? [foundry.region] : []);
+}
+
+/** Switch Region: a small dialog with the region list, not Add a Connection's setup screen. */
+function FoundryRegionDialog({
+  foundry,
+  run,
+  onClose,
+}: {
+  foundry: NonNullable<ModelsState["foundry"]>;
+  run: Run;
+  onClose(): void;
+}) {
+  const regions = foundryRegions(foundry);
+  const regionId = useId();
+  const current = foundry.region && regions.includes(foundry.region) ? foundry.region : regions[0];
+  const [region, setRegion] = useState(current);
+  const title = t("settingsWindow.models.foundry.switchRegion");
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      label={title}
+      className="ui-glass ui-glass-floats models-region"
+    >
+      <div className="models-region-body" data-models-region="">
+        <DialogTitle>{title}</DialogTitle>
+        <div className="row-title" id={regionId}>
+          {t("settingsWindow.models.foundry.region")}
+        </div>
+        <Select value={region} disabled={false} labelId={regionId} closeOnPick onChange={setRegion}>
+          {regions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </Select>
+        <div className="accounts-buttons">
+          <Button
+            type="button"
+            className="button"
+            variant="solid"
+            data-models-action="foundry.region"
+            disabled={region === foundry.region}
+            onClick={() => {
+              onClose();
+              void run({ action: "foundry", step: "region", region });
+            }}
+          >
+            {t("settingsWindow.models.foundry.switch")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Microsoft Foundry's mark (acpmux writes the same PNG next to foundry.toml for the picker). */
+function FoundryMark() {
+  return (
+    <img
+      className="agent-mark agent-mark-image"
+      src={foundryMark}
+      width={16}
+      height={16}
+      alt=""
+      draggable={false}
+      style={{ display: "inline-flex", flex: "none", width: 16, height: 16, objectFit: "contain" }}
+    />
+  );
+}
+
+/** Foundry is a connection once OpenCode and az are here and az is signed in (or its harness is on);
+ * until then Add a Connection > Cloud providers walks its setup. */
+function foundryListed(foundry: ModelsState["foundry"]): boolean {
+  if (!foundry) return false;
+  if (foundry.enabled) return true;
+  // Omitted means this daemon did not report the tool, not that it is missing.
+  return foundry.az !== false && foundry.opencode !== false && !!foundry.account;
+}
+
 /** Whether another connection already serves Cloud for `connection`'s row (Settings > Cloud's rule): a
  * This Mac only login then needs no Set Up for Cloud link, since a Cloud chat already has what it uses. */
 export function cloudCovered(connections: ModelConnection[], connection: ModelConnection): boolean {
@@ -312,29 +589,16 @@ export function cloudCovered(connections: ModelConnection[], connection: ModelCo
 
 function ConnectionRow({
   connection,
-  index,
-  count,
   cloudCovered: covered,
-  busy,
   run,
-  dragging,
-  onDragStart,
-  onDragEnd,
-  onDrop,
-  onMove,
+  drag,
 }: {
   connection: ModelConnection;
-  index: number;
-  count: number;
   cloudCovered: boolean;
-  busy: boolean;
   run: Run;
-  dragging: boolean;
-  onDragStart(): void;
-  onDragEnd(): void;
-  onDrop(): void;
-  onMove(to: number): void;
+  drag: RowDrag;
 }) {
+  const { index, count, busy, onMove } = drag;
   const nameId = useId();
   const router = useSettingsRouter();
   const [confirming, setConfirming] = useState(false);
@@ -349,35 +613,10 @@ function ConnectionRow({
     : connection.kind === "claude-login"
       ? { action: "connectClaude" }
       : null;
-  const over = (event: DragEvent) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-  };
   return (
-    <div
-      className="row models-connection"
-      data-connection={connection.id}
-      data-dragging={dragging ? "" : undefined}
-      onDragOver={over}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDrop();
-      }}
-    >
+    <div className="row models-connection" data-connection={connection.id} {...rowDrop(drag)}>
       <div className="row-main">
-        <span
-          className="models-grip"
-          draggable={!busy && count > 1}
-          aria-hidden="true"
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", connection.id);
-            onDragStart();
-          }}
-          onDragEnd={onDragEnd}
-        >
-          <Icon name="grip" />
-        </span>
+        <Grip id={connection.id} drag={drag} />
         <span className="accounts-mark" aria-hidden="true">
           <AgentMark agent={markOf(connection)} size={16} />
         </span>
@@ -794,12 +1033,15 @@ export type SheetStart = "chatgpt" | "claude" | ModelProvider | null;
 type Choice =
   | { kind: "chatgpt"; title: string; detail: string }
   | { kind: "claude"; title: string; detail: string }
+  | { kind: "foundry"; title: string; detail: string }
   | { kind: "key"; provider: ModelProvider; title: string; detail: string };
 
 const SUBSCRIPTIONS: Choice[] = [
   { kind: "chatgpt", title: "ChatGPT", detail: "chatgpt.com" },
   { kind: "claude", title: "Claude Code", detail: "claude.ai" },
 ];
+
+const FOUNDRY: Choice = { kind: "foundry", title: "Microsoft Foundry", detail: "Azure CLI" };
 
 const keyChoice = (provider: ModelProvider): Choice => ({
   kind: "key",
@@ -839,6 +1081,11 @@ export function AddConnectionSheet({
       choices: SUBSCRIPTIONS.filter(matches),
     },
     { id: "keys", title: t("settingsWindow.models.sheet.apiKeys"), choices: keys.filter(matches) },
+    {
+      id: "cloud",
+      title: t("settingsWindow.models.sheet.cloudProviders"),
+      choices: models.foundry && !foundryListed(models.foundry) ? [FOUNDRY].filter(matches) : [],
+    },
   ].filter((group) => group.choices.length > 0);
   // A ChatGPT sign-in that finishes with a new connection closes the sheet; Cancel or a failure keeps it.
   const { attempt, error } = models.chatgpt;
@@ -898,16 +1145,20 @@ export function AddConnectionSheet({
                       onClick={() => setPicked(choice)}
                     >
                       <span className="accounts-mark" aria-hidden="true">
-                        <AgentMark
-                          agent={
-                            choice.kind === "key"
-                              ? markOf({ kind: "api-key", provider: choice.provider })
-                              : choice.kind === "chatgpt"
-                                ? "openai"
-                                : "claude"
-                          }
-                          size={16}
-                        />
+                        {choice.kind === "foundry" ? (
+                          <FoundryMark />
+                        ) : (
+                          <AgentMark
+                            agent={
+                              choice.kind === "key"
+                                ? markOf({ kind: "api-key", provider: choice.provider })
+                                : choice.kind === "chatgpt"
+                                  ? "openai"
+                                  : "claude"
+                            }
+                            size={16}
+                          />
+                        )}
                       </span>
                       <span className="models-sheet-choice-text">
                         <strong>{choice.title}</strong>
@@ -942,9 +1193,157 @@ export function AddConnectionSheet({
           </div>
         )}
         {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "foundry" && models.foundry && <FoundrySetup foundry={models.foundry} onDone={onClose} />}
         {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
       </div>
     </Dialog>
+  );
+}
+
+/** Add a Connection > Microsoft Foundry: circles 1–2–3, and only the active step under them.
+ * Install runs OpenCode and the Azure CLI together; its bars read `foundry.install` while that run
+ * is out. Enable closes the sheet. Switch Region is the row's dialog, not this sheet. */
+function FoundrySetup({ foundry, onDone }: { foundry: NonNullable<ModelsState["foundry"]>; onDone(): void }) {
+  const { busy, error, detail, run } = useModelsRun();
+  const store = useStore();
+  const regionId = useId();
+  const [region, setRegion] = useState(foundry.region ?? "eastus2");
+  const toolsReady = foundry.az !== false && foundry.opencode !== false;
+  const signedIn = Boolean(foundry.az && foundry.account);
+  const step = !toolsReady ? 1 : !signedIn ? 2 : 3;
+  // Install takes minutes. The daemon publishes each tool's line on the Models state, which this
+  // reads until the run returns.
+  useEffect(() => {
+    if (!busy || step !== 1) return;
+    const pull = () => void store.refreshModels();
+    pull();
+    const id = setInterval(pull, 500);
+    return () => clearInterval(id);
+  }, [busy, step, store]);
+  return (
+    <div className="accounts-form" data-models-way="foundry">
+      <ol className="models-foundry-steps">
+        {[1, 2, 3].map((n) => (
+          <li
+            key={n}
+            data-state={n < step ? "done" : n === step ? "current" : "todo"}
+            aria-current={n === step ? "step" : undefined}
+          >
+            <span>{n}</span>
+          </li>
+        ))}
+      </ol>
+      {step === 1 && (
+        <div data-models-foundry-step="install">
+          <div className="row-title">{installTitle(foundry)}</div>
+          <p className="row-help">{t("settingsWindow.models.foundry.installHelp")}</p>
+          {busy ? (
+            <div className="models-foundry-bars">
+              {foundry.opencode === false && <InstallBar label="OpenCode" tool={foundry.install?.opencode} />}
+              {foundry.az === false && <InstallBar label="Azure CLI" tool={foundry.install?.az} />}
+            </div>
+          ) : (
+            <div className="accounts-buttons">
+              <Button
+                type="button"
+                className="button"
+                data-models-action="foundry.install"
+                onClick={() => void run({ action: "foundry", step: "install" })}
+              >
+                {t("settingsWindow.agentIntegrations.install")}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      {step === 2 && (
+        <div data-models-foundry-step="login">
+          <div className="row-title">{t("settingsWindow.models.foundry.signIn")}</div>
+          <p className="row-help">{t("settingsWindow.models.foundry.signInHelp")}</p>
+          <div className="accounts-buttons">
+            {busy ? (
+              <Spinner size={16} loading look="track" />
+            ) : (
+              <Button
+                type="button"
+                className="button"
+                data-models-action="foundry.login"
+                onClick={() => void run({ action: "foundry", step: "login" })}
+              >
+                {t("settingsWindow.harnesses.signIn")}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {step === 3 && (
+        <div data-models-foundry-step="on">
+          <p className="row-help">{t("settingsWindow.models.foundry.help")}</p>
+          <div className="row-title" id={regionId}>
+            {t("settingsWindow.models.foundry.region")}
+          </div>
+          {busy ? (
+            <Spinner size={16} loading look="track" />
+          ) : (
+            <div className="accounts-buttons">
+              <Select value={region} disabled={false} labelId={regionId} onChange={setRegion}>
+                {foundryRegions(foundry).map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                className="button"
+                data-models-action="foundry.on"
+                onClick={() => void run({ action: "foundry", step: "on", region }).then((ok) => ok && onDone())}
+              >
+                {t("settingsWindow.models.foundry.enable")}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      {error && <RunError key={`${error}\0${detail ?? ""}`} summary={error} detail={detail} />}
+    </div>
+  );
+}
+
+/** Both tools, or just the one that is missing. `az` / `opencode` omitted means unknown, not missing. */
+function installTitle(foundry: NonNullable<ModelsState["foundry"]>): string {
+  const opencode = foundry.opencode === false;
+  const az = foundry.az === false;
+  if (opencode && az) return t("settingsWindow.models.foundry.installBoth");
+  return t("settingsWindow.models.foundry.installOne", opencode ? "OpenCode" : "Azure CLI");
+}
+
+/** The installer's phases, as a fill. It does not report bytes, so the bar steps through them. */
+function installPercent(tool?: { state: string; detail: string }): number {
+  if (!tool || tool.state === "error") return 0;
+  if (tool.state === "done") return 100;
+  if (tool.detail === "Downloaded") return 50;
+  if (tool.detail.startsWith("Download")) return 25;
+  if (tool.detail.startsWith("Install")) return 75;
+  return 10;
+}
+
+/** One Install bar: a spinner and a percent while it runs, then the daemon's latest line. */
+function InstallBar({ label, tool }: { label: string; tool?: { state: string; detail: string } }) {
+  const done = tool?.state === "done";
+  const percent = installPercent(tool);
+  return (
+    <div className="models-foundry-tool">
+      <div className="models-foundry-tool-head">
+        <div className="row-title">{label}</div>
+        <span className="models-foundry-meter">
+          {!done && <Spinner size={14} loading look="track" />}
+          <span className="models-foundry-percent">{percent}%</span>
+        </span>
+      </div>
+      <progress className="app-update-progress" aria-label={label} max={100} value={percent} />
+      {tool?.detail && <p className="row-help">{tool.detail}</p>}
+    </div>
   );
 }
 

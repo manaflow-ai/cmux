@@ -16,12 +16,20 @@ export function isDefaultChoice(choice: { id: string; name?: string }): boolean 
   return choice.id.toLowerCase() === DEFAULT_ID || DEFAULT_NAME.test(choice.name ?? "");
 }
 
+/** An OpenCode endpoint id (`byo/gpt-4o`, or Foundry's `azure/gpt-4o`) as the model it names (`gpt-4o`). */
+export function withoutByoPrefix(name: string): string {
+  if (name.startsWith("byo/")) return name.slice(4);
+  if (name.startsWith("azure/")) return name.slice("azure/".length);
+  return name;
+}
+
 /// A readable name for a Claude model id the catalog does not list: "claude-opus-5-5" is
 /// "Opus 5.5", "claude-haiku-4-5-20251001" is "Haiku 4.5", a `[1m]` suffix adds "1M context".
-/// Any other id is returned as it is.
+/// A `byo/` or `azure/` prefix is dropped. Any other id is returned as it is.
 export function modelIdName(id: string, t: Translate): string {
-  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/i.exec(id);
-  if (!claude) return id;
+  const bare = withoutByoPrefix(id);
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/i.exec(bare);
+  if (!claude) return bare;
   const [, family, major, minor, wide] = claude;
   const name = `${family![0]!.toUpperCase()}${family!.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ""}`;
   return wide ? t("model.wideContext", { name }) : name;

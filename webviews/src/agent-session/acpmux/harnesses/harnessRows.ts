@@ -39,6 +39,12 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli", "https://registry.npmjs.org"),
 };
 
+/// The command that installs `harness`, else its family's: a profile of an agent installs that
+/// agent (Microsoft Foundry, family `opencode`, runs on OpenCode).
+export function installCommand(harness: string, family?: string): string | undefined {
+  return INSTALL_COMMANDS[harness] ?? (family ? INSTALL_COMMANDS[family] : undefined);
+}
+
 export type HarnessRow = {
   /** The id acpmux runs it under (`chat.new`'s harness, `harness.health`'s id). */
   harness: string;
@@ -102,6 +108,7 @@ export function harnessRows(
       // is the unqualified fallback while health has not answered.
       const login =
         checked?.login?.trim() || acpmux.find((candidate) => candidate.id === harness)?.auth?.login || undefined;
+      const install = installCommand(harness, entry.family);
       const status: HarnessStatus = !entry.installed
         ? checking
           ? "checking"
@@ -123,7 +130,7 @@ export function harnessRows(
         ...(status === "unavailable" && entry.unavailable ? { detail: entry.unavailable } : {}),
         ...(login ? { login } : {}),
         ...(entry.docsUrl ? { docsUrl: entry.docsUrl } : {}),
-        ...(INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {}),
+        ...(install ? { install } : {}),
       };
     });
   // Group by installation, not asynchronously resolved health, so a check never moves a row.

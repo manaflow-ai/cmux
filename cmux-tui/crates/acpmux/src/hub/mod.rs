@@ -516,6 +516,7 @@ pub mod background_turn;
 #[cfg(test)]
 mod background_turn_end_tests;
 mod drafts;
+mod foundry_gate;
 mod goal_tools;
 pub(crate) mod history_search;
 pub(crate) mod open_delivery;
