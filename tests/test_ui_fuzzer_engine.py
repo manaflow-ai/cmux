@@ -5,6 +5,7 @@ public issue text. Driving an app needs a Mac with a console session; these need
 from __future__ import annotations
 
 import json
+import os
 import random
 import sys
 import unittest
@@ -217,6 +218,120 @@ class LaunchFailureTest(unittest.TestCase):
         self.assertEqual(plan, [])
         self.assertEqual(summary["sessions"], 5)
         self.assertIn("launch_failed", summary)
+
+
+class AppSessionPathsTest(unittest.TestCase):
+    """The socket and debug log live in a private per-session directory, never at a shared-temp path."""
+
+    def setUp(self) -> None:
+        import plistlib
+        import tempfile
+        from unittest import mock
+        from cmuxfuzz import app
+        self.app_mod = app
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.bundle = self.tmp / "cmux DEV.app"
+        (self.bundle / "Contents/MacOS").mkdir(parents=True)
+        (self.bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux DEV"}))
+        for patch in (mock.patch.object(app, "SANDBOX_ROOT", self.tmp / "sandboxes"),
+                      # stop() clears macOS crash dialogs by process name; nothing of the kind runs here
+                      mock.patch.object(app.AppSession, "dismiss_reporters")):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def session(self, **kwargs):
+        session = self.app_mod.AppSession(self.bundle, workdir=self.tmp, **kwargs)
+        self.addCleanup(session.close)
+        return session
+
+    def test_the_default_socket_and_log_are_in_a_private_directory(self) -> None:
+        import stat
+        session = self.session()
+        private = session.private_dir
+        self.assertIsNotNone(private)
+        self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o700)
+        self.assertEqual(private.stat().st_uid, os.getuid())
+        self.assertEqual(Path(session.socket_path).parent, private)
+        self.assertEqual(session.debug_log.parent, private)
+        self.assertNotIn("cmux-debug-", session.socket_path)
+        self.assertLessEqual(len(session.socket_path), self.app_mod.MAX_SOCKET_PATH)
+        env = session.env()
+        self.assertEqual(env["CMUX_SOCKET_PATH"], session.socket_path)
+        self.assertEqual(env["CMUX_DEBUG_LOG"], str(session.debug_log))
+        self.assertEqual(session.sock.path, session.socket_path)
+
+    def test_two_sessions_with_one_tag_do_not_share_a_socket(self) -> None:
+        self.assertNotEqual(self.session().socket_path, self.session().socket_path)
+
+    def test_close_removes_the_private_directory_and_can_run_twice(self) -> None:
+        session = self.session()
+        private = session.private_dir
+        session.debug_log.write_text("log")
+        session.close()
+        self.assertFalse(private.exists())
+        session.close()
+
+    def test_a_long_tmpdir_falls_back_to_a_short_private_directory(self) -> None:
+        import stat
+        import tempfile
+        from unittest import mock
+        deep = self.tmp / ("d" * 90)
+        deep.mkdir()
+        with mock.patch.object(tempfile, "tempdir", str(deep)):
+            session = self.session()
+        self.assertTrue(session.socket_path.startswith("/tmp/cmux-fuzz-"), session.socket_path)
+        self.assertEqual(stat.S_IMODE(session.private_dir.stat().st_mode), 0o700)
+        self.assertEqual(list(deep.iterdir()), [])
+
+    def test_a_caller_given_socket_and_log_are_kept(self) -> None:
+        sock, log = str(self.tmp / "given.sock"), self.tmp / "given.log"
+        log.write_text("keep")
+        session = self.session(socket_path=sock, debug_log=log)
+        self.assertIsNone(session.private_dir)
+        self.assertEqual(session.env()["CMUX_SOCKET_PATH"], sock)
+        self.assertEqual(session.env()["CMUX_DEBUG_LOG"], str(log))
+        session.close()
+        self.assertEqual(log.read_text(), "keep")
+
+    def test_a_caller_given_socket_alone_still_gets_a_private_log(self) -> None:
+        sock = str(self.tmp / "given.sock")
+        session = self.session(socket_path=sock)
+        self.assertEqual(session.socket_path, sock)
+        self.assertEqual(session.debug_log.parent, session.private_dir)
+
+    def test_the_sandbox_home_is_ours_alone(self) -> None:
+        import stat
+        session = self.session()
+        self.assertEqual(stat.S_IMODE(session.sandbox.stat().st_mode), 0o700)
+
+    def test_a_sandbox_home_another_user_owns_is_refused(self) -> None:
+        from unittest import mock
+        with mock.patch.object(self.app_mod.os, "getuid", return_value=os.getuid() + 1):
+            with self.assertRaises(LaunchError):
+                self.app_mod.AppSession(self.bundle, workdir=self.tmp)
+
+    def test_a_session_that_fails_to_launch_leaves_no_private_directory(self) -> None:
+        import signal
+        from unittest import mock
+        for signum in (signal.SIGTERM, signal.SIGINT):  # the Fuzzer installs its own
+            self.addCleanup(signal.signal, signum, signal.getsignal(signum))
+        made = []
+        real = self.app_mod.make_private_dir
+
+        def record():
+            made.append(real())
+            return made[-1]
+
+        fuzzer = runner.Fuzzer(app=self.bundle, out=self.tmp / "out", seed=1, area_weights={},
+                               use_pointer=False, log=lambda _: None)
+        with mock.patch.object(self.app_mod, "make_private_dir", record), \
+                mock.patch.object(self.app_mod.AppSession, "launch", side_effect=LaunchError("no socket")):
+            with self.assertRaises(LaunchError):
+                fuzzer.new_session(self.tmp)
+        self.assertEqual(len(made), 1)
+        self.assertFalse(made[0].exists())
 
 
 class RegressionsCommandTest(unittest.TestCase):

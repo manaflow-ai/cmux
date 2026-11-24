@@ -112,6 +112,9 @@ class ClassicConfigurationTests(unittest.TestCase):
 
     def test_every_later_decide_step_waits_for_the_configuration(self):
         steps = yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+        # The GitHub API wait (tests/test_scheduled_workflow_gh_retry.py) comes first and needs no configuration.
+        wrapper = {"Checkout the GitHub API wait", "Wait through GitHub API rate limits and 5xx in this job"}
+        steps = [step for step in steps if step.get("name") not in wrapper]
         self.assertEqual(steps[0]["name"], "Check the cmux CLASSIC configuration")
         self.assertIn("steps.config.outputs.configured == 'true'", decide_step("Skip an unchanged scheduled revision")["if"])
         # The batching steps run only when the decide step said upload, which

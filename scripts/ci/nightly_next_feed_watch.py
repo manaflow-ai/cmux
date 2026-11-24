@@ -596,7 +596,9 @@ def holds_push_group(run: dict) -> bool:
 
 
 # The one-job nightly-next build (feat-cmux-next's nightly.yml, vars.NIGHTLY_NEXT_ONE_JOB). It holds the push
-# slot itself (its job group nightly-next-one-push), so the run's tail after the feed holds nothing.
+# slot itself (its job group, one per signer Mac since 2026-11-21: nightly-next-one-push-<host>, design
+# manaflow-ai/cmuxterm-hq#17011), so the run's tail after the feed holds nothing. The jobs API names no group, so
+# run_holds_group and the starvation guard (started) match the job by this name, which covers every host's group.
 ONE_JOB = "nightly-next-one"
 
 

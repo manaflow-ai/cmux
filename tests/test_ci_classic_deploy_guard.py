@@ -7,8 +7,11 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -208,6 +211,64 @@ def push_api(baseline: str | None, compare: dict, files: dict[str, list[str]], p
         routes[rf"commits/{sha}\?"] = {"files": [{"filename": p} for p in paths]}
         routes[rf"commits/{sha}/pulls"] = pulls[sha]
     return FakeApi(routes)
+
+
+def git(cwd: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout.strip()
+
+
+class GitFilesTests(unittest.TestCase):
+    """2026-11-21 06:23Z (run 44875353541): the range since the last green run was 204 commits, one REST call each
+    for its files on the repository's shared workflow-token hour, and 108 of them came back 403: each an
+    unreadable commit, so a refusal. A commit's changed files never change, so git answers them with no REST call."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.origin = Path(self.tmp.name) / "origin"
+        self.origin.mkdir()
+        git(self.origin, "init", "-q", "-b", "main")
+        (self.origin / "web").mkdir()
+        (self.origin / "web" / "old.ts").write_text("x\n" * 50)
+        (self.origin / "README.md").write_text("r\n")
+        git(self.origin, "add", "-A")
+        git(self.origin, "commit", "-qm", "base")
+        self.base = git(self.origin, "rev-parse", "HEAD")
+        git(self.origin, "mv", "web/old.ts", "web/proxy.ts")
+        git(self.origin, "commit", "-qm", "rename into a deployed path")
+        self.rename = git(self.origin, "rev-parse", "HEAD")
+        (self.origin / "README.md").write_text("r2\n")
+        git(self.origin, "commit", "-qam", "readme")
+        self.readme = git(self.origin, "rev-parse", "HEAD")
+        # The guard's own checkout: one commit deep, like actions/checkout fetch-depth 1.
+        self.work = Path(self.tmp.name) / "work"
+        git(Path(self.tmp.name), "clone", "-q", "--depth=1", f"file://{self.origin}", str(self.work))
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_files_come_from_git_with_no_rest_call(self) -> None:
+        api = FakeApi({})
+        reader = guard.GitFiles(self.work, guard.GitHub("o/r", None, api))
+        reader.prefetch(self.readme, 2)
+        self.assertEqual(sorted(reader.files(self.rename)), ["web/old.ts", "web/proxy.ts"], "a rename: both names")
+        self.assertEqual(reader.files(self.readme), ["README.md"])
+        self.assertEqual(api.calls, [], "no REST call for a commit git holds")
+        self.assertEqual((reader.from_git, reader.from_rest), (2, 0))
+
+    def test_a_commit_git_cannot_read_falls_back_to_rest(self) -> None:
+        api = FakeApi({r"commits/" + "b" * 40: {"files": [{"filename": "web/proxy.ts"}]}})
+        reader = guard.GitFiles(self.work, guard.GitHub("o/r", None, api))
+        reader.prefetch(self.readme, 2)
+        self.assertEqual(reader.files("b" * 40), ["web/proxy.ts"])
+        self.assertEqual((reader.from_git, reader.from_rest), (0, 1))
+
+    def test_a_failed_fetch_still_answers_from_rest(self) -> None:
+        api = FakeApi({r"commits/": {"files": [{"filename": "web/proxy.ts"}]}})
+        reader = guard.GitFiles(Path(self.tmp.name) / "not-a-repo", guard.GitHub("o/r", None, api))
+        reader.prefetch(self.readme, 2)
+        self.assertEqual(reader.files(self.rename), ["web/proxy.ts"])
 
 
 class BaselineTests(unittest.TestCase):

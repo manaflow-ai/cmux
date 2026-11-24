@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import plistlib
 import shlex
+import shutil
 import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -20,6 +22,9 @@ GHOSTTY_CRASH_DIR = HOME / ".local/state/cmux/crash"
 REPORTER_PROCESSES = ("Problem Reporter", "UserNotificationCenter")
 WINDOW_W, WINDOW_H = 1440, 900
 LAUNCH_SETTLE_S = 2.5
+# A Unix socket path must fit sun_path (104 bytes on macOS), with room to spare.
+MAX_SOCKET_PATH = 100
+SANDBOX_ROOT = Path("/private/tmp")
 
 
 class LaunchError(RuntimeError):
@@ -31,17 +36,32 @@ def executable_of(app: Path) -> Path:
     return app / "Contents/MacOS" / info["CFBundleExecutable"]
 
 
+def make_private_dir() -> Path:
+    """A fresh 0700 directory only this user can enter, for one session's socket and debug log. A socket
+    at a fixed shared-temp path (/tmp/cmux-debug-<tag>.sock) is one any other user on the Mac can reach."""
+    path = Path(tempfile.mkdtemp(prefix="cmux-fuzz-"))
+    if len(str(path / "cmux.sock")) > MAX_SOCKET_PATH:  # a long $TMPDIR; mkdtemp is 0700 wherever it is
+        os.rmdir(path)
+        path = Path(tempfile.mkdtemp(prefix="cmux-fuzz-", dir="/tmp"))
+    os.chmod(path, 0o700)
+    return path
+
+
 class AppSession:
-    def __init__(self, app: Path, *, tag: str = "fuzz", workdir: Path):
+    def __init__(self, app: Path, *, tag: str = "fuzz", workdir: Path, socket_path: str | None = None,
+                 debug_log: Path | None = None):
+        """socket_path and debug_log default to a private per-session directory, removed by close();
+        read them from the session, never from a path built from the tag."""
         self.app = app
         self.tag = tag
         self.workdir = workdir
         self.executable = executable_of(app)
         self.process_name = self.executable.name
-        self.socket_path = f"/tmp/cmux-debug-{tag}.sock"
-        self.debug_log = Path(f"/tmp/cmux-debug-{tag}.log")
+        self.sandbox = self._make_sandbox()  # first: it can refuse, and nothing is made yet to clean up
+        self.private_dir: Path | None = make_private_dir() if socket_path is None or debug_log is None else None
+        self.socket_path = socket_path or str(self.private_dir / "cmux.sock")
+        self.debug_log = Path(debug_log) if debug_log is not None else self.private_dir / "debug.log"
         self.sock = CmuxSocket(self.socket_path)
-        self.sandbox = self._make_sandbox()
         self.pid: int | None = None
         self._proc: subprocess.Popen | None = None
         self._last_returncode: int | None = None
@@ -68,9 +88,13 @@ class AppSession:
         }
 
     def _make_sandbox(self) -> Path:
-        # A neutral path: the sidebar and the file explorer show it.
-        path = Path(f"/private/tmp/cmux-fuzz-home-{self.tag}")
-        path.mkdir(parents=True, exist_ok=True)
+        # A neutral path: the sidebar and the file explorer show it. Ours alone: another user's directory
+        # there would be one they could write the shells' .zshrc in.
+        path = SANDBOX_ROOT / f"cmux-fuzz-home-{self.tag}"
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.is_symlink() or path.stat().st_uid != os.getuid():
+            raise LaunchError(f"{path} belongs to another user; remove it or pick another --tag")
+        os.chmod(path, 0o700)
         rc = path / ".zshrc"
         # The app hands its shells the real home whatever HOME says, so cd to the sandbox by its path.
         rc.write_text("PROMPT='%# '\nRPROMPT=''\nunsetopt PROMPT_SP\nHISTFILE=/dev/null\n"
@@ -167,6 +191,14 @@ class AppSession:
         self._proc = None
         self.pid = None
         self.dismiss_reporters()
+
+    def close(self) -> None:
+        """Stop the app and remove the private directory its socket and debug log were in. Copy any
+        evidence (copy_debug_log_tail) first. Safe to call more than once."""
+        self.stop()
+        if self.private_dir is not None:
+            shutil.rmtree(self.private_dir, ignore_errors=True)
+            self.private_dir = None
 
     def stop_all(self) -> None:
         """Instances of this very executable a previous session left (a fuzzer killed with SIGKILL). The build
