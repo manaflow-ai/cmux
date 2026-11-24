@@ -78,6 +78,7 @@ final class ShellModel {
     /// The same load is retried from Workspaces; mock recovery reloads its fixture.
     func retryWorkspaces() async {
         if let live { live.retry(); return }
+        if reviewDemo { store.loadReviewDemo(); return }
         #if DEBUG
         if mockMode {
             let loaded = AppStore.mock()
@@ -97,6 +98,9 @@ final class ShellModel {
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
+    /// The App Review demo account (server-flagged, any build): demo terminals
+    /// and pages on its demo Mac, no live link (`AppStore.loadReviewDemo`).
+    let reviewDemo: Bool
     /// Send Message… on a workspace or a tab: the message to the Chief being written.
     var messagingChief: ChiefMessageAbout?
     /// Message Chief (an App Intent, the Mac's Message the Chief from Any App): its draft.
@@ -124,6 +128,16 @@ final class ShellModel {
     struct CloudChatsPresentation: Identifiable {
         let id = UUID()
         let attention: CloudChatAttention?
+    }
+    /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
+    var macScreenLink: MacScreenLinkPresentation?
+    /// The ``macScreenLink`` Screen Sharing already opened: the sheet's page appears again when
+    /// the viewer's full-screen cover closes, and that must not ask the Mac again.
+    @ObservationIgnored var macScreenLinkOpened: UUID?
+
+    struct MacScreenLinkPresentation: Identifiable {
+        let id = UUID()
+        let link: CmuxLink.MacScreenLink
     }
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
@@ -162,8 +176,10 @@ final class ShellModel {
         TabCardSnapshots.shared.accountID = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
-        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
+        // The review demo (a DEBUG test forces it on the mock account too) has its own content.
+        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock && !auth.isReviewDemo
         self.mockMode = mockMode
+        reviewDemo = auth.isReviewDemo
         #if DEBUG
         // `-cmux-mobile-mock-create-delay <seconds>` holds mock creations open, so
         // the list's pending row can be seen (verify/record-wsdesign.sh).
@@ -249,7 +265,8 @@ final class ShellModel {
         // New Task's drafts: on disk for a signed-in account, in memory on sample data.
         creator = WorkspaceCreator(store: store, backend: offlineCreation,
                                    taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
-        terminalTabs.mockDataEnabled = mockMode
+        terminalTabs.mockDataEnabled = mockMode || reviewDemo
+        terminalTabs.reviewDemo = reviewDemo
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
@@ -766,6 +783,7 @@ final class ShellModel {
         case "connected"?: return .connected
         case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
+        case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
         case "signed-out"?: return .signedOut

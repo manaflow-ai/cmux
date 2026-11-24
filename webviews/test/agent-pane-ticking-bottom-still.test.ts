@@ -17,7 +17,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
-import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
+import { JUMP_LATEST_SHOWN, TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Held = {
   rows: number;
@@ -36,7 +36,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
   /// row in view at the start moved, and whether Jump to latest showed.
   const hold = (page: Page, ms: number): Promise<Held> =>
     page.evaluate(
-      async ({ rowSelector, ms }) => {
+      async ({ rowSelector, jumpShown, ms }) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
         const fromEnd = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
@@ -83,7 +83,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
         while (performance.now() - start < ms) {
           await painted();
           const now = tops();
-          const shown = !!document.querySelector(".acpmux-jump-latest[data-shown]");
+          const shown = !!document.querySelector(jumpShown);
           jump ||= shown;
           let frameMost = 0;
           let frameId = "";
@@ -110,7 +110,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
         clearInterval(tick);
         return { rows: before.size, most, moves, jump, startGap, worstGap, line: group.getBoundingClientRect().height };
       },
-      { rowSelector: TRANSCRIPT_ROW, ms },
+      { rowSelector: TRANSCRIPT_ROW, jumpShown: JUMP_LATEST_SHOWN, ms },
     );
 
   const expectStill = (result: Held) => {

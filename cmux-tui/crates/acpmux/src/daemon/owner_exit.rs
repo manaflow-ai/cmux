@@ -153,7 +153,7 @@ pub(crate) fn wait_process_exit(
     imp::wait_exit(pid, still_ours)
 }
 
-fn owner_pid(value: Option<&str>) -> Option<u32> {
+pub(super) fn owner_pid(value: Option<&str>) -> Option<u32> {
     let pid = value?.trim().parse::<u32>().ok()?;
     (pid > 1 && pid != std::process::id() && i32::try_from(pid).is_ok()).then_some(pid)
 }
