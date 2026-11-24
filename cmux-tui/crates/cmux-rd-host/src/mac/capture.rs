@@ -1335,8 +1335,8 @@ impl Capture {
                 c"com.cmuxterm.rd.capture".as_ptr(),
                 std::ptr::null(),
             );
-            let (filter, all_found) = source_filter(content, source, excluded);
-            let made = new_stream(filter, size, fps, shows_cursor, whole_frames, output);
+            let (content_filter, all_found) = source_filter(content, source, excluded);
+            let made = new_stream(content_filter, size, fps, shows_cursor, whole_frames, output);
             let stream = match made {
                 Ok(made) => made,
                 Err(e) => {
