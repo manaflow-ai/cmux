@@ -1917,9 +1917,8 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
                 name: "Sam".into(),
                 attempt_id: attempt,
                 account,
-                avatar_url,
-
                 team_id: None,
+                avatar_url,
             },
         )
     };
@@ -1932,7 +1931,7 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
         attempt_id_sha256: "0".repeat(64),
         account: Some("sam@example.com".into()),
         role: Some(Role::Talk),
-        via: Some(Via::Link),
+        via: Some(Via::GeneralAccess),
         avatar_url,
     };
     // Small anonymous joins (far smaller than the picture) until the signed-in guest fits only
