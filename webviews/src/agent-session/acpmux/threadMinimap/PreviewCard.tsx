@@ -268,8 +268,10 @@ export const PreviewCard = React.forwardRef<
   }
   /// The content the card was last placed for: a card for another row centers again on its row.
   const placedFor = useRef<readonly unknown[]>([]);
-  /// A place asked for by a commit that changed nothing the card shows, run once in the next frame.
-  const placeFrame = useRef<number | undefined>(undefined);
+  /// A place asked for by a commit that changed nothing the card shows: the token of the one pending
+  /// read after the next paint, 0 when none waits. A newer place (or unmount) clears it.
+  const placeAfterPaint = useRef(0);
+  const placeTokens = useRef(0);
   // After every commit on purpose: the rail can move under the card with any render.
   useLayoutEffect(() => {
     const node = self.current;
@@ -282,25 +284,29 @@ export const PreviewCard = React.forwardRef<
       // A card that opens or moves to another row is placed before this paint.
       placedFor.current = now;
       openTop.current = undefined;
-      if (placeFrame.current !== undefined) cancelAnimationFrame(placeFrame.current);
-      placeFrame.current = undefined;
+      placeAfterPaint.current = 0;
       place();
       return;
     }
     // Any other commit (the transcript loading pages and mounting rows under an open card, many
-    // commits a frame on a rail click) places it once, in the frame's animation callbacks, before that
-    // frame paints. Placed here, each commit forced a layout of the whole transcript mid-commit, and the
-    // commit's own writes after it laid the transcript out again: 40 to 145 ms of a 160 to 450 ms click.
-    if (placeFrame.current === undefined)
-      placeFrame.current = requestAnimationFrame(() => {
-        placeFrame.current = undefined;
+    // commits a frame on a rail click) places it once, right after the next paint, when layout is
+    // clean and the read costs nothing. Read here or in the frame's animation callbacks, it forced a
+    // layout of the whole freshly mounted transcript before the transcript's own writes laid it out
+    // again: the largest single cost of a rail click (40 to 145 ms of a 160 to 450 ms click).
+    if (placeAfterPaint.current !== 0) return;
+    const token = ++placeTokens.current;
+    placeAfterPaint.current = token;
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        if (placeAfterPaint.current !== token) return;
+        placeAfterPaint.current = 0;
         place();
-      });
+      }, 0),
+    );
   });
   useLayoutEffect(
     () => () => {
-      if (placeFrame.current !== undefined) cancelAnimationFrame(placeFrame.current);
-      placeFrame.current = undefined;
+      placeAfterPaint.current = 0;
     },
     [],
   );
