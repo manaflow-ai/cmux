@@ -1068,6 +1068,11 @@ def pixel_record(name, seconds, filter_kind="display"):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{name}.mov")
     probe = rpc("debug.motion", {"action": "record_read"})
+    if isinstance(probe, dict) and probe.get("capturing"):
+        # A recording an earlier row left running (one whose start never reported capturing): end it, or every later
+        # row fails with "a recording is running" (live step a6372332).
+        rpc("debug.motion", {"action": "record_stop"})
+        wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 30, 0.25)
     scale = 2.0
     y_pt = win[3] - (frame[1] + frame[3] / 2)
     started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 60,
@@ -1081,9 +1086,13 @@ def pixel_record(name, seconds, filter_kind="display"):
         started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 60,
                                        "rows": [int(y_pt * scale)], "columns": [], "filter": filter_kind})
     ok = wait(lambda: (lambda r: r if isinstance(r, dict) and (r.get("capturing") or r.get("error")) else None)(
-        rpc("debug.motion", {"action": "record_read"})), 10, 0.05)
+        rpc("debug.motion", {"action": "record_read"})), 30, 0.05)
     if not ok or not ok.get("capturing"):
-        return {"error": f"recorder did not start: {ok}"}
+        last = rpc("debug.motion", {"action": "record_read"})
+        # It never reported capturing: stop it anyway, so the next row can start its own.
+        rpc("debug.motion", {"action": "record_stop"})
+        wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 30, 0.25)
+        return {"error": f"recorder did not start in 30 s: {ok}; last read {str(last)[:300]}"}
     return {"path": path, "scale": scale, "row": int(y_pt * scale), "frame": frame, "window": win}
 
 
