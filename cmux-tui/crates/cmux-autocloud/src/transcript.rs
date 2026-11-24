@@ -137,7 +137,7 @@ impl Transcript {
                 }
             }
             "turn_end" => {
-                self.turns_ended += 1;
+                self.turns_ended = self.turns_ended.saturating_add(1);
                 let reason = msg.get("stopReason").and_then(Value::as_str).unwrap_or("");
                 if reason != "end_turn" && !reason.is_empty() {
                     self.items.push(Item::Note(format!("turn ended: {reason}")));
@@ -190,8 +190,8 @@ impl Transcript {
 
 /// The daemon appends a `Sent-by:` provenance line to a prompt; the chat shows what was typed.
 fn clean_prompt(text: &str) -> String {
-    match text.find("\n\nSent-by:") {
-        Some(i) => text[..i].to_owned(),
+    match text.split_once("\n\nSent-by:") {
+        Some((typed, _)) => typed.to_owned(),
         None => text.to_owned(),
     }
 }

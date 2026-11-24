@@ -78,7 +78,7 @@ impl Readiness {
             return self.phase.link_percent();
         }
         match self.fill {
-            Some(fill) => 60 + (u16::from(fill.min(100)) * 40 / 100) as u8,
+            Some(fill) => 60u8.saturating_add(fill.min(100).saturating_mul(2) / 5),
             None => 100,
         }
     }

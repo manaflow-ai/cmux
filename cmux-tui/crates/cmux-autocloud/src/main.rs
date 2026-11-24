@@ -155,7 +155,7 @@ pub struct App {
 
 impl App {
     fn prompt_id(&mut self) -> String {
-        self.next_prompt += 1;
+        self.next_prompt = self.next_prompt.saturating_add(1);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -366,7 +366,7 @@ async fn run_loop(
             }
             AppEvent::Line(Some(line)) if !line.trim().is_empty() => app.send_prompt(line),
             AppEvent::Line(None) => stdin_done = true,
-            AppEvent::Tick => app.ticks += 1,
+            AppEvent::Tick => app.ticks = app.ticks.wrapping_add(1),
             _ => {}
         }
         if let Some(t) = term {
@@ -395,13 +395,14 @@ async fn run_loop(
 fn lost(app: &mut App, ctx: &Ctx, why: String) {
     app.link = None;
     app.readiness.reset_link();
-    app.reconnects += 1;
-    app.failures += 1;
+    app.reconnects = app.reconnects.saturating_add(1);
+    app.failures = app.failures.saturating_add(1);
     app.early.clear();
-    let wait = Duration::from_millis((250u64 << app.failures.min(5)).min(5_000));
+    let wait =
+        Duration::from_millis(250u64.checked_shl(app.failures.min(5)).unwrap_or(5_000).min(5_000));
     app.link_note = if why.is_empty() { "link lost".to_owned() } else { why };
     app.link_note.push_str(&format!(", redialing in {:.1}s", wait.as_secs_f32()));
-    app.generation += 1;
+    app.generation = app.generation.wrapping_add(1);
     let g = app.generation;
     let tx = ctx.tx.clone();
     ctx.scope.spawn_until_cancelled("redial backoff", async move {
@@ -412,7 +413,7 @@ fn lost(app: &mut App, ctx: &Ctx, why: String) {
 
 /// Start a link and open the chat on it, reporting each step.
 fn dial(app: &mut App, ctx: &Ctx) {
-    app.generation += 1;
+    app.generation = app.generation.wrapping_add(1);
     let g = app.generation;
     app.readiness.advance(Phase::Dialing);
     let link_tx = ctx.tx.clone();
@@ -464,10 +465,12 @@ async fn open(
     let session = match session {
         Some(s) => s,
         None => {
-            let mut meta = json!({"name": args.name});
+            let mut meta = serde_json::Map::new();
+            meta.insert("name".to_owned(), json!(args.name));
             if let Some(m) = &args.model {
-                meta["harness"] = json!(m);
+                meta.insert("harness".to_owned(), json!(m));
             }
+            let meta = Value::Object(meta);
             let cwd = args.cwd.clone().unwrap_or_else(|| {
                 match &args.machine.as_ref().or(args.host.as_ref()) {
                     Some(_) => "~".to_owned(),

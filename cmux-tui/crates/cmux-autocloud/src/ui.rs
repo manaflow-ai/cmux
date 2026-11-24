@@ -16,6 +16,11 @@ use crate::transcript::Item;
 
 const SPIN: [&str; 4] = ["◐", "◓", "◑", "◒"];
 
+fn spin(ticks: u64) -> &'static str {
+    let i = usize::try_from(ticks % 4).unwrap_or_default();
+    SPIN.get(i).copied().unwrap_or("◐")
+}
+
 /// The flags that reach this chat's machine again, for the "continue" hint.
 pub fn link_flags(spec: &Spec) -> String {
     match spec {
@@ -38,17 +43,16 @@ pub fn draw(f: &mut Frame, app: &App) {
         Span::styled("● live", Style::new().fg(Color::Green))
     } else if app.link_note.is_empty() {
         Span::styled(
-            format!("{} {}", SPIN[(app.ticks % 4) as usize], app.readiness.label()),
+            format!("{} {}", spin(app.ticks), app.readiness.label()),
             Style::new().fg(Color::Yellow),
         )
     } else {
         Span::styled(format!("○ {}", app.link_note), Style::new().fg(Color::Red))
     };
     let agent = match app.transcript.status.as_str() {
-        "running" => Span::styled(
-            format!(" {} working", SPIN[(app.ticks % 4) as usize]),
-            Style::new().fg(Color::Cyan),
-        ),
+        "running" => {
+            Span::styled(format!(" {} working", spin(app.ticks)), Style::new().fg(Color::Cyan))
+        }
         "" => Span::raw(""),
         s => Span::styled(format!(" {s}"), Style::new().dim()),
     };
@@ -66,7 +70,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         spans.push(Span::styled("  ready 100", Style::new().fg(Color::Green).dim()));
     }
     let [top, bar] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(header_h - 1)]).areas(header);
+        Layout::vertical([Constraint::Length(1), Constraint::Length(header_h.saturating_sub(1))])
+            .areas(header);
     f.render_widget(Paragraph::new(Line::from(spans)), top);
     if !ready {
         let pct = app.readiness.percent();
@@ -109,7 +114,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     let height = body.height as usize;
     let end = lines.len().saturating_sub(app.scroll as usize);
     let start = end.saturating_sub(height);
-    f.render_widget(Paragraph::new(lines[start..end].to_vec()), body);
+    f.render_widget(
+        Paragraph::new(lines.get(start..end).map(<[_]>::to_vec).unwrap_or_default()),
+        body,
+    );
 
     // The prompt. Typing works while the link is down: it goes out on reconnect.
     let title = if app.live() {
@@ -124,7 +132,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn short(id: &str) -> &str {
-    &id[..id.len().min(8)]
+    id.get(..8).unwrap_or(id)
 }
 
 /// Splits on newlines, then cuts each line at `width` chars (at a space when there is one).
@@ -132,27 +140,24 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut out = Vec::new();
     for raw in text.trim_end().split('\n') {
-        let chars: Vec<char> = raw.chars().collect();
-        if chars.is_empty() {
+        if raw.is_empty() {
             out.push(String::new());
             continue;
         }
-        let mut i = 0;
-        while i < chars.len() {
-            let mut end = (i + width).min(chars.len());
+        let mut rest: Vec<char> = raw.chars().collect();
+        while !rest.is_empty() {
+            let mut end = width.min(rest.len());
             // Cut at the last space in the window, unless the window already ends on one.
-            if end < chars.len()
-                && chars[end] != ' '
-                && let Some(sp) = chars[i..end].iter().rposition(|c| *c == ' ')
+            if let (Some(next), Some(window)) = (rest.get(end), rest.get(..end))
+                && *next != ' '
+                && let Some(sp) = window.iter().rposition(|c| *c == ' ')
                 && sp > 0
             {
-                end = i + sp + 1;
+                end = sp.saturating_add(1);
             }
-            out.push(chars[i..end].iter().collect::<String>().trim_end().to_owned());
-            i = end;
-            while i < chars.len() && chars[i] == ' ' {
-                i += 1;
-            }
+            let tail = rest.split_off(end);
+            out.push(rest.iter().collect::<String>().trim_end().to_owned());
+            rest = tail.into_iter().skip_while(|c| *c == ' ').collect();
         }
     }
     out
@@ -174,7 +179,7 @@ impl Printer {
         if self.tail > 0 {
             println!();
             self.tail = 0;
-            self.items += 1;
+            self.items = self.items.saturating_add(1);
         }
     }
 
@@ -195,14 +200,13 @@ impl Printer {
             self.reconnects = app.reconnects;
         }
         let items = &app.transcript.items;
-        while self.items < items.len() {
-            let i = self.items;
-            let last = i + 1 == items.len();
-            let (head, text) = match &items[i] {
+        while let Some(item) = items.get(self.items) {
+            let last = self.items.saturating_add(1) == items.len();
+            let (head, text) = match item {
                 Item::User(t) => ("> ", t.as_str()),
                 Item::Assistant(t) => ("", t.as_str()),
                 Item::Thought(_) => {
-                    self.items += 1;
+                    self.items = self.items.saturating_add(1);
                     continue;
                 }
                 Item::Tool { title, .. } => ("  · ", title.as_str()),
@@ -213,12 +217,12 @@ impl Printer {
             }
             let _ = write!(out, "{}", text.get(self.tail..).unwrap_or(""));
             // The agent's text may still grow; hold the item open until something follows it.
-            if last && matches!(items[i], Item::Assistant(_)) {
+            if last && matches!(item, Item::Assistant(_)) {
                 self.tail = text.len();
                 break;
             }
             let _ = writeln!(out);
-            self.items += 1;
+            self.items = self.items.saturating_add(1);
             self.tail = 0;
         }
         let _ = out.flush();

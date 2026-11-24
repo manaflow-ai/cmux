@@ -99,9 +99,9 @@ async fn send(client: &reqwest::Client, call: &HttpCall) -> Result<(u16, String)
 
 fn origin(url: &str) -> String {
     // "https://cmux.com/handler/..." -> "https://cmux.com"
-    let after = url.find("://").map(|i| i + 3).unwrap_or(0);
-    match url[after..].find('/') {
-        Some(i) => url[..after + i].to_owned(),
+    let Some((scheme, rest)) = url.split_once("://") else { return url.to_owned() };
+    match rest.split_once('/') {
+        Some((host, _)) => format!("{scheme}://{host}"),
         None => url.to_owned(),
     }
 }
