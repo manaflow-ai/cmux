@@ -130,4 +130,7 @@ jobs:
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
     permissions:
+      # actions: write only for its head fail-fast job (head-fail-fast.yml); its linux and web-browser jobs ask
+      # for contents: read alone.
+      actions: write
       contents: read

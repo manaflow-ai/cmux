@@ -108,3 +108,15 @@ jobs:
           path: ${{ runner.temp }}/agent-pane-real-acpmux
           if-no-files-found: ignore
           retention-days: 3
+
+  # Head fail-fast: this head failed red of its own, so its other heavy runs are cancelled (scripts/ci/head_fail_fast.py).
+  linux-fail-fast:
+    name: head fail-fast after linux
+    needs: linux
+    if: ${{ failure() && needs.linux.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: pr-pipeline.yml
+    permissions:
+      actions: write
+      contents: read

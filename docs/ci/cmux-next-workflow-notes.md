@@ -5016,3 +5016,18 @@ CCmuxAppFFI pin (app-ffi-pin.json) lags the Rust catalog, so the Swift tests rea
 re-pin PR. A PR run of a job red on the base tells nobody anything gh-merge-green does not already excuse, so a pull
 request skips it while the newest base push verdict is red (scripts/ci/base_red_skip.py: fails open, 10% audit, the
 full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.
+
+## note-557
+
+Above each `*-fail-fast:` job in `.github/workflows/cmux-next.yml` (and the same callers in
+`cmux-next-fast-gates.yml`, `cmux-next-guards.yml` and `pr-pipeline.yml`).
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T20..2026-11-24T20Z
+(controller timing feed, manaflow-ai/cmux pull request jobs), once a non-advisory job of a head had failed, the
+head's other jobs kept running for 238,776 runner-min a day. A red head never lands as it is. So when one of the
+jobs a head most often first fails on (app compile, fast tier, fast tier cargo, web bundles, generated files, fast
+gates, tooling-tests, pr pipeline linux) fails, a caller job that needs only that job runs
+`head-fail-fast.yml`: unless the failed job is red on the base too (land-judge excuses that red), it cancels the
+head's other heavy pull_request runs still queued or running, never its own run, and lists them in its summary.
+Replayed on that day's jobs, these triggers fire on 2,053 heads and cut about 51.7k runner-min a day net (54.2k no longer spent after the trigger, less 2.4k re-spent on the 250 heads later rerun). The failed check stays the head's verdict. `vars.CI_HEAD_FAIL_FAST` set to `0` turns it off; a full-ci label or a
+fork's pull request never cancels. Rules: `scripts/ci/head_fail_fast.py`.

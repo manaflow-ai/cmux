@@ -4992,29 +4992,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-59
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-556
-  generated-files-base-red:
-    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 6
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      base_red: ${{ steps.decide.outputs.base_red }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          path: .base-red-src
-          sparse-checkout: scripts/ci
-      - name: Red on the base right now?
-        id: decide
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" >> "$GITHUB_OUTPUT"
-
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-265
@@ -7631,3 +7608,65 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-550
           [[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $SHA: the results service was down and no fallback compile ran ($FAST/$MAC); re-run all jobs"; exit 3; }
           [[ "$state" == success ]] || { echo "::error title=Compile check::the Release compile (fallback) of $SHA failed ($FAST/$MAC); see its log"; exit 1; }
+
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+  app-compile-fleet-fail-fast:
+    name: head fail-fast after app compile
+    needs: app-compile-fleet
+    if: ${{ failure() && needs.app-compile-fleet.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: cmux-next.yml
+    permissions:
+      actions: write
+      contents: read
+
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+  fast-tier-fail-fast:
+    name: head fail-fast after fast tier
+    needs: fast-tier
+    if: ${{ failure() && needs.fast-tier.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: cmux-next.yml
+    permissions:
+      actions: write
+      contents: read
+
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+  fast-tier-cargo-fail-fast:
+    name: head fail-fast after fast tier (cargo)
+    needs: fast-tier-cargo
+    if: ${{ failure() && needs.fast-tier-cargo.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: cmux-next.yml
+    permissions:
+      actions: write
+      contents: read
+
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+  web-bundles-fail-fast:
+    name: head fail-fast after web bundles
+    needs: web-bundles
+    if: ${{ failure() && needs.web-bundles.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: cmux-next.yml
+    permissions:
+      actions: write
+      contents: read
+
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+  generated-files-fail-fast:
+    name: head fail-fast after generated files
+    needs: generated-files
+    if: ${{ failure() && needs.generated-files.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    uses: ./.github/workflows/head-fail-fast.yml
+    with:
+      workflow: cmux-next.yml
+      base_events: push,workflow_dispatch
+      dispatch_title: cmux-next base tier
+    permissions:
+      actions: write
+      contents: read
