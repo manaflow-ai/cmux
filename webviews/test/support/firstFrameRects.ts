@@ -10,6 +10,13 @@
 // frame a part is read on is its first painted frame; any later frame where its box differs from
 // that one by more than half a pixel is a shift, counted with the pixels, the frames, and the
 // record that was last sent before it (`mark`).
+//
+// Anchors (`startFirstFrameRects(page, rows, ignore, anchors)`): named elements that should hold still
+// while something else animates (the composer's bottom edge, Send, the caret's line, the header's
+// tools). Each is read on the same painted frames as the rows, as its four edges on the screen
+// (left, top, right, bottom, not from a row's corner), under the row id `anchor` and the part named
+// for it; `edgeDrift` gives the most each edge moved from the first frame. The anchor named by
+// `CARET_ANCHOR` reads the caret's box (the collapsed selection's), not an element.
 import type { Page } from "playwright";
 
 export type RectShift = {
@@ -34,6 +41,11 @@ export type RectReport = {
   rows: number;
   parts: number;
   shifts: RectShift[];
+  /// Each anchor drawn on any frame, with the most its left, top, right and bottom edges were off
+  /// their first frame, in px (0.1 px steps, the half-pixel floor of `shifts` not applied).
+  anchors: Record<string, number[]>;
+  /// Each anchor's edges on its last frame less its first (where it came to rest), in px.
+  anchorEnds: Record<string, number[]>;
 };
 
 declare global {
@@ -44,9 +56,14 @@ declare global {
 
 /// Starts reading. `rowSelector` finds the rows; `ignore` is a selector for parts that are not
 /// judged (a clock that counts up, say), each with its reason where the test names it.
-export async function startFirstFrameRects(page: Page, rowSelector: string, ignore = ""): Promise<void> {
+export async function startFirstFrameRects(
+  page: Page,
+  rowSelector: string,
+  ignore = "",
+  anchors: Record<string, string> = {},
+): Promise<void> {
   await page.evaluate(
-    ({ rowSelector, ignore }) => {
+    ({ rowSelector, ignore, anchors, caret }) => {
       type Seen = {
         row: string;
         part: string;
@@ -75,7 +92,30 @@ export async function startFirstFrameRects(page: Page, rowSelector: string, igno
       const read = (now: number) => {
         frames += 1;
         let above: { id: string; at: number; bottom: number } | undefined;
-        for (const row of document.querySelectorAll<HTMLElement>(rowSelector)) {
+        const anchorParts: [string, number[]][] = [];
+        for (const [anchor, selector] of Object.entries(anchors)) {
+          let rect: DOMRect | undefined;
+          if (selector === caret) {
+            const selection = getSelection();
+            if (selection?.rangeCount && selection.isCollapsed) {
+              const range = selection.getRangeAt(0);
+              rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+              // A caret on an empty line has no client rect of its own: the line's <br> (the node at
+              // the caret) has, else the line's element.
+              const at = range.startContainer;
+              if (!(rect.height > 0) && at instanceof Element) {
+                const node = at.childNodes[range.startOffset];
+                const own = node instanceof Element ? node.getBoundingClientRect() : undefined;
+                rect = own && own.height > 0 ? own : at.getBoundingClientRect();
+              }
+            }
+          } else rect = document.querySelector(selector)?.getBoundingClientRect();
+          // An anchor not drawn on a frame (not there yet, or display: none) has no edges to judge.
+          if (rect && (rect.width > 0 || rect.height > 0))
+            anchorParts.push([anchor, [round(rect.left), round(rect.top), round(rect.right), round(rect.bottom)]]);
+        }
+        const groups: [string, [string, number[]][]][] = anchorParts.length ? [["anchor", anchorParts]] : [];
+        for (const row of rowSelector ? document.querySelectorAll<HTMLElement>(rowSelector) : []) {
           const id = row.dataset.rowId ?? "";
           rowIds.add(id);
           const box = row.getBoundingClientRect();
@@ -105,6 +145,9 @@ export async function startFirstFrameRects(page: Page, rowSelector: string, igno
             }
           };
           walk(row, "", 0);
+          groups.push([id, parts]);
+        }
+        for (const [id, parts] of groups) {
           for (const [part, rect] of parts) {
             const key = `${id}\n${part}`;
             const prior = seen.get(key);
@@ -144,13 +187,67 @@ export async function startFirstFrameRects(page: Page, rowSelector: string, igno
           stop();
           const shifts = [...seen.values()]
             .filter((part) => part.most.some((most) => most > 0.5))
-            .map(({ firstAt, lastAt, ...part }) => ({ ...part, spanMs: Math.round(lastAt - firstAt) }));
-          return { frames, rows: rowIds.size, parts: seen.size, shifts };
+            .map(({ firstAt, lastAt, ...part }) => ({
+              ...part,
+              spanMs: Math.round(lastAt - firstAt),
+            }));
+          const anchors = Object.fromEntries(
+            [...seen.values()].filter((part) => part.row === "anchor").map((part) => [part.part, part.most]),
+          );
+          const anchorEnds = Object.fromEntries(
+            [...seen.values()]
+              .filter((part) => part.row === "anchor")
+              .map((part) => [part.part, part.last.map((edge, at) => round(edge - part.first[at]!))]),
+          );
+          return {
+            frames,
+            rows: rowIds.size,
+            parts: seen.size,
+            shifts,
+            anchors,
+            anchorEnds,
+          };
         },
       };
     },
-    { rowSelector, ignore },
+    { rowSelector, ignore, anchors, caret: CARET_ANCHOR },
   );
+}
+
+/// The anchor selector that reads the caret's box instead of an element's.
+export const CARET_ANCHOR = "(caret)";
+
+export type Edge = "left" | "top" | "right" | "bottom";
+const EDGES: Edge[] = ["left", "top", "right", "bottom"];
+
+/// The most each anchor's named edges moved from their first painted frame, in px (0 for an anchor
+/// that held still, undefined for one never drawn), and where that edge came to rest from its first
+/// frame (`end`). `edges` names, per anchor, the edges that should hold still (all four by default).
+export function edgeDrift(
+  report: RectReport,
+  anchors: Record<string, string>,
+  edges: Partial<Record<string, Edge[]>> = {},
+): Record<string, { px: number; edge?: Edge; end: number } | undefined> {
+  const drift: Record<string, { px: number; edge?: Edge; end: number } | undefined> = {};
+  for (const anchor of Object.keys(anchors)) {
+    const most = report.anchors[anchor];
+    if (!most) {
+      drift[anchor] = undefined;
+      continue;
+    }
+    const named = edges[anchor] ?? EDGES;
+    const end = (edge: Edge) => report.anchorEnds[anchor]?.[EDGES.indexOf(edge)] ?? 0;
+    let worst: { px: number; edge?: Edge; end: number } = {
+      px: 0,
+      end: end(named[0]!),
+    };
+    for (const edge of named) {
+      const px = most[EDGES.indexOf(edge)] ?? 0;
+      if (px > worst.px) worst = { px, edge, end: end(edge) };
+    }
+    drift[anchor] = worst;
+  }
+  return drift;
 }
 
 /// Names what is sent next, so a shift says which record it followed and how long after.
@@ -188,7 +285,11 @@ export function shiftLines(report: RectReport): string[] {
 
 /// The numbers a before/after table quotes: parts that shifted, the most px, and the most frames
 /// any one part shifted on.
-export function shiftTotals(report: RectReport): { parts: number; px: number; frames: number } {
+export function shiftTotals(report: RectReport): {
+  parts: number;
+  px: number;
+  frames: number;
+} {
   return {
     parts: report.shifts.length,
     px: Math.max(0, ...report.shifts.map((shift) => Math.max(...shift.most))),

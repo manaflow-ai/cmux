@@ -743,10 +743,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             from,
             slow_ok,
             abort,
+            take_back,
             from_snapshot,
         }) => {
             if abort {
-                return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
+                return super::session_move::end_stale(
+                    &sessions,
+                    from.as_deref(),
+                    take_back,
+                    json_out,
+                )
+                .await;
             }
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -909,6 +916,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     println!("web:      {}", web_line(url, show_token));
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
+                    }
+                    if let Some(line) = crate::session_budget::budget_line(&v["sessionBudgets"]) {
+                        println!("budget:   {line}");
                     }
                     let login = match &v["loginSession"] {
                         Value::Bool(here) => Some(Some(*here)),
@@ -1214,6 +1224,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             crate::cli::command_host::VaultCmd::Drop { name } => {
                 crate::cli::host_vault::drop_cmd(name, json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Audit => {
+                crate::cli::host_vault::audit_cmd(json_out)
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,

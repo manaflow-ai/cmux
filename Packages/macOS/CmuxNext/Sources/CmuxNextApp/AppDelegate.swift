@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // group editor (WebKit, ~60 MB of processes) wait for a menu or palette open, where every Set Icon and Rename Group is,
         // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
         // each menu or palette open makes them again or pushes that limit back.
-        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false) }
+        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false); services?.windows.recordSaver.launchImages.windowsChanged() }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
         services.palette.onShows(warmOverlays)
@@ -412,6 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
+        services.cache.localEcho.follow { [weak settings] in settings?.snapshot.terminalPredictiveLocalEcho ?? true }
         services.notifications.follow(settings)
         services.followMacScreenSettings(settings)
         services.startDeviceHub(settings)
