@@ -328,11 +328,14 @@ async fn agent_socket_appears(path: &Path) {
     if path.exists() {
         return;
     }
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    // A coalescing slot of one (RFD 0124 R4): each wake looks at the path again, so one waiting
+    // stands for any number more. An unbounded channel kept one per event in the folder (`/run`
+    // off a Cloud machine, for the daemon's whole life) until the next look.
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let Ok(mut watcher) =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             if !matches!(&event, Ok(e) if e.kind.is_access()) {
-                let _ = tx.send(());
+                let _ = tx.try_send(());
             }
         })
     else {
