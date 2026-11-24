@@ -99,6 +99,15 @@ fn millis(duration: Duration) -> f64 {
     (duration.as_secs_f64() * 10_000.0).round() / 10.0
 }
 
+fn lab_public_roots(path: &str) -> Result<std::sync::Arc<rustls::RootCertStore>> {
+    use rustls::pki_types::{CertificateDer, pem::PemObject};
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in CertificateDer::pem_file_iter(path).with_context(|| format!("reading {path}"))? {
+        roots.add(cert.with_context(|| format!("parsing {path}"))?)?;
+    }
+    Ok(std::sync::Arc::new(roots))
+}
+
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
     let ice_started = Instant::now();
@@ -137,6 +146,12 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         input_lane: !args.no_input_lane,
         timeline: timeline.clone(),
         stock_ice_waits: args.stock_ice_waits,
+        // netlab "before" shim: SSL_CERT_FILE stands in for webpki-roots (the lab CA plays a
+        // public CA), so TURN over TLS to the lab is judged as it would be on the internet.
+        turn_tls_roots: std::env::var("SSL_CERT_FILE")
+            .ok()
+            .map(|path| lab_public_roots(&path))
+            .transpose()?,
         ..DialOptions::default()
     };
     let connected =

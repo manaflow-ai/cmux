@@ -43,6 +43,13 @@ export const iceServers = async (env: Env, fetcher: typeof fetch = fetch): Promi
       console.log(JSON.stringify({ msg: "turn credentials error", error: String(e) }))
     }
   }
+  // Test only: the lab's STUN/TURN (netlab), JSON [{urls, username?, credential?}].
+  if (env.ENVIRONMENT === "test" && env.STACK_TEST_ICE_SERVERS) {
+    for (const s of JSON.parse(env.STACK_TEST_ICE_SERVERS) as Array<IceServer>) {
+      out.push(s)
+      if (s.urls.some((u) => u.startsWith("turn"))) turn = true
+    }
+  }
   if (!out.some((s) => s.urls.includes(STUN))) out.unshift({ urls: [STUN] })
   return { iceServers: out, ttl, turn }
 }
