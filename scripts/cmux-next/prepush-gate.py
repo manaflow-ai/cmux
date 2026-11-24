@@ -3246,6 +3246,39 @@ SWIFTLINT_JOB = "SwiftLint (syntax rules)"
 # Every check gate() runs in its temp trees: a run whose CHECKS names none of them builds no tree.
 TREE_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTFORMAT_JOB,
                                                                         RUSTFMT_JOB, SWIFTLINT_JOB, CRASH_RATCHET_CHECK})
+# The checks the pull request's fast-gates job runs with the same refusal (cmux_next_fast_gates.py: this gate with
+# --base/--head, which runs no hook-only layer): the scanners, ast-grep and SwiftLint. A loaded host's hook leaves these
+# to that job (--defer-ci-layers, deferred_ci_layers); every other check still runs in the hook.
+CI_LAYER_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTLINT_JOB})
+# The pushed refs no pull request's CI judges before they land: a push to these runs every layer, loaded or not.
+INTEGRATION_PUSH_REFS = ("refs/heads/feat-cmux-next", "refs/heads/main")
+INTEGRATION_PUSH_PREFIXES = ("refs/heads/perf/",)
+# What this run leaves to CI (main sets it from deferred_ci_layers; empty everywhere else, CI included).
+DEFERRED_CHECKS: frozenset[str] = frozenset()
+
+
+def deferred_ci_layers(pushed_lines: list[str]) -> frozenset[str]:
+    """CI_LAYER_CHECKS when every pushed ref with commits is a branch a pull request's CI judges, else nothing.
+
+    For a loaded host (the hook passes --defer-ci-layers at a load average of one runnable process per core or more).
+    2026-11-22: cosmic-gray, Leo's own Mac that also hosts agents, sat at load 163-234 on 15 cores while he typed, with
+    a gate starting every 7 s; the scanners, ast-grep and SwiftLint the hook ran there are the ones the PR's fast-gates
+    job runs again with the same refusal. A push to feat-cmux-next, main or perf/* (no PR CI before it lands), a tag,
+    or a line the gate cannot read keeps every layer."""
+    refs = []
+    for line in pushed_lines:
+        parts = line.split()
+        if len(parts) != 4:
+            if line.strip():
+                return frozenset()
+            continue
+        if set(parts[1]) == {"0"}:
+            continue  # a delete sends no commits
+        refs.append(parts[2])
+    if not refs or any(not ref.startswith("refs/heads/") or ref in INTEGRATION_PUSH_REFS
+                       or ref.startswith(INTEGRATION_PUSH_PREFIXES) for ref in refs):
+        return frozenset()
+    return CI_LAYER_CHECKS
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
@@ -3264,7 +3297,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     trusted_scripts = absolute(trusted_scripts) if trusted_scripts is not None else None
 
     def want(name: str) -> bool:
-        return checks is None or name in checks
+        return name not in DEFERRED_CHECKS and (checks is None or name in checks)
 
     reserved: list[tuple[str, list[str]]] = []
     if (only is None or "reserved" in only) and want(RESERVED_CHECK):
@@ -3372,6 +3405,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # So does a run whose CHECKS name no tree check: it builds no tree (on 2026-11-21 a merge push's upstream run built
     # its dependency and surface material trees, about 13,000 and 10,000 files a side, for checks it never read).
     if checks is not None and not checks & TREE_CHECKS:
+        return reserved
+    # And a run whose tree layers were all left to CI (DEFERRED_CHECKS: a loaded host's hook) builds none either.
+    if (DEFERRED_CHECKS >= CI_LAYER_CHECKS and only is not None
+            and not only & {"swiftformat", "rustfmt", "crash-ratchet"}):
         return reserved
     changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -4142,6 +4179,9 @@ def _main(argv: list[str] | None = None) -> int:
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
                                        "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh")
     parser.add_argument("--timings", action="store_true")
+    parser.add_argument("--defer-ci-layers", action="store_true",
+                        help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "
+                             "ast-grep, SwiftLint) to it, for a push of a non-integration branch (deferred_ci_layers)")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
     parser.add_argument("--advisory", action="store_true",
@@ -4234,6 +4274,13 @@ def _main(argv: list[str] | None = None) -> int:
     if args.advisory_only:
         advisory_run(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
         return 0
+    global DEFERRED_CHECKS
+    if args.defer_ci_layers and args.pre_push and only is None and not os.environ.get("GITHUB_ACTIONS"):
+        DEFERRED_CHECKS = deferred_ci_layers(pushed_lines)
+        if DEFERRED_CHECKS:
+            log("prepush-gate: this host is loaded (load average at one runnable process per core or more): the "
+                "scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them "
+                "with the same refusal; every other check runs here.")
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
     # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
@@ -4503,6 +4550,7 @@ SCRATCH_SWEEP_AGE_SECONDS = 2 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_AGE_NO_PROC_SECONDS = 6 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_OFF = "CMUX_NEXT_PREPUSH_SCRATCH_SWEEP"  # "0" turns the start-up sweep off; delete on finish stays
 _LIVE_SCRATCH: list[str] = []
+_SCRATCH_PID = os.getpid()  # the gate's own pid: a forked child never removes its scratch
 
 
 def _process_start(pid: int) -> str | None:
@@ -4569,7 +4617,12 @@ def scratch_dir(prefix: str = SCRATCH_PREFIX):
 
 
 def remove_live_scratch() -> None:
-    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step)."""
+    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step). Only the process
+    that made them removes them: a forked child (the crash ratchet's scan pool, which `Pool.terminate` ends with
+    SIGTERM) inherits this list and the handler, and once deleted the gate's base and head trees mid-scan, so every
+    Rust push big enough for the pool died with FileNotFoundError."""
+    if os.getpid() != _SCRATCH_PID:
+        return
     for path in list(_LIVE_SCRATCH):
         try:
             _remove_scratch(path)

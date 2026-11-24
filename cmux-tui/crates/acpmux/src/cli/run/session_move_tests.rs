@@ -477,8 +477,8 @@ fn the_run_error_names_each_chat_that_did_not_move_and_why() {
     let mut lost = Outcome::new("s-2");
     lost.name = "optchat".into();
     lost.error = Some("transfer.busy: the running turn did not stop".into());
-    assert_eq!(not_moved(&[moved]), None, "every chat moved");
-    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap();
+    assert!(not_moved(&[moved]).is_none(), "every chat moved");
+    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap().message;
     assert!(why.starts_with("2 of 3 chats did not move: "), "{why}");
     assert!(why.contains("claude-13 (claude-13): a turn is running"), "{why}");
     assert!(why.contains("optchat (s-2): transfer.busy: the running turn did not stop"), "{why}");
@@ -869,4 +869,115 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
     // Another chat's row says nothing of this one.
     assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
+}
+
+fn outcome(name: &str, error: Option<&str>) -> Outcome {
+    Outcome {
+        session: format!("id-{name}"),
+        name: name.into(),
+        host: Some("vm".into()),
+        cwd: None,
+        moved: error.is_none(),
+        there: None,
+        resumed: Ok(false),
+        carried: None,
+        error: error.map(str::to_owned),
+        error_code: None,
+        preflight: preflight::Preflight::default(),
+    }
+}
+
+/// A move with a chat that did not move ends with each such chat and why, in the message (text
+/// output) and as `data.failed` in `--json`'s error envelope: it once said only "1 of 1 chats did
+/// not move", the reason nowhere a caller read.
+#[test]
+fn a_chat_that_did_not_move_names_its_reason_in_the_moves_error() {
+    assert!(not_moved(&[outcome("ok", None)]).is_none());
+    let e = not_moved(&[outcome("ok", None), outcome("demo", Some("ssh to vm failed"))]).unwrap();
+    assert!(e.message.starts_with("1 of 2 chats did not move: demo (id-demo): ssh to vm failed"));
+    assert!(e.text().contains("ssh to vm failed"), "text output: {}", e.text());
+    let env = e.envelope();
+    let failed = env
+        .get("error")
+        .and_then(|e| e.get("data"))
+        .and_then(|d| d.get("failed"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(failed.len(), 1, "{env}");
+    let row = failed.first().cloned().unwrap_or_default();
+    assert_eq!(row.get("session").and_then(Value::as_str), Some("id-demo"));
+    assert_eq!(row.get("reason").and_then(Value::as_str), Some("ssh to vm failed"));
+}
+
+/// A chat in a git repository with no remote (dirty) moves: its branches go as a bundle into a
+/// fresh repository at the same path under the target's home, its uncommitted work applied, and
+/// no remote is added on either side. A second move to the same place goes beside it. Before,
+/// every such chat failed with "has no origin remote to push".
+#[cfg(unix)]
+#[test]
+fn a_repo_with_no_remote_moves_as_a_bundle_with_its_changes_and_no_remote() {
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let home = base.path().join("home");
+    let src = home.join("scratch").join("demo");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    git(&src, &["init", "-q"]);
+    std::fs::write(src.join("sub").join("a.txt"), "a").unwrap();
+    git(&src, &["add", "."]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    git(&src, &["branch", "side"]);
+    git(&src, &["tag", "v1"]);
+    // Uncommitted: a change and an untracked file.
+    std::fs::write(src.join("sub").join("a.txt"), "a2").unwrap();
+    std::fs::write(src.join("new.txt"), "n").unwrap();
+    let head = git(&src, &["rev-parse", "HEAD"]);
+
+    let home = home.canonicalize().unwrap();
+    let src = src.canonicalize().unwrap();
+    let c = checkout_of(&src.join("sub")).unwrap().expect("a checkout");
+    assert!(c.origin.is_none() && c.dirty);
+    let target_home = base.path().join("target-home");
+    std::fs::create_dir(&target_home).unwrap();
+    let target_home = target_home.canonicalize().unwrap();
+    let th = target_home.to_string_lossy().into_owned();
+    let folder = plan::plan_folder(&src.join("sub"), &home, Some(&c), &th, true, None).unwrap();
+    let Folder::Bundle { top, branch, subdir, dirty: true } = &folder else {
+        panic!("{folder:?}");
+    };
+    assert_eq!(Path::new(top), target_home.join("scratch/demo"));
+
+    let (commit, bundle) = read_bundle(None, &c.top).unwrap();
+    assert_eq!(commit, head);
+    let read = carry::snapshot(&|script, input| run_here(script, input), &c.top, true).unwrap();
+    carry::check_base(&read, &commit).unwrap();
+    let there = unbundle_folder("", top, branch, subdir, &commit, &bundle).unwrap();
+    assert_eq!(Path::new(&there), target_home.join("scratch/demo/sub"));
+    apply_carry("", &there, &read).unwrap();
+
+    let new = target_home.join("scratch/demo");
+    assert_eq!(git(&new, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&new, &["symbolic-ref", "--short", "HEAD"]), "main");
+    assert_eq!(git(&new, &["for-each-ref", "--format=%(refname)"]).lines().count(), 3);
+    assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2");
+    assert_eq!(std::fs::read_to_string(new.join("new.txt")).unwrap(), "n");
+    assert!(git(&new, &["remote"]).is_empty(), "no remote on the target's repository");
+    assert!(git(&src, &["remote"]).is_empty(), "no remote added to the person's repository");
+    assert_eq!(git(&src, &["rev-parse", "HEAD"]), head, "the source is as it was");
+
+    // The folder is taken now: a second move makes a fresh one beside it, never into it.
+    let again = unbundle_folder("", top, branch, "", &commit, &bundle).unwrap();
+    assert_ne!(Path::new(&again), new.as_path());
+    assert!(again.starts_with(&format!("{top}.moved.")), "{again}");
+    assert_eq!(std::fs::read_to_string(new.join("sub/a.txt")).unwrap(), "a2", "untouched");
 }

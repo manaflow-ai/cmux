@@ -305,14 +305,15 @@ impl Supervisor {
     /// `(run_state, can_rollback)` of `app` for listings.
     pub(super) fn run_facts(inner: &Inner, app: &str) -> (Option<String>, bool) {
         let package = inner.catalog.packages.get(app);
-        let run_state =
-            if inner.safe_mode.is_some() && package.is_some_and(super::safe_mode::holds_off) {
-                Some(super::safe_mode::OFF.to_string())
-            } else if let Some(cause) = inner.ladders.get(app).and_then(|l| l.paused) {
-                Some(format!("paused: {}", cause.describe()))
-            } else {
-                inner.failed.get(app).map(|reason| format!("failed: {reason}"))
-            };
+        let run_state = if super::safe_mode_bisect::held_off(inner, app)
+            && package.is_some_and(super::safe_mode::holds_off)
+        {
+            Some(super::safe_mode::OFF.to_string())
+        } else if let Some(cause) = inner.ladders.get(app).and_then(|l| l.paused) {
+            Some(format!("paused: {}", cause.describe()))
+        } else {
+            inner.failed.get(app).map(|reason| format!("failed: {reason}"))
+        };
         (run_state, Self::can_rollback_locked(inner, app))
     }
 
