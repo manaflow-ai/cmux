@@ -106,6 +106,9 @@ pub(super) struct Paths {
     /// Where the app's background state is read ([`APP_BACKGROUNDED`]; a
     /// test's own flag in unit tests, which run side by side).
     backgrounded: &'static AtomicBool,
+    /// A TURN route that went quiet or lost a probe since the last
+    /// [`Self::take_turn_quiet`], and its smoothed RTT then.
+    turn_quiet: Option<Option<u64>>,
 }
 
 impl Paths {
@@ -119,6 +122,7 @@ impl Paths {
             last_probe_id: 0,
             busy_until: None,
             backgrounded: &APP_BACKGROUNDED,
+            turn_quiet: None,
         }
     }
 
@@ -337,6 +341,13 @@ impl Paths {
         }
     }
 
+    /// A route through our TURN allocation went quiet (a probe left
+    /// unanswered past its silence window, or lost): the largest smoothed
+    /// RTT of such routes, once per report.
+    pub fn take_turn_quiet(&mut self) -> Option<Option<u64>> {
+        self.turn_quiet.take()
+    }
+
     /// The probes due at `now`, after applying lost probes and silences.
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
@@ -376,6 +387,12 @@ impl Paths {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (a, b) => a.or(b),
             };
+        }
+        for &id in lost.iter().chain(&silent) {
+            if self.route_of(id).is_some_and(|route| route.carrier == Carrier::Turn) {
+                let rtt = self.selector.path(id).and_then(|view| view.rtt_us);
+                self.turn_quiet = Some(self.turn_quiet.flatten().max(rtt));
+            }
         }
         for id in lost {
             let _ = self.selector.on_probe(id, ProbeOutcome::Lost);
