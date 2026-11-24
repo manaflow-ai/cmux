@@ -164,8 +164,10 @@ open class ComposerReturnTextView: UITextView {
     override open func insertText(_ text: String) {
         guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
         let start = CACurrentMediaTime()
+        let kind = "\(accessibilityIdentifier ?? "composer")_key_frame"
+        trace.beginKey(kind)
         super.insertText(text)
-        trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+        trace.sampleAtNextFrame(kind, since: start)
     }
     #endif
 

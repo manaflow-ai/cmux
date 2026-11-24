@@ -823,7 +823,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
                     let now = CACurrentMediaTime()
                     if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
-                    if echoMeter.sent(data) { echoStart = now }
+                    if echoMeter.sent(data) {
+                        echoStart = now
+                        InputLatencyTrace.shared?.beginKey("terminal_key_echo")
+                    }
                 }
                 #endif
             } else {
