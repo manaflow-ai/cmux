@@ -68,6 +68,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
