@@ -2440,7 +2440,7 @@ impl ChannelSender {
                         .send_datagram_copies(crate::classes::screen_datagrams(self.id, seq, &data), copies);
                 }
                 None => {
-                    self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery))
+                    self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery));
                 }
             }
         }
