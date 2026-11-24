@@ -1275,6 +1275,16 @@ token for that one repository from cmux Cloud, runs that one `gh` with it (any `
 `github.not_connected`: "GitHub is not connected on this Mac: connect GitHub in cmux Settings
 (or sign in with `gh auth login`)".
 
+The Mac app's own GitHub calls (the pull request page's details, checks, failed-job log, merge and
+re-run, the PR chip's merge and review threads, Create PR's lookups) go through the daemon too:
+`_acpmux/github_rest {op, repo, ...}` (`src/github_rest_op.rs`; the op table is
+`cmux-host/src/github_rest.rs`: a read-only GraphQL query, a GET under the repository's pulls or
+Actions jobs, a merge pinned to its head, a failed-jobs re-run). With a lent sign-in it mints a
+token for that one repository with that op's scope and calls `api.github.com` with it; when no
+sign-in is lent, or the App cannot cover the call, it runs the same call as the person's
+`gh api`. It answers `{ok, status, body, source, message}`; the token is never in it. Only the
+person's own app asks, over the unix socket.
+
 `acpmux machine status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
 and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,
 with 5 s each, and lists this machine first. Each row has:
