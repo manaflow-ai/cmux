@@ -9,7 +9,7 @@
 // into its frames, and over a read cell it would change the counter the viewer reads.
 //
 //   swiftc -O -o cmux-rd-marker main.swift
-//   ./cmux-rd-marker [--motion] [--tick]
+//   ./cmux-rd-marker [--motion [--noise]] [--tick]
 //     --motion: animate the rest of the display every refresh: moving bars and a panel of text
 //               that scrolls one line a refresh. It logs `motion-geometry {JSON}` (in points)
 //               before `marker-origin`, so a viewer's frame can be scored against what was drawn.
@@ -18,6 +18,11 @@
 //               --motion the scene is then a function of the counter (bars at 8 pt per count,
 //               the panel's first line is row COUNTER), drawn in the same refresh as the marker,
 //               so one decoded frame says which source frame it should match.
+//     --noise:  with --motion, the scene is full-screen random noise instead of bars and text,
+//               a new crop of a noise picture every refresh, each jump far past an encoder's
+//               motion search: full motion, so a stream runs at its rate cap (the ultra
+//               profile's 50 Mbps floor needs it). It logs `motion-scene noise` and no
+//               `motion-geometry`, so frame score and text error are null for it.
 //
 // Test hosts only: it covers the menu bar corner and takes key focus on the host Mac.
 
@@ -94,6 +99,9 @@ func motionLine(_ n: Int) -> String {
 final class MotionView: NSView {
     /// Refreshes drawn so far: bars move motionStep points and the panel one line per count.
     var count = 0
+    /// `--noise`: a random picture twice the display's pixels each way; each refresh draws a
+    /// display-sized crop of it at an offset that jumps with the count.
+    var noise: CGImage?
     override var isFlipped: Bool { true }
 
     var panel: NSRect {
@@ -103,6 +111,7 @@ final class MotionView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        if let noise, drawNoise(noise) { return }
         NSColor(white: 0.12, alpha: 1).setFill()
         bounds.fill()
         let phase = CGFloat(count) * motionStep
@@ -126,6 +135,18 @@ final class MotionView: NSView {
                 at: NSPoint(x: box.minX + motionPad, y: box.minY + motionPad + CGFloat(i) * motionLineHeight),
                 withAttributes: attributes)
         }
+    }
+
+    /// One display-sized crop of NOISE, at an offset that jumps by primes times the count so two
+    /// refreshes in a row never share a block within an encoder's search range.
+    func drawNoise(_ noise: CGImage) -> Bool {
+        guard let context = NSGraphicsContext.current?.cgContext else { return false }
+        let w = noise.width / 2, h = noise.height / 2
+        let x = (count &* 7919) % max(w, 1), y = (count &* 104_729) % max(h, 1)
+        guard let crop = noise.cropping(to: CGRect(x: x, y: y, width: w, height: h)) else { return false }
+        context.interpolationQuality = .none
+        context.draw(crop, in: bounds)
+        return true
     }
 
     /// The layout for screen-share-vs.py, one JSON object.
@@ -153,11 +174,26 @@ app.setActivationPolicy(.regular)
 let screen = NSScreen.main!
 let frame = screen.frame
 
+/// An opaque picture of random RGB pixels (`--noise`).
+func makeNoise(pixelWidth: Int, pixelHeight: Int) -> CGImage? {
+    var bytes = [UInt8](repeating: 255, count: pixelWidth * pixelHeight * 4)
+    bytes.withUnsafeMutableBytes { arc4random_buf($0.baseAddress!, $0.count) }
+    guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+    return CGImage(width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bitsPerPixel: 32,
+                   bytesPerRow: pixelWidth * 4, space: CGColorSpaceCreateDeviceRGB(),
+                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+}
+
 var motion: MotionView?
 if CommandLine.arguments.contains("--motion") {
     let back = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
     let view = MotionView(frame: NSRect(origin: .zero, size: frame.size))
     back.contentView = view
+    if CommandLine.arguments.contains("--noise") {
+        view.noise = makeNoise(pixelWidth: Int(frame.width * screen.backingScaleFactor) * 2,
+                               pixelHeight: Int(frame.height * screen.backingScaleFactor) * 2)
+    }
     back.level = .floating
     back.orderFrontRegardless()
     motion = view
@@ -193,7 +229,11 @@ let pixelsPerPoint = streamed / frame.width
 let originY = Int(((frame.maxY - top) * pixelsPerPoint).rounded())
 let ticking = CommandLine.arguments.contains("--tick")
 if let motion {
-    log("motion-geometry " + motion.geometry(streamWidth: streamed, tickDriven: ticking))
+    if motion.noise != nil {
+        log("motion-scene noise")
+    } else {
+        log("motion-geometry " + motion.geometry(streamWidth: streamed, tickDriven: ticking))
+    }
 }
 log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
 log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
