@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxMobileDesign
 import Foundation
 import Testing
@@ -139,3 +140,4 @@ import Testing
         #expect(notice.shown == .macOffline("Mac"), "the cancelled hold never replaces it")
     }
 }
+#endif
