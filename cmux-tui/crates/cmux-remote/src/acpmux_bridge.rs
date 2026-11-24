@@ -265,9 +265,10 @@ where
             while let Some(chunk) = stream.receive().await? {
                 pending.extend_from_slice(&chunk.payload);
                 if let Some(end) = pending.iter().rposition(|b| *b == b'\n') {
-                    writer.write_all(&pending[..=end]).await?;
+                    let rest = pending.split_off(end + 1);
+                    writer.write_all(&pending).await?;
                     writer.flush().await?;
-                    pending.drain(..=end);
+                    pending = rest;
                 }
                 if pending.len() > MAX_LINE_BYTES + 1 {
                     return Err(too_long());

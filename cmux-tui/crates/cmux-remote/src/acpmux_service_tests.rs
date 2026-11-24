@@ -218,7 +218,7 @@ async fn the_dial_side_carries_a_large_line_and_a_burst_in_order() {
             stdin.shutdown().await.unwrap();
         };
         let read = async {
-            let mut lines = tokio::io::BufReader::new(stdout).lines();
+            let mut lines = BufReader::new(stdout).lines();
             let mut got = Vec::new();
             while let Some(line) = lines.next_line().await.unwrap() {
                 got.push(serde_json::from_str::<Value>(&line).unwrap());
