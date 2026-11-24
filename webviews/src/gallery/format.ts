@@ -48,6 +48,7 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
+  ConnectionsState,
   DoctorReport,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
@@ -83,6 +84,10 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
+  connections?: ConnectionsState;
+  /** The id of the Accounts team to mark active (Settings > Connections shows its owner menu). */
+  activeTeam?: string;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
