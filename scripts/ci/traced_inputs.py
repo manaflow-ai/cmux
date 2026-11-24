@@ -511,6 +511,38 @@ def cmd_entries(a: argparse.Namespace) -> int:
     return 0
 
 
+ROW_KIND = {"F": "blob", "E": "blob", "N": "names", "T": "tree"}
+
+
+def compact(entries: dict[str, str], idx: dict[str, tuple[str, str, str]]) -> dict[str, str]:
+    """Fold each directory the check listed and read whole (every entry a file it read, or a directory it read whole)
+    into one T (tree) entry. A tree id covers exactly what its entries keyed (names, contents, and any absent path
+    appearing), so the key is the same set of changes, in far fewer rows."""
+    children: dict[str, list[str]] = {}
+    for path in idx:
+        if path:
+            children.setdefault(path.rpartition("/")[0], []).append(path)
+    full: set[str] = set()
+    for d in sorted((p for p, v in idx.items() if v[1] == "tree" and p), key=lambda p: -p.count("/")):
+        if entries.get(d) == "N" and all(c in full if idx[c][1] == "tree" else entries.get(c) == "F"
+                                         for c in children.get(d, [])):
+            full.add(d)
+    tops = {d for d in full if not any(d.startswith(a + "/") for a in _ancestors(d) if a in full)}
+    out = {p: k for p, k in entries.items() if not any(p == t or p.startswith(t + "/") for t in _ancestors(p) | {p}
+                                                        if t in tops)}
+    out.update({t: "T" for t in tops})
+    return out
+
+
+def _ancestors(path: str) -> set[str]:
+    parts = path.split("/")
+    return {"/".join(parts[:i]) for i in range(1, len(parts))}
+
+
+def listable(path: str) -> bool:
+    return not any(c in path for c in " #") and path.isprintable() and path.isascii()
+
+
 def export_rows(man: dict, pinned: list[str]) -> list[str]:
     """The manifest as receipt_input_key rows (`* KIND PATH`): F -> blob, N -> names, E -> blob (keyed absent or
     present). A path both listed and read through is a tree only when PINNED names it (the check's own code)."""
@@ -520,13 +552,15 @@ def export_rows(man: dict, pinned: list[str]) -> list[str]:
             if kind == "N":  # the root listed: `REV:` is its tree, keyed on its names
                 rows.append("* names .")
             continue  # the root stat'ed or opened: it always exists, so it keys nothing
-        if any(c in path for c in " #") or not path.isprintable() or not path.isascii():
+        if not listable(path):
             # receipt_input_key splits on whitespace and the controller takes printable ASCII only: such a path
-            # cannot be listed, so the check is keyed on its parent directory's whole tree instead.
-            parent = path.rpartition("/")[0]
-            rows.append(f"* tree {parent}" if parent else "* tree .")
+            # cannot be listed, so the check is keyed on its nearest listable ancestor's whole tree instead.
+            parent = path
+            while parent and not listable(parent):
+                parent = parent.rpartition("/")[0]
+            rows.append(f"* tree {parent or '.'}")
             continue
-        rows.append(f"* {'names' if kind == 'N' else 'blob'} {path}")
+        rows.append(f"* {ROW_KIND[kind]} {path}")
     rows += [f"* blob {p}" for p in pinned]
     return sorted(set(rows))
 
@@ -538,6 +572,8 @@ def cmd_export(a: argparse.Namespace) -> int:
         return 2
     if man.get("git") == "L":
         print("traced_inputs: the check asks git for the path list; keyed on the root listing too", file=sys.stderr)
+    entries = man["entries"]
+    man = {**man, "entries": compact(entries, tree_index(Path(a.root), man["rev"]))}
     rows = export_rows(man, a.pin)
     if man.get("git") == "L":
         rows.append("* tree .")
@@ -642,6 +678,7 @@ def main(argv: list[str] | None = None) -> int:
     tj.add_argument("--strict", action="store_true")
     x = sub.add_parser("export")
     x.add_argument("--check", required=True)
+    x.add_argument("--root", default=".")
     x.add_argument("--manifest", required=True)
     x.add_argument("--out", required=True)
     x.add_argument("--pin", action="append", default=[], help="a file always in the key (the workflow, the list)")

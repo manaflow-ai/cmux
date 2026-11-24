@@ -146,7 +146,7 @@ class TraceTest(unittest.TestCase):
 
     def test_export_matches_receipt_input_key_and_audit(self):
         rows = Path(self.tmp.name) / "inputs.txt"
-        ti.main(["export", "--check", "t", "--manifest", str(self.manifest), "--out", str(rows)])
+        ti.main(["export", "--check", "t", "--root", str(self.repo), "--manifest", str(self.manifest), "--out", str(rows)])
         text = rows.read_text()
         self.assertIn("* names listed", text)
         self.assertIn("* blob inputs/read.txt", text)

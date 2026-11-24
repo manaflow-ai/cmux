@@ -144,5 +144,35 @@ class InputMarkTests(unittest.TestCase):
             self.assertTrue(tti.bundle_has_input_mark(app))
 
 
+class KeptMarksTests(unittest.TestCase):
+    """A round's line carries the steps between the first frame and the chat drawn, so a late stage can be split."""
+
+    def test_chromium_page_and_chat_marks_are_kept_beside_the_named_ones(self):
+        marks = {"main_start": 50.0, "first_window_frame_committed": 900.0, "cef.initialize_start": 910.0,
+                 "cef.step.framework_mapped": 905.0, "cef.ready": 1200.0, "chromium_page.browser_created": 1300.0,
+                 "first_page.navigation_start": 1320.0, "agent_pane.handshake_start": 1400.0,
+                 "agent_pane.painted": 1600.0, "daemon_connected": 700.0, "unrelated.mark": 5.0}
+        kept = tti.kept_marks(marks)
+        self.assertNotIn("unrelated.mark", kept)
+        for name in set(marks) - {"unrelated.mark"}:
+            self.assertEqual(marks[name], kept[name])
+
+    def test_the_prefixed_marks_are_capped_in_launch_order_and_named_ones_always_fit(self):
+        marks = {f"cef.step.s{i:03d}": float(1000 - i) for i in range(tti.KEPT_MARKS_MAX + 30)}
+        marks.update({"main_start": 50.0, "agent_pane.painted": 1600.0})
+        kept = tti.kept_marks(marks)
+        self.assertEqual(tti.KEPT_MARKS_MAX, len(kept))
+        self.assertIn("main_start", kept)
+        self.assertIn("agent_pane.painted", kept)
+        # The earliest prefixed marks win the room left.
+        latest_kept = max(v for k, v in kept.items() if k.startswith("cef.step."))
+        dropped = [v for k, v in marks.items() if k.startswith("cef.step.") and k not in kept]
+        self.assertTrue(all(v >= latest_kept for v in dropped))
+
+    def test_load_reads_a_number_or_nothing(self):
+        value = tti.load_1m()
+        self.assertTrue(value is None or value >= 0)
+
+
 if __name__ == "__main__":
     unittest.main()
