@@ -380,6 +380,7 @@
     "typingCodingAgents": "kodeagenter",
     "typingMultitasking": "multitasking",
     "subtitle": "Gratis og åpen kildekode nativ macOS-terminal bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en <cliLink>CLI</cliLink> for programmerbarhet.",
+    "nextCallout": "Nytt: Prøv <link>cmux NEXT</link>, en forhåndsvisning av neste cmux.",
     "features": "Funksjoner",
     "faq": "Vanlige spørsmål",
     "communitySection": "Fellesskap",

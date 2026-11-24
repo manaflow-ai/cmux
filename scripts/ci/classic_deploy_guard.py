@@ -36,6 +36,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -242,6 +243,50 @@ class GitHub:
         return pulls
 
 
+class GitFiles:
+    """A commit's changed paths from git, so the guard spends no REST call on them (REST stays the fallback).
+
+    2026-11-21 06:23Z (run 44875353541): the range since the last green run was 204 commits, and each one's file
+    list was one REST call on the repository's shared workflow-token hour; 108 came back 403, each an unreadable
+    commit and so a refusal of every cmux.com deploy. A commit's changed paths never change, and its id pins its
+    tree, so one blobless fetch of the range answers them all. `--no-renames` lists a rename as its old and new
+    path, as GitHub's `previous_filename` did. A commit git cannot read (a failed fetch, a parent past the fetched
+    depth) is read from REST as before."""
+
+    def __init__(self, cwd: Path, rest: "GitHub"):
+        self.cwd, self.rest = Path(cwd), rest
+        self.from_git = self.from_rest = 0
+
+    def _git(self, *args: str, timeout: float = 120) -> str:
+        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+        return subprocess.run(["git", *args], cwd=self.cwd, env=env, check=True, capture_output=True, text=True,
+                              timeout=timeout).stdout
+
+    def prefetch(self, after: str, count: int) -> None:
+        """Fetch AFTER's last COUNT+1 commits without blobs: every commit of a COUNT-commit range that AFTER
+        contains, and its parents, is within COUNT+1 of AFTER (each path from AFTER to it stays in the range)."""
+        try:
+            # Only CI's own shallow checkout is deepened: a depth fetch would turn a full clone shallow (a full clone
+            # already holds the range, and anything it lacks is read from REST).
+            if self._git("rev-parse", "--is-shallow-repository").strip() != "true":
+                return
+            self._git("fetch", "--quiet", "--no-tags", "--filter=blob:none", f"--depth={count + 1}", "origin", after,
+                      timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"::notice::git fetch of the range failed ({str(exc)[:200]}); file lists come from REST")
+
+    def files(self, sha: str) -> list[str]:
+        try:
+            parents = self._git("rev-list", "--parents", "-n", "1", sha).split()[1:]
+            base = ["--root", sha] if not parents else [parents[0], sha]  # a merge: against its first parent
+            out = self._git("diff-tree", "-r", "--no-renames", "--name-only", "--no-commit-id", *base)
+        except (OSError, subprocess.SubprocessError):
+            self.from_rest += 1
+            return self.rest.files(sha)
+        self.from_git += 1
+        return [line for line in out.splitlines() if line]
+
+
 def cancel_deploy(config: dict, sha: str, token: str, team: str, wait_s: float, step_s: float = 15,
                   request: Callable[..., object] | None = None, sleep: Callable[[float], None] = time.sleep,
                   clock: Callable[[], float] = time.monotonic) -> tuple[int, list[str]]:
@@ -319,7 +364,11 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"::error::Refused: the commits of {base[:12]}..{args.after[:12]} could not be read ({exc})")
             return 1
-        refusals, notices = judge(config, commits, github.files, github.pulls, args.branch)
+        reader = GitFiles(Path.cwd(), github)
+        reader.prefetch(args.after, len(commits))
+        refusals, notices = judge(config, commits, reader.files, github.pulls, args.branch)
+        print(f"::notice::Changed files of {len(commits)} commits: {reader.from_git} from git, {reader.from_rest} "
+              "from REST")
         for line in notices:
             print(f"::notice::{line}")
         for line in refusals:

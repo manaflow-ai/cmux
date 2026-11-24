@@ -380,6 +380,7 @@
     "typingCodingAgents": "Coding-Agenten",
     "typingMultitasking": "Multitasking",
     "subtitle": "Kostenloser, quelloffener nativer macOS-Terminal auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine <cliLink>CLI</cliLink> für Programmierbarkeit.",
+    "nextCallout": "Neu: Probieren Sie <link>cmux NEXT</link> aus, eine Vorschau auf das nächste cmux.",
     "features": "Funktionen",
     "faq": "FAQ",
     "communitySection": "Community",

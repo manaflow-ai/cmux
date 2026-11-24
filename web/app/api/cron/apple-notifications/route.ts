@@ -37,6 +37,17 @@ function reportProblems(result: Awaited<ReturnType<typeof runAppleIapCron>>): vo
       missingEnv: result.serverApi.missingEnv.join(","),
     });
   }
+  // A Production 401 the Sandbox does not share (locked_until_release) is
+  // expected until the first App Store release and is not reported.
+  const unauthorized = Object.entries(result.productionApi)
+    .filter(([, access]) => access === "unauthorized")
+    .map(([bundleId]) => bundleId);
+  if (unauthorized.length > 0) {
+    captureBillingError(new Error("App Store Server API refused the key in Production and Sandbox"), {
+      route,
+      bundleIds: unauthorized.join(","),
+    });
+  }
   if (result.deadLettered > 0) {
     captureBillingError(new Error("Apple notifications were dead-lettered after their last retry"), {
       route,

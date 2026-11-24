@@ -77,12 +77,12 @@ const billingTeamSummarySchema = z.object({
   planId: z.string().nullable(),
 }) satisfies z.ZodType<BillingTeamSummary>;
 
-const nextPlanIdSchema = z.enum(["next_pro", "next_max"]);
+const nextPlanIdSchema = z.enum(["next_plus", "next_pro", "next_max"]);
 
 const nextCloudBillingSchema = z.object({
   planId: nextPlanIdSchema.nullable(),
   source: z.enum(["subscription", "grant"]).nullable(),
-  checkoutAvailable: z.object({ next_pro: z.boolean(), next_max: z.boolean() }),
+  checkoutAvailable: z.object({ next_plus: z.boolean(), next_pro: z.boolean(), next_max: z.boolean() }),
 }) satisfies z.ZodType<NextCloudBillingJson>;
 
 export const dashboardBillingSchema = z.object({

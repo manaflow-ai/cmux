@@ -380,6 +380,7 @@
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
     "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
+    "nextCallout": "Novo: isprobajte <link>cmux NEXT</link>, pregled sljedeće verzije cmux-a.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",

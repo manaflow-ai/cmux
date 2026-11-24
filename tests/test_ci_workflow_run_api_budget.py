@@ -43,6 +43,18 @@ HEAD = "a" * 40
 os.environ["PR_STATUS_SETTLE_SECONDS"] = "0"  # no wait before the status comment's check
 
 
+# feat-cmux-next's ci.yml skips the PR tier for pull requests into it. #51240 (2026-11-22) widened that
+# skip to stacked `feat-cmux-next-*` bases with startsWith; either form is the skip.
+FEAT_CMUX_NEXT_SKIPS = (
+    "github.event.pull_request.base.ref != 'feat-cmux-next'",
+    "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
+)
+
+
+def skips_feat_cmux_next_prs(condition: str) -> bool:
+    return any(skip in condition for skip in FEAT_CMUX_NEXT_SKIPS)
+
+
 class CountingGitHub:
     """classify_failures' GitHub with every read recorded."""
 
@@ -289,7 +301,7 @@ class FailureAttributionCalls(unittest.TestCase):
             self.skipTest("origin/feat-cmux-next is not fetched")
         jobs = yaml.safe_load(shown.stdout)["jobs"]
         static = next(name for name, job in jobs.items() if job.get("name") == cf.STATIC_CHECKS_JOB)
-        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", jobs[static]["if"])
+        self.assertTrue(skips_feat_cmux_next_prs(jobs[static]["if"]), jobs[static]["if"])
         self.assertIn(f"needs.{static}.result == 'success'", jobs["macos"]["if"])
 
 
@@ -307,7 +319,7 @@ class FeatCmuxNextSkips(unittest.TestCase):
         if shown.returncode:
             self.skipTest("origin/feat-cmux-next is not fetched")
         guards = yaml.safe_load(shown.stdout)["jobs"]["fast-guards"]
-        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", guards["if"])
+        self.assertTrue(skips_feat_cmux_next_prs(guards["if"]), guards["if"])
 
 
 class ReadTokenRouting(unittest.TestCase):

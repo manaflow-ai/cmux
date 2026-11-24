@@ -21,8 +21,8 @@ exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
 2026-10-21 sat behind green runs for four hours). A promotion stall quotes the
 latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
-The coordinator alarm (feed_alarm): once the feed's newest build is FEED_ALARM_AFTER (2h) old while pushes
-wait, the issue gets a `Coordinator alarm:` line and a nightly-next-feed-alarm marker, once per stale episode
+The coordinator alarm (feed_alarm): once the oldest waiting feat-cmux-next push (or the feed's newest build, if
+older) is FEED_ALARM_AFTER (2h) old, the issue gets a `Coordinator alarm:` line and a nightly-next-feed-alarm marker, once per stale episode
 (the feed's newest item) and again at most every FEED_ALARM_REPEAT (1h), naming the newest failed nightly-next
 run's first failing step and its log's HTTP status line. cmuxterm-hq's base-red-watch nightly alarm reads that
 marker and pages the coordinator as a FIRE line. On 2026-11-13 the feed sat at 04:32Z for over 15 hours while
@@ -333,13 +333,19 @@ def latest_running(nightly: list[dict]) -> str:
 
 
 def alarm_due(now: dt.datetime, newest: dt.datetime, stage: Stage, previous_body: str) -> bool:
-    """Whether to alarm the coordinator now: the feed's newest build is FEED_ALARM_AFTER old, pushes have waited
-    past the limit (stage.stale), and this stale episode (keyed by the feed's newest item) has not alarmed within
-    FEED_ALARM_REPEAT (the marker the last alarm left in the issue body). A gate job queued GATE_PAGE_MINUTES with no
-    runner alarms without waiting out FEED_ALARM_AFTER: nothing starts it, so waiting only loses the next nightly."""
+    """Whether to alarm the coordinator now: the oldest waiting push (stage.since) or the feed's newest build,
+    whichever is older, is FEED_ALARM_AFTER old, pushes have waited past the limit (stage.stale), and this stale
+    episode (keyed by the feed's newest item) has not alarmed within FEED_ALARM_REPEAT (the marker the last alarm
+    left in the issue body). A gate job queued GATE_PAGE_MINUTES with no runner alarms without waiting out
+    FEED_ALARM_AFTER: nothing starts it, so waiting only loses the next nightly.
+
+    The waiting push's age is the lag a person sees (NOW's nightly_freshness_minutes). The feed's age alone missed
+    a fresh publish of an old commit: on 2026-11-19 build 4450292330201 of 34acb4912 published at 10:39:52Z while
+    37788c3 (06:51:30Z) waited behind it, and nothing paged until 12:39Z, 348 min after that landing."""
     if not stage.stale or stage.since is None:
         return False
-    if now - newest < FEED_ALARM_AFTER and stage.gate_wait < GATE_PAGE_MINUTES:
+    oldest = min(newest, stage.since)
+    if now - oldest < FEED_ALARM_AFTER and stage.gate_wait < GATE_PAGE_MINUTES:
         return False
     marker = ALARM_MARKER.search(previous_body or "")
     if not marker or marker.group(1) != stamp(newest):
@@ -590,7 +596,9 @@ def holds_push_group(run: dict) -> bool:
 
 
 # The one-job nightly-next build (feat-cmux-next's nightly.yml, vars.NIGHTLY_NEXT_ONE_JOB). It holds the push
-# slot itself (its job group nightly-next-one-push), so the run's tail after the feed holds nothing.
+# slot itself (its job group, one per signer Mac since 2026-11-21: nightly-next-one-push-<host>, design
+# manaflow-ai/cmuxterm-hq#17011), so the run's tail after the feed holds nothing. The jobs API names no group, so
+# run_holds_group and the starvation guard (started) match the job by this name, which covers every host's group.
 ONE_JOB = "nightly-next-one"
 
 

@@ -380,6 +380,7 @@
     "typingCodingAgents": "agentów kodowania",
     "typingMultitasking": "multitaskingu",
     "subtitle": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele oraz <cliLink>CLI</cliLink> do programowania.",
+    "nextCallout": "Nowość: wypróbuj <link>cmux NEXT</link>, zapowiedź kolejnej wersji cmux.",
     "features": "Funkcje",
     "faq": "FAQ",
     "communitySection": "Społeczność",

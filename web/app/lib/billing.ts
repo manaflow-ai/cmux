@@ -24,8 +24,8 @@ export const APP_PRICING_NATIVE_RETURN_QUERY_PARAMS = [
   CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
 ] as const;
 export const CHECKOUT_PATH = "/api/billing/checkout";
-/** `next_pro` / `next_max` are the cmux NEXT Cloud plans (services/billing/nextPlans.ts). */
-export const CHECKOUT_PLANS = ["go", "pro", "max", "team", "next_pro", "next_max"] as const;
+/** `next_plus` / `next_pro` / `next_max` are the cmux NEXT Cloud plans (services/billing/nextPlans.ts). */
+export const CHECKOUT_PLANS = ["go", "pro", "max", "team", "next_plus", "next_pro", "next_max"] as const;
 export type CheckoutPlan = (typeof CHECKOUT_PLANS)[number];
 
 export function isCheckoutPlan(value: unknown): value is CheckoutPlan {
@@ -44,6 +44,7 @@ export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
 export const GO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "go");
 export const MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "max");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
+export const NEXT_PLUS_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "next_plus");
 export const NEXT_PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "next_pro");
 export const NEXT_MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "next_max");
 export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
