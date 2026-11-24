@@ -56,7 +56,7 @@ struct TerminalComposer: View {
                         .font(.footnote.weight(.semibold))
                         .accessibilityIdentifier("terminal.composer.heldKeys.discard")
                 }
-                .padding(.leading, TerminalDockMetrics.control + 8)
+                .padding(.leading, ComposerCardMetrics.rowInset + 8)
                 .accessibilityIdentifier("terminal.composer.heldKeys")
             }
             // No connection line here: a reattach takes no row (Leo,
