@@ -1,12 +1,26 @@
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
+#if canImport(CoreVideo)
 import CoreVideo
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 func temporaryDirectory() throws -> URL {
@@ -19,6 +33,9 @@ func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
+#if canImport(ImageIO) && canImport(AVFoundation)
+// Real media: encoded by ImageIO and AVFoundation, so these and the tests that
+// use them run on Apple platforms only (not the Linux package lane).
 /// A `width` x `height` JPEG whose EXIF orientation is `orientation`.
 func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -232,6 +249,17 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
                                       sampleSizeArray: &size, sampleBufferOut: &sample) == noErr)
     return try #require(sample)
 }
+#else
+/// No ImageIO on the Linux package lane: JPEG-typed bytes (SOI, a JFIF APP0, a
+/// comment naming the size and orientation, EOI) that nothing there decodes, for
+/// tests that only carry a photo's bytes. Different arguments give different bytes.
+func makeJPEG(width: Int, height: Int, orientation: Int) throws -> Data {
+    let comment = Array("\(width)x\(height) orientation \(orientation)".utf8)
+    let length = comment.count + 2
+    let app0: [UInt8] = [0xFF, 0xE0, 0x00, 0x10] + Array("JFIF".utf8) + [0, 1, 1, 0, 0, 1, 0, 1, 0, 0]
+    return Data([0xFF, 0xD8] + app0 + [0xFF, 0xFE, UInt8(length >> 8), UInt8(length & 0xff)] + comment + [0xFF, 0xD9])
+}
+#endif
 
 @Suite struct AttachmentPreparationTests {
     @MainActor @Test func hashIsSHA256OfTheBytesAndTheBlobIsCached() async throws {
@@ -258,6 +286,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try Data(contentsOf: fromFile.fileURL) == large)
     }
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     @MainActor @Test func imageSizeIsTheDisplaySizeAfterEXIFOrientation() async throws {
         let root = try temporaryDirectory()
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
@@ -274,7 +303,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(viaData.ref.hash == prepared.ref.hash)
         #expect(viaData.ref.width == 20 && viaData.ref.height == 40)
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     @MainActor @Test func videoGetsDurationDisplaySizeAndPoster() async throws {
         let root = try temporaryDirectory()
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
@@ -294,6 +325,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let posterImage = try #require(CGImageSourceCreateImageAtIndex(posterSource, 0, nil))
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
     }
+#endif
 
     @MainActor @Test func policyAcceptsLargeOriginalsBeforeCopying() async throws {
         let root = try temporaryDirectory()
@@ -361,6 +393,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try fm.contentsOfDirectory(atPath: root.path).allSatisfy { !$0.hasPrefix(".incoming-") })
     }
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// A pasted macOS screenshot is TIFF, an iPhone photo can be HEIF:
     /// neither is on the owner's allow list, so the core converts them, PNG
     /// when the image has alpha, else JPEG.
@@ -395,6 +428,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             #expect(photo.ref.mimeType == "image/jpeg")
         }
     }
+#endif
 
     /// The owner's name rules: 1 to 255 characters, no control characters
     /// or path separators, not blank, `.` or `..`; any extension.
@@ -437,6 +471,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path) == [ingested.hash])
     }
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Sample bytes prepare can take for `type`: a real image for a type
     /// that is converted (when ImageIO can write one), else any bytes.
     func sampleInput(for type: UTType) throws -> Data? {
@@ -457,7 +492,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         guard CGImageDestinationFinalize(destination), data.length > 0 else { return nil }
         return data as Data
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// The composer's pre-check (`accepts`) says yes exactly when prepare
     /// takes the input.
     @MainActor @Test func acceptedInputTypesMatchPrepare() async throws {
@@ -499,7 +536,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("Screen Shot.tiff")))
         #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("notes.md")))
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Location is stripped by default (the host's
     /// `home.attachments.keepLocation` setting is off): the uploaded bytes
     /// have no GPS, the hash is of those bytes, orientation stays.
@@ -535,7 +574,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let plain = try makeJPEG(width: 10, height: 10, orientation: 1)
         #expect(try await store.prepareAttachment(data: plain, typeIdentifier: UTType.jpeg.identifier).ref.hash == sha256Hex(plain))
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// The same for a video's location metadata (a passthrough export, no
     /// re-encode).
     @MainActor @Test func videoLocationIsStrippedUnlessKept() async throws {
@@ -556,7 +597,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(try await movieHasLocation(kept.fileURL))
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: movie)))
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// An image over 1024 px (or a HEIC) gets a JPEG preview, declared on
     /// the part like a video's poster; a small one does not.
     @MainActor @Test func largeImagesGetAJPEGPreviewSmallOnesDoNot() async throws {
@@ -580,6 +623,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(small.ref.preview == nil)
         #expect(small.previewURL == nil)
     }
+#endif
 
     @Test func previewEncodesAsItsOwnPartKey() throws {
         let encoder = JSONEncoder()
@@ -883,6 +927,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         store.stop()
     }
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     @Test func fetchIsIdempotentAndPrefersTheLocalCopy() async throws {
         let (store, source) = try await started()
         let root = try temporaryDirectory()
@@ -908,7 +953,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             try await source.fetch(AttachmentRef(hash: "missing", name: "", mimeType: "image/png", byteCount: 0), at: here, variant: .original)
         }
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// One part per video; its poster is fetched with `.poster` (the
     /// route's `variant=poster`), not as a part of its own.
     @Test func posterVariantFetchesTheVideosPosterFrame() async throws {
@@ -936,7 +983,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             try await source.fetch(noPoster, at: here, variant: .poster)
         }
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// A declared poster must land before the video (the owner's 409
     /// `attachment.poster_missing`).
     @Test func uploadRefusesADeclaredPosterWithoutItsBytes() async throws {
@@ -953,7 +1002,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             try await source.fetch(video.ref, at: AttachmentLocation(conversation: conversation), variant: .original)
         }
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// Another device uploaded the same video first, with its own poster
     /// and as `video/mp4`. The owner keeps the first record, so the send
     /// carries the record's mime type and poster, not this device's.
@@ -995,7 +1046,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
                                                      variant: .poster)
         #expect(sha256Hex(try Data(contentsOf: poster)) == other.hash)
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// The first upload of the video recorded no poster (extraction failed
     /// there): the part must not claim one.
     @Test func existsWithNoPosterSendsThePartWithoutAPoster() async throws {
@@ -1020,6 +1073,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             try await store.fetchAttachment(first, at: AttachmentLocation(conversation: conversation), variant: .poster)
         }
     }
+#endif
 
     /// The owner swept the upload before the send reached it (an
     /// unreferenced upload after 24 hours, an expired slot): the store
@@ -1081,9 +1135,14 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let original = try await store.fetchAttachment(photo.ref, at: here, variant: .original)
         #expect(original != photo.fileURL)
         #expect(try Data(contentsOf: original) == Data(contentsOf: file))
+#if canImport(ImageIO)
+        // A thumbnail decodes the image: Apple platforms only.
         let thumb = try await store.fetchAttachment(photo.ref, at: here, variant: .thumbnail(maxPixel: 40))
         #expect(FileManager.default.fileExists(atPath: thumb.path))
         #expect(await source.fetchLocations.count >= 2)
+#else
+        #expect(await source.fetchLocations.count >= 1)
+#endif
         #expect(store.transcript(for: conversation).last?.localAttachments.isEmpty == true)
     }
 
@@ -1101,6 +1160,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(await source.uploadCalls.isEmpty)
     }
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// The preview uploads with the image, travels on the part, and is the
     /// `.preview` variant; a part without one throws `no_preview`.
     @Test func previewUploadsWithTheImageAndFetchesAsAVariant() async throws {
@@ -1126,7 +1186,9 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
             try await source.fetch(small.ref, at: here, variant: .preview)
         }
     }
+#endif
 
+#if canImport(ImageIO) && canImport(AVFoundation)
     /// The owner recorded the image without a preview first: the part
     /// carries none.
     @Test func existsWithNoPreviewSendsThePartWithoutAPreview() async throws {
@@ -1141,6 +1203,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         await waitUntil { store.log.isEmpty }
         #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(first)])
     }
+#endif
 
     @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
         let (store, source) = try await started()
