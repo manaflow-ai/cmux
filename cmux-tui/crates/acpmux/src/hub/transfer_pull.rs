@@ -143,8 +143,7 @@ impl Hub {
 
     /// The chat `session_id` when move `transfer_id` landed here already, as a pull answers it.
     fn pulled(&self, session_id: &str, transfer_id: &str) -> Option<Value> {
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()?;
+        let session = self.session_get(session_id)?;
         if self.moved_away(&session) {
             return None;
         }

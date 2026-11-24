@@ -1058,6 +1058,11 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The dated API version the client pins (`YYYY-MM-DD`): the
+        /// newest revision dated on or before it serves it
+        /// (server/api_revision_wire.rs, spec/api-versioning.md).
+        #[serde(default)]
+        api_version: Option<String>,
         /// The client's release (`cmux --version`), for refusals and logs.
         #[serde(default)]
         version: Option<String>,
