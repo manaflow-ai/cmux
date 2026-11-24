@@ -600,7 +600,7 @@ body,
 }
 .hc-send.hc-send-later.ui-toolbar-button {
   width: 20px;
-  margin-inline-start: calc(var(--grid-half-step) / 2);
+  margin-inline-start: var(--cmux-hairline);
   border-start-start-radius: 0;
   border-end-start-radius: 0;
 }

@@ -150,6 +150,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
             AgentPaneComputerUsePreview.replay(to: view)
+            view.model.computerUse?.push(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)

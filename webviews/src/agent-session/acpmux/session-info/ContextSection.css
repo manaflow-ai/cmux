@@ -1,5 +1,25 @@
 /* Session Info's Context, open (ContextSection.tsx): the total line, the bar split by part, and a row
    per part with its colored square, its tokens and its share of the window, as Claude Code desktop's. */
+.acpmux-session-info-context,
+.acpmux-context-breakdown {
+  --acpmux-context-bar-height: 4px;
+}
+/* The swatches, the share used, the bar and the fold chevrons start on the head's title, "Context"
+   (Lucas, 2026-11-23: "they should be aligned with Context"): a swatch at the icon column's start, its
+   label still on the label column, and a chevron centred on the swatch. */
+.acpmux-session-info {
+  /* The title's first letter starts half a pixel in from its box (its side bearing at the body size,
+     measured on the panel at 2x: "Context" and "3% used" ink one device pixel right of a box edge), so
+     the swatches and the bar start there too, on the ink. */
+  --acpmux-context-ink: 0.5px;
+  --acpmux-context-swatch-start: calc(var(--grid-gap) + var(--acpmux-context-ink));
+  --acpmux-context-swatch-trail: calc(var(--grid-icon-box) - 10px - var(--acpmux-context-ink));
+  --acpmux-context-chevron-lead: calc((10px - var(--grid-icon-box) + var(--grid-base)) / 2 + var(--acpmux-context-ink));
+  --acpmux-context-chevron-trail: calc(var(--grid-base) - var(--acpmux-context-chevron-lead));
+}
+.acpmux-session-info .acpmux-session-info-context .acpmux-session-info-context__swatch {
+  margin-inline: var(--acpmux-context-ink) var(--acpmux-context-swatch-trail);
+}
 .acpmux-session-info-context {
   --acpmux-context-used: var(--agent-accent);
   --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
@@ -44,31 +64,23 @@
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
 }
+/* The bar, as Claude Code desktop's: a 4px capsule whose track is the free space, each part a segment
+   with a 1px cut of the track after it. */
 .acpmux-session-info-context__bar {
   display: flex;
-  gap: 0;
-  height: 6px;
+  height: var(--acpmux-context-bar-height);
   margin: 0 8px 6px;
-  border-radius: 3px;
+  border-radius: 999px;
   overflow: hidden;
   background: var(--acpmux-context-free);
 }
 .acpmux-session-info-context__bar > span {
   flex: none;
+  box-sizing: border-box;
   min-width: 2px;
   height: 100%;
-}
-.acpmux-session-info-context__bar > span:not(:last-child) {
-  position: relative;
-}
-.acpmux-session-info-context__bar > span:not(:last-child)::after {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  width: min(2px, 25%);
-  background: var(--acpmux-context-free);
-  content: "";
-  pointer-events: none;
+  border-inline-end: 1px solid var(--acpmux-context-free);
+  background-clip: padding-box;
 }
 .acpmux-session-info-context__bar > [data-part="used"],
 .acpmux-session-info-context__swatch[data-part="used"] {
@@ -83,57 +95,98 @@
 .acpmux-session-info-context__swatch[data-part="free"] {
   background: var(--acpmux-context-free);
 }
-.acpmux-session-info-context__count {
-  color: var(--agent-muted);
+/* One ink for every label and number in Context (Lucas, 2026-11-23: "they should all be the same
+   colour here"), the numbers at the labels' size, as Claude Code desktop's. */
+.acpmux-session-info-context,
+.acpmux-context-breakdown {
+  color: var(--agent-text);
+}
+.acpmux-session-info-context :is(
+    .acpmux-session-info-context__tokens,
+    .acpmux-session-info-context__count,
+    .acpmux-session-info-row__end,
+    .acpmux-session-info-row__detail
+  ),
+.acpmux-context-breakdown :is(.acpmux-session-info-row__end, .acpmux-session-info-row__detail) {
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
 }
 .acpmux-session-info-context__share {
   flex: none;
   min-width: 44px;
   text-align: right;
-  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A /context breakdown: each used category takes a step of the theme accent, largest first, so the
-   bar reads as one color family over the glass; the autocompact buffer is a stronger tint of the text,
-   a deferred category (which takes no room yet) a fainter one with its row dimmed, and the free space
-   is the bar's track. The gallery's other palettes set --acpmux-context-tone-N (SessionInfo.gallery). */
+/* A /context breakdown, colored as Claude Code desktop's Context card (Lucas, 2026-11-23): Messages
+   blue, MCP tools orange, System prompt green, Skills yellow, every other used category one grey; the
+   autocompact buffer and the deferred categories a darker grey, and the free space the bar's track.
+   The four hues are Claude's own, read off its card; the greys are the same shares of the text color
+   (58%, 32%, 8%), so they hold in light and dark. */
 .acpmux-context-breakdown {
+  --acpmux-context-messages: #4d8ae6; /* colour-allow: Claude Code desktop's Messages colour, matched on request (Lucas, 2026-11-23) */
+  --acpmux-context-mcp-tools: #d76e38; /* colour-allow: Claude Code desktop's MCP tools colour, matched on request (Lucas, 2026-11-23) */
+  --acpmux-context-system-prompt: #4ba58a; /* colour-allow: Claude Code desktop's System prompt colour, matched on request (Lucas, 2026-11-23) */
+  --acpmux-context-skills: #c89132; /* colour-allow: Claude Code desktop's Skills colour, matched on request (Lucas, 2026-11-23) */
   /* Its own, so the ring's details (outside Session Info's Context wrapper) draw the track too. */
-  --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
-  --acpmux-context-buffer: color-mix(in srgb, var(--agent-text) 34%, transparent);
+  --acpmux-context-free: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --acpmux-context-buffer: color-mix(in srgb, var(--agent-text) 32%, transparent);
+  --acpmux-context-other: color-mix(in srgb, var(--agent-text) 58%, transparent);
   min-width: 0;
 }
-.acpmux-context-breakdown [data-tone="0"] { background: var(--acpmux-context-tone-0, var(--agent-accent)); }
-.acpmux-context-breakdown [data-tone="1"] { background: var(--acpmux-context-tone-1, color-mix(in oklab, var(--agent-accent) 74%, transparent)); }
-.acpmux-context-breakdown [data-tone="2"] { background: var(--acpmux-context-tone-2, color-mix(in oklab, var(--agent-accent) 54%, transparent)); }
-.acpmux-context-breakdown [data-tone="3"] { background: var(--acpmux-context-tone-3, color-mix(in oklab, var(--agent-accent) 40%, transparent)); }
-.acpmux-context-breakdown [data-tone="4"] { background: var(--acpmux-context-tone-4, color-mix(in oklab, var(--agent-accent) 29%, transparent)); }
-.acpmux-context-breakdown [data-tone="5"] { background: var(--acpmux-context-tone-5, color-mix(in oklab, var(--agent-accent) 21%, transparent)); }
-.acpmux-context-breakdown [data-kind="buffer"] > .acpmux-session-info-context__swatch,
-.acpmux-context-breakdown .acpmux-session-info-context__bar > [data-kind="buffer"] {
+.acpmux-context-breakdown [data-hue="messages"] { background: var(--acpmux-context-messages); }
+.acpmux-context-breakdown [data-hue="mcpTools"] { background: var(--acpmux-context-mcp-tools); }
+.acpmux-context-breakdown [data-hue="systemPrompt"] { background: var(--acpmux-context-system-prompt); }
+.acpmux-context-breakdown [data-hue="skills"] { background: var(--acpmux-context-skills); }
+.acpmux-context-breakdown [data-hue="other"] { background: var(--acpmux-context-other); }
+.acpmux-context-breakdown :is(.acpmux-session-info-context__swatch, .acpmux-session-info-context__bar > span):is([data-kind="buffer"], [data-kind="deferred"]) {
   background: var(--acpmux-context-buffer);
 }
 .acpmux-context-breakdown .acpmux-session-info-context__swatch[data-kind="free"] {
   background: var(--acpmux-context-free);
 }
-.acpmux-context-breakdown .acpmux-session-info-context__swatch[data-kind="deferred"] {
-  background: color-mix(in srgb, var(--agent-text) 22%, transparent);
-}
-.acpmux-context-breakdown .acpmux-session-info-row[data-kind="deferred"] {
-  opacity: 0.55;
-}
 .acpmux-context-breakdown .acpmux-session-info-row__end {
   margin-left: auto;
 }
-.acpmux-context-breakdown__fold[aria-expanded="true"] > svg {
-  color: var(--agent-text);
+/* Groups, one grid gap apart: the used categories, the buffer and free space, the deferred ones, the
+   folds. Claude's card puts a whole row before the buffer; it read as a hole (Lucas, 2026-11-23: "i
+   don't like the fact that we have this big spacing here"). */
+.acpmux-context-breakdown .acpmux-session-info-row:is([data-gap="group"], [data-gap="deferred"]),
+.acpmux-context-breakdown > .acpmux-session-info-list + [data-list] {
+  margin-top: var(--grid-gap);
 }
-/* The fold's items: a name, its server or path, and its tokens; read-only, so they never hover. */
+/* A fold's chevron: one glyph for every fold, turned a quarter when open; in Session Info the size of
+   its other fold chevrons (Lucas, 2026-11-23: "they should be the same size as the others"):
+   sessionInfo.css `.acpmux-session-info-fold > svg`, a 12px box at --acpmux-session-info-chevron-scale with a 1.1px line, centred on
+   the swatches, in the 16px icon column's room, so its label starts where a swatch row's does. */
+.acpmux-context-breakdown .acpmux-context-breakdown__fold > svg {
+  color: inherit;
+  rotate: 0deg;
+}
+.acpmux-session-info .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg {
+  width: calc(var(--grid-icon-box) - var(--grid-base));
+  height: calc(var(--grid-icon-box) - var(--grid-base));
+  margin-inline: var(--acpmux-context-chevron-lead) var(--acpmux-context-chevron-trail);
+  scale: var(--acpmux-session-info-chevron-scale);
+}
+.acpmux-session-info .acpmux-context-breakdown .acpmux-context-breakdown__fold > svg path {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.1px;
+}
+.acpmux-context-breakdown .acpmux-context-breakdown__fold[aria-expanded="true"] > svg {
+  rotate: 90deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"], [data-agent-move="instant"])
+    .acpmux-context-breakdown__fold
+    > svg {
+    transition: rotate var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+}
+/* The fold's items: a name, its server or path, and its tokens, the name on its fold's label column
+   and the tokens on the rows' trailing edge; read-only, so they never hover. */
 .acpmux-context-breakdown__items {
-  padding-left: 18px;
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
+  padding-left: calc(var(--grid-icon-box) + var(--grid-gap));
 }
 .acpmux-context-breakdown__items .acpmux-session-info-row {
   height: 24px;
@@ -155,20 +208,23 @@
   width: calc(100% + 8px);
 }
 
-/* Session Info owns its vertical gaps. The composer's independent popover keeps its layout. */
+/* Session Info owns its vertical gaps. The composer's independent popover keeps its layout. Laid out
+   as Claude Code desktop's card (Lucas, 2026-11-23): the share used and its tokens on one line from
+   the swatches' left edge to the shares' right edge, the bar a gap under it on the same edges, then
+   the rows. */
 .acpmux-session-info .acpmux-session-info-context {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-inner);
   padding: 0;
 }
 .acpmux-session-info .acpmux-session-info-context__total {
   gap: var(--grid-gap);
-  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+  padding: 0 var(--grid-gap);
 }
-.acpmux-session-info .acpmux-session-info-context__bar {
-  margin: 0 var(--grid-gap);
+.acpmux-session-info .acpmux-session-info-context__bar,
+.acpmux-session-info .acpmux-context-breakdown > .acpmux-session-info-context__bar {
+  margin: var(--grid-gap) var(--grid-gap) var(--grid-gap) var(--acpmux-context-swatch-start);
 }
-.acpmux-session-info .acpmux-context-breakdown__items {
-  padding-left: var(--grid-sidebar-depth-indent);
+.acpmux-session-info .acpmux-session-info-context__actions {
+  margin-top: var(--grid-gap-inner);
 }
