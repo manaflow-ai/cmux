@@ -152,6 +152,10 @@ pub struct SilenceBudget {
 impl SilenceBudget {
     /// The old fixed budget: 4 pings 20 s apart.
     pub const CAP: Duration = Duration::from_secs(80);
+    /// The least a link gets once it opened straight back after a drop: the peer is live and
+    /// slow. The 2 s floor finds a dead host fast; a live one that answers 7 s late gets the 12 s
+    /// it had after its first drop when the floor was 6 s, so it flaps once, not three times.
+    pub const SLOW_PEER: Duration = Duration::from_secs(12);
 
     pub fn new(timings: &LinkTimings) -> Self {
         let floor = timings.silence_budget();
@@ -272,9 +276,9 @@ impl SilenceBudget {
         }
         if probed {
             self.slow_proven = true;
-            self.raise(self.current * 2, now);
+            self.raise((self.current * 2).max(Self::SLOW_PEER), now);
         } else if dropped.is_some_and(|at| now.saturating_duration_since(at) <= self.reopen) {
-            self.raise(self.current * 2, now);
+            self.raise((self.current * 2).max(Self::SLOW_PEER), now);
         }
     }
 

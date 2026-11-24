@@ -293,6 +293,7 @@ def main() -> int:
     a = ap.parse_args()
 
     binary = Path(os.path.expanduser(a.bin)).resolve()
+    (Path.home() / ".cache").mkdir(parents=True, exist_ok=True)  # a fresh CI runner has none
     root = Path(a.root) if a.root else Path(tempfile.mkdtemp(prefix="fleet-recovery-", dir=Path.home() / ".cache"))
     root.mkdir(parents=True, exist_ok=True)
     root.chmod(0o700)
