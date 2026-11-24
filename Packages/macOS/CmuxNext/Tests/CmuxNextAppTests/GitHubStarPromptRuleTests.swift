@@ -1,9 +1,9 @@
 import Foundation
 import Testing
-import CmuxNextUpdater
+import CmuxNextCompat
 
 /// The star ask's rule (t3code's): never in the first five sent prompts, then until dismissed.
-@Suite struct GitHubStarPromptRuleTests {
+@Suite struct GitHubStarPromptCountTests {
     private static func defaults() -> UserDefaults {
         let name = "github-star-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -13,10 +13,10 @@ import CmuxNextUpdater
 
     @Test func asksAfterFiveSentPromptsUntilDismissed() {
         let defaults = Self.defaults()
-        let asks = (1...7).map { _ in GitHubStarPromptRule.countPrompt(in: defaults) }
+        let asks = (1...7).map { _ in GitHubStarPromptCount.countPrompt(in: defaults); return GitHubStarPromptCount.wanted(in: defaults) }
         #expect(asks == [false, false, false, false, false, true, true])
-        GitHubStarPromptRule.dismiss(in: defaults)
-        #expect(!GitHubStarPromptRule.countPrompt(in: defaults))
-        #expect(!GitHubStarPromptRule.stillWanted(in: defaults))
+        GitHubStarPromptCount.dismiss(in: defaults)
+        GitHubStarPromptCount.countPrompt(in: defaults)
+        #expect(!GitHubStarPromptCount.wanted(in: defaults))
     }
 }

@@ -1,30 +1,8 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextWakeups
-
-/// When to ask for a GitHub star, t3code's rule (apps/web/src/components/GitHubStarPrompt.tsx): count each
-/// prompt the person sends; after more than five, ask once per session until dismissed, unless their
-/// GitHub account already starred the repo. Separate keys, so a count written by another window can never
-/// undo a dismissal.
-public nonisolated struct GitHubStarPromptRule: Sendable {
-    static let promptsBeforeAsking = 5
-    static let sentKey = "cmux.githubStarPrompt.sent"
-    static let dismissedKey = "cmux.githubStarPrompt.dismissed"
-
-    /// Counts a sent prompt and says whether this one may start the ask.
-    public static func countPrompt(in defaults: UserDefaults) -> Bool {
-        if defaults.bool(forKey: dismissedKey) { return false }
-        let sent = defaults.integer(forKey: sentKey) + 1
-        defaults.set(sent, forKey: sentKey)
-        return sent > promptsBeforeAsking
-    }
-
-    /// Whether to ask now: another window may have dismissed it during the check or the idle wait.
-    public static func stillWanted(in defaults: UserDefaults) -> Bool { !defaults.bool(forKey: dismissedKey) }
-
-    public static func dismiss(in defaults: UserDefaults) { defaults.set(true, forKey: dismissedKey) }
-}
 
 /// "Enjoying cmux? Give us a star on GitHub to let us know!", bottom-left, until closed. Star on GitHub
 /// stars in place through the person's `gh` sign-in and thanks them; without one it opens the repo.
@@ -33,13 +11,14 @@ public nonisolated struct GitHubStarPromptRule: Sendable {
 public final class GitHubStarPrompt {
     static let repository = "manaflow-ai/cmux"
     static let idle: Duration = .seconds(30)
+    static let recheckEvery: Duration = .seconds(600)
 
     private let defaults: UserDefaults
     private let activeWindow: @MainActor () -> NSWindow?
     private let github: GitHubStarCLI
     private let idleTimer = DemandTimer(owner: "GitHubStarPrompt.idle")
+    private let recheck = DemandTimer(owner: "GitHubStarPrompt.recheck")
     private var shownThisSession = false
-    private var listening = false
     private var activity: Any?
 
     public init(defaults: UserDefaults = .standard, activeWindow: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
@@ -48,33 +27,35 @@ public final class GitHubStarPrompt {
         github = GitHubStarCLI(repository: Self.repository)
     }
 
-    /// Listens for sent prompts (the app's own run; UpdaterService.start).
+    /// Asks once this session when more than five prompts were sent (counted by the chat pane) and the
+    /// person never dismissed it (the app's own run; UpdaterService.start).
     public func start() {
-        guard !listening else { return }
-        listening = true
-        PromptSentSignal.shared.subscriber = { [weak self] in self?.recordPromptSent() }
-    }
-
-    public func recordPromptSent() {
-        guard !shownThisSession, GitHubStarPromptRule.countPrompt(in: defaults) else { return }
+        guard !shownThisSession else { return }
+        // Not yet: look again later, since prompts sent this session count too.
+        guard GitHubStarPromptCount.wanted(in: defaults) else {
+            if !defaults.bool(forKey: GitHubStarPromptCount.dismissedKey) {
+                recheck.schedule(after: Self.recheckEvery) { @MainActor [weak self] in self?.start() }
+            }
+            return
+        }
         shownThisSession = true
         Task { [weak self, github] in
             let starred = await github.isStarred()
             guard let self else { return }
             // Starred already: the answer is in, never ask.
-            if starred == true { return GitHubStarPromptRule.dismiss(in: self.defaults) }
+            if starred == true { return GitHubStarPromptCount.dismiss(in: self.defaults) }
             self.waitForIdle()
         }
     }
 
     /// Shows after ``idle`` with no key, click or scroll while cmux is frontmost; each input restarts it.
     private func waitForIdle() {
-        let restart: @MainActor @Sendable () -> Void = { [weak self] in
+        let restart: () -> Void = { [weak self] in
             guard let self else { return }
             idleTimer.schedule(after: Self.idle) { @MainActor [weak self] in self?.idleElapsed() }
         }
         activity = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) { event in
-            Task { @MainActor in restart() }
+            restart()
             return event
         }
         restart()
@@ -89,7 +70,7 @@ public final class GitHubStarPrompt {
     }
 
     public func show() {
-        guard GitHubStarPromptRule.stillWanted(in: defaults), let window = activeWindow() else { return }
+        guard !defaults.bool(forKey: GitHubStarPromptCount.dismissedKey), let window = activeWindow() else { return }
         let toast = CmuxToast(id: "github-star", message: GitHubStarStrings.title, detail: GitHubStarStrings.detail,
                               action: CmuxToast.Action(title: GitHubStarStrings.star),
                               secondaryAction: CmuxToast.Action(title: GitHubStarStrings.dismiss),
@@ -97,7 +78,7 @@ public final class GitHubStarPrompt {
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         let defaults = defaults
         handle.onAction = { [weak self] in self?.starInPlace(window: window) }
-        handle.onDismiss = { _ in GitHubStarPromptRule.dismiss(in: defaults) }
+        handle.onDismiss = { _ in GitHubStarPromptCount.dismiss(in: defaults) }
     }
 
     private func starInPlace(window: NSWindow) {
@@ -123,7 +104,7 @@ nonisolated struct GitHubStarCLI: Sendable {
 
     private var gh: URL? {
         ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"].map { URL(fileURLWithPath: $0) }
-            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+            .first { FileManager.checked.isExecutableFile(atPath: $0.path) }
     }
 
     /// true starred, false not, nil unknown (no `gh`, not signed in): t3code's unknown asks nothing; here it
