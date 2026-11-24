@@ -1232,6 +1232,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Off, an agent tab uses the person's signed-in profile: an agent must not widen what it can sign in to.",
+      "keys": [
+        "browser.agents.openSignedOut"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.",
       "keys": [
         "browser.showAgentCursor"

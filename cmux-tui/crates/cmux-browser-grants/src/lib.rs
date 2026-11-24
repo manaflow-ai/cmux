@@ -164,6 +164,18 @@ pub fn expiry(
     Ok(requested)
 }
 
+/// The browser profile agents use when they are signed in nowhere (the
+/// browser host's agent profile).
+pub const AGENTS_PROFILE: &str = "agent";
+
+/// The profile an agent's browser tab opens in (D7.1): with
+/// `browser.agents.openSignedOut` on, the Agents profile, signed out, so a
+/// sign-in reaches it only through a grant; off (the default), the
+/// workspace's profile, as before.
+pub fn agent_tab_profile(open_signed_out: bool, workspace_profile: &str) -> &str {
+    if open_signed_out { AGENTS_PROFILE } else { workspace_profile }
+}
+
 /// One live grant as the browser host enforces it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lease {

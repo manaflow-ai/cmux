@@ -69,3 +69,9 @@ fn tiers_and_scopes_round_trip() {
     assert!(Tier::parse("admin").is_err());
     assert!(AgentScope::parse("global").is_err());
 }
+
+#[test]
+fn agent_tabs_follow_the_workspace_profile_unless_switched_on() {
+    assert_eq!(agent_tab_profile(false, "work"), "work");
+    assert_eq!(agent_tab_profile(true, "work"), AGENTS_PROFILE);
+}

@@ -102,7 +102,7 @@ pub struct SessionContext {
 }
 
 /// The profile agents get unless the person names another (D12).
-pub const AGENT_PROFILE: &str = "agent";
+pub const AGENT_PROFILE: &str = cmux_browser_grants::AGENTS_PROFILE;
 
 type EventSlot = Arc<Mutex<Option<(Arc<Gate>, std::sync::mpsc::Sender<DriverEvent>)>>>;
 

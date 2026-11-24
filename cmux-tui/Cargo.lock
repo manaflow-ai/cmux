@@ -2970,6 +2970,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-browser-grants",
  "cmux-browser-import",
  "cmux-build-space",
  "cmux-classic-import",
