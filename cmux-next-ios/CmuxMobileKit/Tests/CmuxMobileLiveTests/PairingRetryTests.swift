@@ -5,10 +5,13 @@ import Testing
 /// "Allow iPhone to connect?" came only after a relaunch of the Mac app, 10 minutes after the
 /// phone opened, because a refusal stood until someone tapped Retry).
 @Suite struct PairingRetryTests {
-    @Test func aMacThatWasNotReadyIsAskedAgainSoonThenEvery30Seconds() {
+    @Test func aMacThatWasNotReadyIsAskedAgainSoonThenEvery30SecondsThenWaitsForRetry() {
         for code in ["unavailable", "timeout", "closed", "pairing", "busy"] {
-            let delays = (0..<8).map { LinkPairing.retryDelay(after: code, attempt: $0) }
-            #expect(delays == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(30), .seconds(30), .seconds(30)])
+            let delays = (0..<12).map { LinkPairing.retryDelay(after: code, attempt: $0) }
+            // Before: every 30 s for as long as the link lived. Now about 2.5 min of tries, then
+            // the refusal stays up with Retry (a new link starts over).
+            #expect(delays == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(30), .seconds(30), .seconds(30),
+                               nil, nil, nil, nil])
         }
     }
 
@@ -24,7 +27,17 @@ import Testing
         }
     }
 
-    @Test func aRateLimitedAskWaitsAMinute() {
+    @Test func aRateLimitedAskWaitsAMinuteAFewTimes() {
         #expect(LinkPairing.retryDelay(after: "rate_limited", attempt: 0) == .seconds(60))
+        #expect(LinkPairing.retryDelay(after: "rate_limited", attempt: 2) == .seconds(60))
+        #expect(LinkPairing.retryDelay(after: "rate_limited", attempt: 3) == nil)
+    }
+
+    /// Every automatic retry has a last try (no-hangs): the team load and the chats' bind.
+    @Test func teamStartAndChatsRebindStop() {
+        let team = (1...7).map { RetryBounds.teamStartDelay(afterFailures: $0) }
+        #expect(team == [.seconds(5), .seconds(10), .seconds(20), .seconds(40), .seconds(60), nil, nil])
+        let chats = (0..<7).map { RetryBounds.chatsRebindDelay(attempt: $0) }
+        #expect(chats == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), nil, nil])
     }
 }
