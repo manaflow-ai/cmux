@@ -7,7 +7,7 @@ import { type RowProps } from "./rowProps";
 /// A tagged ask the turn's answer ended on, as a card with its answers (conversation/NextStepCard.tsx).
 export const NextStepRow = memo(
   function NextStepRow({ row }: RowProps) {
-    const { answer, nextStepKey, asker } = useContext(TurnActionsContext);
+    const { answer, nextStepKey, asker, dismissWrapUp } = useContext(TurnActionsContext);
     return row.nextStep ? (
       <NextStepCard
         ask={row.nextStep.ask}
@@ -17,6 +17,7 @@ export const NextStepRow = memo(
         registerKey={nextStepKey}
         answerKey={askKey(row)}
         asker={asker}
+        onDismiss={dismissWrapUp && row.nextStep.ask.recap ? () => dismissWrapUp(row.nextStep!.ask.recap!) : undefined}
       />
     ) : null;
   },

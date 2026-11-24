@@ -276,6 +276,18 @@ struct DemoDriver {
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "wrap-up-chat", "wrap-up-chat-dismissed":
+            // An idle chat whose last turn ended on the agent's wrap-up recap (#51353): the card
+            // under the answer, with its ×; or the same chat once the person dismissed it.
+            let dismissed = name == "wrap-up-chat-dismissed"
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                if dismissed { MainActor.assumeIsolated { WrapUpDismissals.shared.dismiss(summary, turnID: "history-wrap-up") } }
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: true, endsOnWrapUp: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "switcher-retry", "switcher-retry-chat":
             // The tab grid (or the chat opened from it) on a chat whose last turn failed with
             // Retry with another model offered (Leo, 2026-11-17: the card drew a yellow

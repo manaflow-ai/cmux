@@ -28,6 +28,8 @@ public final class MockAgentSession: AgentSessionSource {
     private let richFirstTurn: Bool
     /// false: a brand-new session (no earlier turns to replay).
     private let history: Bool
+    /// The history ends on a turn whose last step was the agent's wrap-up call (its recap card).
+    private let endsOnWrapUp: Bool
     /// Events collected while replaying, sent as one `.batch`.
     private var batch: [AgentSessionEvent]?
     /// Checkpoints recorded around turns (newest last).
@@ -37,12 +39,13 @@ public final class MockAgentSession: AgentSessionSource {
     public var chunkDelay: Duration = .milliseconds(16)
 
     public init(
-        summary: AgentSessionSummary, richFirstTurn: Bool = true, history: Bool = true,
+        summary: AgentSessionSummary, richFirstTurn: Bool = true, history: Bool = true, endsOnWrapUp: Bool = false,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.summary = summary
         self.richFirstTurn = richFirstTurn
         self.history = history
+        self.endsOnWrapUp = endsOnWrapUp
         self.sleep = sleep
     }
 
@@ -207,6 +210,7 @@ public final class MockAgentSession: AgentSessionSource {
         let second = Date().addingTimeInterval(-1800)
         replaySubagentTurn(at: second)
         replayStressTurns(ListStressSettings.shared.historyTurns)
+        if endsOnWrapUp { replayWrapUpTurn(at: Date().addingTimeInterval(-600)) }
         checkpointLog = [
             AgentCheckpoint(id: "cp-h1", title: "What does the link framing look like today?", turnID: turnID, createdAt: start,
                             branch: summary.branch, head: "4d81e0c", files: 0),

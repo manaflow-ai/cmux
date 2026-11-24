@@ -1,3 +1,9 @@
+import {
+  dismissedWrapUpKeys,
+  rememberWrapUpDismissed,
+  subscribeWrapUpDismissals,
+  withoutDismissedWrapUps,
+} from "./conversation/wrapUpDismissed";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
@@ -2735,6 +2741,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [planInHat, earlierPlanRow],
   );
+  // The turn summaries the person closed on this device (conversation/wrapUpDismissed.ts).
+  const closedWrapUps = useSyncExternalStore(subscribeWrapUpDismissals, dismissedWrapUpKeys);
   const transcriptRows = useMemo(() => {
     const last = lastTurns.current;
     let steers: readonly AcpmuxRow[] = NO_ROWS;
@@ -2747,8 +2755,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
     const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const merged = mergeInboxNotices(
-      withEarlierPlan(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown, pinnedEarlier),
+    // A closed turn summary leaves no row, so no gap (conversation/wrapUpDismissed.ts).
+    const merged = withoutDismissedWrapUps(
+      mergeInboxNotices(
+        withEarlierPlan(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown, pinnedEarlier),
+      ),
+      childRows ? undefined : shownSessionId,
+      closedWrapUps,
     );
     // The waiting messages follow the chat's latest row, not a window's last (direct.ts `newerLeft`).
     const rows = snapshot.canLoadNewer ? merged : withWaitingRows(merged, group ? [...people, group] : people);
@@ -2765,6 +2778,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.sessionId,
     snapshot.canLoadNewer,
     shownSessionId,
+    closedWrapUps,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
@@ -3626,6 +3640,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The waiting tagged-ask card's first answer, which the composer's ⌘↩ on an empty prompt sends
   // (NextStepCard.tsx, TurnActions `nextStepKey`).
   const [nextStepFire, setNextStepFire] = useState<{ fire: () => void }>();
+  // A turn summary's × or Esc (NextStepCard.tsx): closed for the chat this pane shows.
+  const shownChatRef = useRef(shownSessionId);
+  shownChatRef.current = shownSessionId;
+  const dismissWrapUp = useCallback((recap: string) => rememberWrapUpDismissed(shownChatRef.current, recap), []);
   const nextStepKey = useCallback((fire: () => void) => {
     setNextStepFire({ fire });
     return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
@@ -3783,6 +3801,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         queueRunsNext,
         nextStepKey,
         asker,
+        dismissWrapUp,
         snapshot: {
           sessionId: snapshot.sessionId,
           commands: snapshot.commands,
@@ -3845,6 +3864,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       queueRunsNext,
       nextStepKey,
       asker,
+      dismissWrapUp,
     ],
   );
   // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux

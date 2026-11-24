@@ -125,6 +125,8 @@ export interface TurnActionsDeps {
   queueRunsNext: boolean;
   nextStepKey: (fire: () => void) => () => void;
   asker: string | undefined;
+  /// A turn summary's × or Esc (NextStepCard.tsx): closed on this device for the shown chat.
+  dismissWrapUp: (recap: string) => void;
   /// Only the fields the memo's deps array names.
   snapshot: Pick<AcpmuxSnapshot, "sessionId" | "commands"> & {
     summary?: Pick<Summary, "hostKind" | "cwd" | "harness" | "model" | "backgroundsWork">;
@@ -329,6 +331,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     queueRunsNext,
     nextStepKey,
     asker,
+    dismissWrapUp,
     snapshot,
     subagentRelayChat,
     retryModels,
@@ -491,6 +494,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
               : Promise.resolve()
         )(restartChat),
       }),
+    // A turn summary's × or Esc (NextStepCard.tsx): closed on this device for the shown chat.
+    dismissWrapUp,
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,

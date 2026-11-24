@@ -243,7 +243,8 @@ final class AgentChatPreviewModel {
             let shown = Array(turns.suffix(count))
             let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
                                       askOpen: store.pendingPermission != nil || store.pendingQuestion != nil, permissionBarHidden: false,
-                                      earlierHistory: count >= turns.count && store.hasEarlierHistory)
+                                      earlierHistory: count >= turns.count && store.hasEarlierHistory,
+                                      dismissedWrapUps: WrapUpDismissals.shared.dismissedTurns(in: store.summary))
             var out: [ChatRow] = []
             var height: CGFloat = 0
             var filled = false

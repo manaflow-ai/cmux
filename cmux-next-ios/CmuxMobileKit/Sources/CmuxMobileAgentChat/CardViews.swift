@@ -538,17 +538,37 @@ struct NextStepCard: View {
     let answer: String?
     let canAnswer: Bool
     let send: (NextStepAsk.Option) -> Void
+    /// The ×, on a recap with nothing to answer (#51353): the person closes it as the Mac's recap
+    /// card closes. Nil where nothing can dismiss it.
+    var dismiss: (() -> Void)?
     @State private var sent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // The agent's wrap-up call carries a recap: what changed and where things stand.
             if let recap = ask.recap {
-                Text(recap)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("agentChat.nextStep.recap")
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(recap)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("agentChat.nextStep.recap")
+                    if let dismiss, ask.question.isEmpty {
+                        Button(action: dismiss) {
+                            Image(systemName: "xmark")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.cmuxPressFill)
+                        .padding(.vertical, -8)
+                        .padding(.trailing, -8)
+                        .accessibilityLabel("Dismiss")
+                        .accessibilityIdentifier("agentChat.nextStep.dismiss")
+                    }
+                }
             }
             // A finished task's way to try it: its Try button, Report link and Verify steps.
             if let tryIt = ask.tryIt { NextStepTryView(tryIt: tryIt) }
