@@ -86,6 +86,26 @@ async fn a_black_holed_first_route_costs_only_the_first_launch() {
         dialed: Vec::new(),
     };
 
+    // Before: the candidates' own order on every launch (`select_initial_route`, the code
+    // feat-cmux-next runs).
+    let mut before = Vec::new();
+    for _ in 0..2 {
+        let mut attempt = fresh();
+        let started = tokio::time::Instant::now();
+        let selected = select_initial_route(
+            &routes,
+            SessionId([21; 16]),
+            LanePolicy::Single,
+            AuthKind::Enrolled,
+            false,
+            &mut attempt,
+        )
+        .await
+        .unwrap();
+        assert_eq!((selected, attempt.dialed.as_slice()), (1, [0, 1].as_slice()));
+        before.push(started.elapsed());
+    }
+
     let mut first = fresh();
     let (first_launch, selected) = timed_launch(&routes, state.path(), &mut first).await;
     assert_eq!(selected, 1);
@@ -97,8 +117,11 @@ async fn a_black_holed_first_route_costs_only_the_first_launch() {
     assert_eq!(repeat.dialed, [1], "the remembered route was not dialed first");
 
     eprintln!(
-        "route 0 black-holed, budget {budget:?}: first launch {first_launch:?}, repeat launch {repeat_launch:?}"
+        "route 0 black-holed, budget {budget:?}: before: first {:?}, repeat {:?}; \
+         after: first {first_launch:?}, repeat {repeat_launch:?}",
+        before[0], before[1]
     );
+    assert_eq!(before, [budget + Duration::from_millis(30); 2]);
     assert_eq!(first_launch, budget + Duration::from_millis(30));
     assert_eq!(repeat_launch, Duration::from_millis(30));
 }
