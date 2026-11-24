@@ -8,6 +8,7 @@ import io
 import os
 from pathlib import Path
 import sys
+from contextlib import redirect_stderr
 import unittest
 import urllib.error
 
@@ -167,6 +168,19 @@ class PrStatusTests(unittest.TestCase):
         for bead, preview in (("cx-x`; @everyone", None), ("not-a-bead", None), (None, "abc"), (None, None)):
             with self.assertRaises(ValueError):
                 pr_status.field_text(bead, preview)
+
+    def test_field_rejects_bead_and_preview_together(self):
+        # Before the fix the bead silently won and the preview was dropped with no error.
+        writes = []
+        saved = pr_status.upsert
+        pr_status.upsert = lambda *a, **k: writes.append(a) or "written"
+        try:
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+                pr_status.main(["field", "--repo", REPO, "--pr", str(PR), "--bead", "cx-abc1", "--preview", "a" * 40])
+        finally:
+            pr_status.upsert = saved
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(writes, [])
 
 
 class DispatchTests(unittest.TestCase):
