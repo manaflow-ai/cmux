@@ -175,6 +175,24 @@ pub(crate) struct TcpStack {
     /// After a hold is released, when the usual user timeout comes back
     /// ([`HOLD_RELEASE_GRACE`]).
     release_at: Option<Instant>,
+    /// `CMUX_WG_CWND_TRACE=1`: each connection's congestion state as last
+    /// printed ([`TcpStack::trace_congestion`]).
+    cwnd_trace: Option<HashMap<SocketHandle, CongestionTrace>>,
+}
+
+/// One connection's congestion window, slow start threshold, timeouts and
+/// tail-loss probes fired, as a trace prints them.
+type CongestionTrace = (usize, usize, u32, u32);
+
+fn cwnd_trace_enabled() -> bool {
+    std::env::var_os("CMUX_WG_CWND_TRACE").is_some_and(|value| value == "1")
+}
+
+/// Wall-clock microseconds, so traces from both tunnels and a harness line up.
+fn trace_clock() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros())
 }
 
 /// How long a released hold keeps its long timeout. A connection idle
@@ -230,6 +248,7 @@ impl TcpStack {
             congestion: tcp::CongestionControl::Cubic,
             hold: None,
             release_at: None,
+            cwnd_trace: cwnd_trace_enabled().then(HashMap::new),
         })
     }
 
@@ -242,6 +261,14 @@ impl TcpStack {
     /// the usual user timeout [`HOLD_RELEASE_GRACE`] later, once that probe's
     /// answer has made the peer recent again.
     pub(crate) fn set_hold(&mut self, hold: Option<Duration>) {
+        if self.cwnd_trace.is_some() {
+            eprintln!(
+                "CWNDTRACE {} hold={hold:?} was={:?} conns={}",
+                trace_clock(),
+                self.hold,
+                self.conns.len()
+            );
+        }
         let held = self.hold.or(hold);
         self.hold = hold;
         self.release_at = match hold {
@@ -343,7 +370,33 @@ impl TcpStack {
         let progressed = self.process_conns();
         self.poll();
         self.update_send_gates();
+        self.trace_congestion();
         progressed
+    }
+
+    /// `CMUX_WG_CWND_TRACE=1`: print each connection's congestion state
+    /// whenever it changed since the last step.
+    fn trace_congestion(&mut self) {
+        let Some(last) = self.cwnd_trace.as_mut() else {
+            return;
+        };
+        for conn in &self.conns {
+            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            let (rto, tlp) = socket.retransmit_firings();
+            let now = (socket.congestion_window(), socket.slow_start_threshold(), rto, tlp);
+            if last.insert(conn.handle, now) != Some(now) {
+                let ssthresh =
+                    if now.1 == usize::MAX { "max".to_owned() } else { now.1.to_string() };
+                eprintln!(
+                    "CWNDTRACE {} flow={:?} cwnd={} ssthresh={ssthresh} rto_fired={rto} tlp_fired={tlp} queued={} held={}",
+                    trace_clock(),
+                    socket_flow(socket),
+                    now.0,
+                    socket.send_queue(),
+                    self.hold.is_some(),
+                );
+            }
+        }
     }
 
     /// Tell each stream how many of its bytes TCP has not sent yet and its
