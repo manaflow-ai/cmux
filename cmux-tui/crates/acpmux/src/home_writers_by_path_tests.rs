@@ -1492,6 +1492,21 @@ fn analyze(sources: &[Source]) -> Vec<Row> {
             rows.extend(found.rows);
         }
         if next == state {
+            if let Ok(out) = std::env::var("HOME_WRITERS_DUMP") {
+                let mut lines: Vec<String> = Vec::new();
+                for i in &state.returns {
+                    let f = &index.funcs[*i];
+                    lines.push(format!("ret {} {}", f.rel, f.qualified()));
+                }
+                for (i, p) in &state.params {
+                    let f = &index.funcs[*i];
+                    lines.push(format!("param {} {} {p}", f.rel, f.qualified()));
+                }
+                for (t, fld) in &state.fields {
+                    lines.push(format!("field {t}.{fld}"));
+                }
+                std::fs::write(out, lines.join("\n")).unwrap();
+            }
             break rows;
         }
         state = next;
