@@ -81,6 +81,14 @@ jobs:
     permissions:
       contents: read
 
+  screen-share-drop-gate:
+    name: screen share drop gate
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'screen-share-drop-gate.yml') }}
+    uses: ./.github/workflows/screen-share-drop-gate.yml
+    permissions:
+      contents: read
+
   classic-api-guard:
     name: classic API guard
     needs: route
