@@ -427,17 +427,24 @@ public struct ChiefSettingsView: View {
     private var diagnosticsSection: some View {
         Section {
             DisclosureGroup(String(localized: "mobile.chief.diagnostics", defaultValue: "Diagnostics", bundle: .module)) {
-                LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
-                LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
+                diagnostic(String(localized: "Engine read"), session.engineError.map { String(describing: $0) } ?? "OK")
+                diagnostic(String(localized: "Report"), session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
                 if let failure = session.lastTurnFailure {
-                    LabeledContent("Last failed turn", value: failure.detail)
+                    diagnostic(String(localized: "Last failed turn"), failure.detail)
                 }
             }
         }
         .font(.caption)
-        .textSelection(.enabled)
         .accessibilityIdentifier("chief.settings.diagnostics")
         .listRowBackground(ChiefInfoGeometry.card)
+    }
+
+    private func diagnostic(_ name: String, _ value: String) -> some View {
+        LabeledContent {
+            InPlaceSelectionLabel(value, textStyle: .caption1, color: .secondaryLabel, alignment: .natural)
+        } label: {
+            InPlaceSelectionLabel(name, textStyle: .caption1)
+        }
     }
     #endif
 
@@ -771,7 +778,6 @@ struct ChiefFieldEditor: View {
                 TextField(title, text: $value)
                     .focused($focused)
                     .submitLabel(.done)
-                    .autocorrectionDisabled()
                     .onSubmit { if canSave { Task { await commit() } } }
                     .accessibilityIdentifier("chief.settings.field")
             } footer: {
