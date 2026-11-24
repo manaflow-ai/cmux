@@ -29,6 +29,18 @@ open class ComposerReturnTextView: UITextView {
     /// plain text view offers no Paste for an image at all). The paste is the
     /// person's own action, so reading the pasteboard then asks nothing.
     public var onPasteAttachments: (() -> Void)?
+    /// A downward swipe inside the text, starting at its top, ends editing:
+    /// the keyboard goes down and the composer returns to its resting row
+    /// (`ComposerSwipeCollapse`), when Settings → Composer → Swipe Down to
+    /// Collapse is on (`CmuxMobilePreferences.swipeDownCollapsesComposer`, off
+    /// by default). Set false to opt one composer out.
+    public var collapsesOnSwipeDown = true
+    /// Whether the swipe is on for this view now: its own switch and the setting.
+    public var swipeCollapseEnabled: Bool {
+        collapsesOnSwipeDown && CmuxMobilePreferences.swipeDownCollapsesComposer()
+    }
+    /// Called after a swipe down collapsed the composer.
+    public var onSwipeCollapse: (() -> Void)?
 
     private let placeholderLabel = UILabel()
     /// Set while this view inserts its own line break, so the delegate's
@@ -50,6 +62,10 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.numberOfLines = 1
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
+        swipeCollapse.addTarget(self, action: #selector(swipeCollapseChanged(_:)))
+        swipeCollapse.cancelsTouchesInView = false
+        swipeCollapse.delegate = swipeCollapseDelegate
+        addGestureRecognizer(swipeCollapse)
     }
 
     @available(*, unavailable)
@@ -388,6 +404,61 @@ open class ComposerReturnTextView: UITextView {
     public func updatePlaceholder() {
         placeholderLabel.isHidden = !(text ?? "").isEmpty
         accessibilityLabel = placeholder
+    }
+
+    // MARK: Swipe down to collapse
+
+    private let swipeCollapse = UIPanGestureRecognizer()
+    private let swipeCollapseDelegate = SwipeCollapseDelegate()
+    private let swipeCollapseRule = ComposerSwipeCollapse()
+    /// When the finger came down, and whether the text was at its top then
+    /// (read at touch-down: by the pan's `.began` the text's own scroll may
+    /// already have moved).
+    fileprivate var touchDownTime: TimeInterval = 0
+    fileprivate var swipeBeganAtTop = false
+    private var swipeHeldFor: TimeInterval = 0
+
+    /// Whether the text shows its first line (a fitting draft always does).
+    fileprivate var atTop: Bool { contentOffset.y <= -adjustedContentInset.top + 0.5 }
+
+    @objc private func swipeCollapseChanged(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeHeldFor = touchDownTime > 0 ? max(0, CACurrentMediaTime() - touchDownTime) : 0
+        case .changed, .ended:
+            guard swipeCollapseEnabled, isFirstResponder,
+                  swipeCollapseRule.collapses(translation: pan.translation(in: self), velocity: pan.velocity(in: self),
+                                              beganAtTop: swipeBeganAtTop, heldFor: swipeHeldFor) else { return }
+            // Stop this drag so it collapses once.
+            pan.isEnabled = false
+            pan.isEnabled = true
+            resignFirstResponder()
+            onSwipeCollapse?()
+        default:
+            break
+        }
+    }
+
+    /// Lets the swipe run beside the text view's own scroll, selection and
+    /// loupe gestures (a separate object: a UIScrollView subclass must not
+    /// become a recognizer delegate itself).
+    private final class SwipeCollapseDelegate: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        /// The finger came down (touch timestamps share `CACurrentMediaTime`'s clock).
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let view = gestureRecognizer.view as? ComposerReturnTextView {
+                view.touchDownTime = touch.timestamp
+                view.swipeBeganAtTop = view.atTop
+            }
+            return true
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let view = gestureRecognizer.view as? ComposerReturnTextView else { return false }
+            return view.swipeCollapseEnabled && view.isFirstResponder
+        }
     }
 
     // MARK: Return

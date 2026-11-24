@@ -13,7 +13,7 @@
 import type { ConnectionQuietKeys } from "../../../ui/lasting";
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
-import type { Subagent } from "./subagentFold";
+import type { Subagent } from "./subagent";
 
 /// A retry acpmux has scheduled: which attempt of how many, why, and when it runs (epoch ms). The
 /// session row's is acpmux's `RetrySummary`; a subagent's carries the same four fields.
