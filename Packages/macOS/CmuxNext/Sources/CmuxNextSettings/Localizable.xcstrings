@@ -177688,6 +177688,270 @@
         }
       }
     },
+    "settings.agentPane.display.sendPop": {
+      "comment": "Settings > Appearance > Agent Chat > Pop In Sent Prompts: the title of the toggle that animates a sent prompt into the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الطلبات المرسلة بحركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj poslane upite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad sendte prompts poppe ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gesendete Prompts einblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop In Sent Prompts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar los prompts enviados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les prompts envoyés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima i prompt inviati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信したプロンプトをポップ表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ prompt ដែលបានផ្ញើដោយចលនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낸 프롬프트 팝 효과"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sendte prompter sprette inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj wysłane prompty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar prompts enviados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать отправленные запросы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง prompt ที่ส่งแบบเด้งเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderilen istemleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати надіслані запити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiệu ứng bật cho lời nhắc đã gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送的提示弹入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送的提示彈入"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.sendPop.help": {
+      "comment": "Settings > Appearance > Agent Chat > Pop In Sent Prompts: help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يظهر الطلب الذي ترسله بحركة ويستقر في مكانه بدلًا من الظهور فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upit koji pošaljete iskoči i smiri se na svom mjestu, umjesto da se odmah pojavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En prompt, du sender, popper ind og falder på plads i stedet for at dukke op med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein gesendeter Prompt springt herein und setzt sich an seinen Platz, statt sofort zu erscheinen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A prompt you send pops in and settles where it lands, instead of appearing at once."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt que envías aparece con un pequeño salto y se asienta en su sitio, en lugar de aparecer de golpe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt envoyé apparaît avec un petit rebond et se pose à sa place, au lieu d'apparaître d'un coup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt inviato compare con un piccolo balzo e si assesta al suo posto, invece di apparire di colpo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信したプロンプトが即座に表示される代わりに、ポップして所定の位置に収まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prompt ដែលអ្នកផ្ញើលោតចូល ហើយតាំងនៅកន្លែងរបស់វា ជំនួសឲ្យការបង្ហាញភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낸 프롬프트가 바로 나타나는 대신 튀어나온 뒤 제자리에 자리 잡습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En prompt du sender, spretter inn og legger seg på plass i stedet for å vises med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysłany prompt wskakuje i osiada na swoim miejscu, zamiast pojawić się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um prompt enviado surge com um pequeno salto e se acomoda no lugar, em vez de aparecer de uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправленный запрос появляется с лёгким толчком и встаёт на место, а не возникает сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prompt ที่คุณส่งจะเด้งเข้ามาแล้วลงตัวในตำแหน่ง แทนที่จะปรากฏทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderdiğiniz istem hemen görünmek yerine küçük bir sıçrayışla gelip yerine oturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надісланий запит з'являється з легким поштовхом і стає на місце, а не виникає одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc bạn gửi bật vào rồi nằm yên tại chỗ, thay vì hiện ra ngay lập tức."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你发送的提示会弹入并落定到位，而不是立即出现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你傳送的提示會彈入並落定到位，而不是立即出現。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.width": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -216387,6 +216651,402 @@
         }
       }
     },
+    "settings.computerUse.whileLocked": {
+      "comment": "Settings > Computer Use toggle title: agents keep using app windows while the Mac's screen is locked.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة العمل أثناء القفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei gesperrtem Bildschirm weiterarbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Working While Locked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir trabajando con el Mac bloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer quand le Mac est verrouillé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック中も作業を続ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠긴 동안 계속 작업"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi raditi dok je zaključan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bliv ved, mens Mac er låst"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua a lavorare con il Mac bloccato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តធ្វើការពេលចាក់សោ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett å jobbe mens Mac er låst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pracuj dalej przy zablokowanym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar trabalhando com o Mac bloqueado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работать при заблокированном Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำงานต่อขณะล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilitliyken Çalışmaya Devam Et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Працювати, коли Mac заблоковано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục làm việc khi máy bị khóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁定时继续工作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定時繼續工作"
+          }
+        }
+      }
+    },
+    "settings.computerUse.whileLocked.help": {
+      "comment": "Help text under the Keep Working While Locked toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يواصل الوكلاء رؤية نوافذ التطبيقات واستخدامها أثناء قفل هذا الـ Mac. أي شيء يحتاج إلى سطح المكتب أو المؤشر ينتظر حتى تفتح القفل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten sehen und bedienen App-Fenster weiter, während dieser Mac gesperrt ist. Alles, was den Schreibtisch oder den Zeiger braucht, wartet, bis du entsperrst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes siguen viendo y usando las ventanas de las apps mientras este Mac está bloqueado. Lo que necesite el escritorio o el puntero espera a que lo desbloquees."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents continuent de voir et d’utiliser les fenêtres des apps pendant que ce Mac est verrouillé. Ce qui a besoin du bureau ou du pointeur attend que vous le déverrouilliez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac がロックされている間も、エージェントはアプリのウインドウを見て操作し続けます。デスクトップやポインタが必要な操作は、ロックを解除するまで待ちます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 잠겨 있는 동안에도 에이전트가 앱 윈도우를 계속 보고 사용합니다. 데스크탑이나 포인터가 필요한 작업은 잠금을 해제할 때까지 기다립니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti i dalje vide i koriste prozore aplikacija dok je ovaj Mac zaključan. Sve što treba radnu površinu ili pokazivač čeka da ga otključate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan stadig se og bruge appvinduer, mens denne Mac er låst. Alt, der kræver skrivebordet eller markøren, venter, til du låser op."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti continuano a vedere e usare le finestre delle app mentre questo Mac è bloccato. Tutto ciò che richiede la scrivania o il puntatore attende che tu lo sblocchi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារនៅតែមើលឃើញ និងប្រើបង្អួចកម្មវិធីពេល Mac នេះចាក់សោ។ អ្វីដែលត្រូវការផ្ទៃតុ ឬទស្សន៍ទ្រនិច រង់ចាំរហូតដល់អ្នកដោះសោ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter ser og bruker fortsatt appvinduer mens denne Mac-en er låst. Alt som trenger skrivebordet eller pekeren, venter til du låser opp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci nadal widzą i używają okien aplikacji, gdy ten Mac jest zablokowany. Wszystko, co wymaga biurka lub wskaźnika, czeka, aż go odblokujesz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes continuam vendo e usando janelas de apps enquanto este Mac está bloqueado. Tudo que precisa da mesa ou do ponteiro espera você desbloquear."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты продолжают видеть и использовать окна приложений, пока этот Mac заблокирован. Всё, что требует рабочего стола или указателя, ждёт, пока вы разблокируете Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ยังคงเห็นและใช้หน้าต่างแอปได้ขณะที่ Mac เครื่องนี้ล็อกอยู่ สิ่งที่ต้องใช้เดสก์ท็อปหรือตัวชี้จะรอจนกว่าคุณจะปลดล็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac kilitliyken aracılar uygulama pencerelerini görmeye ve kullanmaya devam eder. Masaüstü veya imleç gerektiren her şey kilidi açmanızı bekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти й далі бачать і використовують вікна програм, поки цей Mac заблоковано. Усе, що потребує робочого столу чи вказівника, чекає, доки ви розблокуєте Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử vẫn thấy và dùng cửa sổ ứng dụng khi máy Mac này bị khóa. Mọi thứ cần màn hình nền hoặc con trỏ sẽ chờ bạn mở khóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 锁定时，代理仍可看到并使用 App 窗口。需要桌面或指针的操作会等你解锁。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 鎖定時，代理仍可看見並使用 App 視窗。需要桌面或指標的動作會等你解鎖。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.whileLocked.summary": {
+      "comment": "One-line summary of the Keep Working While Locked setting, shown in search and the command palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح للوكلاء استخدام نوافذ التطبيقات أثناء قفل الـ Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können App-Fenster nutzen, während der Mac gesperrt ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets agents use app windows while the Mac is locked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite a los agentes usar ventanas de apps con el Mac bloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet aux agents d’utiliser les fenêtres des apps quand le Mac est verrouillé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のロック中もエージェントがアプリのウインドウを使えるようにします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac이 잠겨 있어도 에이전트가 앱 윈도우를 사용할 수 있음"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti koriste prozore aplikacija dok je Mac zaključan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lader agenter bruge appvinduer, mens Mac er låst"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente agli agenti di usare le finestre delle app con il Mac bloccato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យភ្នាក់ងារប្រើបង្អួចកម្មវិធីពេល Mac ចាក់សោ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lar agenter bruke appvinduer mens Mac er låst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą używać okien aplikacji przy zablokowanym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que agentes usem janelas de apps com o Mac bloqueado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты могут использовать окна приложений при заблокированном Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้เอเจนต์ใช้หน้าต่างแอปได้ขณะ Mac ล็อกอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac kilitliyken aracıların uygulama pencerelerini kullanmasına izin verir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти можуть використовувати вікна програм, коли Mac заблоковано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép tác tử dùng cửa sổ ứng dụng khi máy Mac bị khóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让代理在 Mac 锁定时使用 App 窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓代理在 Mac 鎖定時使用 App 視窗"
+          }
+        }
+      }
+    },
     "settings.default.neverDiscard": {
       "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
       "extractionState": "manual",
@@ -225621,6 +226281,30 @@
         }
       }
     },
+    "settings.cloud.agentMemory.follow": {
+      "comment": "Settings > Machines: toggle that carries the person's agent memory files to their Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carry Your Agent Memory to Cloud Machines"
+          }
+        }
+      }
+    },
+    "settings.cloud.agentMemory.follow.help": {
+      "comment": "Help for the agent memory toggle: names what travels and who controls it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
+          }
+        }
+      }
+    },
     "settings.cloud.agentsStartWithoutAsking": {
       "comment": "Settings > Machines: toggle that lets agents, the cmux CLI and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking first.",
       "extractionState": "manual",
@@ -232830,6 +233514,84 @@
         "tr": {"stringUnit": {"state": "translated", "value": "Kullanım düzenleri"}},
         "uk": {"stringUnit": {"state": "translated", "value": "Шаблони використання"}},
         "vi": {"stringUnit": {"state": "translated", "value": "Mẫu sử dụng"}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Share Package Installs to Improve cmux"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مشاركة تثبيت الحزم لتحسين cmux"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Paketinstallationen teilen, um cmux zu verbessern"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Compartir instalaciones de paquetes para mejorar cmux"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Partager les installations de paquets pour améliorer cmux"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パッケージのインストール情報を共有して cmux を改善"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "패키지 설치 정보를 공유해 cmux 개선"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "共享软件包安装情况以改进 cmux"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "分享套件安裝情況以改進 cmux"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dijeli instalacije paketa za poboljšanje cmuxa"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Del pakkeinstallationer for at forbedre cmux"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Condividi le installazioni di pacchetti per migliorare cmux"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចែករំលែកការដំឡើងកញ្ចប់ ដើម្បីកែលម្អ cmux"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Del pakkeinstallasjoner for å forbedre cmux"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Udostępniaj instalacje pakietów, by ulepszyć cmux"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Compartilhar instalações de pacotes para melhorar o cmux"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Делиться установками пакетов, чтобы улучшать cmux"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชร์การติดตั้งแพ็กเกจเพื่อปรับปรุง cmux"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "cmux'u geliştirmek için paket kurulumlarını paylaş"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Ділитися встановленнями пакетів, щоб покращувати cmux"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chia sẻ lượt cài gói để cải thiện cmux"}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يرسل إلى cmux أسماء الحزم التي يثبّتها الوكلاء والأدوات التي تضيفها إلى أجهزة Cloud الخاصة بك، لكي تأتي أجهزة Cloud الجديدة وفيها الشائع منها منزّلًا مسبقًا. أسماء وأعداد فقط، ولا يرسل أبدًا المطالبات أو الأوامر أو أسماء الملفات أو المشاريع أو أي شيء يعرّف بك. إيقافه يحذف قائمة أدواتك."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Sendet cmux die Namen der Pakete, die Agenten installieren, und der Tools, die du deinen Cloud-Maschinen hinzufügst, damit neue Cloud-Maschinen die üblichen schon heruntergeladen haben. Nur Namen und Anzahlen, nie Prompts, Befehle, Datei- oder Projektnamen oder etwas, das dich identifiziert. Beim Ausschalten wird deine Tool-Liste gelöscht."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Envía a cmux los nombres de los paquetes que instalan los agentes y de las herramientas que añades a tus máquinas Cloud, para que las nuevas máquinas Cloud vengan con las habituales ya descargadas. Solo nombres y recuentos, nunca prompts, comandos, nombres de archivos o proyectos ni nada que te identifique. Al desactivarlo se borra tu lista de herramientas."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Envoie à cmux les noms des paquets que les agents installent et des outils que vous ajoutez à vos machines Cloud, pour que les nouvelles machines Cloud arrivent avec les plus courants déjà téléchargés. Noms et nombres seulement, jamais de prompts, commandes, noms de fichiers ou de projets, ni rien qui vous identifie. Le désactiver supprime votre liste d’outils."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "エージェントがインストールしたパッケージと、Cloud マシンに追加したツールの名前を cmux に送信し、新しい Cloud マシンによく使われるものを事前にダウンロードしておきます。送るのは名前と回数だけで、プロンプト、コマンド、ファイル名やプロジェクト名、あなたを特定できる情報は送りません。オフにするとツールの一覧は削除されます。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 설치한 패키지와 Cloud 머신에 추가한 도구의 이름을 cmux에 보내, 새 Cloud 머신에 자주 쓰는 것들이 미리 내려받아져 있게 합니다. 이름과 횟수만 보내며 프롬프트, 명령, 파일 또는 프로젝트 이름, 사용자를 식별할 수 있는 정보는 절대 보내지 않습니다. 끄면 도구 목록이 삭제됩니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "向 cmux 发送代理安装的软件包名称以及你添加到 Cloud 机器上的工具名称，让新的 Cloud 机器预先下载好常用的那些。只发送名称和次数，从不发送提示词、命令、文件或项目名称，或任何能识别你的信息。关闭后会删除你的工具列表。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "向 cmux 傳送代理安裝的套件名稱，以及你加到 Cloud 機器上的工具名稱，讓新的 Cloud 機器預先下載好常用的那些。只傳送名稱和次數，絕不傳送提示詞、指令、檔案或專案名稱，或任何能識別你的資訊。關閉後會刪除你的工具清單。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šalje cmuxu nazive paketa koje agenti instaliraju i alata koje dodaš na svoje Cloud mašine, da nove Cloud mašine dođu s uobičajenima već preuzetim. Samo nazivi i brojevi, nikad promptovi, komande, nazivi datoteka ili projekata niti išta što te identifikuje. Isključivanje briše tvoju listu alata."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sender cmux navnene på pakker, som agenter installerer, og på værktøjer, du tilføjer til dine Cloud-maskiner, så nye Cloud-maskiner har de almindelige allerede hentet. Kun navne og antal, aldrig prompts, kommandoer, fil- eller projektnavne eller noget, der identificerer dig. Når du slår det fra, slettes din værktøjsliste."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Invia a cmux i nomi dei pacchetti che gli agenti installano e degli strumenti che aggiungi alle tue macchine Cloud, così le nuove macchine Cloud arrivano con quelli comuni già scaricati. Solo nomi e conteggi, mai prompt, comandi, nomi di file o progetti né nulla che ti identifichi. Disattivarlo elimina il tuo elenco di strumenti."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ញើឈ្មោះកញ្ចប់ដែលភ្នាក់ងារដំឡើង និងឧបករណ៍ដែលអ្នកបន្ថែមទៅម៉ាស៊ីន Cloud របស់អ្នក ទៅ cmux ដើម្បីឱ្យម៉ាស៊ីន Cloud ថ្មីមានរបស់ដែលប្រើញឹកញាប់ទាញយករួចហើយ។ មានតែឈ្មោះ និងចំនួនប៉ុណ្ណោះ មិនដែលផ្ញើ prompt ពាក្យបញ្ជា ឈ្មោះឯកសារ ឬគម្រោង ឬអ្វីដែលបញ្ជាក់អត្តសញ្ញាណអ្នកទេ។ ការបិទវានឹងលុបបញ្ជីឧបករណ៍របស់អ្នក។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sender cmux navnene på pakker agenter installerer og på verktøy du legger til på Cloud-maskinene dine, så nye Cloud-maskiner har de vanlige allerede lastet ned. Bare navn og antall, aldri prompter, kommandoer, fil- eller prosjektnavn eller noe som identifiserer deg. Når du slår det av, slettes verktøylisten din."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wysyła do cmux nazwy pakietów instalowanych przez agentów i narzędzi dodanych przez Ciebie do maszyn Cloud, aby nowe maszyny Cloud miały popularne z nich już pobrane. Tylko nazwy i liczby, nigdy prompty, polecenia, nazwy plików lub projektów ani nic, co Cię identyfikuje. Wyłączenie usuwa Twoją listę narzędzi."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Envia ao cmux os nomes dos pacotes que os agentes instalam e das ferramentas que você adiciona às suas máquinas Cloud, para que novas máquinas Cloud venham com as mais comuns já baixadas. Só nomes e contagens, nunca prompts, comandos, nomes de arquivos ou projetos nem nada que identifique você. Desativar apaga sua lista de ferramentas."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отправляет в cmux названия пакетов, которые устанавливают агенты, и инструментов, которые вы добавляете на свои Cloud-машины, чтобы новые Cloud-машины приходили с популярными уже загруженными. Только названия и количество, никогда промпты, команды, имена файлов или проектов и ничего, что вас идентифицирует. Выключение удаляет ваш список инструментов."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งชื่อแพ็กเกจที่เอเจนต์ติดตั้งและเครื่องมือที่คุณเพิ่มลงในเครื่อง Cloud ของคุณไปยัง cmux เพื่อให้เครื่อง Cloud ใหม่มีตัวที่ใช้บ่อยดาวน์โหลดไว้แล้ว ส่งแค่ชื่อและจำนวนเท่านั้น ไม่ส่งพรอมต์ คำสั่ง ชื่อไฟล์หรือโปรเจกต์ หรือสิ่งใดที่ระบุตัวคุณ การปิดจะลบรายการเครื่องมือของคุณ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların kurduğu paketlerin ve Cloud makinelerine eklediğin araçların adlarını cmux'a gönderir, böylece yeni Cloud makineleri yaygın olanlar önceden indirilmiş gelir. Yalnızca adlar ve sayılar; asla istemler, komutlar, dosya veya proje adları ya da seni tanımlayan bir şey gönderilmez. Kapatmak araç listeni siler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Надсилає cmux назви пакетів, які встановлюють агенти, та інструментів, які ви додаєте на свої Cloud-машини, щоб нові Cloud-машини мали поширені вже завантаженими. Лише назви й кількість, ніколи промпти, команди, назви файлів чи проєктів або будь-що, що вас ідентифікує. Вимкнення видаляє ваш список інструментів."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi cho cmux tên các gói mà agent cài và các công cụ bạn thêm vào máy Cloud của mình, để máy Cloud mới có sẵn những thứ phổ biến đã tải về. Chỉ tên và số lần, không bao giờ gửi prompt, lệnh, tên tệp hay dự án, hoặc bất cứ gì nhận dạng bạn. Tắt nó sẽ xóa danh sách công cụ của bạn."}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Package names and counts only."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أسماء الحزم وأعدادها فقط."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nur Paketnamen und Anzahlen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Solo nombres de paquetes y cantidades."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Noms de paquets et nombres uniquement."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パッケージ名と回数のみ。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "패키지 이름과 횟수만."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "仅包含软件包名称和次数。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "僅包含套件名稱和次數。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Samo nazivi paketa i brojevi."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kun pakkenavne og antal."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Solo nomi dei pacchetti e conteggi."}},
+        "km": {"stringUnit": {"state": "translated", "value": "តែឈ្មោះកញ្ចប់ និងចំនួនប៉ុណ្ណោះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bare pakkenavn og antall."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tylko nazwy pakietów i liczby."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Somente nomes de pacotes e contagens."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Только названия пакетов и счётчики."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เฉพาะชื่อแพ็กเกจและจำนวนเท่านั้น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yalnızca paket adları ve sayılar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Лише назви пакетів і лічильники."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chỉ tên gói và số lần."}}
       }
     },
     "settings.diagnostics.usagePatterns": {
