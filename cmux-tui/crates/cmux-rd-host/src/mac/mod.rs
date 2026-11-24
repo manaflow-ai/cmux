@@ -116,7 +116,9 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         let capture = match window {
             // One window, captured alone; a close or resize ends the session (`drain`).
             Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, in_pictures),
-            None => Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures),
+            None => {
+                Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)
+            }
         }
         .and_then(|mut capture| capture.ready(FIRST_FRAME_TIMEOUT_NS).map(|()| capture));
         let early = early.map(|(size, thread)| (size, thread.join()));
