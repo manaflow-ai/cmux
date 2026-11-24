@@ -16,16 +16,19 @@ final class CmuxDialogCardSurface: NSView {
     /// away under it, so it never darkens the translucent glass (``PopupHostView``'s shadow).
     let shadowLayer = CALayer()
     private let shadowCutout = CAShapeLayer()
+    /// Whether a mostly opaque backing sits between the glass and the words (``CmuxDialogSpec/backsText``).
+    private let backsText: Bool
 
     /// A card drawing `content` on its glass; `activeLook` keeps the key-window glass while the card fades out.
     /// `cornerRadius` is the card's corner: concentric with its buttons (``CmuxDialogMetrics/card``) by default.
-    init(content: NSView, activeLook: ActiveLookScope?, usesTransientMaterial: Bool = false,
+    init(content: NSView, activeLook: ActiveLookScope?, usesTransientMaterial: Bool = false, backsText: Bool = false,
          cornerRadius: CGFloat = CmuxDialogMetrics.card.outerRadius) {
         glass = usesTransientMaterial
             ? Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.transient), activeLook: activeLook)
             : Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
         glass.cornerRadius = cornerRadius
         glass.samplesBehindWindow = true
+        self.backsText = backsText
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
@@ -46,7 +49,31 @@ final class CmuxDialogCardSurface: NSView {
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         setAccessibilityElement(false)
+        applyBacking()
     }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyBacking()
+    }
+
+    /// The backing fills the glass's content layer, cut to the card's own corner, so it follows the rounded shape
+    /// in both appearances.
+    private func applyBacking() {
+        guard backsText else { return }
+        let content = glass.contentView
+        content.wantsLayer = true
+        guard let layer = content.layer else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(Self.backingAlpha).cgColor
+        }
+        layer.cornerRadius = glass.cornerRadius
+        layer.cornerCurve = .continuous
+        layer.masksToBounds = true
+    }
+
+    /// How dense the backing is: the glass still tints through, the text behind never does.
+    static var backingAlpha: CGFloat { 0.92 }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") } // crash-allow: never decoded from a nib

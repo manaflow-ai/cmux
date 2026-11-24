@@ -10743,6 +10743,17 @@
         }
       }
     },
+    "addMachine.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host"
+          }
+        }
+      }
+    },
     "addMachine.tailnet": {
       "extractionState": "manual",
       "localizations": {
