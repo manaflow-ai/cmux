@@ -1,16 +1,14 @@
 // l10n-allow-file: test fixture prompts, replies and summaries, not shipped UI.
-// The chat header's rolling summary (header/ChatSummaryLine.tsx) never moves the header's tools and never draws over
-// anything. Leo, 2026-11-22: "why do we have this subheading here? im not sure if this is useful. well, at least for 1,
-// it's overlapping. it's not good. idk why this was put in." and "like from the getgo it's just weird here. this
-// doesn't seem like correct behaviour. the icons on the top right have gotten displaced due to putting things on a
-// line. this is not how we should do ui."
+// A chat's rolling summary (acpmux `rollingSummary`) is not drawn in its header, and the header's tools sit where they sit
+// for a chat without one. Leo, 2026-11-22, on the summary line beside the chat's name: "why do we have this subheading
+// here? im not sure if this is useful. well, at least for 1, it's overlapping. it's not good. idk why this was put in."
+// and "the icons on the top right have gotten displaced due to putting things on a line. this is not how we should do
+// ui."
 //
-// The summary sat in the tools the page reports to the App (`pane.tabRowTools`), so it was in their need, which decides
-// whether a pane offers its tab row at all (PaneTabRowSharing.fitsTabRow: need <= half the row). A chat with a summary,
-// split from a wide pane to half, a third or a quarter, needed more than half the row: the pane stopped offering it and
-// the tools dropped to a second row under the tabs; in the row, tools wider than the half the strip gives up slid under
-// the last tab and the + button. Now the summary is an accessory of the row (header/tabRow.ts TAB_ROW_ACCESSORY): in
-// the width, never in the need, and only as wide as the room the tools leave.
+// The line came with the rolling summaries (a24d951903b5, 2026-11-20); #51868 made it a row accessory so it stopped
+// moving the tools, and it is now gone from the header. The sidebar's hover card, Expanded rows and the iPhone's Chats
+// list keep the summary. This file fails if a summary comes back into the header, or if a chat that has one lays out its
+// tools anywhere but where a chat without one does.
 //
 // The App's side is modeled here as Swift does it (PaneContentView.layout, AgentPaneTabRow): the need is the last
 // positive need reported (the width, from a page that sends none), the row is offered while need <= room / 2, the
@@ -163,6 +161,7 @@ await requireBrowserLane("chat-header-summary-row-fit-browser.test.ts", async ()
     strip: Box;
     tools: Box[];
     summary?: Box;
+    headerText: string;
     title?: Box;
     under?: Box;
   };
@@ -178,7 +177,6 @@ await requireBrowserLane("chat-header-summary-row-fit-browser.test.ts", async ()
         Boolean((window as { cmuxAcpmuxBridge?: { applyTabRow?: unknown } }).cmuxAcpmuxBridge?.applyTabRow) &&
         Boolean(window.cmuxAcpmuxActions),
     );
-    if (chat === SUMMED) await page.locator("[data-chat-summary]").first().waitFor({ state: "attached" });
     await page.evaluate(
       ({ inset, strip }) => {
         type Bridge = { applyTabRow(row: unknown): void };
@@ -263,7 +261,8 @@ await requireBrowserLane("chat-header-summary-row-fit-browser.test.ts", async ()
         // The pane's tabs and + button: the strip, from the row's start to where it gave the tools room.
         strip: { left: 0, top: 0, right: window.innerWidth - host.inset - given, bottom: host.strip },
         tools,
-        summary: box(header.querySelector("[data-chat-summary]")),
+        summary: box(header.querySelector("[data-chat-summary], .acpmux-chat-summary")),
+        headerText: header.textContent ?? "",
         title: box(header.querySelector(".acpmux-thread-title")),
         under: box(document.querySelector(".acpmux-scroll")),
       };
@@ -313,7 +312,7 @@ await requireBrowserLane("chat-header-summary-row-fit-browser.test.ts", async ()
     await page.screenshot({ path: path.join(shots, `${name}.png`), clip: { x: 0, y: 0, width, height: 64 } });
   }
 
-  describe("the chat header's summary moves nothing and covers nothing", () => {
+  describe("a chat's rolling summary stays out of its header, and its tools sit where a chat without one has them", () => {
     for (const [split, width] of Object.entries(WIDTHS)) {
       test(`${split} pane (${width}px)`, async () => {
         const plainPage = await open(PLAIN, width);
@@ -331,6 +330,10 @@ await requireBrowserLane("chat-header-summary-row-fit-browser.test.ts", async ()
             ` overlaps ${JSON.stringify(overlaps(summed))}`,
         );
         expect(plain.tools.length).toBeGreaterThan(0);
+        // No summary line in the header, at any width, in the row or under it.
+        expect(summed.summary).toBeUndefined();
+        expect(summed.headerText).not.toContain("permission-stall history");
+        expect(summed.headerText).not.toContain("Wait for the owner's read");
         // The tools sit where they sit without a summary: same row, same place.
         expect({ shared: summed.shared, tools: summed.tools.map(round) }).toEqual({
           shared: plain.shared,
