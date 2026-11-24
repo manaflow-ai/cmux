@@ -4,14 +4,17 @@
 //
 // A list longer than LISTBOX_WINDOW_AFTER rows mounts only the rows near its viewport (one viewport
 // of overscan each side) and the highlighted row, in list order between spacers, so it costs the
-// same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Each
-// row is a memoized component: a highlight change re-renders the two rows it moved between.
+// same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Rows
+// may differ in height (a steer-queue row with its line and last message): each mounted row's height
+// is kept by its key, and a row not yet measured is taken as the measured rows' mean. Each row is a
+// memoized component: a highlight change re-renders the two rows it moved between.
 import {
   memo,
   useCallback,
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -65,7 +68,7 @@ export interface ListboxProps<T> {
 const TYPEAHEAD_RESET_MS = 700;
 /** Up to this many rows all mount (a menu's worth); past it the list windows itself. */
 export const LISTBOX_WINDOW_AFTER = 50;
-/** A row's height before one is measured. */
+/** A row's height before any is measured. */
 const ESTIMATED_ROW_PX = 28;
 
 export function Listbox<T>({
@@ -124,10 +127,11 @@ export function Listbox<T>({
     element?.scrollIntoView?.({ block: "nearest" });
   }, [activeId]);
 
-  // The list's own window: the scroller's offset and height, and a row's measured height.
+  // The list's own window: the scroller's offset and height, and each mounted row's measured height
+  // by its key (a new Map when one changes, so the offsets below recompute).
   const ownWindow = visibleWindow === undefined && items.length > LISTBOX_WINDOW_AFTER;
   const [view, setView] = useState({ top: 0, height: 0 });
-  const [rowPx, setRowPx] = useState(0);
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const readView = useCallback(() => {
     const node = scroller.current;
     if (!node) return;
@@ -146,19 +150,36 @@ export function Listbox<T>({
     observer.observe(node);
     return () => observer.disconnect();
   }, [ownWindow, readView]);
+  // When the mounted rows can change (the list, the scroll, the highlight), read their heights (only
+  // those, so it costs the window, not the list); a row whose height is new or changed updates the
+  // map once.
   useLayoutEffect(() => {
-    if (!ownWindow || rowPx > 0) return;
-    const row = scroller.current?.querySelector<HTMLElement>(":scope > [role='option']");
-    if (row && row.offsetHeight > 0) setRowPx(row.offsetHeight);
-    // Again when the rows change, until one has a height (a list laid out after it mounted).
-  }, [ownWindow, rowPx, items]);
-  const segments = ownWindow
-    ? listboxSegments(items.length, current, view.top, view.height, rowPx || ESTIMATED_ROW_PX)
+    if (!ownWindow) return;
+    const rows = scroller.current?.querySelectorAll<HTMLElement>(":scope > [role='option']") ?? [];
+    let next: Map<string, number> | undefined;
+    for (const row of rows) {
+      const index = Number(row.getAttribute("aria-posinset")) - 1;
+      const item = items[index];
+      const px = row.offsetHeight;
+      if (item === undefined || px <= 0) continue;
+      const key = getKey(item);
+      if ((next ?? heights).get(key) === px) continue;
+      next ??= new Map(heights);
+      next.set(key, px);
+    }
+    if (next) setHeights(next);
+  }, [ownWindow, items, getKey, heights, view, current]);
+  const offsets = useMemo(
+    () => (ownWindow ? listboxOffsets(items, getKey, heights) : undefined),
+    [ownWindow, items, getKey, heights],
+  );
+  const segments = offsets
+    ? listboxSegments(offsets, current, view.top, view.height)
     : visibleWindow
       ? [{ start: visibleWindow.start, end: visibleWindow.end, before: visibleWindow.topSpace }]
       : [{ start: 0, end: items.length, before: 0 }];
-  const after = ownWindow
-    ? Math.max(0, items.length - (segments.at(-1)?.end ?? 0)) * (rowPx || ESTIMATED_ROW_PX)
+  const after = offsets
+    ? Math.max(0, offsets[items.length] - offsets[segments.at(-1)?.end ?? 0])
     : (visibleWindow?.bottomSpace ?? 0);
   const windowed = ownWindow || visibleWindow !== undefined;
   // The rows' handlers are stable (a memoized row must not re-render for a new closure); they read
@@ -312,29 +333,58 @@ const ListboxRow = memo(function ListboxRow<T>({
   );
 }) as <T>(props: ListboxRowProps<T> & { key?: string }) => ReactNode;
 
+/** Each row's top in a self-windowed list, and the list's height as the last entry: a row's measured
+ * height by its key, else the measured rows' mean (ESTIMATED_ROW_PX before any is measured). */
+export function listboxOffsets<T>(
+  items: readonly T[],
+  getKey: (item: T) => string,
+  heights: ReadonlyMap<string, number>,
+): Float64Array {
+  let sum = 0;
+  for (const px of heights.values()) sum += px;
+  const estimate = heights.size > 0 ? sum / heights.size : ESTIMATED_ROW_PX;
+  const offsets = new Float64Array(items.length + 1);
+  for (let index = 0; index < items.length; index++)
+    offsets[index + 1] = offsets[index] + (heights.get(getKey(items[index])) ?? estimate);
+  return offsets;
+}
+
+/** The row whose box holds `px` (the last row past the end), by binary search over the offsets. */
+function rowAt(offsets: Float64Array, px: number): number {
+  const count = offsets.length - 1;
+  let low = 0;
+  let high = count;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (offsets[middle + 1] <= px) low = middle + 1;
+    else high = middle;
+  }
+  return Math.min(low, Math.max(0, count - 1));
+}
+
 /** The row ranges a self-windowed list mounts, each with the spacer height before it: the rows in
  * view with one viewport of overscan each side, and the highlighted row when it is outside them (so
- * aria-activedescendant names a mounted row), in list order. Before the viewport is measured (no
- * layout yet) a viewport is taken as 400 px. */
+ * aria-activedescendant names a mounted row), in list order. `offsets` is listboxOffsets' (each row's
+ * top, then the total). Before the viewport is measured (no layout yet) a viewport is taken as 400 px. */
 export function listboxSegments(
-  count: number,
+  offsets: Float64Array,
   highlighted: number,
   scrollTop: number,
   viewportPx: number,
-  rowPx: number,
 ): { start: number; end: number; before: number }[] {
+  const count = offsets.length - 1;
+  if (count <= 0) return [{ start: 0, end: 0, before: 0 }];
   const height = viewportPx > 0 ? viewportPx : 400;
-  const overscan = Math.ceil(height / rowPx);
-  const start = Math.max(0, Math.floor(scrollTop / rowPx) - overscan);
-  const end = Math.min(count, Math.ceil((scrollTop + height) / rowPx) + overscan);
-  if (highlighted < 0 || (highlighted >= start && highlighted < end)) return [{ start, end, before: start * rowPx }];
+  const start = rowAt(offsets, Math.max(0, scrollTop - height));
+  const end = Math.min(count, rowAt(offsets, scrollTop + 2 * height) + 1);
+  if (highlighted < 0 || (highlighted >= start && highlighted < end)) return [{ start, end, before: offsets[start] }];
   if (highlighted < start)
     return [
-      { start: highlighted, end: highlighted + 1, before: highlighted * rowPx },
-      { start, end, before: (start - highlighted - 1) * rowPx },
+      { start: highlighted, end: highlighted + 1, before: offsets[highlighted] },
+      { start, end, before: offsets[start] - offsets[highlighted + 1] },
     ];
   return [
-    { start, end, before: start * rowPx },
-    { start: highlighted, end: highlighted + 1, before: (highlighted - end) * rowPx },
+    { start, end, before: offsets[start] },
+    { start: highlighted, end: highlighted + 1, before: offsets[highlighted] - offsets[end] },
   ];
 }

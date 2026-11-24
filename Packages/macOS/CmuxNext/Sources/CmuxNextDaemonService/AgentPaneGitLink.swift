@@ -45,6 +45,11 @@ public final class AgentPaneGitLink {
     /// Whether the session host answers `diff.comments.send`, as its last handshake said.
     public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
 
+    /// Whether the session host supports threaded diff comment mutations and sends.
+    public var supportsDiffCommentThreads: Bool {
+        daemon.identity?.supports(DaemonCapability.diffCommentsThreads.rawValue) == true
+    }
+
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).
