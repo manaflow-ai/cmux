@@ -21,5 +21,5 @@ export const compoundMotion = defineExperiment({
     },
   },
   // On since a one-commit send and a queued tall send glide once too (#50851).
-  defaultArm: "transaction",
+  defaultArm: "separate",
 });
