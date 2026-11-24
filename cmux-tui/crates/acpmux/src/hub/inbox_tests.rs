@@ -487,7 +487,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
         // The turn's end, as `finish_turn` runs it: marked ending, then the inbox reviewed.
         hub.set_ending_for_test(&session, Some("t1"));
         hub.inbox_review(&session);
-        assert!(!tried(&session), "not while it may continue");
+        assert!(!tried(&session.inbox()), "not while it may continue");
         if stop {
             hub.stop_auto_resume(&session);
         } else {
@@ -495,7 +495,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             hub.schedule_auto_resume(&session, "t1", None);
         }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !tried(&session) {
+        while !tried(&session.inbox()) {
             assert!(tokio::time::Instant::now() < deadline, "held past the settle (stop: {stop})");
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
