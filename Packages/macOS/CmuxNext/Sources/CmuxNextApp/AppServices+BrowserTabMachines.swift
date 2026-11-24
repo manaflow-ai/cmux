@@ -82,7 +82,6 @@ extension AppServices {
             localhost?.closeClient(of: daemon)
             self?.cloudVmHost.forget(daemon.machineID)
         }
-        browserTabs.isSignInApprovalTab = { [weak localhost] in localhost?.isSignInApprovalTab($0) == true }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

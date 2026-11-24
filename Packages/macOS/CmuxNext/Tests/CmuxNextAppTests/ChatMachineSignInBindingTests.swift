@@ -1,3 +1,4 @@
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
@@ -8,7 +9,7 @@ import Testing
 
 /// A Cloud chat's sign-in tab is bound to the chat's machine (ChatMachineSignInTab): its localhost
 /// is that machine's, never this Mac's. The binding outlives a relaunch (a restored tab still holds
-/// the callback address), and only closed tabs' bindings are ever dropped.
+/// the machine's route), and only closed tabs' bindings are ever dropped.
 @MainActor
 struct ChatMachineSignInBindingTests {
     static func defaults() -> UserDefaults {
@@ -63,6 +64,50 @@ struct ChatMachineSignInBindingTests {
         let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
         #expect(relaunched.boundMachine(ofTab: tab.id) == "vm-1")
         #expect(relaunched.storePlan(for: tab, url: callback) == .blank)
+    }
+
+    @Test func theCallbackContextIsPrivateAndExpiredReplacementsClose() async throws {
+        let machines = MachineRegistry(local: DaemonService())
+        let service = RemoteLocalhostService(machines: machines, environment: [:], defaults: Self.defaults())
+        let offTheRecord = OffTheRecordProfiles()
+        let routing = SignInBrowserRouting(localhost: service, offTheRecord: offTheRecord)
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser))
+        let callback = try #require(URL(string: "http://localhost:8100/callback?code=test"))
+        let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration())
+        service.expectCallbackPage(page, machine: "vm-1", port: 8100, owner: "approval", current: { true })
+        routing.adopt(page, for: tab.id)
+        var base = BrowserTabConfiguration(initialURL: callback)
+        base.restoreState = .chromium("fixture")
+        let machineStore = BrowserMachineStore(machineKey: "fixture", machineName: "Approval", proxyPort: 8080)
+        let configure: SignInBrowserRouting.Configure = { _, _, base in
+            var routed = base
+            routed.machineStore = machineStore
+            routed.navigationGuard = .loopbackOnly
+            return routed
+        }
+
+        let routed = await routing.configuration(for: tab, base: base, configure: configure)
+        #expect(routed.initialURL == callback)
+        #expect(routed.machineStore == machineStore)
+        #expect(offTheRecord.isOffTheRecord(routed.profile))
+        #expect(routed.restoreState == nil)
+
+        let replacement = MockBrowserEngine(kind: .cef).makeMockTab(routed)
+        var installed = false
+        await routing.replace(for: tab.id, url: callback, tabExists: { true }) {
+            #expect(service.endSignInApproval(owner: "approval") == [tab.id])
+            return replacement
+        } install: { _ in
+            installed = true
+        }
+        #expect(!installed)
+        #expect(replacement.isClosed)
+
+        let expired = await routing.configuration(for: tab, base: base, configure: configure)
+        #expect(expired.initialURL == nil)
+        #expect(expired.machineStore == nil)
+        #expect(expired.restoreState == nil)
+        #expect(expired.navigationGuard == .noLoopback)
     }
 
     @Test func pastTheLimitOnlyClosedTabsLoseTheirBinding() {

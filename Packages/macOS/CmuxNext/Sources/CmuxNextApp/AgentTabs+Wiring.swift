@@ -465,7 +465,7 @@ extension AgentTabStore {
                 let chat = key.key
                 host.claudeSignedIn = { [weak services] in
                     guard let services else { return }
-                    await ChatMachineSignInTab.closeApproval(owner: ChatMachineSignInTab.chatOwner(chat), services: services)
+                    await services.chatSignIn.closeChatApproval(chat)
                     guard await ownerLink() != nil, let environment = await QuitAgents.environment(services) else { return }
                     await SettingsModels.retireLegacyClaudeConnections(environment: environment)
                 }

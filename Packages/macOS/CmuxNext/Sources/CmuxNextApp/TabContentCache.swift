@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -8,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextMacScreen
 import CmuxNextMobileHost
 import CmuxNextRemote
+import CmuxNextRemoteLocalhostService
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
@@ -85,8 +87,6 @@ final class TabContentCache {
     var onProfileHistoryDropped: ((BrowserProfileID) -> Void)?
     /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
     var incognitoMemory = IncognitoPageMemory()
-    /// Claude's loopback callback uses a separate in-memory Chromium context.
-    private lazy var signInCallbackProfile = cef.stores.offTheRecord.begin()
     let pageInstalls = PageInstallCounter()
     /// Tab `key`'s browser profile: an incognito window's, else nil (default).
     var browserProfile: ((String) -> BrowserProfileID?)?
@@ -133,7 +133,8 @@ final class TabContentCache {
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
-    var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
+    var configureBrowser: SignInBrowserRouting.Configure?
+    private let browserRouting: SignInBrowserRouting
     /// The omnibar's browser profile badge of tab `key` (nil: hidden).
     var profileBadge: ((String) -> BrowserProfileBadge?)?
     /// The menu of tab `key`'s browser profile badge.
@@ -178,13 +179,16 @@ final class TabContentCache {
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own. `memoryPressure`: drops the WebKit tab made ahead (`WebKitSpareTab`).
     init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), memoryPressure: MemoryPressureEvents? = nil) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), memoryPressure: MemoryPressureEvents? = nil, localhost: RemoteLocalhostService? = nil) {
         self.daemon = daemon
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, spareTab: WebKitSpareTab(memoryPressure: memoryPressure))
         self.afterFrame = afterFrame
         self.resizes = resizes
-        browserTabs = BrowserTabService(daemon: daemon, cef: cef)
+        browserRouting = SignInBrowserRouting(localhost: localhost, offTheRecord: cef.stores.offTheRecord)
+        browserTabs = BrowserTabService(daemon: daemon, cef: cef, privacy: BrowserTabPrivacy { [weak localhost] in
+            localhost?.isSignInApprovalTab($0) == true
+        })
         wireNotices()
     }
 
@@ -356,22 +360,7 @@ final class TabContentCache {
     /// tab gets goes through here, a hibernated page waking included). A
     /// failed proxy start leaves the page blank, never on this Mac's localhost.
     func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
-        guard let tab, let configureBrowser else { return base }
-        let localhost = pageRequests.services?.remoteLocalhost
-        let approval = localhost?.isSignInApprovalTab(tab.id) == true
-        if var configured = await configureBrowser(tab, base.initialURL, base) {
-            if !approval || configured.machineStore == nil { return configured }
-            if let url = configured.initialURL, localhost?.allowsSignInCallback(url, in: tab.id) == true {
-                configured.profile = signInCallbackProfile
-                configured.restoreState = nil
-                return configured
-            }
-        }
-        var blank = base
-        blank.initialURL = nil
-        blank.restoreState = nil
-        blank.navigationGuard = .noLoopback
-        return blank
+        await browserRouting.configuration(for: tab, base: base, configure: configureBrowser)
     }
 
     /// The surface the phones know tab `key` by (``PhoneTabPictures``): a tab of this Mac's daemon showing a page that is not incognito.
@@ -396,15 +385,14 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         Task {
             defer { pendingBrowsers.remove(key) }
-            let localhost = pageRequests.services?.remoteLocalhost
-            let callback = localhost?.allowsSignInCallback(url, in: key) == true
-            let configuration = await chromiumConfiguration(for: tab, key: key, url: url)
-            guard let page = try? await makeCEFTab(configuration) else { return }
-            guard tabModel(key) != nil else { page.close(); return }
-            if callback, localhost?.allowsSignInCallback(url, in: key) != true { page.close(); return }
-            install(page, for: key)
-            browserTabs.track(page, tabID: key)
-            onBrowserReady?(key)
+            await browserRouting.replace(for: key, url: url, tabExists: { tabModel(key) != nil }) {
+                let configuration = await chromiumConfiguration(for: tab, key: key, url: url)
+                return try await makeCEFTab(configuration)
+            } install: { page in
+                install(page, for: key)
+                browserTabs.track(page, tabID: key)
+                onBrowserReady?(key)
+            }
         }
     }
 
@@ -448,9 +436,9 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)
+        browserRouting.adopt(page, for: key)
         let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
-        let history = browserTabs.isSignInApprovalTab(key) ? nil : (incognito?.history ?? history(for: page.profileID))
+        let history = browserTabs.privacy.historySource(for: key, incognito?.history ?? history(for: page.profileID))
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page), history: history)
         pageRequests.routeOmnibarOpens(of: entry.state, page: page)
         mount(entry, as: key)

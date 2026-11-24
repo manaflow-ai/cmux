@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserTabs
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -31,10 +32,12 @@ struct BrowserRecordCausalFollowTests {
 
     /// A frontend browser tab showing `a`, tracked with no write-back delay.
     /// `settled` applies what the daemon published, one record at a time.
-    static func tracked(_ daemon: Daemon) -> (BrowserTabService, MockBrowserTab, TabModel) {
-        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()))
+    static func tracked(_ daemon: Daemon, signInApproval: Bool = false) -> (BrowserTabService, MockBrowserTab, TabModel) {
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: a.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "cef"))
+        let privacy = BrowserTabPrivacy { signInApproval && $0 == tab.id }
+        let cef = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+        let service = BrowserTabService(daemon: DaemonService(), cef: cef, privacy: privacy)
         service.tabModel = { $0 == tab.id ? tab : nil }
         service.writeBackDelay = .zero
         service.sleep = { _ in }
@@ -86,11 +89,8 @@ struct BrowserRecordCausalFollowTests {
 
     @Test func aSignInCallbackDoesNotWriteTheBrowserRecordOrSessionHistory() async throws {
         let daemon = Daemon()
-        let (service, page, tab) = Self.tracked(daemon)
+        let (service, page, tab) = Self.tracked(daemon, signInApproval: true)
         let callback = try #require(URL(string: "http://localhost:8100/callback?code=fixture"))
-        service.untrack(tab.id)
-        service.isSignInApprovalTab = { $0 == tab.id }
-        service.track(page, for: tab)
         page.simulate(.urlChanged(callback))
         service.writeRecordURL(callback, for: tab)
         await service.flushRecords()

@@ -289,7 +289,7 @@ extension AppServices {
             openCallback: { [weak self] url, owner, scope in
                 guard let self, let port = AgentPaneSignInPage.callbackPort(url),
                       let pane = anchor().flatMap({ linkOpener.source(containing: $0) }) else { return false }
-                return await ChatMachineSignInTab.open(url, daemon: daemon, from: pane, callbackPort: port, owner: owner, checking: scope,
+                return await chatSignIn.open(url, daemon: daemon, from: pane, callbackPort: port, owner: owner, checking: scope,
                                                         onOpened: { onOpened(owner, $0) })
             }
         )

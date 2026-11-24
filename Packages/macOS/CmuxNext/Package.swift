@@ -1476,7 +1476,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
-        // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
+        // gets, where it goes and whether its browser data can be recorded. The App composes it.
         .target(
             name: "CmuxNextBrowserTabs",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2657,8 +2657,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // Browser tabs' remote localhost (routes, the proxy's daemon tunnels,
-        // badges) and Set Workspace Localhost. The App gives it its machines
-        // (RemoteLocalhostMachines) and the approval sheet.
+        // badges), Set Workspace Localhost and chat machine sign-in. The App supplies the
+        // machines, browser page creation and Workbench placement.
         .target(
             name: "CmuxNextRemoteLocalhostService",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
