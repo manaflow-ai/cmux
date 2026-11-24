@@ -68,6 +68,10 @@ export default componentEntry<Props>({
       note: "At the limit: Paused at your overage limit · Raise limit · Run on This Mac. Cloud agents pause, local ones keep running.",
       props: { settings: on, read: read("at_cap", 50, true), layout: "rows" },
     },
+    "pool-spent-off": {
+      note: "Overage off and the plan's pool used up: The plan's Cloud pool is used up · Turn on overage · Run on This Mac.",
+      props: { settings: off, read: read("at_cap", 0, true), layout: "rows" },
+    },
     "meter-on-40": {
       note: "Meter layout: the month's overage against the limit above the rows, at 40%.",
       props: { settings: on, read: read("under", 20), layout: "meter" },

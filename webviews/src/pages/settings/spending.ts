@@ -83,7 +83,9 @@ export function limitText(value: number | null): string {
 
 export type SpendingBanner =
   | { kind: "near"; title: string; message: string }
-  | { kind: "paused"; title: string; message: string };
+  | { kind: "paused"; title: string; message: string }
+  /** Overage off and the plan's pool used up: cloud agents paused; the action turns overage on. */
+  | { kind: "pool_spent"; title: string; message: string };
 
 export type SpendingMeter = { fraction: number; label: string };
 
@@ -127,7 +129,17 @@ export function spendingModel(
     meter: null,
     banner: null,
   };
-  if (!on || !read) return model;
+  if (!read) return model;
+  const periodEndOff = num(read.period_end);
+  if (!on) {
+    if (read.state === "at_cap" || num(read.paused_at) !== undefined)
+      model.banner = {
+        kind: "pool_spent",
+        title: "The plan's Cloud pool is used up",
+        message: `Cloud agents are paused, not stopped: their memory and processes are kept. Turn on overage to keep them going. ${KEEP_LOCAL}${periodEndOff === undefined ? "" : ` The pool resets ${day(periodEndOff, language)}.`}`,
+      };
+    return model;
+  }
   const spent = num(read.spent_usd);
   const cap = num(read.cap_usd) ?? settings.overage_limit_usd ?? undefined;
   const periodEnd = num(read.period_end);

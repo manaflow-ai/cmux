@@ -60,9 +60,15 @@ export function SpendingCardView({
   onRunOnMac,
 }: SpendingCardViewProps) {
   const limitRef = useRef<HTMLInputElement>(null);
+  // The switch can be on before a limit is typed (the field shows; nothing is sent until it holds an amount), so
+  // the card, not the model, holds that wish: the pool-spent banner's Turn on overage sets it too.
+  const [wantOn, setWantOn] = useState(model.overageOn);
   const raise = () => {
-    limitRef.current?.focus();
-    limitRef.current?.select();
+    if (!model.overageOn) setWantOn(true);
+    queueMicrotask(() => {
+      limitRef.current?.focus();
+      limitRef.current?.select();
+    });
   };
   return (
     <section className="group" data-card="spending" data-spending-layout={layout} aria-busy={busy}>
@@ -70,7 +76,14 @@ export function SpendingCardView({
       {model.banner && <SpendingNotice model={model} onRaise={raise} onRunOnMac={onRunOnMac} />}
       <div className="rows">
         {layout === "meter" && model.meter && <Meter meter={model.meter} />}
-        <OverageRow model={model} busy={busy} limitRef={limitRef} onLimitChange={onLimitChange} />
+        <OverageRow
+          model={model}
+          busy={busy}
+          limitRef={limitRef}
+          wantOn={wantOn}
+          setWantOn={setWantOn}
+          onLimitChange={onLimitChange}
+        />
         <AskAboveRow model={model} busy={busy} onAskAboveChange={onAskAboveChange} />
         {error && (
           <div className="row">
@@ -94,13 +107,20 @@ function SpendingNotice({
   onRunOnMac?(): void;
 }) {
   const banner = model.banner!;
-  const actions: NoticeAction[] = [{ id: "raise", label: "Raise limit", onSelect: onRaise, primary: true }];
-  if (banner.kind === "paused" && onRunOnMac)
+  const actions: NoticeAction[] = [
+    {
+      id: "raise",
+      label: banner.kind === "pool_spent" ? "Turn on overage" : "Raise limit",
+      onSelect: onRaise,
+      primary: true,
+    },
+  ];
+  if (banner.kind !== "near" && onRunOnMac)
     actions.push({ id: "run-on-mac", label: "Run on This Mac", onSelect: onRunOnMac });
   return (
     <div className="pb-2" data-spending-banner={banner.kind}>
       <Notice
-        kind={banner.kind === "paused" ? "error" : "warning"}
+        kind={banner.kind === "near" ? "warning" : "error"}
         placement="inline"
         title={banner.title}
         message={banner.message}
@@ -114,17 +134,19 @@ function OverageRow({
   model,
   busy,
   limitRef,
+  wantOn,
+  setWantOn,
   onLimitChange,
 }: {
   model: SpendingModel;
   busy: boolean;
   limitRef: RefObject<HTMLInputElement | null>;
+  wantOn: boolean;
+  setWantOn(on: boolean): void;
   onLimitChange(usd: number | null): void;
 }) {
   const titleId = useId();
   const fieldId = useId();
-  // The switch can be on before a limit is typed: the field shows, and nothing is sent until it holds an amount.
-  const [wantOn, setWantOn] = useState(model.overageOn);
   const [draft, setDraft] = useState(model.limitText);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [synced, setSynced] = useState(model.limitText);
@@ -142,8 +164,12 @@ function OverageRow({
     }
     setDraftError(null);
     if (parsed.usd === null) {
-      setWantOn(false);
-      if (model.overageOn) onLimitChange(null);
+      // An empty field turns a saved limit off; with none saved yet, leaving the field keeps the switch on, waiting
+      // for an amount, rather than flipping it back off unexplained.
+      if (model.overageOn) {
+        setWantOn(false);
+        onLimitChange(null);
+      }
       return;
     }
     if (model.limitText !== draft.trim()) onLimitChange(parsed.usd);

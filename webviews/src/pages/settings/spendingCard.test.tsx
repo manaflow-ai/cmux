@@ -8,7 +8,8 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderCard, click, changeValue, fire } = await import("./testing");
+const { renderCard, click, changeValue, fire, settle } = await import("./testing");
+const { act } = await import("react");
 const { SpendingCardView } = await import("./components/SpendingCard");
 
 const paused: SpendCap = {
@@ -23,18 +24,19 @@ const paused: SpendCap = {
 
 async function render(settings: SpendingSettings, read: SpendCap | null = null) {
   const limits: (number | null)[] = [];
+  const shapes: SpendingSettings["ask_above"][] = [];
   const runs: string[] = [];
   const page = await renderCard(
     <SpendingCardView
       model={spendingModel(settings, read, "en")}
       layout="rows"
       onLimitChange={(usd) => limits.push(usd)}
-      onAskAboveChange={() => {}}
+      onAskAboveChange={(shape) => shapes.push(shape)}
       onRunOnMac={() => runs.push("mac")}
     />,
   );
   const card = page.container.querySelector<HTMLElement>('[data-card="spending"]')!;
-  return { page, card, limits, runs };
+  return { page, card, limits, runs, shapes };
 }
 
 test("off by default: no field, no banner", async () => {
@@ -79,5 +81,43 @@ test("paused at the limit: the banner offers Raise limit and Run on This Mac", a
   expect(buttons).toContain("Run on This Mac");
   await click([...banner.querySelectorAll("button")].find((button) => button.textContent === "Run on This Mac")!);
   expect(runs).toEqual(["mac"]);
+  page.unmount();
+});
+
+test("leaving the field empty after turning on keeps the switch on and sends nothing", async () => {
+  const { page, card, limits } = await render(DEFAULT_SPENDING);
+  const toggle = card.querySelector<HTMLElement>("[data-spending-overage]")!;
+  await click(toggle);
+  await fire(card.querySelector("[data-spending-limit]")!, "blur");
+  expect(card.querySelector("[data-spending-limit]")).not.toBeNull();
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  expect(limits).toEqual([]);
+  page.unmount();
+});
+
+test("overage off with the pool used up: the banner says so and Turn on overage shows the field", async () => {
+  const { page, card, limits, runs } = await render(DEFAULT_SPENDING, { ...paused, cap_usd: null, spent_usd: null });
+  const banner = card.querySelector<HTMLElement>('[data-spending-banner="pool_spent"]')!;
+  expect(banner.textContent).toContain("The plan's Cloud pool is used up");
+  const button = (label: string) => [...banner.querySelectorAll("button")].find((b) => b.textContent === label)!;
+  await click(button("Run on This Mac"));
+  expect(runs).toEqual(["mac"]);
+  await click(button("Turn on overage"));
+  await settle();
+  expect(card.querySelector("[data-spending-limit]")).not.toBeNull();
+  expect(limits).toEqual([]);
+  page.unmount();
+});
+
+test("picking another ask-above size hands that shape to onAskAboveChange", async () => {
+  const { page, card, shapes } = await render(DEFAULT_SPENDING);
+  await act(async () => card.querySelector<HTMLButtonElement>("[data-spending-ask-above] button")!.click());
+  await settle();
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((element) =>
+    element.textContent?.includes("16 vCPU"),
+  )!;
+  await act(async () => item.click());
+  await settle();
+  expect(shapes).toEqual([{ vcpu: 16, memory_gib: 32 }]);
   page.unmount();
 });

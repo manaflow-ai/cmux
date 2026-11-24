@@ -99,3 +99,22 @@ test("a saved threshold outside the picker's list still shows as the picked opti
   expect(model.askAbove).toBe("6x12");
   expect(model.askOptions.map((option) => option.value)).toContain("6x12");
 });
+
+test("overage off with the pool used up: a pool_spent banner, no meter", () => {
+  const model = spendingModel(
+    DEFAULT_SPENDING,
+    {
+      state: "at_cap",
+      spent_usd: null,
+      cap_usd: null,
+      period_end: null,
+      checked_at: null,
+      pause_at: null,
+      paused_at: 1,
+    },
+    "en",
+  );
+  expect(model.banner?.kind).toBe("pool_spent");
+  expect(model.meter).toBeNull();
+  expect(spendingModel(DEFAULT_SPENDING, null, "en").banner).toBeNull();
+});
