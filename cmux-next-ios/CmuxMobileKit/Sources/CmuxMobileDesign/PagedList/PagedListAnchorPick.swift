@@ -1,4 +1,6 @@
 #if os(iOS)
+import CoreGraphics
+
 /// Which of the anchored rows the list puts back after an update (``PagedListController``'s restore):
 /// each anchored row still in the list, in anchor order (the row being read first), with its index
 /// before and after the update. Returns the position (in `rows`) of the row to keep still, or nil.
@@ -6,6 +8,9 @@ enum PagedListAnchorPick {
     struct Row {
         var oldIndex: Int
         var newIndex: Int
+        /// How far the row moved on screen in the update (pt): where it is now less where the anchor
+        /// held it. 0 when unknown.
+        var moved: CGFloat = 0
     }
 
     /// The rows in place are the longest run that kept its order: sorted by where they were, their

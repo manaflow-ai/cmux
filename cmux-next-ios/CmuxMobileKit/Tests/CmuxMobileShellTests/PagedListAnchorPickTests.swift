@@ -53,6 +53,22 @@ struct PagedListAnchorPickTests {
         #expect(PagedListAnchorPick.pick(rows([(100, 100), (99, 99), (98, 98)])) == 0)
     }
 
+    /// Defect (2), during a fling under mid-list inserts: the reader is cut by the top edge (dropped),
+    /// two anchored rows survive. One kept its place on screen (moved 0 pt with the rest); the other was
+    /// moved by the load and travelled 416 pt. Both keep their order, so the run cannot tell them apart;
+    /// the row that stayed is the one to keep (full 27 208073e6 up-fast-inserts `U-208, r'+416`).
+    @Test func ofTwoInPlaceRowsTheOneThatDidNotTravelIsKept() {
+        let rows = [Row(oldIndex: 11, newIndex: 14, moved: 416), Row(oldIndex: 12, newIndex: 15, moved: 0)]
+        #expect(PagedListAnchorPick.pick(rows) == 1)
+    }
+
+    /// The same with the reader in the anchor: rows inserted just above it, and the next anchored row
+    /// moved far. The reader moved least: kept (today's rule keeps it too; this guards the fix).
+    @Test func theReaderWhichMovedLeastIsKeptUnderInserts() {
+        let rows = [Row(oldIndex: 20, newIndex: 23, moved: 0.3), Row(oldIndex: 21, newIndex: 24, moved: 445)]
+        #expect(PagedListAnchorPick.pick(rows) == 0)
+    }
+
     /// One row left: it is kept.
     @Test func aLoneRowIsKept() {
         #expect(PagedListAnchorPick.pick(rows([(10, 12)])) == 0)
