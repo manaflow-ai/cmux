@@ -28,15 +28,18 @@ import WebKit
         window.isHidden = false
         defer { window.isHidden = true }
         page.webView.loadHTMLString("<!doctype html><title>docs</title><body style='background:#e33'>docs", baseURL: nil)
-        // test: WebKit's load has no completion to await here; bounded.
-        for _ in 0..<4000 where page.title != "docs" { try await Task.sleep(for: .milliseconds(5)) }
-        #expect(page.title == "docs")
+        // test: WebKit's load has no completion to await here; bounded by the clock, not a count of
+        // sleeps: a loaded simulator host took past 20 s to start WebKit's content process.
+        let loadDeadline = ContinuousClock.now + .seconds(60)
+        while page.title != "docs", ContinuousClock.now < loadDeadline { try await Task.sleep(for: .milliseconds(20)) }
+        try #require(page.title == "docs", "WebKit loaded the page")
         source.activate("t-docs")
         #expect(page.snapshot == nil)
 
         let left = ContinuousClock.now
         source.activate("t-claude")
-        for _ in 0..<2000 where page.snapshot == nil { try await Task.sleep(for: .milliseconds(5)) }
+        let shotDeadline = left + .seconds(30)
+        while page.snapshot == nil, ContinuousClock.now < shotDeadline { try await Task.sleep(for: .milliseconds(5)) }
         #expect(page.snapshot != nil, "the card of a page left for another tab shows that page")
         let ms = (ContinuousClock.now - left).components
         let line = "PREVIEW_TIME_TO_CORRECT browser-left-for-another-tab \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms\n"
