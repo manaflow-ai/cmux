@@ -491,14 +491,20 @@ import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { type QuickActionMode } from "./header/quickActions";
 import {
+  useChangesPillOn,
   useChatDisplay,
   useChatMinimap,
   useChatPinnedPlan,
+  useEnvironmentCardOn,
   useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
   useUnreadBannerMode,
 } from "./chatDisplay";
+import { ChangesPill, EnvironmentCard } from "./session-info/EnvironmentCard";
+import { environmentCardFits, useCardBranch, usePaneWidth } from "./session-info/environmentCardModel";
+import { useChangeCounts } from "./session-info/changeCounts";
+import { usePullRequestAction } from "../../diff-viewer/PullRequestAction";
 import { usePresentation } from "./conversation/presentation";
 import { PresentationContext } from "./conversation/presentationContextModel";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
@@ -1105,12 +1111,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
   const [cloudTurnRewind, publishCloudTurnRewind] = useState<ChatMarks>();
   const cloudTurnRewindRef = useRef<ChatMarks | undefined>(undefined);
+  // The marks last handed to `publishCloudTurnRewind`. Each snapshot publishes the held marks (a
+  // hidden page holds them back); handed the same marks again, React still queues the update, and
+  // the pane's next render then draws the whole pane a second time to settle it: once per streamed
+  // record, a token or a tool call's start or end.
+  const publishedCloudTurnRewind = useRef<ChatMarks | undefined>(undefined);
+  const publishHeldCloudTurnRewind = (marks: ChatMarks | undefined) => {
+    if (document.visibilityState === "hidden" || marks === publishedCloudTurnRewind.current) return;
+    publishedCloudTurnRewind.current = marks;
+    publishCloudTurnRewind(marks);
+  };
   const setCloudTurnRewind = (
     update: ChatMarks | undefined | ((marks: ChatMarks | undefined) => ChatMarks | undefined),
   ) => {
     const next = typeof update === "function" ? update(cloudTurnRewindRef.current) : update;
     cloudTurnRewindRef.current = next;
-    if (document.visibilityState !== "hidden") publishCloudTurnRewind(next);
+    publishHeldCloudTurnRewind(next);
   };
   // A handshake that named no chat: its list joins the first chat a snapshot shows.
   const cloudTurnRewindUnbound = useRef(false);
@@ -1124,7 +1140,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (answer, session) => setCloudTurnRewind((marks) => chatWithCheckpoint(marks, answer, session)),
   );
   const observeCloudTurn = (next: AcpmuxSnapshot) => {
-    if (document.visibilityState !== "hidden") publishCloudTurnRewind(cloudTurnRewindRef.current);
+    publishHeldCloudTurnRewind(cloudTurnRewindRef.current);
     cloudCheckpoints.current?.observe(next);
     const session = next.sessionId;
     if (!cloudTurnRewindUnbound.current || !session) return;
@@ -4784,6 +4800,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
   /// Auto picked and not yet decided: the daemon says where first; the prompt stays until it has.
   const autoSendGate = {
+    /// Auto picked: a send may stop at `holds` (asking nothing here), so it never goes ahead of its files.
+    picked: autoPicked,
     /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
     holds: (text: string): boolean => {
       if (autoPicked && autoDecided.current !== newTabGeneration) {
@@ -6025,7 +6043,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             planKept={hatKept}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
-            tuckSide={hatHandle}
+            // The open hat's tuck stands where the person put the handle (middle by default), never where
+            // the tucked pill steps aside for Jump to latest: it is the hat's own control, on the hat's
+            // own axis, clear of the header's split icon and chevron (Leo, 2026-11-24).
+            tuckSide={trayHandle}
             onHold={setHatHeld}
             onSeen={setHatSeen}
           />
@@ -6759,6 +6780,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        if (first && newTabNow.current === undefined) acpmuxPerf.markLaunch("rowsDrawn");
+        if (settledNow) acpmuxPerf.markLaunch("settledDrawn");
         // When the host is told the page shows the chat, beside the report itself: the flicker log's
         // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
         // `seen`); what moved before it was still under the host's cover.
@@ -8936,6 +8959,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
   const previewBeside = previewShown && !(sessionInfo.shown && sessionInfoPushes);
+  // The Environment card and the changes pill (session-info/EnvironmentCard.tsx), off by default: a
+  // look turns them on. The card takes the chat's top right only when the gutter beside the column
+  // holds it, and gives the place to Session Info and the computer use preview, which sit there too.
+  const environmentCardOn = useEnvironmentCardOn();
+  const changesPillOn = useChangesPillOn();
+  const chatLook = useChatDisplay();
+  const environmentCardRoom = environmentCardFits(usePaneWidth(), chatLook.width, chatLook.fullWidth);
+  const environmentCardShown =
+    environmentCardOn &&
+    environmentCardRoom &&
+    !quick &&
+    !inspectorOpen &&
+    !showNewTab &&
+    !sessionInfo.shown &&
+    !previewShown &&
+    Boolean(snapshot.sessionId);
+  const environmentKey = `${snapshot.sessionId ?? ""}\u0000${snapshot.isWorking ? "working" : "idle"}`;
+  const environmentChanges = useChangeCounts(
+    readChanges,
+    (environmentCardShown || changesPillOn) && Boolean(snapshot.sessionId) && chatCwd !== undefined,
+    environmentKey,
+  );
+  const environmentBranch = useCardBranch(localCwd ?? chatCwd, readFolderStatus, environmentCardShown, environmentKey);
+  // Create pull request: the host's git.pullRequest for a chat on this Mac (it pushes the branch and
+  // opens the pull request), as the changes view's Create PR runs it.
+  const environmentPullRequestSource = useMemo(
+    () =>
+      localCwd
+        ? {
+            diff: () => Promise.reject(new Error("unused")),
+            pullRequest: () => directClient.current?.gitPullRequest() ?? Promise.reject(new Error()),
+          }
+        : undefined,
+    // A new chat or folder is a new source, so a reply for the old one is dropped.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- directClient is a ref
+    [localCwd, snapshot.sessionId],
+  );
+  const environmentPullRequest = usePullRequestAction(environmentPullRequestSource);
+  // "1 file changed +2 -2" over the composer (pane/PaneComposer.tsx), off by default: a look turns it on.
+  const changesPillNode =
+    changesPillOn && !quick ? <ChangesPill changes={environmentChanges} onOpen={() => toggleChanges("open")} /> : null;
+  // The card at the chat's top right (pane/PaneBody.tsx), beside the computer use preview's place.
+  const environmentCardNode = environmentCardShown ? (
+    <EnvironmentCard
+      branch={environmentBranch}
+      changes={environmentChanges}
+      onOpenChanges={() => toggleChanges("open")}
+      onCommitOrPush={localCwd ? () => openChangesTab.current() : undefined}
+      pullRequest={environmentPullRequest}
+    />
+  ) : null;
   // The VS Code Minimap's room at the column's right (chatMinimap/paint.ts minimapReserve), on the same
   // terms as the preview's: Session Info's push pins the column itself. The transcript keeps it only in
   // a chat wide enough.
@@ -9714,6 +9788,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hatPillArm,
     statusCardOpen,
     setStatusCardOpen,
+    changesPillNode,
     openImage,
     cloudStarting,
     composerDrawn,
@@ -10333,6 +10408,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     reconnectPeer,
     previewShown,
     computerUsePreview,
+    environmentCardNode,
     viewedSandbox,
     pendingWake,
     sandboxWake,
