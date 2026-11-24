@@ -25,6 +25,7 @@ pub mod egress;
 pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
+pub mod key_echo;
 pub mod link;
 pub mod link_stat;
 mod liveness;
