@@ -283,14 +283,8 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            if gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context="backend migrations applied" \
-              -f description="no backend/db/migrations change" -f target_url="$RUN_URL" >/dev/null; then
-              exit 0
-            fi
-            sleep $((attempt * 5))
-          done
-          echo "::error::could not post the backend migrations applied status"; exit 1
+          gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context="backend migrations applied" \
+            -f description="no backend/db/migrations change" -f target_url="$RUN_URL" >/dev/null
 
   apply-staging:
     needs: plan
