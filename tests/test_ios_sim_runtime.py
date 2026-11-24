@@ -17,7 +17,7 @@ SCRIPT = ROOT / "scripts/ci/cmux-next-ios-sim.sh"
 
 
 # Identifiers that are not the name with dashes for spaces (Xcode 26 simctl list devicetypes).
-REAL_IDS = {"iPhone SE (3rd generation)": "iPhone-SE-3rd-generation"}
+REAL_IDS = {"iPhone SE (3rd generation)": "iPhone-SE-3rd-generation", "iPad mini (A17 Pro)": "iPad-mini-A17-Pro"}
 
 
 def runtime(version, build, phones=("iPhone 17 Pro", "iPhone 17"), available=True):
@@ -46,7 +46,7 @@ def run(listing, declared=None, args=()):
 APPSTORE = ("--phone-class", "appstore-6.9")
 
 SIZES = ("iPhone 17 Pro", "iPhone 17", "iPhone 16e", "iPhone 17 Pro Max", "iPhone SE (3rd generation)",
-         "iPad Pro 11-inch (M5)")
+         "iPad Pro 11-inch (M5)", "iPad mini (A17 Pro)")
 FLEET = {"runtimes": [runtime("26.5", "23F77", phones=SIZES)]}
 
 
@@ -137,15 +137,21 @@ class IOSSimRuntimeTest(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertEqual(p.stdout, "")
         self.assertIn("device=iPhone 99 Ultra", p.stderr)
-        self.assertIn("available iPhone types: iPhone 16e, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, "
-                      "iPhone SE (3rd generation)", p.stderr)
-        self.assertNotIn("iPad", p.stderr.split("available iPhone types:")[1])
+        self.assertIn("available iPhone types: iPad mini (A17 Pro), iPhone 16e, iPhone 17, iPhone 17 Pro, "
+                      "iPhone 17 Pro Max, iPhone SE (3rd generation)", p.stderr)
+        self.assertNotIn("iPad Pro", p.stderr.split("available iPhone types:")[1])
 
     def test_an_ipad_is_not_an_iphone(self):
         p = run(FLEET, "23F77", ["--device", "iPad Pro 11-inch (M5)"])
         self.assertNotEqual(p.returncode, 0)
         self.assertEqual(p.stdout, "")
-        self.assertIn("no such iPhone device type", p.stderr)
+        self.assertIn("no such iPhone or iPad mini device type", p.stderr)
+
+    def test_an_ipad_mini_stands_in_for_an_unfolded_foldable(self):
+        for want in ("iPad mini (A17 Pro)", "iPad-mini-A17-Pro"):
+            p = run(FLEET, "23F77", ["--device", want, "--with-name"])
+            self.assertEqual(p.returncode, 0, (want, p.stderr))
+            self.assertEqual(p.stdout.rstrip("\n").split(" ", 2)[2], "iPad mini (A17 Pro)", want)
 
     def test_step_script_selects_through_the_helper(self):
         text = SCRIPT.read_text()
