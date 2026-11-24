@@ -697,6 +697,12 @@ struct Inner {
     /// When the reader last received a frame other than a ping or a pong:
     /// the link carries traffic, not only keepalives.
     last_traffic: Mutex<Instant>,
+    /// When the link last made progress ([`Link::progress_ago`]): a frame or
+    /// datagram heard from the peer, or a write other than a keepalive taken
+    /// by the transport.
+    last_progress: Mutex<Instant>,
+    /// How many times the link made progress ([`Link::progress_count`]).
+    progress: AtomicU64,
     /// What this side sent that nothing has answered yet: the first frame
     /// (other than a ping or a pong) and the first ping written after the
     /// last inbound frame. Entries older than [`Inner::last_received`] are
@@ -842,7 +848,9 @@ impl Inner {
     }
 
     fn received(&self) {
-        *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        let now = Instant::now();
+        *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = now;
+        self.progressed(now);
         // Anything from the peer clears a suspect link at once.
         if self.suspect_flag.load(Ordering::Relaxed) && self.suspect_flag.swap(false, Ordering::Relaxed) {
             self.suspect.send_replace(false);
@@ -853,7 +861,14 @@ impl Inner {
     /// The writer sent frames other than pings and pongs (data, open,
     /// close): note the first since the last inbound frame.
     fn sent_traffic(&self) {
+        self.progressed(Instant::now());
         self.note_unanswered(|unanswered| &mut unanswered.traffic);
+    }
+
+    /// The link moved: something was heard, or a write was taken.
+    fn progressed(&self, now: Instant) {
+        *self.last_progress.lock().unwrap_or_else(PoisonError::into_inner) = now;
+        self.progress.fetch_add(1, Ordering::Relaxed);
     }
 
     /// A ping went out: note the first since the last inbound frame.
@@ -1015,6 +1030,8 @@ impl Link {
             lane_attached: AtomicBool::new(false),
             last_rx: Mutex::new(Instant::now()),
             last_traffic: Mutex::new(Instant::now()),
+            last_progress: Mutex::new(Instant::now()),
+            progress: AtomicU64::new(0),
             unanswered: Mutex::new(Unanswered::default()),
             unanswered_changed: Notify::new(),
             suspect: watch::channel(false).0,
@@ -1557,6 +1574,27 @@ impl Link {
     /// Keepalives on, the foreground heartbeat probes it on the beat.
     pub fn traffic_ago(&self) -> Duration {
         self.inner.last_traffic.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    }
+
+    /// How long ago the link last made progress: anything heard from the
+    /// peer (a frame or a liveness datagram, keepalives included), or a write
+    /// other than a ping or a pong taken by the transport. It starts at the
+    /// link's creation.
+    ///
+    /// This is the one progress clock a sender's hold reads: a prompt queued
+    /// on this link is stalled only once this has stayed quiet for the hold,
+    /// however long ago it was tapped (Leo: "10s timeout for messages being
+    /// sendsble is a shame. if it's making good progress, it shiukd be allowed
+    /// to keep going?"). The phone's `PromptOutbox::progressed` is its adapter.
+    pub fn progress_ago(&self) -> Duration {
+        self.inner.last_progress.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    }
+
+    /// How many times the link made progress (see [`progress_ago`](Self::progress_ago)).
+    /// Monotonic: a reader that saw it change since its last look knows the
+    /// link moved in between, without comparing clocks.
+    pub fn progress_count(&self) -> u64 {
+        self.inner.progress.load(Ordering::Relaxed)
     }
 
     /// Resolves with the reason once the link is closed.
@@ -2680,6 +2718,44 @@ mod tests {
         drop(channel);
         phone.close("done");
         let _ = sink.await;
+    }
+
+    /// The progress clock moves on every write taken and everything heard,
+    /// so a link that keeps moving never looks stalled however long it runs,
+    /// and a link that goes silent does, one quiet stretch after its last move.
+    #[tokio::test(start_paused = true)]
+    async fn the_progress_clock_follows_the_last_move_not_the_first() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let sink = async {
+            let mut incoming = mac.accept().await.expect("incoming");
+            while let Some(ChannelEvent::Data(_)) = incoming.channel.recv().await {}
+        };
+        let moves = async {
+            let channel = phone.open("sink", serde_json::json!({})).await.unwrap();
+            // A minute of a write every 5 s: far past a 10 s hold from the
+            // first write, never 10 s quiet.
+            for _ in 0..12 {
+                let before = phone.progress_count();
+                channel.send(Bytes::from_static(b"chunk")).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                assert!(phone.progress_count() > before, "a write taken is progress");
+                assert!(mac.progress_ago() < Duration::from_millis(100), "a frame heard is progress");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                assert!(phone.progress_ago() < Duration::from_secs(6), "{:?}", phone.progress_ago());
+            }
+            // Then silence: the clock runs from the last move.
+            let count = phone.progress_count();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            assert_eq!(phone.progress_count(), count, "a silent link does not move");
+            assert!(phone.progress_ago() >= Duration::from_secs(35), "{:?}", phone.progress_ago());
+            drop(channel);
+            phone.close("done");
+        };
+        tokio::join!(sink, moves);
+        mac.close("done");
     }
 
     /// A Mac that floods one channel through a slow stream and, meanwhile,
