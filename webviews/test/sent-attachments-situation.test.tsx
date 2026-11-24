@@ -129,11 +129,12 @@ try {
     expect(parts.map((part) => sentVideoOf(part as never, videos)?.path)).toEqual([FIRST, SECOND]);
   });
 
-  test("Leo's sent prompt: no 0 byte chip, no file chip for the recording, a tile for each copy", async () => {
+  test("Leo's sent prompt: no 0 byte chip, no file chip for the recording, one tile for the recording", async () => {
     await render(row);
     const text = host.textContent ?? "";
     expect(text).not.toContain("0 byte");
-    expect(host.querySelectorAll(".cv-user__video")).toHaveLength(2);
+    // The same recording sent twice draws once (#51971, withoutRepeatedVideos), never as a file chip.
+    expect(host.querySelectorAll(".cv-user__video")).toHaveLength(1);
     const chips = [...host.querySelectorAll(".acpmux-file-chip")].map((chip) => chip.textContent ?? "");
     expect(chips.some((chip) => chip.includes(".mov"))).toBe(false);
     // The pasted image's link is still its file chip, by its name alone.
