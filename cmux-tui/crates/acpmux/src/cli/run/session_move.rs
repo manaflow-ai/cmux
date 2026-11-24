@@ -325,6 +325,7 @@ struct Outcome {
     error: Option<String>,
     error_code: Option<&'static str>,
     preflight: preflight::Preflight,
+    timings: Option<super::transfer::MoveTimings>,
 }
 
 impl Outcome {
@@ -342,6 +343,7 @@ impl Outcome {
             error: None,
             error_code: None,
             preflight: preflight::Preflight::default(),
+            timings: None,
         }
     }
 }
@@ -423,7 +425,8 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "targetSessionId": o.there})
+                       "preflight": o.preflight, "targetSessionId": o.there,
+                       "timings": o.timings.map(super::transfer::MoveTimings::as_json)})
             })
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
@@ -724,6 +727,8 @@ async fn move_steps(
         super::transfer::precopy(src, &dst, &dst_init, &id),
     )
     .await;
+    let blackout_started = std::time::Instant::now();
+    let freeze_started = std::time::Instant::now();
     let begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await {
         // The log changed under the prefix (a compaction): given back, and moved in full.
         Err(e) if super::transfer::refused_diverged(&e) => {
@@ -752,10 +757,11 @@ async fn move_steps(
     };
     let mut src_end = MoveEnd::new("source", src, source.reach());
     let mut dst_end = MoveEnd::new("target", &dst, Some(dst_reach));
+    let freeze_ms = freeze_started.elapsed().as_millis() as u64;
     let finished = waiting(
         &name,
         "copying the chat to the target",
-        super::transfer::finish_move(
+        super::transfer::finish_move_timed(
             &mut src_end,
             &mut dst_end,
             &dst_init,
@@ -768,13 +774,16 @@ async fn move_steps(
     )
     .await;
     src_end.close().await;
-    let moved = match finished {
+    let (moved, mut timings) = match finished {
         Ok(moved) => moved,
         Err(e) => {
             dst_end.close().await;
             return Err(e);
         }
     };
+    timings.freeze_ms = freeze_ms;
+    timings.blackout_ms = blackout_started.elapsed().as_millis() as u64;
+    o.timings = Some(timings);
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);

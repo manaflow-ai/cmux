@@ -6,6 +6,29 @@ use super::move_end::{Journal, MoveEnd, Reach, Wait, journal_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// Durations observed while a chat is moved.  `freeze_ms` covers the source daemon's
+/// `transfer_begin` request, `transfer_ms` covers the target receive and page/finalize work,
+/// and `thaw_ms` covers the target's import activation when the receiver reports it.  The
+/// blackout is measured by the caller from the start of freeze through the commit response.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct MoveTimings {
+    pub(super) freeze_ms: u64,
+    pub(super) transfer_ms: u64,
+    pub(super) thaw_ms: Option<u64>,
+    pub(super) blackout_ms: u64,
+}
+
+impl MoveTimings {
+    pub(super) fn as_json(self) -> Value {
+        json!({
+            "freezeMs": self.freeze_ms,
+            "transferMs": self.transfer_ms,
+            "thawMs": self.thaw_ms,
+            "blackoutMs": self.blackout_ms,
+        })
+    }
+}
+
 /// Moves `session` to the daemon at `to`.
 pub(super) async fn run(
     session: &str,
@@ -332,9 +355,25 @@ pub(super) async fn finish_move(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
+    finish_move_timed(src, dst, dst_init, id, begun, cwd, name, to_meta)
+        .await
+        .map(|(moved, _)| moved)
+}
+
+/// [`finish_move`] with phase timings for the session-move JSON result.
+pub(super) async fn finish_move_timed(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+) -> Result<(Value, MoveTimings)> {
     let dir = journal_dir();
     let journal = (dir.as_path(), to_meta);
-    finish_journaled(src, dst, dst_init, id, begun, cwd, name, journal).await
+    finish_journaled_timed(src, dst, dst_init, id, begun, cwd, name, journal).await
 }
 
 /// [`finish_move`], the move noted in the journal at `dir` while it is under way.
@@ -349,6 +388,22 @@ pub(super) async fn finish_journaled(
     name: Option<String>,
     (dir, to_meta): (&std::path::Path, Value),
 ) -> Result<Value> {
+    finish_journaled_timed(src, dst, dst_init, id, begun, cwd, name, (dir, to_meta))
+        .await
+        .map(|(moved, _)| moved)
+}
+
+/// [`finish_journaled`] with phase timings for a normal `session move`.
+pub(super) async fn finish_journaled_timed(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    (dir, to_meta): (&std::path::Path, Value),
+) -> Result<(Value, MoveTimings)> {
     let journal = match (src.reach(), dst.reach()) {
         (Some(s), Some(d)) => Some(Journal {
             session_id: id.to_owned(),
@@ -364,7 +419,7 @@ pub(super) async fn finish_journaled(
     if let Some(j) = &journal {
         j.note(dir);
     }
-    let result = finish_noted(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
+    let result = finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
     if !matches!(result, Err(Unresolved(_))) {
         Journal::done(dir, &begun.transfer_id);
     }
@@ -396,6 +451,21 @@ async fn finish_noted(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
+    finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta)
+        .await
+        .map(|(moved, _)| moved)
+}
+
+async fn finish_noted_timed(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+) -> Result<(Value, MoveTimings), Failed> {
     let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
     if let Err(e) = receiver_takes(begin, dst_init) {
         return Err(abort_end(src, id, begun, e).await);
@@ -404,20 +474,34 @@ async fn finish_noted(
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
     }
+    let transfer_started = std::time::Instant::now();
     let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
     let receive = match receive.await {
         Ok(receive) => receive,
         Err(e) => return Err(abort_end(src, id, begun, e).await),
     };
     let receive_id = receive.get("receiveId").unwrap_or(&Value::Null);
-    let moved = match copy(src, dst, begin, receive_id, begun.epoch, cwd, name).await {
+    let (moved, transfer_ms, thaw_ms) = match copy(
+        src,
+        dst,
+        begin,
+        receive_id,
+        begun.epoch,
+        cwd,
+        name,
+        transfer_started,
+    )
+    .await
+    {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
         Err(e) => match landed(dst, id, transfer_id).await {
-            Some(true) => {
-                dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?
-            }
+            Some(true) => (
+                dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?,
+                transfer_started.elapsed().as_millis() as u64,
+                None,
+            ),
             Some(false) => return Err(abort_end(src, id, begun, e).await),
             None => {
                 eprintln!(
@@ -433,7 +517,7 @@ async fn finish_noted(
     let commit =
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch});
     src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
-    Ok(moved)
+    Ok((moved, MoveTimings { transfer_ms, thaw_ms, ..MoveTimings::default() }))
 }
 
 /// Gives the chat back on the source through `src` (reconnected if its connection dropped):
@@ -490,7 +574,8 @@ async fn copy(
     epoch: u64,
     cwd: Option<String>,
     name: Option<String>,
-) -> Result<Value> {
+    transfer_started: std::time::Instant,
+) -> Result<(Value, u64, Option<u64>)> {
     let mut resumes = 0;
     for file in begin["files"].as_array().into_iter().flatten() {
         let path = &file["path"];
@@ -525,7 +610,11 @@ async fn copy(
     }
     // Not asked again: a finish that landed answers a second one with an error; the caller
     // asks the (reconnected) target whether it landed.
-    dst.call("_acpmux/transfer_finish", finish, Wait::Finish, false).await
+    let thaw_started = std::time::Instant::now();
+    let moved = dst.call("_acpmux/transfer_finish", finish, Wait::Finish, false).await?;
+    let thaw_ms = thaw_started.elapsed().as_millis() as u64;
+    let transfer_ms = transfer_started.elapsed().as_millis() as u64 - thaw_ms;
+    Ok((moved, transfer_ms, Some(thaw_ms)))
 }
 
 /// Pages every file `manifest` lists from `src`'s `transfer_id` into `receive_id` on `dst`.
