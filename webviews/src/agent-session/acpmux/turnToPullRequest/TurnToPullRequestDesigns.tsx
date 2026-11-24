@@ -77,7 +77,7 @@ function pullRequestFor(state: "running" | "green" | "red"): HeaderPullRequest {
 }
 
 /// A ring of the checks: passed, failed and pending arcs on the muted track (14 px, the row icon size).
-export function ChecksRing({ checks, size = 14 }: { checks: readonly HeaderCheck[]; size?: number }) {
+function ChecksRing({ checks, size = 14 }: { checks: readonly HeaderCheck[]; size?: number }) {
   const radius = 5.5;
   const length = 2 * Math.PI * radius;
   const total = Math.max(checks.length, 1);
@@ -110,7 +110,11 @@ function checksSummary(state: "running" | "green" | "red"): string {
   const pr = pullRequestFor(state);
   const { passed, total } = pr.checks;
   if (state === "green") return `All ${total} checks passed`;
-  if (state === "red") return `${pr.checkList.filter((check) => check.state === "failed").map((check) => check.name).join(", ")} failed · ${passed} of ${total} passed`;
+  if (state === "red")
+    return `${pr.checkList
+      .filter((check) => check.state === "failed")
+      .map((check) => check.name)
+      .join(", ")} failed · ${passed} of ${total} passed`;
   return `${passed} of ${total} checks passed, ${total - passed} running`;
 }
 
@@ -355,7 +359,15 @@ const CAPTIONS: Record<TurnToPullRequestDesign, Record<TurnToPullRequestState, s
   },
 };
 
-function Scene({ design, state, row }: { design: TurnToPullRequestDesign; state: TurnToPullRequestState; row: AcpmuxRow }) {
+function Scene({
+  design,
+  state,
+  row,
+}: {
+  design: TurnToPullRequestDesign;
+  state: TurnToPullRequestState;
+  row: AcpmuxRow;
+}) {
   return (
     <div className="ttp-scene" data-design={design} data-state={state}>
       <div className="ttp-transcript">

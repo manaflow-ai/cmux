@@ -32,22 +32,16 @@
 .ttp-check-end{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 /* The composer, as the chat draws it: the box, then the quiet row. */
 .ttp-composer{position:relative;display:flex;flex-direction:column;gap:var(--ds-space-1)}
-.ttp-composer-box{display:flex;align-items:center;min-height:40px;padding:0 var(--ds-space-3);border:1px solid var(--acpmux-composer-edge);border-radius:var(--ds-radius-xl);background:var(--agent-surface-elevated)}
+.ttp-composer-box{display:flex;align-items:center;padding:var(--ds-space-2) var(--ds-space-3);line-height:20px;border:1px solid var(--acpmux-composer-edge);border-radius:var(--ds-radius-xl);background:var(--agent-surface-elevated)}
 .ttp-composer .acpmux-composer-foot{display:flex;align-items:center;gap:var(--ds-space-2);padding:0 var(--ds-space-1);color:var(--agent-muted);font-size:var(--text-detail)}
 .ttp-foot-spacer{flex:1}
 .ttp-chip{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);color:var(--agent-text)}
 .ttp-chip[data-open]{background:var(--agent-control,var(--ds-surface-card))}
 .ttp-chip[data-state=red]{color:var(--agent-status-failure)}
-/* The chip's menu or checks, drawn open above the quiet row (in the app a Popover). */
-.ttp-popup{position:absolute;right:var(--ds-space-8,32px);bottom:32px;z-index:1;padding:var(--ds-space-1);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--ui-popup-shadow,var(--elevation-2))}
+/* The chip's menu or checks, drawn open above the composer, at the chip's end (in the app a Popover). */
+.ttp-popup{align-self:flex-end;margin-right:var(--ds-space-6,24px);padding:var(--ds-space-1);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--ui-popup-shadow,var(--elevation-2))}
 .ttp-popup.acpmux-pr-status{width:280px;padding:var(--ds-space-2) var(--ds-space-1) var(--ds-space-1)}
 .ttp-menu{min-width:224px}
 .ttp-menu-row{display:flex;align-items:center;gap:var(--ds-space-2);min-height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-md);color:var(--agent-text)}
 .ttp-menu-row[data-hot]{background:var(--acpmux-menu-hover)}
 .ttp-menu-end{margin-inline-start:auto}
-/* The composer-chip frames make room above the composer for the drawn-open popup. */
-.ttp-scene[data-design=composer-chip]:not([data-state=opening]){padding-top:var(--ds-space-3)}
-.ttp-scene[data-design=composer-chip][data-state=ended] .ttp-composer{margin-top:88px}
-.ttp-scene[data-design=composer-chip][data-state=running] .ttp-composer,
-.ttp-scene[data-design=composer-chip][data-state=red] .ttp-composer,
-.ttp-scene[data-design=composer-chip][data-state=green] .ttp-composer{margin-top:200px}
