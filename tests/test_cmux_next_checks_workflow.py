@@ -1839,11 +1839,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         rust = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
         self.assertLess(max(init, zig, rust), tier)
-        # The Zig packages come from the deadlined, retried fetch, not from build.rs's
-        # single unretried download (a pkg/highway ReadFailed failed the job).
-        fetch = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/ghostty-zig-packages")
-        self.assertLess(zig, fetch)
-        self.assertLess(fetch, tier)
+        # No separate Zig package pre-fetch: build.rs seeds its packages from the mirror with
+        # retries (docs/ci/cmux-next-workflow-notes.md#note-211), so the step was pure overhead.
+        self.assertFalse([s for s in job["steps"] if s.get("uses") == "./.github/actions/ghostty-zig-packages"])
 
     def test_the_cargo_job_runs_on_linux_and_gates_like_the_mac_job(self):
         jobs = self.jobs()
@@ -4571,20 +4569,22 @@ class FastTierCargoRoute(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.reaches("docs/x.md", path))
 
-    def test_every_tree_input_runs_it(self):
-        # The crates' embeds and build scripts outside cmux-tui/ (check_cmux_tui_tree_inputs.py keeps the list whole).
-        for raw in (ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt").read_text(encoding="utf-8").splitlines():
-            parts = raw.split("#", 1)[0].split()
-            if len(parts) == 2:
-                with self.subTest(line=raw):
-                    self.assertTrue(self.reaches(parts[1] + ("/x" if parts[0] == "tree" else "")))
+    def test_a_dependency_crate_or_tree_input_change_waits_for_the_base_run(self):
+        # The feat-cmux-next push run and the merge car's cargo_affected.py test these after the merge.
+        self.assertFalse(self.reaches("cmux-tui/crates/acpmux/src/lib.rs", "webviews/src/app.tsx",
+                                      "cmux-tui/crates/acpmux-core/src/lib.rs", "schemas/x/vectors.json"))
 
     def test_every_registry_entry_runs_it(self):
         registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
         for entry in registry["entries"]:
             if entry["kind"] in ("cargo", "script"):
                 with self.subTest(entry=entry["name"]):
-                    path = entry["path"] + ("/src/lib.rs" if entry["kind"] == "cargo" else "")
+                    if entry["kind"] == "cargo":
+                        own = self.route.package_dir(ROOT, entry["path"], entry["package"])
+                        self.assertIsNotNone(own, entry["package"])
+                        path = own + "src/lib.rs"
+                    else:
+                        path = entry["path"]
                     self.assertTrue(self.reaches(path))
 
     def test_a_change_that_reaches_no_entry_skips_it(self):

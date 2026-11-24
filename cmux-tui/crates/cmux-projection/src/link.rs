@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use crate::lower::Ext;
 use crate::wire::{self, Ask, Part};
 use crate::{Fetch, FetchError};
 
@@ -33,6 +34,9 @@ struct Attached {
     /// Which attachment this is (an old stream's reader never touches a newer one).
     generation: u64,
     writer: Writer,
+    /// The extension this stream's manifest is (the Mac's indices are the full manifest's), or
+    /// `None` when the stream speaks the overlay's own ids.
+    ext: Option<Arc<Ext>>,
 }
 
 #[derive(Default)]
@@ -101,6 +105,18 @@ impl Link {
     /// Serves asks over `reader` and `writer` (the Mac's new stream) until it ends; asks in flight
     /// on an older stream fail over to this one. Returns when the stream ends.
     pub fn serve(&self, reader: impl Read, writer: impl Write + Send + 'static) {
+        self.serve_with(reader, writer, None);
+    }
+
+    /// [`Link::serve`] for a stream whose Mac holds the full manifest of `ext` (the overlay's ids
+    /// are turned into its indices as each ask goes out, so an ask that fails over from an older
+    /// stream is still the right file).
+    pub fn serve_with(
+        &self,
+        reader: impl Read,
+        writer: impl Write + Send + 'static,
+        ext: Option<Arc<Ext>>,
+    ) {
         let generation = {
             let mut state = self.lock();
             state.generation += 1;
@@ -109,6 +125,7 @@ impl Link {
             state.attached = Some(Attached {
                 generation,
                 writer: Box::new(BufWriter::with_capacity(64 * 1024, writer)),
+                ext,
             });
             // Asks of an older stream are answered with nothing: the asker asks again here.
             state.waiting.retain(|_, (of, sender)| {
@@ -192,8 +209,11 @@ impl Link {
             if let Some(attached) = state.attached.as_mut() {
                 let number = self.next.fetch_add(1, Ordering::Relaxed);
                 let generation = attached.generation;
-                let sent =
-                    make(number).write(&mut attached.writer).and_then(|()| attached.writer.flush());
+                let ask = match &attached.ext {
+                    Some(ext) => make(number).remap(|id| ext.wire_of(id)),
+                    None => make(number),
+                };
+                let sent = ask.write(&mut attached.writer).and_then(|()| attached.writer.flush());
                 if sent.is_err() {
                     state.attached = None;
                     state.dropped = Some(Instant::now());
@@ -216,6 +236,27 @@ impl Link {
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
+    }
+
+    /// Which files the Mac has put in the store, from the `since`-th it put on: its upload's
+    /// epoch (a new one starts again from 0) and `(entry, blob id)` pairs, in the order it put
+    /// them. Asked only of a Mac whose store is configured (an older Mac ends a stream on an ask it
+    /// does not know).
+    pub fn stored(&self, since: u32) -> Result<(u64, Vec<(u32, String)>), FetchError> {
+        let parts = self.ask(&|ask| Ask::Stored { ask, since })?;
+        let mut parts = parts.into_iter();
+        let Some(epoch) = parts.next() else { return Ok((0, Vec::new())) };
+        let epoch = <[u8; 8]>::try_from(epoch.bytes.as_slice())
+            .map(u64::from_le_bytes)
+            .map_err(|_| FetchError::Failed)?;
+        let files = parts
+            .filter_map(|part| {
+                let (entry, oid) = part.bytes.split_at_checked(4)?;
+                let entry = u32::from_le_bytes(entry.try_into().ok()?);
+                Some((entry, String::from_utf8(oid.to_vec()).ok()?))
+            })
+            .collect();
+        Ok((epoch, files))
     }
 
     /// Asks the Mac whether it is there; true on an answer.
@@ -265,6 +306,7 @@ pub fn answer_asks(
                 entries.iter().map(|entry| source.whole(*entry)).collect()
             }
             Ask::Ping { .. } => Vec::new(),
+            Ask::Stored { since, .. } => source.stored(*since),
         };
         wire::write_answer(&mut writer, ask.number(), &parts)?;
         writer.flush()?;
@@ -278,6 +320,13 @@ pub trait Source {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Part;
     /// All of file `entry` (a batch asks only for small files).
     fn whole(&self, entry: u32) -> Part;
+    /// The answer to [`Ask::Stored`]: an epoch part (`u64`) and one part per file put in the store
+    /// from the `since`-th on (`entry u32` and its blob id). None when this Mac puts nothing in a
+    /// store ([`crate::upload::Uploader`] does).
+    fn stored(&self, since: u32) -> Vec<Part> {
+        let _ = since;
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

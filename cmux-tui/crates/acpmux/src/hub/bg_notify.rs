@@ -13,7 +13,16 @@
 //!   tasks leave it ([`Hub::bg_unwatch_session`]).
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
-//!   output. It is never steered into a running turn: it waits behind it, as a lane's report does.
+//!   output. A chat whose turn runs reads it at that turn's next tool step, as a lane's report
+//!   steers in (`lane_reports.rs`): queued behind the turn, it was a turn of its own once the turn
+//!   ended, and 92 of 382 such turns in a day did nothing (no tool, or only a wait or a status
+//!   read; median 125k tokens each, 13.4M tokens a day on one lane VM, cmuxterm-hq
+//!   `tools/transcript-analytics/tx_noop_turns.py`, 2026-11-24). An idle chat gets it as a turn
+//!   of its own; a turn it may not steer into (the person's own, one past its cap, a review's, an
+//!   agent that does not steer) or that ends before the agent read it gets it after, as before
+//!   (`turns.rs` `run_prompt_joined`, `steer_end.rs`). Leo, 2026-11-24: "anyways, for these
+//!   transcript analyses, we can likely do more tooling on things. and expand on our current
+//!   repertoir."
 //! - Once per task: its prompt id is `bg-done-<task>`, sent with `resend`, so a second send (a
 //!   restart between the send and the mark) is answered from the chat's log instead of running
 //!   again; and once the chat took it, `<task>.notified` beside the record says so, so a
@@ -53,7 +62,10 @@ impl Hub {
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
         let owner = Arc::as_ptr(self) as usize;
-        watcher().watch(lock, owner, record.session_id.clone(), move || {
+        // A stopping hub sends nothing (`bg_notify`), so it no longer holds the watch.
+        let alive = hub.clone();
+        let alive = move || alive.upgrade().is_some_and(|h| !h.stopping.load(Ordering::SeqCst));
+        watcher().watch(lock, owner, record.session_id.clone(), alive, move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
                     hub.bg_notify(&dir, &session, &id).await;
@@ -217,8 +229,8 @@ comes to you."
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];
-        // Never steered: it waits for a running turn to end.
-        if let Err(e) = self.prompt_with(session, blocks, SENDER, false, opts).await {
+        // Into a running turn at its next tool step, else a turn of its own (module docs).
+        if let Err(e) = self.prompt_with(session, blocks, SENDER, true, opts).await {
             // Held for a person who resumes the pair: it goes in then.
             if e.data.as_ref().is_none_or(|d| d["held"] != true) {
                 tracing::warn!(session = %session.id, task = %id, "a task's end: {}", e.message);
@@ -347,6 +359,7 @@ const TICK: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The process's one watcher of background tasks' locks (module docs).
 fn watcher() -> &'static Watcher {
+    // test-hook-allow: holds no hook; the daemon's one watcher, each watch keyed by its own lock file, so no test replaces another's
     static WATCHER: std::sync::OnceLock<Watcher> = std::sync::OnceLock::new();
     WATCHER.get_or_init(Watcher::default)
 }
@@ -361,7 +374,8 @@ struct Watcher {
 
 #[derive(Default)]
 struct WatchState {
-    /// By lock path: a task watched twice (a start and a restart's pass) ends once.
+    /// By lock path: a task watched twice (a start and a restart's pass) ends once; a watch whose
+    /// hub is gone or stopping gives way to the next.
     watches: HashMap<std::path::PathBuf, Watch>,
     /// The watcher thread runs.
     running: bool,
@@ -373,6 +387,8 @@ struct Watch {
     /// The hub (its address) and the chat the task is of.
     owner: usize,
     session: String,
+    /// Whether the hub that watched still runs (not dropped, not stopping).
+    alive: Box<dyn Fn() -> bool + Send>,
     end: Box<dyn FnOnce() + Send>,
 }
 
@@ -383,13 +399,25 @@ impl Watcher {
         path: std::path::PathBuf,
         owner: usize,
         session: String,
+        alive: impl Fn() -> bool + Send + 'static,
         end: impl FnOnce() + Send + 'static,
     ) {
         let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(&path) else {
             return end();
         };
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.watches.entry(path).or_insert(Watch { file, owner, session, end: Box::new(end) });
+        // The first watch of a lock keeps it, unless its hub is gone or stopping: a hub shut down in
+        // this process (a restart) leaves its watches behind, and keeping one sends that end nowhere.
+        let watch = Watch { file, owner, session, alive: Box::new(alive), end: Box::new(end) };
+        match state.watches.entry(path) {
+            std::collections::hash_map::Entry::Occupied(mut old) if !(old.get().alive)() => {
+                old.insert(watch);
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {}
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(watch);
+            }
+        }
         if !state.running {
             let spawned = std::thread::Builder::new()
                 .name("acpmux-bg-watch".into())
@@ -514,10 +542,16 @@ mod tests {
             let (path, file) = held_lock(dir.path(), &format!("t{i}"));
             let session = if i == 0 { "live" } else { "purged" };
             let (fired, tx) = (fired.clone(), tx.clone());
-            watcher().watch(path, owner, session.into(), move || {
-                fired.fetch_add(1, Ordering::SeqCst);
-                let _ = tx.send(i);
-            });
+            watcher().watch(
+                path,
+                owner,
+                session.into(),
+                || true,
+                move || {
+                    fired.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(i);
+                },
+            );
             held.push(file);
         }
         #[cfg(target_os = "linux")]
@@ -545,9 +579,15 @@ mod tests {
         let dir = cmux_unix_socket::short_test_dir("bg-watch-missing");
         let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let f = fired.clone();
-        watcher().watch(dir.path().join("gone.lock"), 0xb9_0002, "s".into(), move || {
-            f.store(true, Ordering::SeqCst);
-        });
+        watcher().watch(
+            dir.path().join("gone.lock"),
+            0xb9_0002,
+            "s".into(),
+            || true,
+            move || {
+                f.store(true, Ordering::SeqCst);
+            },
+        );
         assert!(fired.load(Ordering::SeqCst));
     }
 }

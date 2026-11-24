@@ -342,6 +342,53 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_swiftui_trailing_closure_button_is_an_action(self):
+        """`Button { ... } label: { ... }` is a person action like `Button("Retry")` (iOS ConnectionChip)."""
+        chip = ("struct ConnectionChip: View {\n"
+                "    let retry: (() -> Void)?\n"
+                "    var body: some View {\n"
+                "        Button { retry?() } label: { Text(\"Connecting\") }\n    }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/ConnectionChip.swift", chip)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_model_that_names_its_action_type_is_an_action_and_a_text_field_is_not(self):
+        """A row model's `var action: Action?` (Mac Home chief connections) carries the person's action; a field
+        that only holds words (`var action: String?`, a subagent's description) does not."""
+        acted = ("struct HomeChiefConnection {\n"
+                 "    var status: String { \"Not connected\" }\n"
+                 "    public var action: Action? { .connect }\n"
+                 "    enum Action { case connect }\n}\n")
+        worded = ("struct AgentSubagent {\n"
+                  "    var status: String { \"Disconnected\" }\n"
+                  "    public var action: String?\n}\n")
+        tree = Tree(self)
+        tree.write(f"{IOS}/HomeChiefConnection.swift", acted)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{IOS}/AgentSubagent.swift", worded)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("AgentSubagent shows a connection state ('Disconnected')", out)
+
+    def test_a_sidebar_section_that_activates_its_rows_is_an_action(self):
+        """A sidebar section whose rows click through `activate(_ id: LayoutItemID)` (Mac HostsSidebar: a
+        Connecting row opens the workspace once connected) carries the person's action; a section without it does not."""
+        clicked = ("final class HostsSidebar {\n"
+                   "    static func caption() -> String { \"Connecting\u2026\" }\n"
+                   "    public func activate(_ id: LayoutItemID) -> Bool { true }\n}\n")
+        unclicked = ("final class PeersSidebar {\n"
+                     "    static func caption() -> String { \"Connecting\u2026\" }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{MAC}/HostsSidebar.swift", clicked)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/PeersSidebar.swift", unclicked)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("PeersSidebar shows a connection state", out)
+
     def test_tests_and_galleries_are_not_read(self):
         tree = Tree(self)
         tree.write(f"{IOS}/Tests/TerminalStatusLineTests.swift", IOS_OLD)
