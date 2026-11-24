@@ -524,19 +524,21 @@ impl SignalingClient {
         egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
-        let egress = egress.clone();
         let url = signal_url(base_url, team_id, device_id)?;
-        Self::open(url, token, device_id, build_space).await
+        Self::open(url, token, device_id, build_space, egress).await
     }
 
-    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query),
+    /// leaving this device as `egress` says.
     async fn open(
         url: String,
         token: &str,
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
+        egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
+        let egress = egress.clone();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -690,7 +692,9 @@ impl SignalingClient {
             crate::local::HUB_VERSION_PARAM,
             crate::local::HUB_VERSION
         );
-        let client = Self::open(url, token, device_id, None).await?;
+        // A hub on this network: never through a proxy (its address is local).
+        let local = crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
+        let client = Self::open(url, token, device_id, None, &local).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
     }
