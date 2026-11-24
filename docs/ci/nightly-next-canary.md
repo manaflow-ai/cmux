@@ -111,11 +111,9 @@ pulled build updates to the newer build.
 
 ## Artifact verification
 
-The scheduled verifier is static and post-publication. It downloads the exact
+The scheduled verifier runs after publication. It downloads the exact
 DMG named by the feed, records its SHA-256 receipt, and checks the feed length, stapler tickets,
-Gatekeeper policy, and build number. It does not launch the app, invoke the
-bundled CLI, or mutate the feed. Runtime behavior belongs to the path-routed
-daemon/app integration tests.
+Gatekeeper policy, build number and source commit. A scheduled or manually dispatched pass also measures the verified app on the secret-free CI Mac.
 
 `nightly-next-canary.yml` runs from `main` every 15 minutes. Each feed build is
 checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
@@ -134,12 +132,39 @@ retried rather than kept as a failure.
 A failed static check remains a visible failed workflow; rollback remains a
 manual operator action through `nightly-next-rollback.yml`.
 
+### Felt latency in the canary verdict
+
+After the static checks pass, the CI Mac runs the signed DMG through
+`scripts/ci/launch_tti_check.py`. It restores two workspaces with one chat and
+2,000 lines of terminal scrollback. Five warm terminal relaunches each supply:
+
+| Timing in milliseconds | Start → end | Absolute floor |
+| --- | --- | --- |
+| First frame | Process start → first committed window frame | 150 ms |
+| Typing echo | In-app key posted → first live terminal output decoded after input was accepted | 25 ms |
+
+The comparison uses the newest **strictly earlier** feed build whose durable
+artifact verdict passed. Each metric needs all five readings from both builds,
+the same measurement profile, Mac model, chip and OS build. A median increase
+greater than **all three** of 25% of the baseline median, the absolute floor,
+and three times the larger median absolute deviation fails that metric.
+Missing keys, unmatched machines and a previous pass without measurements show
+as `unavailable`. The current samples still seed a later comparison.
+
+The canary run summary shows both medians, ranges, delta and threshold. Its
+`canary-latency-<build>` artifact and the `latency` field in
+`verdicts/<build>.json` carry the samples and the advisory verdict. A latency
+`fail` emits a warning. Static verification still decides ring promotion.
+Five recorded cmux14 first frames ranged from 1,182.3 to 1,328.6 ms, and the
+native echo needs a key window on the unattended runner. These conditions
+make a single fleet comparison insufficient evidence for withholding a build.
+
 ### Switches
 
 `NIGHTLY_NEXT_CANARY=off` disables the advisory artifact monitor. Any other
 accepted value (`report`, `enforce`, `auto`, or unset) keeps the static monitor
 enabled; the former report-week/enforce resolver is retained for compatibility
-and no longer launches code or pulls a build from the feed.
+and the artifact monitor never pulls a build from the feed.
 
 ### Release rings: Dev before Nightly
 

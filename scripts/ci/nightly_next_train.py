@@ -180,7 +180,15 @@ def feed_builds(feed_xml: str) -> list[str]:
 
 def last_good(feed_xml: str, fetch: Callable[[str], bytes | None], verdicts_url: str = VERDICTS) -> dict | None:
     """The newest feed build whose verdict is pass: {"build", "commit"}."""
-    for build in feed_builds(feed_xml):
+    doc = passing_verdict(feed_builds(feed_xml), fetch, verdicts_url)
+    if doc:
+        return {"build": doc["build"], "commit": doc["commit"], "source": "verdict"}
+    return None
+
+
+def passing_verdict(builds: Iterable[str], fetch: Callable[[str], bytes | None], verdicts_url: str = VERDICTS) -> dict | None:
+    """The first passing verdict document in BUILDS (newest first)."""
+    for build in builds:
         body = fetch(f"{verdicts_url}/{build}.json")
         if body is None:
             continue
@@ -188,8 +196,8 @@ def last_good(feed_xml: str, fetch: Callable[[str], bytes | None], verdicts_url:
             doc = json.loads(body)
         except ValueError:
             continue
-        if doc.get("build") == build and doc.get("verdict") == "pass" and SHA_RE.match(str(doc.get("commit", ""))):
-            return {"build": build, "commit": doc["commit"], "source": "verdict"}
+        if isinstance(doc, dict) and doc.get("build") == build and doc.get("verdict") == "pass" and SHA_RE.match(str(doc.get("commit", ""))):
+            return doc
     return None
 
 
