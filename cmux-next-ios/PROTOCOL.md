@@ -546,8 +546,10 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   signal opened too. `503 relay_off` when the Worker's `LINK_RELAY_MODE` is
   `off` (the kill switch); an older Worker answers `404`.
 - **Where:** one `LinkRelay` Durable Object per session, named by the owner
-  key, build space and session id (never a client value), created with the
-  joiner's `locationHint` like a hub. Hibernating sockets, no storage, one
+  key, build space and session id (never a client value), created in the
+  region that makes the two ends' round trips through it least ("Relay
+  placement" below); the joiner's `locationHint` when the peer's location is
+  unknown. Hibernating sockets, no storage, one
   socket per device (a newer join closes the older with 4000 `replaced`).
 - **Frames:** the overlay relay frame of `cmux_transport::relay_frame`
   (`[u8 1][u8 kind][16-byte peer][payload ≤ 16 KiB]`, the shared golden
@@ -592,6 +594,35 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   allocation, the relay at once, never left; without the relay the dial
   fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
   `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
+
+### Relay placement
+
+A Durable Object stays where it is first created, so the first join decides
+where a session's relay lives for good (`backend/src/placement.ts`). The
+Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+The peer is the other party of the session, located by its live signal
+socket. Each end's cost to r is either:
+
+- its own measured round trip to r, from its netcheck; or
+- an estimate from Cloudflare's geolocation of its request (lat/lon rounded
+  to 0.1°): the great-circle distance to the region's assumed centre at
+  100 km per ms of round trip.
+
+When an end has neither, the relay takes the joiner's `locationHint`, as
+before. Regions within 2 ms of the least sum count as a tie; the more even
+split wins.
+
+- **Netcheck targets:** `GET /v1/netcheck/:region` (`wnam`, `enam`, `sam`,
+  `weur`, `eeur`, `apac`, `oc`, `afr`, `me`), a WebSocket upgrade with the
+  same bearer as signaling. It reaches one object per region and build
+  space, created with that region's hint. The object answers `ping` with
+  `pong` without waking; any other frame closes the socket with 1008. An
+  unknown region gets `404 unknown_region`, and `503 relay_off` comes with
+  the relay's kill switch.
+- **Reporting it:** a client that has measured adds
+  `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
+  a relay join). Entries that fail to parse are dropped. The hub keeps the
+  value with the socket and never stores it.
 
 ### When no path works
 
