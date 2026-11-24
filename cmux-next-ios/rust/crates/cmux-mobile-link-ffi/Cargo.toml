@@ -24,11 +24,14 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
+# Attachments over the `bundle` service (src/bundle.rs).
+cmux-bundle.workspace = true
 cmux-follow-cam.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-link.workspace = true
 cmux-rd-proto.workspace = true
+cmux-tab-snapshots.workspace = true
 cmux-terminal-prediction.workspace = true
 cmux-terminal-projection.workspace = true
 cmux-window-rules.workspace = true
@@ -50,6 +53,8 @@ uuid.workspace = true
 [dev-dependencies]
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-mobile-host = { path = "../cmux-mobile-host" }
+# The shaped bundle bench (tests/bundle_lte.rs).
+cmux-fault.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true
 sha2 = "0.10"

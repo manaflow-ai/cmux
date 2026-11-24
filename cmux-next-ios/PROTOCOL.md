@@ -163,7 +163,7 @@ Worker was deployed before its database migration; the message names it), `membe
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, skipped?, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `POST /v1/diagnostics/connectivity-incidents` | One state of a major connectivity incident (0.15.0; "Connectivity incidents" below) → `202 {accepted:true, route:"team"\|"test", note?:"duplicate"\|"rate_limited"}`; `403 not_team` / `email_unverified` for anyone whose verified Stack email is not on a cmux team domain; `409 conflict` for an incident id another account used; `502 user_unavailable` when Stack cannot be asked (retry) |
@@ -913,6 +913,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   newline-terminated line. The host removes resumable parts older than 24 hours
   when it next opens the `.parts` folder. Uploads without `upload_id` retain the
   legacy reply framing and interruption behavior.
+- `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
+  upload or a file open as sealed, content-defined chunks (cmux-tui
+  `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
+  round trip and its manifest (36 bytes per ~64 KiB chunk) instead of its bytes.
+  Every message is `u32 BE length | bytes`; one that starts with `{` is JSON,
+  any other a `cmux-bundle` sync message (offer, want, chunks). A length past
+  4 MiB is refused. The Mac's first message is `{"v":1,"key":"<64 hex>"}`, the
+  pair's bundle secret: `blake3::derive_key("cmux-bundle v1 pair secret", the
+  Mac's box key (derived from its identity key) || phone device id)`, so the
+  same phone always gets the same key; chunk ids and seals derive from it, and
+  a relay cache never sees it. The phone keeps it per Mac and may offer before
+  reading it; the Mac takes one offer under a stale key and the next.
+  - `{"op":"put","name","size","cwd"?}` (as `upload`, needs what `upload`
+    needs): the phone offers; the Mac answers a want (the chunks it lacks); the
+    phone sends those chunks without waiting; the Mac publishes the file as
+    `upload` does and answers `{"path","size"}`, then `eof`.
+  - `{"op":"get","path"}` (as `file`: the same roots and open checks): the Mac
+    offers; the phone answers a want, or closes when it holds every chunk; the
+    Mac sends the chunks, then an empty message.
+  Files past 256 MiB are refused `too_large` (the phone uses `upload` or
+  `file`); a chunk that does not open to its id, an offer under another key, or
+  chunks the offer does not name are refused `bad_request`, and nothing is
+  published. Refusals are `{"error","message"}` before the close. The Mac keeps
+  chunks (ciphertext) under `<uploads>/bundle-chunks`, at most 2 GiB, least
+  recently used out first; the phone keeps its own per Mac in its Caches. An
+  older Mac closes `bundle` with `unknown_service`; the phone then uses
+  `upload` / `file` for the rest of the link.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -1274,6 +1301,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
@@ -1660,7 +1688,16 @@ phone's registered `sandbox` or `production`, `status` is APNs' HTTP status
 `network` when no answer came, or `unknown` for any other body. It never
 carries the device token, the topic or an error's text. Without a failure the
 field is absent, so the rest of the answer is unchanged. Sends APNs reports as
-gone count in `dropped`, not here.
+gone count in `dropped`, not here: only a token-level answer (`BadDeviceToken`,
+`Unregistered`, `DeviceTokenNotForTopic`, or 410) drops a registration.
+
+A key- or topic-level answer (`TopicDisallowed`, `BadEnvironmentKeyInToken`,
+`InvalidProviderToken`, `ExpiredProviderToken`, `MissingTopic`, `BadTopic`)
+would be the same for every phone on that environment and topic, so the
+Worker does not send that event to the rest of them: they count in
+`skipped` (absent when 0), not in `failed` or `failures`, and keep their
+registrations. The Worker keeps at most 6 APNs sends in flight per event,
+each environment and topic's first send in the first six.
 
 Only `eventId` and `kind` are required. Any other field that is malformed
 (an id outside its pattern, a value of the wrong type, an unknown `state`, an
