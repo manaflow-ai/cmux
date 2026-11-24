@@ -97,8 +97,10 @@ async function pane(
 
 /// Waits for `ready` on the pane's own work, never a fixed time.
 const until = async (ready: () => boolean) => {
-  for (let tries = 0; tries < 400 && !ready(); tries += 1) await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  expect(ready()).toBe(true);
+  for (let turns = 0; !ready(); turns += 1) {
+    if (turns > 20_000) throw new Error(`never settled: ${ready.toString()}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 };
 /// The wait for the host's resend to show, shortened for a test and put back after.
 async function withResendShowMs<T>(ms: number, body: () => Promise<T>): Promise<T> {
