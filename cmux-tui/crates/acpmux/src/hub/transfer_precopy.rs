@@ -131,6 +131,15 @@ impl Hub {
                 return Err(error);
             }
         };
+        // The agent's own transcript (a Claude chat's JSONL: 1.6 GB for a 7 GB chat) goes too,
+        // at the path a bundle gives it: the freeze then pages only what it grew by
+        // (`transfer_live.rs`). One that fails to copy goes whole inside the freeze, as before.
+        let native_root = root.join(&session.id).join("native");
+        for (label, src) in crate::native::locate(&session.meta()) {
+            if let Err(error) = crate::native::copy_into(&src, &native_root, &label) {
+                tracing::debug!(session = %session.id, "native file not pre-copied: {error:#}");
+            }
+        }
         let token = format!("{prepare_id}:{after_seq}:{digest}");
         let record = json!({"sessionId": session.id, "afterSeq": after_seq, "digest": digest,
                             "stamp": stamp, "token": token});
@@ -138,6 +147,8 @@ impl Hub {
             .and_then(|()| bundle_files(&root.join(&session.id)))
             .map_err(|e| RpcError::internal(format!("transfer: prepare: {e}")))?;
         super::super::transfer_watch::note_activity(&root, None);
+        // This prepare holds all an earlier one of the chat did (`transfer_live.rs`).
+        super::transfer_live::drop_other_prepares(&session.id, &prepare_id);
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         let mut answer = json!({"schema": PREFIX_SCHEMA, "prepareId": prepare_id,
@@ -407,14 +418,32 @@ impl Hub {
         for f in &files {
             let path = f["path"].as_str().unwrap_or("");
             inside(Path::new("/"), path)?;
-            if !path.starts_with("events/") || f["size"].as_u64().is_none() {
-                return Err(RpcError::invalid_params("transfer: a stage takes only events"));
+            let staged_kind = path.starts_with("events/") || path.starts_with("native/");
+            if !staged_kind || f.get("size").and_then(Value::as_u64).is_none() {
+                return Err(RpcError::invalid_params(
+                    "transfer: a stage takes only events and native files",
+                ));
             }
         }
         if let Some(base) = manifest.get("base").filter(|b| !b.is_null()) {
             self.check_base(id, base)?;
         }
         self.sweep();
+        // A resumed stage takes up the chat's unfinished one, with this manifest, and says what
+        // it holds (`transfer_live.rs`).
+        if params.get("resume").and_then(Value::as_bool) == Some(true) {
+            let base = manifest.get("base").cloned().unwrap_or(Value::Null);
+            if let Some((stage_id, dir)) = super::transfer_live::resumable_stage(id, &base)
+                && let Some(have) = super::transfer_live::stage_holds(&dir, &manifest)
+            {
+                crate::home_fs::write(dir.join("manifest.json"), manifest.to_string())
+                    .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+                super::super::transfer_watch::note_activity(&dir, None);
+                let _ = crate::home_fs::write(dir.join("alive"), "0");
+                return Ok(json!({"receiveId": stage_id, "stageId": stage_id, "sessionId": id,
+                                 "resumed": true, "have": have}));
+            }
+        }
         let stage_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{stage_id}"));
         crate::home_fs::create_dirs(dir.join("bundle"))
@@ -451,8 +480,15 @@ impl Hub {
             Some(base) => Some(self.check_base(chat, base)?),
             None => None,
         };
-        let written = private_stage(&dir, &staged.join("events"))
-            .and_then(|()| self.write_staged(&bundle.join("events"), &segment, chat, base));
+        // A stage a hub move made (`transfer_hub_precopy.rs`) has its records rewritten for the
+        // control it will run under, as a guarded import rewrites a bundle's.
+        let control = super::super::transfer_hub_precopy::stage_control(&dir);
+        if control.is_some() && base.is_some() {
+            return Err(transfer_error("stage", "a guarded stage is of the whole prefix"));
+        }
+        let written = private_stage(&dir, &staged.join("events")).and_then(|()| {
+            self.write_staged(&bundle.join("events"), &segment, chat, base, control)
+        });
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
         if last != after_seq {
             let _ = crate::home_fs::remove_dir_all(dir.join("store"));
@@ -462,8 +498,14 @@ impl Hub {
             ));
         }
         index_staged(&dir.join("store"), chat);
-        let staged = json!({"sessionId": field(&manifest, "sessionId"), "afterSeq": after_seq,
-                            "token": field(&manifest, "token")});
+        // The native files stay for the move's receive, with what each holds: the freeze pages
+        // only what they grew by since (`transfer_live.rs`).
+        let native = super::transfer_live::keep_staged_native(&dir);
+        let mut staged = json!({"sessionId": field(&manifest, "sessionId"), "afterSeq": after_seq,
+                                "token": field(&manifest, "token"), "native": native});
+        if let Some(control) = control {
+            staged.set("control", json!(control.as_str()));
+        }
         crate::home_fs::write(dir.join("staged.json"), staged.to_string())
             .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let _ = crate::home_fs::remove_dir_all(&bundle);
@@ -478,7 +520,8 @@ impl Hub {
         stage_id: &str,
         manifest: &Value,
         dir: &Path,
-    ) -> Result<(), RpcError> {
+        control: Option<Control>,
+    ) -> Result<Vec<Value>, RpcError> {
         let stage = inside(&transfers_dir(), &format!("in-{stage_id}"))?;
         let staged = read_json(&stage.join("staged.json"));
         let prefix = &manifest["prefix"];
@@ -487,6 +530,8 @@ impl Hub {
                 && s["afterSeq"] == prefix["afterSeq"]
                 && s["token"].is_string()
                 && s["token"] == prefix["token"]
+                // Rewritten for the control it is taken under, or for none.
+                && s["control"].as_str() == control.map(Control::as_str)
         });
         if !matches {
             return Err(transfer_error("unstaged", "no staged prefix here matches this move")
@@ -496,12 +541,13 @@ impl Hub {
             .and_then(|()| {
                 crate::home_fs::write(
                     dir.join("prefix.json"),
-                    staged.unwrap_or_default().to_string(),
+                    staged.clone().unwrap_or_default().to_string(),
                 )
             })
             .map_err(|e| RpcError::internal(format!("transfer: stage: {e}")))?;
+        let have = super::transfer_live::seed_native(&stage, dir, staged.as_ref());
         let _ = crate::home_fs::remove_dir_all(stage);
-        Ok(())
+        Ok(have)
     }
 
     /// At finish: the staged prefix a receive took, when its manifest names one.
@@ -601,13 +647,14 @@ impl Hub {
             anyhow::ensure!(!segment.exists(), "chat {id} has a segment 000000 already");
             // The receive keeps its own name for the file until it goes: a finish tried again
             // after a failed import finds it.
-            if crate::home_fs::hard_link(file, &segment).is_err() {
+            let linked = crate::home_fs::hard_link(file, &segment).is_ok();
+            if !linked {
                 let tmp = events.join("000000.ndjson.history");
                 crate::home_fs::copy(file, &tmp)?;
                 std::fs::File::open(&tmp)?.sync_all()?;
                 crate::home_fs::rename(&tmp, &segment)?;
             }
-            adopt_index(file, &dir);
+            adopt_index(file, &dir, &segment, linked);
             for synced in [&events, &dir] {
                 crate::home_fs::sync_dir(synced)?;
             }
@@ -641,6 +688,7 @@ impl Hub {
         out: &Path,
         chat: &str,
         base: Option<u64>,
+        control: Option<Control>,
     ) -> anyhow::Result<(u64, u64)> {
         use std::io::{BufRead as _, Write as _};
         let mut files: Vec<PathBuf> = std::fs::read_dir(events)
@@ -661,8 +709,11 @@ impl Hub {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let rec: EventRecord = serde_json::from_str(&line)
+                let mut rec: EventRecord = serde_json::from_str(&line)
                     .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
+                if let Some(control) = control {
+                    super::super::transfer_guard::guarded_record(&mut rec, control);
+                }
                 anyhow::ensure!(rec.seq > last || count == 0, "seq {} follows {last}", rec.seq);
                 serde_json::to_writer(&mut writer, &rec)?;
                 writer.write_all(b"\n")?;
@@ -708,8 +759,12 @@ fn private_stage(stage: &Path, events: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Links the kind index made beside the staged segment `file` into the chat's folder `dir`.
-fn adopt_index(file: &Path, dir: &Path) {
+/// Links the kind index made beside the staged segment `file` into the chat's folder `dir`, as
+/// the copy of `segment` (the chat's segment `000000`). A segment that was copied, not linked
+/// (the stage on another file system than the store), is another file: the index is written
+/// again for it (`store/kind_index.rs` `carry_copy`), or the first scan reads the whole log
+/// inside the freeze.
+fn adopt_index(file: &Path, dir: &Path, segment: &Path, linked: bool) {
     let Some(staged) = file.parent().and_then(Path::parent) else { return };
     let index = crate::store::KIND_INDEX_DIR;
     let (copy, to) = (staged.join(index).join("000000.ndjson"), dir.join(index));
@@ -718,7 +773,12 @@ fn adopt_index(file: &Path, dir: &Path) {
     }
     let target = to.join("000000.ndjson");
     let _ = crate::home_fs::remove_file(&target);
-    let _ = crate::home_fs::hard_link(&copy, &target);
+    if linked && crate::home_fs::hard_link(&copy, &target).is_ok() {
+        return;
+    }
+    if let Err(error) = crate::store::carry_kind_index(&copy, segment, &target) {
+        tracing::debug!(segment = %segment.display(), "staged kind index not carried: {error:#}");
+    }
 }
 
 /// `v[k]` without the indexing lint: Null when absent.

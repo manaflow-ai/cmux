@@ -274,7 +274,7 @@ pub fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client)
 /// provider, so this installs ring first: a process that builds a client before any install panics.
 pub fn http_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_cloud_api::machine_io")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
