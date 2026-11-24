@@ -147,7 +147,7 @@ extension SidebarController {
     }
 
     /// A row lifted toward the grid, drawn as the tile it would become: its avatar at the
-    /// tile's avatar place and its name below.
+    /// tile's avatar place and its name below (no name in the compact list, as its tiles).
     private func avatarGhost(_ c: ConversationSummary) -> CALayer {
         let ghost = CALayer()
         ghost.bounds = CGRect(origin: .zero, size: tileSize)
@@ -159,7 +159,7 @@ extension SidebarController {
         avatar.contentsScale = renderContext.scale
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
-        if let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
+        if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
             natural: SidebarDraw.tileNatural(c).name, tileWidth: tileSize.width), ctx: renderContext) {
             let label = CALayer()
             let w = CGFloat(name.width) / renderContext.scale
