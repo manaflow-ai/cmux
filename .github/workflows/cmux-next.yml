@@ -800,7 +800,7 @@ concurrency:
 jobs:
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # Why: docs/ci/cmux-next-workflow-notes.md#note-11
-  # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-590
   push-head-preflight:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-87
     if: ${{ !cancelled() && (inputs.same_tree_sha == '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
@@ -1283,6 +1283,8 @@ jobs:
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-24
           FLEET_CLIENT_JOBS: fast-tier
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+          CI_FAST_TIER_FLEET_SPILL: ${{ vars.CI_FAST_TIER_FLEET_SPILL }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-122
           GATEWAY_JOBS: >-
             ${{ format('{0} {1}',
