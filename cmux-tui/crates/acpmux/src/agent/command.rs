@@ -672,17 +672,6 @@ mod tests {
     use super::*;
 
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
-    /// must not, or the fleet's orphan reaper ends the agent once the bound passes. The bound
-    /// is a starter's turn value, which `harness_command` removes from every agent.
-    #[test]
-    fn an_agent_never_inherits_a_tool_calls_deadline() {
-        for key in ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"] {
-            assert!(crate::config::is_caller_scoped_key(key), "{key} must be caller-scoped");
-        }
-    }
-
-    /// A Claude session is launched under its acpmux name (`--name`), so Claude
-    /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
     #[test]
     fn an_agent_never_inherits_a_tool_calls_deadline() {
@@ -700,6 +689,7 @@ mod tests {
         }
     }
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
