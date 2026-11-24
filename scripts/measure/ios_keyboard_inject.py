@@ -6,7 +6,9 @@ ATTACHMENTS_DIR holds manifest.json and the kbm-trace-*/kbm-marks-* attachments
 (an xcresult export: ui-duress-SLUG-attachments in cmux-next-ios-sim.sh's evidence).
 
 slide: per surface, direction and offset after willShow/willHide: n, hit-test on the
-target (ok), touch delivered on the target, drag taken by the content (hide), main-thread
+target (ok), touch delivered on the target, wrong target (show: the hit-test picked a
+control of the stack, not the field), the field still first responder after the tap
+(injectFocus), drag taken by the content (hide), main-thread
 lag of the injection, ms to the app taking it.
 tti: per surface and direction: the XCUITest command's touch, the keyboard's notification,
 the keyboard drawn at its end (after it was drawn off it: a frame before the move's animation
@@ -90,6 +92,13 @@ def rows(trace, marks):
              'touch_ms': float(touch['ms']) if touch else None,
              'drag_trk': drag is not None and drag.get('trk') == '1',
              'key_ms': float(key['ms']) if key else None}
+        # A wrong target: the hit-test missed the field and picked a control
+        # of the stack (a button, the glass's tap interaction), which a tap
+        # activates. A miss on a bare view only drops the tap.
+        hit = e.get('hit') or ''
+        r['wrong'] = d == 'show' and not r['ok'] and any(k in hit for k in ('Button', 'Control', 'Interaction'))
+        focus = next((x for _, x in win if x['ev'] == 'injectFocus' and x.get('id') == e['id']), None)
+        r['focused'] = None if focus is None else focus.get('fr') == '1'
         if d == 'show' and mode == 'tti':
             r['taken'] = key is not None
             r['handled_ms'] = r['key_ms']
@@ -136,8 +145,8 @@ def fmt(xs):
 
 def tables(res):
     print('## slide: a touch during the keyboard move (in-app, trace clock)\n')
-    print('| run | surface | dir | off ms | n | hit-test on target | delivered on target | drag taken | taken | lag p50/p95 ms | handled p50/p95 ms |')
-    print('|---|---|---|---|---|---|---|---|---|---|---|')
+    print('| run | surface | dir | off ms | n | hit-test on target | delivered on target | wrong target | field focused after | drag taken | taken | lag p50/p95 ms | handled p50/p95 ms |')
+    print('|---|---|---|---|---|---|---|---|---|---|---|---|---|')
     for (tag, name), rs in sorted(res.items()):
         if not name.endswith('-slide'):
             continue
@@ -148,8 +157,11 @@ def tables(res):
                     continue
                 n = len(g)
                 c = lambda k: '%d/%d' % (sum(1 for r in g if r[k]), n)
-                print('| %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s |' % (
-                    tag, name[:-6], d, off, n, c('ok'), c('touch_tgt'), c('drag_trk') if d == 'hide' else '-', c('taken'),
+                fg = [r for r in g if r['focused'] is not None]
+                focused = '%d/%d' % (sum(1 for r in fg if r['focused']), len(fg)) if d == 'show' and fg else '-'
+                print('| %s | %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s |' % (
+                    tag, name[:-6], d, off, n, c('ok'), c('touch_tgt'), c('wrong') if d == 'show' else '-', focused,
+                    c('drag_trk') if d == 'hide' else '-', c('taken'),
                     fmt([r['lag'] for r in g]), fmt([r['handled_ms'] for r in g])))
     print('\n## tti: the second input at the keyboard\'s stop (in-app; p50 / p95 ms)\n')
     print('| run | surface | dir | n | cmd -> touch | touch -> will | will -> kb drawn at end | stop -> input fired | input handled | touch -> taken | taken |')
