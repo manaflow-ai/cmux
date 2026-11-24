@@ -360,6 +360,12 @@ const SACK_SCOREBOARD_LEN: usize = 16;
 /// worth of data, or this many separate ranges, were SACKed above it.
 const SACK_DUP_THRESH: usize = 3;
 
+/// cmux patch: the least time after resending the head before an ACK that
+/// still does not cover it says the resend was lost.
+const SACK_RESEND_LOST_MIN_MS: u64 = 10;
+const USE_TIME: bool = true;
+const USE_RXACK: bool = false;
+
 /// cmux patch: what the peer's SACK blocks (RFC 2018) say it holds above the
 /// cumulative ACK: sorted, disjoint, non-adjacent `[start, end)` ranges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -735,6 +741,14 @@ pub struct Socket<'a> {
     sack_high_rxt: TcpSeqNumber,
     /// cmux patch: this recovery episode already cut the congestion window.
     sack_window_cut: bool,
+    /// cmux patch: the head hole's last SACK resend, as (the head, the
+    /// highest sequence sent when it went out, when). The head still
+    /// unacknowledged once data sent after it was SACKed (Linux's
+    /// `tcp_mark_lost_retrans`), or once ACKs still arrive two smoothed RTTs
+    /// after it (RACK's time rule, RFC 8985), means the resend was lost too:
+    /// it goes again at once, instead of after an RTO that Karn's backoff can
+    /// stretch past the user timeout.
+    sack_head_rxt: Option<(TcpSeqNumber, TcpSeqNumber, Instant)>,
     /// cmux patch: the largest segment our own path takes (the interface MTU
     /// less headers), learned at the handshake. SACK recovery counts and
     /// admits repairs in min(this, remote MSS), the segments actually sent.
@@ -867,6 +881,7 @@ impl<'a> Socket<'a> {
             sack_scoreboard: SackScoreboard::default(),
             sack_recovery_point: None,
             sack_high_rxt: TcpSeqNumber::default(),
+            sack_head_rxt: None,
             sack_window_cut: false,
             local_mss: usize::MAX,
             path_change_retransmit: false,
@@ -1539,12 +1554,16 @@ impl<'a> Socket<'a> {
         // alone accept a block that spans more than half the sequence space.
         let una = self.local_seq_no.0 as u32;
         let flight = self.remote_last_seq - self.local_seq_no;
+        // The highest edge SACKed by this ACK, as an offset into the flight:
+        // a full scoreboard drops its highest ranges, so its last one can lag.
+        let mut sacked_high = 0;
         for &(left, right) in repr.sack_ranges.iter().flatten() {
             let start = left.wrapping_sub(una) as usize;
             let end = right.wrapping_sub(una) as usize;
             if 0 < start && start < end && end <= flight {
                 self.sack_scoreboard
                     .insert(self.local_seq_no + start, self.local_seq_no + end);
+                sacked_high = sacked_high.max(end);
             }
         }
         if let Some(point) = self.sack_recovery_point
@@ -1558,6 +1577,27 @@ impl<'a> Socket<'a> {
         // so a stale value can look ahead of the cumulative ACK.)
         if self.sack_recovery_point.is_none() || self.sack_high_rxt < self.local_seq_no {
             self.sack_high_rxt = self.local_seq_no;
+        }
+        // The head's resend is lost once the peer SACKed three segments of
+        // data sent after it: mark the head lost again (resending what was
+        // resent below `sack_high_rxt` along with it).
+        if let Some((head, sent_high, resent_at)) = self.sack_head_rxt {
+            let threshold = SACK_DUP_THRESH * self.sack_segment();
+            let rtt_passed = self.rtte.have_measurement
+                && cx.now()
+                    >= resent_at
+                        + Duration::from_millis(
+                            (2 * self.rtte.srtt as u64).max(SACK_RESEND_LOST_MIN_MS),
+                        );
+            if self.sack_recovery_point.is_none() || head != self.local_seq_no {
+                self.sack_head_rxt = None;
+            } else if sent_high - self.local_seq_no + threshold <= sacked_high
+                || (USE_TIME && rtt_passed)
+            {
+                net_debug!("SACK resend of {} lost, resending", head);
+                self.sack_head_rxt = None;
+                self.sack_high_rxt = self.local_seq_no;
+            }
         }
         let scan = self.sack_scan();
         if self.sack_recovery_point.is_none() && scan.next_retransmit.is_some() {
@@ -1730,6 +1770,7 @@ impl<'a> Socket<'a> {
         self.sack_scoreboard.clear();
         self.sack_recovery_point = None;
         self.sack_high_rxt = TcpSeqNumber::default();
+        self.sack_head_rxt = None;
         self.sack_window_cut = false;
         self.local_mss = usize::MAX;
         self.path_change_retransmit = false;
@@ -3107,6 +3148,13 @@ impl<'a> Socket<'a> {
                 payload_len,
                 payload_offset
             );
+            // cmux patch: still ACK it, as every out-of-order segment is
+            // (RFC 5681 4.2): with no ACK the sender learns nothing until its
+            // RTO, which at high loss can back off past the user timeout. The
+            // reply's SACK blocks name only data the assembler holds.
+            if USE_RXACK {
+                return Some(self.ack_reply(ip_repr, repr));
+            }
             return None;
         };
 
@@ -3408,6 +3456,7 @@ impl<'a> Socket<'a> {
                 self.sack_scoreboard.clear();
                 self.sack_recovery_point = None;
                 self.sack_high_rxt = self.local_seq_no;
+                self.sack_head_rxt = None;
 
                 if core::mem::take(&mut self.path_change_retransmit) {
                     // cmux patch: the path changed; the loss was the old
@@ -3805,6 +3854,9 @@ impl<'a> Socket<'a> {
 
         if is_sack_retransmit {
             self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
+            if repr.seq_number == self.local_seq_no {
+                self.sack_head_rxt = Some((self.local_seq_no, self.remote_last_seq, cx.now()));
+            }
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
             // Resending the head restarts the retransmit timer, probe
@@ -11570,6 +11622,35 @@ mod test {
         send!(s, time 100, sack_ack(36, [None, None, None]));
         assert_eq!(s.sack_recovery_point, None);
         assert!(s.sack_scoreboard.is_empty());
+    }
+
+    #[test]
+    fn test_sack_lost_resend_of_the_head_goes_again_once_later_data_is_sacked() {
+        let mut s = socket_sacking_with(CongestionControl::None, 18);
+        // The second segment was lost; the third arrived.
+        send!(s, time 50, sack_ack(6, [sack_block(12, 18), None, None]));
+        recv!(s, time 50, sack_resent(6));
+        recv_nothing!(s, time 50);
+        // New data goes out after the resend.
+        s.send_slice(&SACK_DATA[18..]).unwrap();
+        for offset in [18, 24, 30] {
+            recv!(s, time 51, Ok(TcpRepr {
+                seq_number: sack_seq(offset),
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &SACK_DATA[offset..offset + 6],
+                ..RECV_TEMPL
+            }));
+        }
+        // Two segments sent after the resend arrived: not yet proof.
+        send!(s, time 100, sack_ack(6, [sack_block(12, 30), None, None]));
+        recv_nothing!(s, time 100);
+        // Three did, and the head is still missing: the resend was lost too.
+        send!(s, time 101, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 101, sack_resent(6));
+        recv_nothing!(s, time 101);
+        // Once: the same proof does not resend it again.
+        send!(s, time 102, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv_nothing!(s, time 102);
     }
 
     #[test]
