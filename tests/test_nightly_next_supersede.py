@@ -341,7 +341,9 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
         self.assertNotIn("secrets.", json.dumps(job))
         rules = job["steps"][1]["with"]
-        self.assertEqual((rules["ref"], rules["sparse-checkout"].strip()), ("main", "scripts/ci/delivery_workflows.py"))
+        # main by branch name or by its full ref (refs/heads/main: never a tag of that name).
+        self.assertIn(rules["ref"], ("main", "refs/heads/main"))
+        self.assertEqual(rules["sparse-checkout"].strip(), "scripts/ci/delivery_workflows.py")
         step = job["steps"][-1]
         self.assertTrue(step.get("continue-on-error"))
         self.assertIn("--rules .main-rules/scripts/ci/delivery_workflows.py --settle --chain \"$CHAIN\"", step["run"])
