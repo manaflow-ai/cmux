@@ -275,6 +275,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_AUDIT, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
+        untyped(method::MUX_GITHUB_REST, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
         // Saved prompts (`prompts.rs`).
@@ -560,6 +561,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),

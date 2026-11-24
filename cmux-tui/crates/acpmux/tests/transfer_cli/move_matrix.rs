@@ -12,7 +12,7 @@ const PNG_B64: &str =
 
 impl Rpc {
     /// `call`, answering the error instead of failing the test.
-    async fn try_call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+    pub(super) async fn try_call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
         self.next += 1;
         let id = self.next;
         let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});

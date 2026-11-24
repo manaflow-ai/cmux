@@ -661,6 +661,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_rest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": {
         "$ref": "#/types/BookmarkGetParams"
@@ -2912,6 +2918,7 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -5776,6 +5783,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"

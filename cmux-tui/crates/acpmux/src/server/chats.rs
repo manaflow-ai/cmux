@@ -66,6 +66,7 @@
 
 mod ledger;
 mod offers;
+mod scorecard;
 mod search;
 mod stats;
 mod team_audit;
@@ -225,6 +226,10 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_SCORECARD {
+        return scorecard::handle(hub, conn.origin, &params).await;
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
