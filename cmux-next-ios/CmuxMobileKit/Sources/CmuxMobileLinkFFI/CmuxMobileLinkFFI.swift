@@ -647,6 +647,12 @@ public protocol AttachmentUploadsProtocol: AnyObject, Sendable {
     func fileReady(uploadId: String, path: String) 
     
     /**
+     * `file_ready` under another name on the Mac: the platform encoder made a different file
+     * (a HEIC photo re-encoded as `IMG_1.jpg`, `image_plan`).
+     */
+    func fileReadyAs(uploadId: String, path: String, name: String) 
+    
+    /**
      * Drops a finished upload's record.
      */
     func forget(uploadId: String) 
@@ -784,6 +790,20 @@ open func fileReady(uploadId: String, path: String)  {try! rustCall() {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(uploadId),
         FfiConverterString.lower(path),$0
+    )
+}
+}
+    
+    /**
+     * `file_ready` under another name on the Mac: the platform encoder made a different file
+     * (a HEIC photo re-encoded as `IMG_1.jpg`, `image_plan`).
+     */
+open func fileReadyAs(uploadId: String, path: String, name: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_attachmentuploads_file_ready_as(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(uploadId),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(name),$0
     )
 }
 }
@@ -5289,6 +5309,80 @@ public func FfiConverterTypeFollowRect_lower(_ value: FollowRect) -> RustBuffer 
 }
 
 
+public struct ImagePlan: Equatable, Hashable {
+    public var reencode: Bool
+    /**
+     * The long side the encoder makes (the original's when sent as is; never larger than it).
+     */
+    public var maxLongSide: UInt32
+    /**
+     * JPEG quality, 0...1, of the re-encode; 1 when the original goes.
+     */
+    public var quality: Double
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(reencode: Bool, 
+        /**
+         * The long side the encoder makes (the original's when sent as is; never larger than it).
+         */maxLongSide: UInt32, 
+        /**
+         * JPEG quality, 0...1, of the re-encode; 1 when the original goes.
+         */quality: Double, reason: String) {
+        self.reencode = reencode
+        self.maxLongSide = maxLongSide
+        self.quality = quality
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ImagePlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImagePlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImagePlan {
+        return
+            try ImagePlan(
+                reencode: FfiConverterBool.read(from: &buf), 
+                maxLongSide: FfiConverterUInt32.read(from: &buf), 
+                quality: FfiConverterDouble.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ImagePlan, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.reencode, into: &buf)
+        FfiConverterUInt32.write(value.maxLongSide, into: &buf)
+        FfiConverterDouble.write(value.quality, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImagePlan_lift(_ buf: RustBuffer) throws -> ImagePlan {
+    return try FfiConverterTypeImagePlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImagePlan_lower(_ value: ImagePlan) -> RustBuffer {
+    return FfiConverterTypeImagePlan.lower(value)
+}
+
+
 /**
  * A Keychain delete: the service, and the account when the item had one.
  */
@@ -8820,6 +8914,22 @@ public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
 }
 }
 /**
+ * Sizes a picked image to what an agent needs (design/attachment-upload.md, Next, item 2): the
+ * original when its long side is <= 2048 px and it is <= 2 MiB; otherwise a JPEG (q 0.85) with
+ * the long side at most 2048 px. HEIC in, JPEG out: agents read JPEG. A width or height of 0
+ * means unknown.
+ */
+public func imagePlan(width: UInt32, height: UInt32, bytes: UInt64, format: String) -> ImagePlan  {
+    return try!  FfiConverterTypeImagePlan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_image_plan(
+        FfiConverterUInt32.lower(width),
+        FfiConverterUInt32.lower(height),
+        FfiConverterUInt64.lower(bytes),
+        FfiConverterString.lower(format),$0
+    )
+})
+}
+/**
  * Send the original when it is small (<= 25 MiB) or already <= 1080p at <= 12 Mbit/s;
  * otherwise re-encode to HEVC with the long side at most 1920.
  */
@@ -9055,6 +9165,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_image_plan() != 32375) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_video_plan() != 62824) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9197,6 +9310,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_attachmentuploads_file_ready() != 34484) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_attachmentuploads_file_ready_as() != 54432) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_attachmentuploads_forget() != 25991) {
