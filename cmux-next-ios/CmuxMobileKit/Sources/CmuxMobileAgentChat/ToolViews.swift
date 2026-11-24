@@ -177,10 +177,14 @@ struct ToolOutputView: View {
 struct ToolOutputImages: View {
     let call: ACPToolCall
     static let maxHeight: CGFloat = 240
+    /// The pictures one row draws (a call rarely holds more than one or two).
+    static let maxShown = 8
 
     var body: some View {
+        let images = Array(call.images.prefix(Self.maxShown))
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(call.images.enumerated()), id: \.offset) { index, image in
+            ForEach(images.indices, id: \.self) { index in
+                let image = images[index]
                 if let picture = ToolImageCache.image(key: "\(call.id)#\(index)", base64: image.data) {
                     Image(uiImage: picture)
                         .resizable()
