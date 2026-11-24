@@ -801,6 +801,18 @@
       "scope": "git:external",
       "class": "mutation"
     },
+    "git.review.comment": {
+      "scope": "git:write",
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "scope": "git:external",
+      "class": "mutation"
+    },
+    "git.review.start": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "git.status": {
       "scope": "git:read",
       "class": "read"
@@ -1007,6 +1019,14 @@
     },
     "mail.threads.peek": {
       "scope": "mail:read",
+      "class": "read"
+    },
+    "media.control": {
+      "scope": "media:control",
+      "class": "mutation"
+    },
+    "media.get": {
+      "scope": "media:read",
       "class": "read"
     },
     "memory_app.cycle_variant": {
@@ -1216,6 +1236,10 @@
     "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
+    },
+    "project.actions.list": {
+      "scope": "project:read",
+      "class": "read"
     },
     "project.add": {
       "scope": "project:write",
@@ -2173,6 +2197,7 @@
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_resize",
     "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
