@@ -10,8 +10,13 @@
 //!   target. Roll app and daemon back together to the newest kept build that
 //!   passed this same check and can read the stores. With no passing build
 //!   kept, or none that reads the stores, stay and report.
-//! - Inconclusive (the daemon never answered in time): keep, record nothing,
-//!   so the next launch checks again.
+//! - Inconclusive (the daemon never answered in time, or refused with an
+//!   error it marks retryable, such as `connection.busy`): keep, record
+//!   nothing, so the next launch checks again.
+//!
+//! A rollback relaunches the app, so its notice is held in the record and
+//! shown once on the next launch ([`show`]): rolled back when the target
+//! build runs, rollback failed when the refused build still runs.
 //!
 //! [`decide`] is pure. [`run`] is the bundled CLI's `__install-check` mode
 //! the app calls: it loads the record, decides, saves, and prints the
@@ -32,7 +37,13 @@ pub enum Canary {
     /// The daemon answered the hello.
     Passed,
     /// The hello was refused; `reason` is the refusal as the chat would see it.
-    Refused { reason: String },
+    /// A `retryable` refusal (the JSON-RPC error's `data.retryable`, e.g.
+    /// `connection.busy`) says nothing about the build: it is inconclusive.
+    Refused {
+        reason: String,
+        #[serde(default)]
+        retryable: bool,
+    },
     /// No answer either way (timeout, daemon not ready).
     Inconclusive,
 }
@@ -147,14 +158,14 @@ pub fn decide(input: &Input) -> Decision {
         return Decision::keep();
     }
     let reason = match &input.canary {
-        Canary::Inconclusive => return Decision::keep(),
+        Canary::Inconclusive | Canary::Refused { retryable: true, .. } => return Decision::keep(),
         Canary::Passed => {
             return Decision {
                 record: Some(Entry { build: input.build.clone(), result: Outcome::Passed }),
                 ..Decision::keep()
             };
         }
-        Canary::Refused { reason } => reason.clone(),
+        Canary::Refused { reason, retryable: false } => reason.clone(),
     };
     let passed = |build: &str| {
         input.history.iter().any(|entry| entry.build == build && entry.result == Outcome::Passed)
@@ -177,6 +188,54 @@ pub fn decide(input: &Input) -> Decision {
     }
 }
 
+/// A rollback's notice, held in the record until the next launch shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Held {
+    pub notice: Notice,
+    /// What the person reads about a rollback that did not run; none while
+    /// it is under way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+/// Which notice a launch shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Shown {
+    /// The target build runs: the rollback happened.
+    RolledBack,
+    /// The refused build still runs: the rollback did not.
+    RollbackFailed,
+}
+
+/// The notice a launch shows, once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Show {
+    pub kind: Shown,
+    pub notice: Notice,
+    /// Why the rollback did not run (`RollbackFailed`); none when the app
+    /// ended before it said (a crash or a quit mid-swap).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+/// What a launch running `running` shows for the `held` notice. Pure.
+/// Another build running (the person moved on) shows nothing: the notice is
+/// stale.
+pub fn show(held: Option<&Held>, running: &str) -> Option<Show> {
+    let held = held?;
+    let kind = if held.failure.is_none() && held.notice.target.as_deref() == Some(running) {
+        Shown::RolledBack
+    } else if held.notice.build == running {
+        Shown::RollbackFailed
+    } else {
+        return None;
+    };
+    let failure = if kind == Shown::RollbackFailed { held.failure.clone() } else { None };
+    Some(Show { kind, notice: held.notice.clone(), failure })
+}
+
 /// The record on disk.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
@@ -184,6 +243,9 @@ pub struct Record {
     pub history: Vec<Entry>,
     #[serde(default)]
     pub pinned: Vec<String>,
+    /// A rollback's notice not shown yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<Held>,
 }
 
 impl Record {
@@ -197,8 +259,12 @@ impl Record {
         }
     }
 
-    /// Adds the decision's record and pin.
+    /// Adds the decision's record and pin, and holds a rollback's notice for
+    /// the next launch.
     pub fn apply(&mut self, decision: &Decision) {
+        if let (Action::RollBack { .. }, Some(notice)) = (&decision.action, &decision.notice) {
+            self.held = Some(Held { notice: notice.clone(), failure: None });
+        }
         if let Some(entry) = &decision.record {
             self.history.retain(|old| old.build != entry.build);
             self.history.push(entry.clone());
@@ -253,10 +319,31 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 
 /// The `__install-check` mode. `due --record FILE --build B [--nightly]`
 /// prints `{"due":BOOL}`; `decide --record FILE` reads a request on `stdin`,
-/// saves the record and pin, and prints the [`Decision`].
+/// saves the record and pin, and prints the [`Decision`]; `failed --record
+/// FILE --failure TEXT` marks the held rollback as not run; `show --record
+/// FILE --build B` prints the [`Show`] for build `B` (or `null`) and drops the
+/// held notice, so it shows once.
 pub fn run(args: &[String], stdin: &str) -> Result<String, String> {
     let record = record_path(args)?;
     match args.first().map(String::as_str) {
+        Some("failed") => {
+            let failure = flag(args, "--failure").ok_or("missing --failure TEXT")?;
+            let mut saved = Record::load(&record)?;
+            if let Some(held) = &mut saved.held {
+                held.failure = Some(failure.to_string());
+                saved.save(&record)?;
+            }
+            Ok("{}".to_string())
+        }
+        Some("show") => {
+            let build = flag(args, "--build").ok_or("missing --build BUILD")?;
+            let mut saved = Record::load(&record)?;
+            let shown = show(saved.held.as_ref(), build);
+            if saved.held.take().is_some() {
+                saved.save(&record)?;
+            }
+            serde_json::to_string(&shown).map_err(|error| error.to_string())
+        }
         Some("due") => {
             let build = flag(args, "--build").ok_or("missing --build BUILD")?;
             let nightly = args.iter().any(|arg| arg == "--nightly");
@@ -275,13 +362,13 @@ pub fn run(args: &[String], stdin: &str) -> Result<String, String> {
                 pinned: saved.pinned.clone(),
                 kept: request.kept,
             });
-            if decision.record.is_some() || decision.pin.is_some() {
+            if decision.record.is_some() || decision.pin.is_some() || decision.notice.is_some() {
                 saved.apply(&decision);
                 saved.save(&record)?;
             }
             serde_json::to_string(&decision).map_err(|error| error.to_string())
         }
-        _ => Err("usage: __install-check due|decide --record FILE ...".to_string()),
+        _ => Err("usage: __install-check due|decide|failed|show --record FILE ...".to_string()),
     }
 }
 

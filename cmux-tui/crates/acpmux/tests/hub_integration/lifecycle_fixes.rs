@@ -2,6 +2,70 @@
 //! probe errors and the idle harness exit.
 use super::*;
 
+/// A temporary failure to load an existing conversation must not replace it with a new
+/// conversation. ACP adapters often put the useful cause in data.details.
+#[tokio::test]
+async fn capacity_during_resume_keeps_the_conversation_and_reports_the_cause_once() {
+    let cause = "Selected model is at capacity.";
+    let env = BTreeMap::from([("FAKE_LOAD_ERROR".to_owned(), cause.to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "resume-capacity").await;
+    let session = hub.resolve(&id).unwrap();
+    let original = session.meta().agent_session_id;
+    hub.detach_child(&session).await;
+    let error = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "continue"}]}),
+        )
+        .await
+        .expect_err("a capacity error cannot start a replacement conversation");
+    assert!(error.contains(cause), "{error}");
+    assert_eq!(session.meta().agent_session_id, original);
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(events.iter().filter(|e| e.kind == "resume_failed").count(), 1);
+    assert_eq!(events.iter().filter(|e| e.kind == "turn_result").count(), 1);
+    assert_eq!(
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_NEW).count(),
+        1
+    );
+    assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
+}
+
+/// A failed load must not leave an unloaded live child eligible for the fast path.
+#[tokio::test]
+async fn capacity_resume_retries_loading_before_the_next_prompt() {
+    let recovered =
+        std::env::temp_dir().join(format!("acpmux-load-recovered-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([
+        ("FAKE_LOAD_ERROR".to_owned(), "Selected model is at capacity.".to_owned()),
+        ("FAKE_LOAD_RECOVERED".to_owned(), recovered.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "resume-capacity-recovery").await;
+    let session = hub.resolve(&id).unwrap();
+    let original = session.meta().agent_session_id;
+    hub.detach_child(&session).await;
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "continue"}]});
+    let error = c.request(method::SESSION_PROMPT, prompt.clone()).await.unwrap_err();
+    assert!(error.contains("at capacity"), "{error}");
+    std::fs::write(&recovered, b"available").unwrap();
+    let answer = c.request(method::SESSION_PROMPT, prompt).await;
+    std::fs::remove_file(&recovered).unwrap();
+    answer.expect("the next prompt must reload the preserved conversation");
+    assert_eq!(session.meta().agent_session_id, original);
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_LOAD).count(),
+        2
+    );
+    assert_eq!(
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_NEW).count(),
+        1
+    );
+    assert_eq!(hub.session_summary(&session)["lastTurn"]["status"], "completed");
+}
+
 /// A prompt that arrives while another caller is still loading the
 /// session's respawned agent waits for the load: the agent is not handed
 /// out before `session/load` answered (it would answer "Session not found",
@@ -622,6 +686,38 @@ async fn the_persons_slow_start_keeps_waiting_past_the_start_budget_and_says_so(
         .expect("the person's slow start failed");
     assert!(created["sessionId"].is_string(), "{created}");
     let _ = std::fs::remove_file(&gate);
+}
+
+/// no-hangs (2026-11-24): the person's start has no deadline, so a harness that waits on input
+/// or a lock (no CPU, no thread ready, nothing read in) held the new chat "starting" forever, and
+/// on Linux nothing read the harness's state at all. Now it ends `harness_hung` once its harness
+/// did no work for `START_HUNG` (shortened here), on Linux as on macOS.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn the_persons_start_of_a_harness_that_does_nothing_ends_as_hung() {
+    let gate = std::env::temp_dir().join(format!("acpmux-idle-gate-{}", uuid::Uuid::now_v7()));
+    let mut cfg = gated_config(&gate, &[]);
+    let idle = HarnessProfile {
+        argv: vec!["sleep".into(), "600".into()],
+        ..cfg.harnesses["fake"].clone()
+    };
+    cfg.harnesses.insert("idle".to_owned(), idle);
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    hub.set_start_hung(Duration::from_secs(2));
+    let mut person = connect(&hub).await;
+    let began = std::time::Instant::now();
+    let answered = tokio::time::timeout(
+        Duration::from_secs(30),
+        person.request(method::SESSION_NEW, new_params("idle-start", "idle")),
+    )
+    .await
+    .expect("the person's start of an idle harness never ended");
+    let error = answered.expect_err("an idle harness answered its start");
+    assert!(error.contains("did no work"), "{error}");
+    assert!(began.elapsed() >= Duration::from_secs(2), "ended before START_HUNG");
 }
 
 /// A Chief turn answers a person's message, so killing its start at a wall clock on a loaded host

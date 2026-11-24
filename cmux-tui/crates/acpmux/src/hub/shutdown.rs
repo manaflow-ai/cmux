@@ -182,6 +182,8 @@ impl Hub {
         // daemon, alongside the sessions below.
         let ((), kept) =
             tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, true));
+        // Its tasks' ends are the next daemon's to send (`bg_notify_resume`).
+        self.bg_unwatch_all();
         self.seal();
         kept
     }
@@ -247,11 +249,13 @@ impl Hub {
                 .await
             }
         };
+        // Every audit line was written at its event (`audit_log.rs`): this only joins the
+        // thread's last sync, or a purge it is running, which holds the home lock until it ends.
         let audit = tokio::task::spawn_blocking(move || {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             if !self.audit.close(left) {
                 tracing::warn!(
-                    "approvals audit did not drain before the shutdown deadline; waiting for it"
+                    "approvals audit sync not done by the shutdown deadline; waiting for it"
                 );
                 self.audit.wait_closed();
             }
@@ -315,6 +319,8 @@ impl Hub {
         self.retention_wake.notify_one();
         // So does the cold archive's preview worker (`cold_archive.rs`).
         self.cold_wake.notify_one();
+        // So does the cold segments' worker (`cold_segments.rs`).
+        self.cold_sealed_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
@@ -413,7 +419,7 @@ impl Hub {
                 settled.extend(turn.map(|t| t.turn_id));
             }
             if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
+                self.set_status(s, NotWaiting::Idle);
             }
         }
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));
@@ -512,12 +518,12 @@ impl Hub {
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
-        // The approvals audit trail's writer: what was answered before now is on disk.
+        // The approvals audit trail: every answer is written already; its last lines are synced.
         self.audit.close(AUDIT_DRAIN);
     }
 }
 
-/// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
+/// How long the shutdown waits for the audit sync thread (`audit_log.rs`) to finish.
 const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// How long the shutdown waits for the cost ledger's writer to drain.

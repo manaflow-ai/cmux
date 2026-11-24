@@ -1,7 +1,12 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 @testable import CmuxConversationGeometry
 
+#if canImport(CoreGraphics)  // CGPath: Apple only
 /// The inline reply's thread line, against Messages on an iPhone 17 Pro
 /// Max (iOS 27, dark, 3x screenshot 2026-10-30, points): the line always
 /// runs at the leading edge, x 34.0-38.0 (center 36.33 = 20 pt margin +
@@ -82,3 +87,4 @@ import Testing
         #expect(thread.bottom == .cap(y: 50 - Thread.replyGap), "the bubble is higher than the avatar")
     }
 }
+#endif

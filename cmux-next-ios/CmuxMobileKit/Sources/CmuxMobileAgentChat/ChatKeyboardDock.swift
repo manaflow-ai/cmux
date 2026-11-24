@@ -712,12 +712,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // laying out the hosted stack from here aborts in AttributeGraph
             // (step a9eaae4e), so the spring starts on the next main-queue turn.
             springTarget = target
+            // The stack's own spring: 0.35 s for its other changes, `ComposerLineMotion` for a
+            // line the draft gained or lost, so the transcript and the composer move as one.
+            let motion = surface.stackMotion
+            let began = CACurrentMediaTime()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.springTarget == target else { return }
                 self.springTarget = nil
-                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                UIView.animate(springDuration: motion.seconds, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.applyStackHeight(target)
                     self.view.layoutIfNeeded()
+                } completion: { [weak self] finished in
+                    guard finished else { return }
+                    self?.noteStackMotionSettled(motion, since: began)
                 }
             }
             return
@@ -725,6 +732,35 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         springTarget = nil
         applyStackHeight(height)
     }
+
+    /// The transcript settled after the stack's height change: its length, from the first drawn
+    /// frame of the stack's change to the transcript's spring completing (the composer's line
+    /// motion end to end). Under `-CmuxMobileFrameLog` a `STACKMOTION` line in the log; in DEBUG
+    /// with `-cmux-mobile-motion-probe`, the value of the `chat.stackMotion` element, which
+    /// ComposerLineMotionUITests reads.
+    private func noteStackMotionSettled(_ motion: AgentChatSurface.StackMotion, since began: CFTimeInterval) {
+        let ms = Int(((CACurrentMediaTime() - began) * 1000).rounded())
+        let line = "kind=\(motion.rawValue) spring_ms=\(Int((motion.seconds * 1000).rounded())) settled_ms=\(ms)"
+        if FrameLogSwitch.isEnabled { print("STACKMOTION \(line)") }
+        #if DEBUG
+        if Self.motionProbeEnabled {
+            if motionProbe == nil {
+                let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+                probe.isAccessibilityElement = true
+                probe.accessibilityIdentifier = "chat.stackMotion"
+                probe.alpha = 0.02
+                probe.isUserInteractionEnabled = false
+                view.addSubview(probe)
+                motionProbe = probe
+            }
+            motionProbe?.accessibilityValue = line
+        }
+        #endif
+    }
+    #if DEBUG
+    private static let motionProbeEnabled = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-motion-probe")
+    private var motionProbe: UIView?
+    #endif
 
     private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
@@ -1175,11 +1211,35 @@ private final class NextFrame: NSObject {
 /// Takes touches only in its bottom `interactiveHeight` (the stack); the
 /// empty space above lets them through to the transcript. (SwiftUI handles
 /// its gestures in the hosting view itself, so the hit view cannot tell.)
+///
+/// While it rides the keyboard's slide, a touch resolves where the stack is
+/// drawn: UIKit hit-tests the model frame, already at the slide's end, so a
+/// tap on the field as drawn landed on whatever sat under the finger at the
+/// end (a button of the stack, or nothing) instead of the field.
 final class PassthroughView: UIView {
     var interactiveHeight: CGFloat = 0
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         point.y >= bounds.height - interactiveHeight && super.point(inside: point, with: event)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let shift = drawnShift else { return super.hitTest(point, with: event) }
+        return super.hitTest(CGPoint(x: point.x + shift.x, y: point.y + shift.y), with: event)
+    }
+
+    /// From a point in the model's coordinates to the same screen point in
+    /// the drawn (presentation) ones; nil when no move is in flight.
+    var drawnShift: CGPoint? {
+        guard let keys = layer.animationKeys(),
+              keys.contains(where: { $0.hasPrefix("position") || $0.hasPrefix("bounds") }),
+              let drawn = layer.presentation() else { return nil }
+        func origin(_ l: CALayer) -> CGPoint {
+            CGPoint(x: l.position.x - l.anchorPoint.x * l.bounds.width - l.bounds.minX,
+                    y: l.position.y - l.anchorPoint.y * l.bounds.height - l.bounds.minY)
+        }
+        let model = origin(layer), now = origin(drawn)
+        return CGPoint(x: model.x - now.x, y: model.y - now.y)
     }
 }
 

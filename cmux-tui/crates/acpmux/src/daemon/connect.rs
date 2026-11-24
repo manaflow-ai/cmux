@@ -268,15 +268,15 @@ pub(super) async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -
         let log = home().join("daemon.log");
         drop(open_daemon_log(&log)?);
         let this = choice.this.clone();
-        let (home, keyed) = (home(), key.is_some());
+        let (home_dir, keyed) = (home(), key.is_some());
         let placed = tokio::task::spawn_blocking(move || {
-            login_session::start_in_login_session(&this, &home, &log, keyed)
+            login_session::start_in_login_session(&this, &home_dir, &log, keyed)
         })
         .await
         .map_err(|e| anyhow!("{e}"))?;
         match placed {
             Ok(login_session::Started::Job(job)) => {
-                if let Ok(mut log) = open_daemon_log(&home().join("daemon.log")) {
+                if let Ok(mut log) = open_daemon_log(&crate::config::home().join("daemon.log")) {
                     super::log_start_choice(&mut log, &choice);
                 }
                 return wait_for_job(&path, job).await;

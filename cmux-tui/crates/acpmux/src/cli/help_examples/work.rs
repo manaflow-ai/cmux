@@ -255,6 +255,32 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "ci",
+        &[
+            (
+                "Wait up to 30 minutes for a workflow run",
+                "acpmux ci wait run 123456789 --timeout 1800",
+            ),
+            (
+                "Wait for a workflow run in another repository",
+                "acpmux ci wait run 123456789 --repo octo/app --timeout 1800",
+            ),
+        ],
+    ),
+    (
+        "ci wait",
+        &[
+            (
+                "Wait for a workflow run, as JSON",
+                "acpmux ci wait run 123456789 --timeout 1800 --json",
+            ),
+            (
+                "Wait up to 40 minutes for a pull request's checks",
+                "acpmux ci wait pr 812 --timeout 2400",
+            ),
+        ],
+    ),
+    (
         "worktree",
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),
@@ -367,12 +393,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
             ("Message Codex Desktop", "acpmux bridge send codex-desktop \"Review PR 812 please\""),
+            ("Print the server to add in ChatGPT Desktop", "acpmux bridge connect chatgpt"),
         ],
     ),
     (
         "bridge connect",
         &[
-            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            ("Connect the desktop apps; restart them after", "acpmux bridge connect"),
             (
                 "See what connecting Codex Desktop would change",
                 "acpmux bridge connect codex --dry-run",
@@ -562,6 +589,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     ("chats roots", &[("List the folders the chat index reads", "acpmux chats roots")]),
+    (
+        "chats warm",
+        &[
+            ("Bring back every chat's compressed history", "acpmux chats warm"),
+            ("Bring back one chat's", "acpmux chats warm --chat 019a3f9c"),
+        ],
+    ),
     (
         "hand",
         &[

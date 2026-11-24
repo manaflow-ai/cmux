@@ -4,7 +4,9 @@ import CmuxScreenKitUI
 public import UIKit
 
 /// The app is portrait on a phone's screen everywhere but a Mac's screen,
-/// which turns with the phone (or as its options menu locks it). An unfolded
+/// which turns with the phone (or as its options menu locks it), and a
+/// terminal page, which turns with the phone (Leo, 2026-11-23: "why do we not
+/// have a horizontal mode?"). An unfolded
 /// foldable's wide, nearly square screen ("iPhone Duo") turns everywhere, as
 /// an iPad's does: people hold it either way. The app delegate returns
 /// ``allowed(in:)`` from `application(_:supportedInterfaceOrientationsFor:)`.
@@ -15,10 +17,14 @@ public final class ScreenSharingOrientation {
     /// Whether a Mac's screen is on screen.
     public private(set) var isPresenting = false
 
+    /// Whether a terminal page is on screen and settled.
+    public private(set) var isShowingTerminal = false
+
     /// The screen's own choice (`ScreenOrientation.shared`) while a Mac's screen
     /// shows, else the window's resting orientations.
     public func allowed(in window: UIWindow?) -> UIInterfaceOrientationMask {
-        isPresenting ? ScreenOrientation.shared.allowed : Self.resting(windowSize: Self.size(of: window))
+        isPresenting ? ScreenOrientation.shared.allowed
+            : Self.resting(windowSize: Self.size(of: window), showingTerminal: isShowingTerminal)
     }
 
     /// The window's size, or its scene's when the system asks with no window.
@@ -29,9 +35,17 @@ public final class ScreenSharingOrientation {
     }
 
     /// Portrait on a phone's screen; any orientation but upside down (as the
-    /// Info.plist lists) on an unfolded foldable's.
-    nonisolated static func resting(windowSize size: CGSize) -> UIInterfaceOrientationMask {
-        isUnfolded(windowSize: size) ? .allButUpsideDown : .portrait
+    /// Info.plist lists) on an unfolded foldable's, or on a terminal page.
+    nonisolated static func resting(windowSize size: CGSize, showingTerminal: Bool = false) -> UIInterfaceOrientationMask {
+        showingTerminal || isUnfolded(windowSize: size) ? .allButUpsideDown : .portrait
+    }
+
+    /// A terminal page came on screen and settled (it turns with the phone),
+    /// or left (the app goes back to portrait on a phone).
+    public func terminalShown(_ shown: Bool) {
+        guard shown != isShowingTerminal else { return }
+        isShowingTerminal = shown
+        update()
     }
 
     /// Whether a window this size is an unfolded foldable's: Rust's
@@ -72,10 +86,17 @@ public final class ScreenSharingOrientation {
                     controller = presented
                 }
             }
-            if !isPresenting, Self.resting(windowSize: scene.effectiveGeometry.coordinateSpace.bounds.size) == .portrait {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
+            if !isPresenting, Self.resting(windowSize: scene.effectiveGeometry.coordinateSpace.bounds.size,
+                                           showingTerminal: isShowingTerminal) == .portrait {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait), errorHandler: Self.ignoreGeometryError)
             }
         }
     }
+
+    /// What a refused portrait request does: nothing (the next `update()` asks again). UIKit calls
+    /// it on a background queue, so it is not main-actor isolated: as an inline closure in this
+    /// `@MainActor` class it inherited the isolation and trapped there (EXC_BREAKPOINT in
+    /// `dispatch_assert_queue`, AllUIStatesChatFeedCaptureUITests testFeed, step aed9d983).
+    nonisolated static let ignoreGeometryError: @Sendable (any Error) -> Void = { _ in }
 }
 #endif
