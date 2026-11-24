@@ -265,10 +265,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKFLOWS, Request),
         keyed::<params::AppReplyParams>(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
-        untyped(method::MUX_SCORECARD, Request),
-        // The new chat's place mode (Auto, Cloud, one machine): `server/chat_place.rs`.
-        untyped("_acpmux/chat_place", Request),
-        untyped("_acpmux/chat_place_set", Request),
         untyped(method::MUX_LEDGER, Request),
         untyped(method::MUX_TEAM_AUDIT, Request),
         untyped(method::MUX_WORKSPACE_PURGE, Request),
