@@ -2772,6 +2772,20 @@ Commits logged without a trailer (the card above):
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
 
+- 2026-11-17 (Lawrence, via Leo: "also for customization make it possible to turn out sidebar into [another app]'s
+  sidebar"): two opt-in settings and a theme file restyle the sidebar into a minimal session list, with no code
+  change. `sidebar.workspaceRow.statusPlacement` `leading` draws the row's status mark (badge, agent mark or spinner)
+  in the leading icon slot, which the row keeps while idle so the title's x never moves; `trailing` (the default) is
+  today's drawing. `appearance.statusIndicator.iconSet` makes the status icon set a setting (default `codex`, the
+  Debug override still wins). A theme file now also takes the rows' density, text size, status icons, grouping and
+  every `sidebar.workspaceRow.<name>`; `Resources/theme-files/minimal-sessions.json` ships the look. The default
+  sidebar does not change. Regression: `SidebarRowStatusPlacementTests`, `StatusIconSetSettingTests`,
+  `WorkspaceRowStatusPlacementSettingTests`, `ThemeFileTests.aThemeFileSetsHowTheSidebarRowsDraw`.
+  With the status leading, an agent mark standing in for the status (`sidebar.agentMark` `replacesStatus`) hides
+  while the row badge holds the slot, so one mark draws (review at 2371b98d824, F2;
+  `SidebarRowStatusPlacementTests.leadingDrawsOneMarkWhenTheAgentMarkStandsInForTheStatus`).
+  Sidebar-Look: also for customization make it possible to turn out sidebar into a minimal session list (Lawrence).
+
 - 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
   draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
   answered nil for every pinned workspace and the pin lifecycle tour could not hover, drag or click one. It now
@@ -2829,3 +2843,9 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+- 2026-11-24 (lane/sidebar-cloud-page-icon-size, ask-f32d868839): Sidebar-Look: Leo, 2026-11-24: "dont have such a
+  dinky cloud icon. increase it". A cmux page's own icon in a row's favicon slot (a Cloud desktop's cloud, History's
+  clock) drew at the pack glyphs' optical size, 11/16 of the favicon beside it on the next row. It now draws at the
+  favicon's size (`SidebarStyle.rowFaviconOptics`), rasterized at the favicon's box so it stays sharp: it is that
+  page's favicon. The icon column, the row height and the title's x do not change (the favicon already fills that
+  slot). The site globe placeholder keeps its tab's glyph size.

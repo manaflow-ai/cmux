@@ -66,10 +66,6 @@ path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_benchmark_dev_fleet_warm_slots.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_browser_host_release_package.py"
 lane = "linux-guard"
 
@@ -564,6 +560,11 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_outbound_hosts.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pack_webviews_chunks.py"
+lane = "manual"
+reason = "No workflow step runs it; the serving side is covered in CI by test-cmux-page-path-cpp.sh. Run python3 tests/test_pack_webviews_chunks.py after changing scripts/cmux-next/pack-webviews-chunks.py (seconds, Linux)."
 
 [[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
