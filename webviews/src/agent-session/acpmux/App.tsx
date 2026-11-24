@@ -10641,6 +10641,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     previewBeside,
     jumpPlaceArm,
     trayHandle,
+    hatPill: trayPlacement === "tray" && trayTucked && trayNode ? hatPillArm : undefined,
     chatMinimapBeside,
     hasBottomAsk,
     setPaneMain,

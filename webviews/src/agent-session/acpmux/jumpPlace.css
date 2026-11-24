@@ -43,3 +43,32 @@
     var(--ds-space-2) + var(--acpmux-dock-space, 0px) + var(--ds-control-primary) + var(--ds-space-2)
   );
 }
+
+/* The tucked hat's pill back on the center line with the disc (hatPillPlace.experiment.ts `middle-*`,
+   PaneBody.tsx data-hat-pill, set only while the pill shows). Leo, 2026-11-24: "you guys need to move
+   it back to the middle... adn we need to think of good ways to depict it. prebiously it looked
+   [weird] with [the thing] at the top": the disc stood 12px over the pill (`middle-tight`), two
+   floating controls stacked on one column. Each arm draws the pair another way; none moves the pill.
+   - middle (ships): the whole stack (Jump up, Jump to latest, the Needs you pill) stands a step
+     higher, so a 24px gap, most of a disc, parts the two and each reads on its own. `translate`, not
+     `bottom`, so it adds to every member's own `bottom` and to the fade's `transform` untouched.
+   - middle-quiet: the pill loses its glass slab (TrayPullTab `quiet`, subagents.css), so it reads as
+     a notch in the composer's line and the disc is the only floating thing; the disc keeps its place.
+   - middle-yield: one control on the center line at a time. While Jump to latest shows
+     (App.tsx data-jump-latest) the pill fades out on the composer's motion clock and takes no
+     clicks, and the line's gap under it closes, so no hole is left in the line. */
+.acpmux-main[data-jump-place="center"][data-hat-pill="middle"] .acpmux-jump-latest {
+  translate: 0 calc(-1 * var(--ds-space-3));
+}
+.acpmux-main[data-hat-pill="middle-yield"] .acpmux-tray-pull__tab {
+  transition: opacity var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-main[data-jump-place="center"][data-hat-pill="middle-yield"][data-jump-latest] .acpmux-tray-pull__tab {
+  opacity: 0;
+  pointer-events: none;
+}
+.acpmux-main[data-jump-place="center"][data-hat-pill="middle-yield"][data-jump-latest] .acpmux-tray-pull + .acpmux-composer {
+  --acpmux-tray-pull-control-width: 0px;
+  --acpmux-tray-pull-gap-pad: 0px;
+  --acpmux-tray-pull-gap-digits: 0;
+}
