@@ -688,7 +688,11 @@ const placeVariants = {
   "place-no-own-machines": {
     height: 330,
     note: "No machine of the person's yet: Machine… still opens, with This Mac and Add Machine….",
-    props: { ...placeMachines, peers: ["lane-1"], peerInfo: { "lane-1": { group: "agent", liveSessions: 1 } } },
+    props: {
+      ...placeMachines,
+      peers: ["lane-1"],
+      peerInfo: { "lane-1": { group: "agent" as const, liveSessions: 1 } },
+    },
     play: openMachines,
   },
   "place-glyph-shipped": {
