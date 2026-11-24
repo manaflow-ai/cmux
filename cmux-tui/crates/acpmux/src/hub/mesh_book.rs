@@ -468,9 +468,11 @@ impl Hub {
         let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut rows {
             let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
-            if let Some((at, reading)) = health.reading(name) {
-                row["health"] = reading;
-                row["healthAt"] = json!(at);
+            if let Some((at, reading)) = health.reading(name)
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("health".into(), reading);
+                fields.insert("healthAt".into(), json!(at));
             }
         }
         rows

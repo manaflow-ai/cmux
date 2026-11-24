@@ -118,7 +118,9 @@ pub(super) async fn handle(
     let relay = MeshControlRelay::new(mesh.clone(), sender);
     let receipt = crate::mesh_control::submit(&relay, &request).await.map_err(error)?;
     let mut reply = serde_json::to_value(receipt).map_err(|e| RpcError::internal(e.to_string()))?;
-    reply["idempotencyKey"] = json!(key);
+    if let Some(reply) = reply.as_object_mut() {
+        reply.insert("idempotencyKey".into(), json!(key));
+    }
     Ok(reply)
 }
 
@@ -204,8 +206,8 @@ fn started(
     match receipt.state.as_str() {
         "delivered" if !detail.is_empty() => {
             let mut v = json!({"sessionId": detail, "peer": host, "via": "hub"});
-            if let Some(name) = name {
-                v["_meta"] = json!({"acpmux": {"name": name}});
+            if let (Some(name), Some(fields)) = (name, v.as_object_mut()) {
+                fields.insert("_meta".into(), json!({"acpmux": {"name": name}}));
             }
             Ok(v)
         }
