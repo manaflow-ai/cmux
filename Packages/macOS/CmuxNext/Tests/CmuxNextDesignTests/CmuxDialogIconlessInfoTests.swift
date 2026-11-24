@@ -41,6 +41,17 @@ struct CmuxDialogIconlessInfoTests {
         #expect(lines == nil)
     }
 
+    /// The circle follows the title's last word; it never sits at the card's far edge with a gap of nothing between.
+    @Test func theCircleSitsRightAfterTheTitle() throws {
+        let card = CmuxDialogView(dialog: .standalone(Self.spec, activeLook: nil, onPress: { _ in }))
+        card.layoutSubtreeIfNeeded()
+        let circle = try #require(Self.find(NSImageView.self, in: card) { $0.identifier?.rawValue == "cmux.dialog.info" })
+        let title = try #require(Self.find(NSTextField.self, in: card) { $0.stringValue == "Add Machine" })
+        let c = circle.convert(circle.bounds, to: card), t = title.convert(title.bounds, to: card)
+        #expect(c.minX >= t.maxX && c.minX - t.maxX < 16)
+        #expect(c.maxX < card.bounds.width / 2)
+    }
+
     @Test func aPressOnTheGlassDragsAndAPressOnAFieldOrButtonDoesNot() {
         let panel = CmuxFloatingDialogPanel(identifier: "test.movable")
         panel.isMovableByPerson = true

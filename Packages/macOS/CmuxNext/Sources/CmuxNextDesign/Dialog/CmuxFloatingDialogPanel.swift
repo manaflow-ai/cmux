@@ -144,14 +144,24 @@ open class CmuxFloatingDialogPanel: NSPanel {
         let wasShown = hosted != nil
         orderOut(nil)
         placedByPerson = false
+        wasKeyWhileActive = false
         hosted?.removeFromSuperview()
         hosted = nil
         if wasShown { onHide?() }
     }
 
+    /// The card was key while the app was active since it showed: only then does losing key mean the person worked
+    /// elsewhere. A card shown while cmux is in the background (from the CLI) waits for the person to see it.
+    private var wasKeyWhileActive = false
+
+    open override func becomeKey() {
+        super.becomeKey()
+        if NSApp.isActive { wasKeyWhileActive = true }
+    }
+
     open override func resignKey() {
         super.resignKey()
-        if hidesWhenInactive, hosted != nil { hide() }
+        if hidesWhenInactive, hosted != nil, wasKeyWhileActive { hide() }
     }
 
     /// The window is this much larger than the card on every side, so the card's shadow is not clipped.

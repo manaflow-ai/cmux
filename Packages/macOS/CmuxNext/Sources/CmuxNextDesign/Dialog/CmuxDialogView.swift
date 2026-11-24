@@ -189,14 +189,17 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         let titleFont = Typography.dialogTitle
         let title: NSView
         if let info = spec.info {
+            // The circle sits right after the title's last word, not at the card's far edge: the title is as wide as
+            // its words (up to the room left beside the circle), and the row hugs them.
             let circle = Self.infoCircle(info, font: titleFont)
-            let words = label(spec.title, font: titleFont, role: .primary, width: contentWidth - circle.fittingSize.width - Metrics.space2)
+            let room = contentWidth - circle.fittingSize.width - Metrics.space2
+            let natural = ceil((spec.title as NSString).size(withAttributes: [.font: titleFont]).width) + 4
+            let words = label(spec.title, font: titleFont, role: .primary, width: min(natural, room))
             let row = NSStackView(views: [words, circle])
             row.orientation = .horizontal
             row.alignment = .firstBaseline
             row.spacing = Metrics.space2
             row.translatesAutoresizingMaskIntoConstraints = false
-            row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
             title = row
         } else {
             title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
