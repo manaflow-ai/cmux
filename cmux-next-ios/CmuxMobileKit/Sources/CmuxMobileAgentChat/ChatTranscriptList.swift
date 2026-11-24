@@ -416,6 +416,14 @@ final class ChatTranscriptCollectionView: UICollectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
         didLayout?()
+        // A composer can be ready while the transcript is still empty. Mark the
+        // first frame with an actual visible transcript cell instead.
+        if visibleCells.contains(where: { cell in
+            guard cell is ChatRowCell || cell is ChatNativeRowCell else { return false }
+            return !cell.isHidden && cell.bounds.width > 0 && cell.bounds.height > 0
+        }) {
+            LaunchMarks.shared.markNextFrame("chat_first_row_frame")
+        }
     }
 }
 
