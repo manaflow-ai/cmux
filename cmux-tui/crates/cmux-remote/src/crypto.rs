@@ -7,6 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
+use cmux_braid_session::{Capabilities, LinkFacts, NOISE_XX, Pattern};
 use cmux_link::carrier_grant::CarrierGrant;
 use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, Service, SessionId};
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,6 @@ use zeroize::Zeroizing;
 use crate::link::{FrameLink, LinkError};
 
 const HANDSHAKE_NAME: &str = "cmux-remote-noise";
-use cmux_braid_session::{Capabilities, LinkFacts, NOISE_XX, Pattern};
 /// The Noise protocol of a link without an invitation. acpmux's hub carrier pins its hash to
 /// WireGuard's, since it reuses the machine's WireGuard key as this static key.
 pub const NOISE_XX_PROTOCOL: &str = NOISE_XX;
@@ -1084,5 +1084,100 @@ mod next_step_tests {
         }
         let other = CryptoError::Unauthorized("no such invitation".into()).to_string();
         assert_eq!(other, "authorization failed: no such invitation");
+    }
+}
+
+/// Lockstep: the IK prelude field and welcome offer, read by builds on either side of them.
+#[cfg(test)]
+mod lockstep_tests {
+    use super::*;
+
+    /// `ClientPrelude` and `ServerWelcome` as they were before IK.
+    #[derive(Serialize, Deserialize)]
+    struct OldPrelude {
+        name: String,
+        protocol: u8,
+        auth: AuthKind,
+        invitation_id: Option<String>,
+        session: SessionId,
+        lane: Lane,
+        lanes: Vec<Lane>,
+        generation: u64,
+        connection_attempt: ConnectionAttemptId,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct OldWelcome {
+        accepted: bool,
+        error: Option<String>,
+        daemon_name: Option<String>,
+        device_id: Option<String>,
+        revocation_generation: Option<u64>,
+    }
+
+    fn prelude(pattern: Option<Pattern>) -> ClientPrelude {
+        ClientPrelude {
+            name: HANDSHAKE_NAME.into(),
+            protocol: REMOTE_PROTOCOL_VERSION,
+            auth: AuthKind::Carrier,
+            invitation_id: None,
+            session: SessionId([1; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 3,
+            connection_attempt: ConnectionAttemptId([2; 16]),
+            pattern,
+        }
+    }
+
+    #[test]
+    fn an_xx_prelude_is_the_old_prelude_byte_for_byte() {
+        let new = serde_json::to_vec(&prelude(None)).unwrap();
+        let old = serde_json::to_vec(&OldPrelude {
+            name: HANDSHAKE_NAME.into(),
+            protocol: REMOTE_PROTOCOL_VERSION,
+            auth: AuthKind::Carrier,
+            invitation_id: None,
+            session: SessionId([1; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 3,
+            connection_attempt: ConnectionAttemptId([2; 16]),
+        })
+        .unwrap();
+        assert_eq!(new, old, "an older daemon must read a new client's XX prelude unchanged");
+        // And the new daemon reads the old one as XX.
+        let read: ClientPrelude = serde_json::from_slice(&old).unwrap();
+        assert_eq!(read.pattern, None);
+        let ik = serde_json::to_string(&prelude(Some(Pattern::Ik))).unwrap();
+        assert!(ik.ends_with(r#","pattern":"ik"}"#), "{ik}");
+    }
+
+    #[test]
+    fn welcomes_read_across_the_ik_offer_in_both_directions() {
+        // A new daemon's welcome, read by an old client: the offer is an unknown field.
+        let new = serde_json::to_vec(&ServerWelcome {
+            accepted: true,
+            error: None,
+            daemon_name: Some("d".into()),
+            device_id: Some("x".into()),
+            revocation_generation: Some(0),
+            capabilities: Some(Capabilities { ik: true }),
+        })
+        .unwrap();
+        let old: OldWelcome = serde_json::from_slice(&new).unwrap();
+        assert!(old.accepted);
+        // An old daemon's welcome, read by a new client: no offer, so the client stays on XX.
+        let old = serde_json::to_vec(&OldWelcome {
+            accepted: true,
+            error: None,
+            daemon_name: Some("d".into()),
+            device_id: Some("x".into()),
+            revocation_generation: Some(0),
+        })
+        .unwrap();
+        let new: ServerWelcome = serde_json::from_slice(&old).unwrap();
+        assert!(new.accepted);
+        assert_eq!(new.capabilities, None);
     }
 }
