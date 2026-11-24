@@ -1191,7 +1191,11 @@ export class AcpmuxDirectClient {
       method: string;
     }
   >();
-  /// A request crossed its progress threshold on an open socket. This is a UI state, never a
+  /// Since when the daemon on an open socket has owed a sign of life: a liveness probe out and
+  /// unanswered, or (a wire the probe cannot reach) a request past its progress threshold. The
+  /// pane says "Waiting for the agent service" from it, so it is set only while the service may be
+  /// down, never for a daemon that answered and is only slow to read a long chat or a big list
+  /// (Leo, 2026-11-19: the GUI too coupled to load, size and history). A UI state, never a
   /// failure: a busy daemon may answer later, while a close still rejects promptly.
   private daemonWaitingSince?: number;
   /// How many `pending` requests are `waiting` (`markWaiting`, `noteRequestSettled`): a reply asks
@@ -3768,7 +3772,9 @@ export class AcpmuxDirectClient {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
         this.markWaiting(request);
-        this.daemonWaitingSince ??= Date.now();
+        // The daemon's own refusal proves it alive, even if an earlier probe is still held.
+        // Clear that probe's deadline and waiting state just as its own answer would.
+        this.probeAnswered(message);
         this.armDaemonLiveness();
         this.emit("waiting: daemon");
         this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
@@ -5669,7 +5675,9 @@ export class AcpmuxDirectClient {
             const request = this.pending.get(id);
             if (!request || request.waiting) return;
             this.markWaiting(request);
-            this.daemonWaitingSince ??= Date.now();
+            // A probed socket says it waits only once its probe goes unanswered (`probeDaemon`):
+            // a slow reply from a live daemon is not a service that is down.
+            if (this.daemonUnprobed()) this.daemonWaitingSince ??= Date.now();
             this.armDaemonLiveness();
             this.emit("waiting: daemon");
           }, deadline)
@@ -5703,8 +5711,8 @@ export class AcpmuxDirectClient {
       request.waiting = false;
       this.waitingRequests -= 1;
     }
-    if (this.waitingRequests === 0) this.daemonWaitingSince = undefined;
-    if (this.daemonWaitingSince === undefined) {
+    if (this.waitingRequests === 0) {
+      this.daemonWaitingSince = undefined;
       this.daemonProbe = undefined;
       if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
       this.daemonLivenessTimer = undefined;
@@ -5757,7 +5765,7 @@ export class AcpmuxDirectClient {
 
   private checkDaemonLiveness(): void {
     const socket = this.socket;
-    if (this.closed || this.daemonWaitingSince === undefined || !socket || socket.readyState !== WebSocket.OPEN) {
+    if (this.closed || this.waitingRequests === 0 || !socket || socket.readyState !== WebSocket.OPEN) {
       this.daemonProbe = undefined;
       return;
     }
@@ -5775,6 +5783,9 @@ export class AcpmuxDirectClient {
       // while a loaded daemon streamed their chats).
       this.daemonProvedAt = this.daemonFrameAt;
       this.daemonProbe = undefined;
+      const wasWaiting = this.daemonWaitingSince !== undefined;
+      this.daemonWaitingSince = undefined;
+      if (wasWaiting) this.emit("daemon resumed");
     } else if (probe) {
       // The socket stayed open but nothing behind it answered, not even the probe.
       if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);
@@ -5809,15 +5820,20 @@ export class AcpmuxDirectClient {
     const refused = probeRefusals.has(String(data?.code));
     if (message.error && !refused && data?.origin === "native") return;
     this.daemonProbe = undefined;
+    const wasWaiting = this.daemonWaitingSince !== undefined;
     if (refused) {
       this.daemonProbeRefused = true;
       this.wire.lifecycle("liveness probe refused", { code: String(data?.code) });
+      // No probe on this wire: the older bound, and the line, as before.
+      if (this.waitingRequests > 0) this.daemonWaitingSince ??= Date.now();
     } else {
       this.daemonProvedAt = Date.now();
+      this.daemonWaitingSince = undefined;
     }
     if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
     this.daemonLivenessTimer = undefined;
-    if (this.daemonWaitingSince !== undefined) this.armDaemonLiveness();
+    if (this.waitingRequests > 0) this.armDaemonLiveness();
+    if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
   }
 
   /// Asks the daemon on `socket` one cheap question, outside the request budget: its own answer,
@@ -5830,6 +5846,9 @@ export class AcpmuxDirectClient {
     const method = "_acpmux/peers";
     const text = JSON.stringify({ jsonrpc: "2.0", id, method, params: {} });
     this.daemonProbe = { at: Date.now(), id };
+    // From here the daemon owes an answer; until it comes the service may be down.
+    this.daemonWaitingSince ??= this.daemonProbe.at;
+    this.emit("waiting: daemon");
     try {
       this.wire.sent(text, method, id);
       socket.send(text);
