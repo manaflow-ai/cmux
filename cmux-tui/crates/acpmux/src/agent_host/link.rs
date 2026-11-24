@@ -626,6 +626,10 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     // is answered (review 83 of #23322).
     let receipted = adopted.version >= RECEIPT_VERSION;
     let host = record.clone();
+    // Set by a writer that panicked: the reader ends the link too, as a lost one, so its agent
+    // reaches the host again; the socket itself stays open and would never tell it (#54378).
+    let writer_gone = Arc::new(tokio::sync::Notify::new());
+    let gone = writer_gone.clone();
     tokio::spawn(async move {
         use futures_util::FutureExt as _;
         // The frame being written and its receipt, settled below if the writer panics on it.
@@ -682,6 +686,10 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             }
             f.failed();
         }
+        if wrote.is_err() {
+            tracing::error!("agent host link writer panicked; its link ends");
+            gone.notify_one();
+        }
         // Never sent now: what it still queues is cut, so no holder waits on it.
         rx.close();
         while let Ok((_, _, fence)) = rx.try_recv() {
@@ -700,7 +708,11 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
-                match read_frame::<_, HostFrame>(&mut rd).await {
+                let frame = tokio::select! {
+                    frame = read_frame::<_, HostFrame>(&mut rd) => frame,
+                    () = writer_gone.notified() => break,
+                };
+                match frame {
                     Ok(Some(HostFrame::Entry { h, e, o })) => {
                         if let Some(o) = o {
                             offsets.lock_or_recover().push_back((h, o));
