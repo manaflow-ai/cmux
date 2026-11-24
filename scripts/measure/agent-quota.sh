@@ -36,8 +36,7 @@ repo=$(cd "$here/../.." && pwd)
 [ -x "$acpmux" ] || { echo "agent-quota: acpmux=PATH (a build of this checkout) is required" >&2; exit 2; }
 command -v claude >/dev/null || { echo "agent-quota: claude is not on PATH" >&2; exit 2; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/agent-quota.XXXXXX")
-# The transcripts stay for reading (the last line names $work); the copied binaries do not.
-trap 'rm -rf -- "$work/bin"' EXIT
+trap '[ -n "${AGENT_QUOTA_KEEP:-}" ] || rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/plugin/.claude-plugin" "$work/plugin/skills/cmux-quota"
 cp "$here/agent-quota/gh" "$work/bin/gh" && cp "$acpmux" "$work/bin/acpmux" && chmod +x "$work/bin/"*
 echo '{"name":"cmux","version":"0.0.0","description":"cmux agent tools"}' > "$work/plugin/.claude-plugin/plugin.json"

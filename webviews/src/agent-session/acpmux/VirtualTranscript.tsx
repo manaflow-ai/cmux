@@ -26,9 +26,9 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
-  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -72,7 +72,7 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
-import { finishCarry, notePinPass, pinLiveLine, pinnedLiveRow, refreshPinned } from "./conversation/pinnedLiveLine";
+import { finishCarry, notePinPass, pinLiveLine, refreshPinned, pinnedLiveRow } from "./conversation/pinnedLiveLine";
 import {
   createFollowChase,
   type FollowChase,
@@ -106,11 +106,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
-  type ReferenceScope,
-  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
+  type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -170,7 +170,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_OF } from "./subagents/subagentRows";
@@ -196,7 +196,7 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -236,6 +236,7 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
+  noReplyCame,
   broughtSentPrompt,
 } from "./transcript/arrivals";
 import {
@@ -954,7 +955,10 @@ function TranscriptView({
   /// frame and node, which read refs, are given as the transcript mounts (`connect`, below): until then
   /// they did nothing (`transcriptMounted`).
   const guardRead = useRef<() => void>(() => {});
-  const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
+  const frameGuard = useRef<{
+    seen: number | undefined;
+    handled: number | undefined;
+  }>({
     seen: undefined,
     handled: undefined,
   });
@@ -1011,7 +1015,9 @@ function TranscriptView({
     jumpBack.current = undefined;
     setJumpBackHeld(false);
   }, [setJumpBackHeld]);
-  const [promptScan] = useState<{ current: PromptScan }>(() => ({ current: { length: 0 } }));
+  const [promptScan] = useState<{ current: PromptScan }>(() => ({
+    current: { length: 0 },
+  }));
   const [jumpUpHint] = useState(() => ({ current: -1 }));
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
@@ -1040,6 +1046,12 @@ function TranscriptView({
   /// transcript only appends (Leo, 2026-11-09: "these animations all slosh around and it's not
   /// cohesive / i previously sent the claude code one, just look at how they do it").
   const slimFollow = followArm === "send";
+  /// The `steady` arm (the product's since Leo, 2026-11-22: "it's just not great design to have the
+  /// jolts. esp in tandem with how aggressively we're folding claude code chats. it's not smooth"):
+  /// a send is the slim arm's (the sent prompt in place at once, its bubble fading in, reader input
+  /// handing what glides to the scroll offset), but the reply streaming, a tool row arriving and a
+  /// fold drift on the chase at the stream's own pace (followChase.ts `steadyStep`).
+  const slimSend = slimFollow || followArm === "steady";
   const followChase = useRef<FollowChase>(undefined);
   if (followChase.current == null) followChase.current = createFollowChase(slimFollow ? "blocks" : followArm);
   /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
@@ -1303,14 +1315,27 @@ function TranscriptView({
       chase.fit(below);
       return;
     }
-    const rowTop = (id: string) => {
+    // Where a row lies in the layout: its drawn top less all the thread is drawn by, the chase's own
+    // offset and any motion added to it (the bottom stack's resize as the composer clears after a
+    // send, `resized` below). Less the chase's offset alone, an anchor taken while the stack's motion
+    // drew the thread 46.75 px up read the rows as moved 8 px down when the reply's first row scrolled
+    // them 38.75 px up once that motion was over, and the rows jumped 46 px in one frame
+    // (send-stream-motion.test.ts, the steady arm).
+    // With no computed style (a DOM with no layout) it is the chase's own offset.
+    const drawnBy = () => {
+      const view = thread.current?.ownerDocument.defaultView;
+      if (!thread.current || typeof view?.getComputedStyle !== "function") return chase.outstanding();
+      const translate = view.getComputedStyle(thread.current).translate;
+      return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+    };
+    const rowTop = (id: string, drawn: number) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
-      return row ? row.getBoundingClientRect().top - chase.outstanding() : undefined;
+      return row ? row.getBoundingClientRect().top - drawn : undefined;
     };
     const before = chaseAnchor.current;
     // Read only for a move it chases: a pass that moves at once never uses it.
-    const now = before && !moveAtOnce ? rowTop(before.id) : undefined;
+    const now = before && !moveAtOnce ? rowTop(before.id, drawnBy()) : undefined;
     // Followed again after the reader's input held it: it goes on home from where it is drawn.
     resumeFollowMotion();
     chase.fit(below);
@@ -1326,7 +1351,7 @@ function TranscriptView({
       0,
     ).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
-    const top = id === undefined ? undefined : rowTop(id);
+    const top = id === undefined ? undefined : rowTop(id, drawnBy());
     chaseAnchor.current = id !== undefined && top !== undefined ? { id, top } : undefined;
   };
   /// When the view last changed size: the passes that settle the rows after it never glide.
@@ -2066,8 +2091,16 @@ function TranscriptView({
       // borked and unintegrated"). The lines at the end that open nothing of the turn's work (a
       // received message's line, the live line) still enter, on the same fade as any live row; the
       // regrouped work stays the turn end's fold's (turnEndFold.ts). O(arrived).
+      // A prompt in such an update (one queued while the reply before it streamed, sent as that turn ends) is
+      // still a prompt that just landed: it pops in as a sent one does (conversation.css SEND-POP; Leo
+      // 2026-11-22, "oh you better probably also watch that attachments and such are good too when the pop
+      // is there"). A message another agent sent (`incoming`) does not, nor any prompt with the pop
+      // off (Settings > Agent Chat > Pop In Sent Prompts, chatDisplay.ts SEND_POP_KEY).
       const entering = enteringRows.current;
-      for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
+      const popping = sendPopEnabled();
+      for (const row of arrived)
+        if (live || row.below || isLineRow(row) || (popping && row.kind === "user" && !row.incoming))
+          entering.add(rowFrameKey(row));
     }
   }
   knownFor.current = rows;
@@ -2972,7 +3005,10 @@ function TranscriptView({
   /// Only then is there room they came back to: a layout pass that lets go and takes it again (the queue
   /// closing at the latest row) leaves none (agent-pane-queue-scroll-bottom).
   /// One ref for both, which the placement pass reads once (`roomUnderRows`).
-  const heldRoom = useRef<HeldRoom>({ room: dockRoom, reader: { followed: false } });
+  const heldRoom = useRef<HeldRoom>({
+    room: dockRoom,
+    reader: { followed: false },
+  });
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under
@@ -4679,7 +4715,16 @@ function TranscriptView({
             // The slim arm moves every pass's rows at once, the send's own among them: the sent prompt is
             // in place in the frame after Return, and nothing settles after it (Leo, 2026-11-09: "the
             // scroll up is extremely sluggish").
-            const atOnce = dockMoved || !live || stepped || slimFollow;
+            // The steady arm moves a send's own rows at once too, as the slim arm does: the prompt and
+            // the rows it brings, not the reply's text that lands in the send's window. A
+            // steer's next reply segment landing within SEND_RISE_MS moved 40.69 px in one frame, and
+            // a send's first reply row 38.75 px (send-stream-motion.test.ts); they drift with the stream.
+            const atOnce =
+              dockMoved ||
+              !live ||
+              stepped ||
+              slimFollow ||
+              (followArm === "steady" && (promptCame || (sentRows && noReplyCame(oldRows, rows))));
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes
@@ -4691,7 +4736,11 @@ function TranscriptView({
             // that motion plays; rows landing after it arrive on the arrival step.
             const sentClock = sentRows && (sends !== seenSends.current || now < sendClockUntil.current);
             chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentClock && !steered);
-            tailGlides = !atOnce && !slimFollow && followChase.current?.arm !== "instant";
+            // In a send's window the steady arm's live line moves with the rows it chases: its own glide
+            // under a reply segment that came there drew it above that row for two frames
+            // (turn-transition-jumps.test.ts, steer-tools).
+            tailGlides =
+              !atOnce && !slimFollow && followChase.current?.arm !== "instant" && !(followArm === "steady" && sentRows);
           }
         }
         // A glide holding the rows back further than the room now under the last row (the live line
@@ -6069,7 +6118,11 @@ function TranscriptView({
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
       if (rowId)
-        transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+        transition(motionList, {
+          cause: "disclosure",
+          anchorRow: rowId,
+          ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+        });
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
@@ -6184,8 +6237,8 @@ function TranscriptView({
       // (summary/heldWhileScrolling.ts).
       noteReaderScroll();
       followTrace.input();
-      if (slimFollow) {
-        // The slim arm (the product's): what still glides holds where it is drawn, so nothing jumps
+      if (slimSend) {
+        // The slim arm (and the steady one): what still glides holds where it is drawn, so nothing jumps
         // under the reader's input (the composer growth's rise freezes into the chase there,
         // followChase.carry), and once the input goes quiet the whole offset goes to the scroll
         // position (`settleHeldFollowMotion`), followed or not, so nothing settles on after it either
@@ -6259,7 +6312,7 @@ function TranscriptView({
     const settleHeldFollowMotion = () => {
       // The slim arm hands a held chase to the scroll offset in a followed view too: played on from
       // where it was held, it was the "little readjustment" after the reader's own scroll.
-      if ((followingRef.current && !slimFollow) || jumpTarget.current !== undefined) return;
+      if ((followingRef.current && !slimSend) || jumpTarget.current !== undefined) return;
       tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
       const chase = followChase.current;
       // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
@@ -6553,7 +6606,7 @@ function TranscriptView({
     landForReader,
     startBottomStack,
     stopBottomStackFold,
-    slimFollow,
+    slimSend,
     stopFollowMotion,
     stopJump,
     queueSettle,
@@ -6964,7 +7017,8 @@ function TranscriptView({
     retryTarget,
     livePulse,
     ref,
-    slimFollow,
+    // The steady arm's send enters as the slim arm's does (the bubble fades in).
+    slimFollow: slimSend,
     liveLineMounted,
     onAnchor,
     t,
