@@ -40,6 +40,8 @@ public final class MobileKeyboardDock: NSObject {
 
     private weak var view: UIView?
     private let usesBottomSafeArea: Bool
+    private let followsVerifiedKeyboardGuide: Bool
+    private var followingVerifiedGuide = false
     /// `guide.top == view.bottom + constant`: the notified keyboard, or where
     /// a drag left it.
     private let notifiedTop: NSLayoutConstraint
@@ -57,7 +59,11 @@ public final class MobileKeyboardDock: NSObject {
     ///   - usesBottomSafeArea: rest on the bottom safe-area edge (as
     ///     `UIKeyboardLayoutGuide.usesBottomSafeArea`), else on the view's bottom.
     ///   - keyboard: the app's keyboard tracker.
-    public init(view: UIView, usesBottomSafeArea: Bool, keyboard: MobileKeyboardFrameTracker) {
+    ///   - followsVerifiedKeyboardGuide: let UIKit lay out subsequent transitions when its full-width
+    ///     guide agrees with the notified endpoint in this view.
+    public init(view: UIView, usesBottomSafeArea: Bool, keyboard: MobileKeyboardFrameTracker,
+                followsVerifiedKeyboardGuide: Bool = false) {
+        self.followsVerifiedKeyboardGuide = followsVerifiedKeyboardGuide
         self.view = view
         self.keyboard = keyboard
         self.usesBottomSafeArea = usesBottomSafeArea
@@ -87,7 +93,7 @@ public final class MobileKeyboardDock: NSObject {
 
     /// Whether an interactive dismissal is handing the guide to the system
     /// keyboard layout guide right now.
-    public var isFollowingSystemGuide: Bool { systemTop.isActive }
+    public var isFollowingSystemGuide: Bool { systemTop.isActive && !followingVerifiedGuide }
 
     /// Follows the keyboard through `scrollView`'s interactive dismissals
     /// (`keyboardDismissMode = .interactive`).
@@ -99,8 +105,12 @@ public final class MobileKeyboardDock: NSObject {
     /// safe area (the view moved, resized or rotated while the keyboard
     /// stayed). Call it from the view's layout pass.
     public func refresh() {
-        guard !systemTop.isActive, !holdingAfterDrag, !fingerDrag else { return }
+        guard !isFollowingSystemGuide, !holdingAfterDrag, !fingerDrag else { return }
         let constant = notifiedConstant
+        if followingVerifiedGuide {
+            if systemGuideMatches(constant) { return }
+            _ = followNotifications()
+        }
         if notifiedTop.constant != constant { notifiedTop.constant = constant }
     }
 
@@ -154,16 +164,26 @@ public final class MobileKeyboardDock: NSObject {
         return end
     }
 
+    private func systemGuideMatches(_ constant: CGFloat) -> Bool {
+        guard let view, view.window != nil else { return false }
+        let frame = view.keyboardLayoutGuide.layoutFrame
+        return frame.width >= view.bounds.width - 0.5 && abs(frame.minY - view.bounds.maxY - constant) < 0.5
+    }
+
     private func follow() {
         // UIKit has decided where the keyboard goes: any drag hand-off ends,
         // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
         fingerDrag = false
+        let constant = notifiedConstant
+        // Already pinned before UIKit started moving it. Leave this layout in the
+        // keyboard transaction. An inconsistent guide uses the notification below.
+        if followingVerifiedGuide, systemGuideMatches(constant) { return }
         let handedBack = followNotifications()
         guard let view, view.window != nil else { return }
-        let constant = notifiedConstant
         guard handedBack || notifiedTop.constant != constant else { return }
-        let risingFromRest = !handedBack && notifiedTop.constant == -restInset && constant < -restInset
+        notifiedTop.constant = constant
+        view.setNeedsLayout()
         // UIKit posts these inside the keyboard's animation; a nested animation
         // inherits its remaining duration and curve, so the composer rides it.
         var remaining = UIView.inheritedAnimationDuration
@@ -176,8 +196,6 @@ public final class MobileKeyboardDock: NSObject {
             options.insert(UIView.AnimationOptions(rawValue: UInt(cut.curve.rawValue) << 16))
         }
         guard remaining > 0 else {
-            notifiedTop.constant = constant
-            view.setNeedsLayout()
             view.layoutIfNeeded()
             return
         }
@@ -187,24 +205,28 @@ public final class MobileKeyboardDock: NSObject {
         // reversing the keyboard mid-flight. `.beginFromCurrentState` makes the
         // reversal start from where the stack is on screen.
         // motion: allow inherits the system keyboard's own animation (or, for a reversal UIKit posts unanimated, the cut one's; Reduce Motion lays it out at once).
-        // On a normal show, lay out the subviews when UIKit commits the
-        // keyboard animation. A drag or reversal still flushes its endpoint.
-        let layoutAtCommit = risingFromRest && UIView.inheritedAnimationDuration > 0
-        if layoutAtCommit { options.insert(.layoutSubviews) }
         UIView.animate(withDuration: remaining, delay: 0, options: options) {
-            self.notifiedTop.constant = constant
-            view.setNeedsLayout()
-            if !layoutAtCommit { view.layoutIfNeeded() }
+            view.layoutIfNeeded()
         }
     }
 
     /// A keyboard that settled with no will-change notification after a drag
     /// (a dismissal the finger called off): back on the notified keyboard.
     private func keyboardDidChangeFrame() {
-        guard holdingAfterDrag, let view, view.window != nil else { return }
-        holdingAfterDrag = false
-        refresh()
-        view.layoutIfNeeded()
+        guard let view, view.window != nil else { return }
+        if holdingAfterDrag {
+            holdingAfterDrag = false
+            refresh()
+            view.layoutIfNeeded()
+        }
+        // Exchange coincident constraints only after settling. This also primes
+        // the hidden dock, without relying on guide accuracy after a rotation.
+        if followsVerifiedKeyboardGuide, !systemTop.isActive, !fingerDrag, systemGuideMatches(notifiedConstant),
+           abs(guide.layoutFrame.minY - view.keyboardLayoutGuide.layoutFrame.minY) < 0.5 {
+            notifiedTop.isActive = false
+            systemTop.isActive = true
+            followingVerifiedGuide = true
+        }
     }
 
     @objc private func panned(_ pan: UIPanGestureRecognizer) {
@@ -214,7 +236,11 @@ public final class MobileKeyboardDock: NSObject {
             // Only a drag over a shown keyboard can move it.
             let restingTop = view.bounds.maxY - (usesBottomSafeArea ? view.safeAreaInsets.bottom : 0)
             let top = guide.layoutFrame.minY
-            guard !systemTop.isActive, !fingerDrag, top < restingTop - 0.5 else { return }
+            guard !fingerDrag, top < restingTop - 0.5 else { return }
+            if systemTop.isActive {
+                followingVerifiedGuide = false
+                return
+            }
             holdingAfterDrag = false
             if abs(view.keyboardLayoutGuide.layoutFrame.minY - top) < 1 {
                 // The system guide follows the keyboard: it tracks the drag.
@@ -259,6 +285,7 @@ public final class MobileKeyboardDock: NSObject {
     /// was on the system guide.
     private func followNotifications() -> Bool {
         guard systemTop.isActive else { return false }
+        followingVerifiedGuide = false
         systemTop.isActive = false
         notifiedTop.isActive = true
         return true
