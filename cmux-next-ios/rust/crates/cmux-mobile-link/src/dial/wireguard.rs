@@ -291,6 +291,42 @@ pub(crate) struct EarlyTurn {
     stun: Option<StunSide>,
 }
 
+/// A single TURN allocation that can move between the warm pool and one
+/// active WireGuard underlay. The carrier is never cloned. The underlay puts
+/// it back when its transport is dropped, which lets the next same-network
+/// redial take the allocation without another Allocate exchange.
+#[derive(Clone)]
+pub struct TurnLease(Arc<Mutex<Option<TurnCarrier>>>);
+
+impl TurnLease {
+    pub fn empty() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    pub(crate) fn from_carrier(carrier: TurnCarrier) -> Self {
+        Self(Arc::new(Mutex::new(Some(carrier))))
+    }
+
+    pub(crate) fn take(&self) -> Option<TurnCarrier> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
+    pub(crate) fn put(&self, carrier: TurnCarrier) {
+        let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(carrier);
+        }
+    }
+
+    pub(crate) fn invalidate(&self) {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+    }
+
+    pub(crate) fn has_carrier(&self) -> bool {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+}
+
 impl EarlyTurn {
     /// Start the allocation `options` ask for (`turn_early_allocated` once
     /// it is in hand).
@@ -782,6 +818,7 @@ struct HybridUnderlay {
     /// Peer endpoints for plain UDP.
     candidates: Vec<SocketAddr>,
     turn: Option<TurnCarrier>,
+    turn_lease: Option<TurnLease>,
     /// Peer endpoints this side reaches through its TURN allocation.
     turn_targets: Vec<SocketAddr>,
     labels: Labels,
@@ -902,6 +939,7 @@ struct UnderlaySpec<'a> {
     peer_relayed_tls: &'a [String],
     peer_version: u32,
     turn: Option<TurnCarrier>,
+    turn_lease: Option<TurnLease>,
     reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
     path: watch::Sender<LinkPath>,
     route_to: Arc<watch::Sender<Option<SocketAddr>>>,
@@ -920,6 +958,7 @@ impl HybridUnderlay {
             peer_endpoints: Vec::new(),
             candidates: Vec::new(),
             turn: spec.turn,
+            turn_lease: spec.turn_lease,
             turn_targets: Vec::new(),
             labels: Labels {
                 peer_relayed: addresses(spec.peer_relayed),
@@ -2027,6 +2066,14 @@ fn hold_hook(session: &Arc<Session>) -> crate::link::HoldHook {
     })
 }
 
+impl Drop for HybridUnderlay {
+    fn drop(&mut self) {
+        if let (Some(lease), Some(turn)) = (self.turn_lease.take(), self.turn.take()) {
+            lease.put(turn);
+        }
+    }
+}
+
 struct Tunnel {
     session: Arc<Session>,
     path: watch::Receiver<LinkPath>,
@@ -2052,6 +2099,7 @@ struct TunnelSpec<'a> {
     /// What this side offered the peer.
     own_endpoints: Vec<String>,
     turn: Option<TurnCarrier>,
+    turn_lease: Option<TurnLease>,
     /// This side keeps a TURN allocation (again after a roam, or when its
     /// stream to the server dies): the phone whenever offered one, the Mac
     /// when its network blocked UDP.
@@ -2109,6 +2157,7 @@ fn start_tunnel(
             peer_relayed_tls: spec.peer_relayed_tls,
             peer_version: spec.peer_version,
             turn: spec.turn,
+            turn_lease: spec.turn_lease,
             reach_out: reach_tx,
             path: path_tx,
             route_to: Arc::clone(&route_to),
@@ -2172,20 +2221,26 @@ pub(super) fn dial_wireguard<'a>(
     mut events: SessionEvents,
     options: &'a DialOptions,
     early: Option<EarlyTurn>,
+    turn_lease: Option<TurnLease>,
 ) -> DialFuture<'a> {
     Box::pin(async move {
         let socket = bind_udp().map_err(transport_error)?;
-        let (gathered, turn) = match early {
-            Some(mut early) => {
-                let stun_side = early.stun.take();
-                tokio::join!(gather_endpoints(&socket, options, stun_side), early.carrier())
-            }
-            None => {
-                let (stun_side, turn_side) = stun_turn_link();
-                tokio::join!(
-                    gather_endpoints(&socket, options, Some(stun_side)),
-                    turn_beside(options, true, turn_side)
-                )
+        let lease = turn_lease.unwrap_or_else(TurnLease::empty);
+        let (gathered, turn) = if let Some(turn) = lease.take() {
+            (gather_endpoints(&socket, options, None).await, Some(turn))
+        } else {
+            match early {
+                Some(mut early) => {
+                    let stun_side = early.stun.take();
+                    tokio::join!(gather_endpoints(&socket, options, stun_side), early.carrier())
+                }
+                None => {
+                    let (stun_side, turn_side) = stun_turn_link();
+                    tokio::join!(
+                        gather_endpoints(&socket, options, Some(stun_side)),
+                        turn_beside(options, true, turn_side)
+                    )
+                }
             }
         };
         if no_plain_udp(options) && turn.is_none() {
@@ -2279,6 +2334,7 @@ pub(super) fn dial_wireguard<'a>(
             peer_version,
             own_endpoints,
             turn,
+            turn_lease: Some(lease.clone()),
             keeps_turn: true,
             dialer: true,
             stun,
@@ -2350,6 +2406,7 @@ pub(super) fn dial_wireguard<'a>(
             media,
             webrtc_media,
             liveness,
+            turn_lease: Some(lease),
         })
     })
 }
@@ -2367,7 +2424,7 @@ impl Dialer for WireGuardDialer {
         events: SessionEvents,
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
-        dial_wireguard(signaling, mac, session_id, events, options, None)
+        dial_wireguard(signaling, mac, session_id, events, options, None, None)
     }
 
     fn answer<'a>(
@@ -2437,6 +2494,7 @@ impl Dialer for WireGuardDialer {
                 own_endpoints: endpoints.clone(),
                 keeps_turn: wants_turn,
                 turn,
+                turn_lease: None,
                 dialer: false,
                 stun,
             };
@@ -2642,6 +2700,7 @@ mod tests {
                 peer_relayed_tls: &[old.to_string()],
                 peer_version: WG_VERSION,
                 turn: None,
+                turn_lease: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
@@ -2995,6 +3054,7 @@ mod tests {
                 peer_relayed_tls: &[],
                 peer_version: WG_VERSION,
                 turn: Some(first),
+                turn_lease: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
