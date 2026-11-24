@@ -38,6 +38,16 @@ extension WorkspaceTabsSource {
         }]
     }
 
+    /// The paged strip's tabs (Settings › Horizontal Tabs): the tabs of the pane that holds `id`,
+    /// in the pane's order, as listed here. A workspace its Mac has not laid out yet, or a tab no
+    /// pane lists (screen sharing), shows every tab.
+    public func stripTabIDs(for id: TabsKitTab.ID) -> [TabsKitTab.ID] {
+        let listed = tabs.map(\.id)
+        guard let pane = layout?.panes.first(where: { $0.tabIDs.contains(id) }) else { return listed }
+        let ids = pane.tabIDs.filter { listed.contains($0) }
+        return ids.isEmpty ? listed : ids
+    }
+
     /// The pane's name, else "Pane 2".
     public func title(of pane: WorkspaceLayout.Pane) -> String { layout?.title(of: pane) ?? "Pane" }
 

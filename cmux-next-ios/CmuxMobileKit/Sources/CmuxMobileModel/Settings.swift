@@ -192,6 +192,9 @@ public final class SettingsStore {
     /// Workspaces shows one line per workspace (the Mac's Compact Workspace List); read by the
     /// list through `CmuxMobilePreferences.Key.compactWorkspaceList`.
     public var compactWorkspaceList: Bool { didSet { save(compactWorkspaceList, "compactWorkspaceList") } }
+    /// Settings → Horizontal Tabs (off by default); read by the workspace screen through
+    /// `CmuxMobilePreferences.Key.horizontalTabs`.
+    public var horizontalTabs: Bool { didSet { save(horizontalTabs, "horizontalTabs") } }
 
     /// The terminal's key row zooms by writing the font size directly.
     @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
@@ -245,6 +248,8 @@ public final class SettingsStore {
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
+        horizontalTabs = defaults.object(forKey: "cmuxMobile.settings.horizontalTabs") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.horizontalTabs")
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
         }

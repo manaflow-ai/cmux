@@ -33,6 +33,10 @@ public enum CmuxMobilePreferences {
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Horizontal Tabs (off by default): a workspace's top bar shows the active tab's
+        /// pane's tabs as a paged strip of chips (Conductor's iPhone toolbar) in place of the
+        /// title capsule. The tab grid stays.
+        public static let horizontalTabs = "cmuxMobile.settings.horizontalTabs"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
     }
@@ -48,6 +52,13 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
     public static let defaultDismissKeyboardAfterSend = true
+    public static let defaultHorizontalTabs = false
+
+    /// Whether a workspace's top bar shows the paged strip of its pane's tabs.
+    public static func horizontalTabs(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.horizontalTabs) == nil ? defaultHorizontalTabs : defaults.bool(forKey: Key.horizontalTabs)
+    }
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
     public static let steerFollowUp = "steer"

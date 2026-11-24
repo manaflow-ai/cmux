@@ -121,6 +121,9 @@ struct TabsToolbar: View {
     /// The system cancelled a bar drag on this axis (the app left the
     /// foreground, a system gesture took the touch): no end comes.
     var onSwipeCancelled: (BarSwipe.Axis) -> Void = { _ in }
+    /// The paged strip in place of the address capsule (`TabsKitToolbarStyle.pagedTabs`, top
+    /// bar only); nil keeps the capsule.
+    var strip: ToolbarStrip? = nil
 
     @State private var labelWidth: CGFloat = 69
     /// The bar drag's direction, fixed once it moved past the slop.
@@ -137,6 +140,7 @@ struct TabsToolbar: View {
 
     static let defaultPlaceholder = "Search or enter website"
 
+    private var showsStrip: Bool { strip != nil && !chrome.editing && theme.metrics.barEdge == .top }
     private var collapsed: Bool { chrome.bar == .collapsed && !chrome.editing }
     private var historyState: BackForwardState { BackForwardState(tab: tab, sidesVisible: chrome.sidesVisible, editing: chrome.editing) }
     private var splitBack: Bool { historyState.forwardShown }
@@ -170,14 +174,27 @@ struct TabsToolbar: View {
                 .position(x: row.midX, y: row.midY)
                 .allowsHitTesting(!collapsed)
                 .accessibilityHidden(true)
+            if showsStrip, let strip {
+                // Under Back and Tabs: its chips slide out beneath them and fade.
+                let frame = CGRect(x: layout.back.minX, y: layout.capsule.minY,
+                                   width: layout.right.maxX - layout.back.minX, height: layout.capsule.height)
+                PagedTabStrip(entries: strip.entries, activeID: strip.activeID, restToken: strip.restToken, frame: frame, screenWidth: size.width,
+                              onMove: strip.onMove, onSettle: strip.onSettle, onActiveTap: {
+                                  if features.contains(.addressEditing) { onBeginEditing() } else if features.contains(.pageMenu) { onMenu() }
+                              })
+                    .opacity(chrome.menuOpen ? 0.3 : 1)
+                    .position(x: frame.midX, y: frame.midY)
+            }
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(features.contains(.history) ? sideOpacity : 0)
                 .position(x: layout.back.midX, y: layout.back.midY)
                 .allowsHitTesting(historyState.visible)
                 .accessibilityHidden(!historyState.visible)
-            capsule(layout.capsule)
-                .position(x: layout.capsule.midX, y: layout.capsule.midY)
+            if !showsStrip {
+                capsule(layout.capsule)
+                    .position(x: layout.capsule.midX, y: layout.capsule.midY)
+            }
             rightButton(layout.right)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(chrome.editing ? 1 : sideOpacity)
@@ -542,6 +559,16 @@ struct TabsToolbar: View {
             }
         }
     }
+}
+
+/// What the toolbar's paged strip shows and reports (`PagedTabStrip`).
+struct ToolbarStrip {
+    var entries: [StripEntry]
+    var activeID: String?
+    /// Bumped to send the strip back to the active chip (a New Tab that failed).
+    var restToken: Int
+    var onMove: (CGFloat?) -> Void
+    var onSettle: (Int) -> Void
 }
 
 /// Glass buttons highlight through the interactive glass itself; the
