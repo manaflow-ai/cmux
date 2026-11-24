@@ -7529,6 +7529,14 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/resume_generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/resume_offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -11456,6 +11464,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -19898,6 +19907,12 @@
       },
       "/data/version": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

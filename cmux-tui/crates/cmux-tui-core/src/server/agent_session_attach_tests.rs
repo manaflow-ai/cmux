@@ -31,7 +31,10 @@ pub(super) struct FakeAcpmux {
     pub(super) socket: PathBuf,
     pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
+    attachment_ready: Receiver<()>,
     current: Option<UnixStream>,
+    /// Every connection taken so far ([`FakeAcpmux::streams`]).
+    all: Vec<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -53,6 +56,7 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let (attachment_ready_tx, attachment_ready) = channel();
         let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
         let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
@@ -60,12 +64,24 @@ impl FakeAcpmux {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
+                let attachment_ready_tx = attachment_ready_tx.clone();
                 let fixture = fixture.clone();
                 let transfers = shared_transfers.clone();
-                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
+                std::thread::spawn(move || {
+                    serve(stream, frame_tx, &fixture, &transfers, &attachment_ready_tx)
+                });
             }
         });
-        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+        Self {
+            directory,
+            socket,
+            frames,
+            connections,
+            attachment_ready,
+            current: None,
+            all: Vec::new(),
+            transfer_blocked,
+        }
     }
 
     /// Models an acpmux watcher abort, independently of any cmux transfer request.
@@ -109,6 +125,14 @@ impl FakeAcpmux {
         self.frames.recv_timeout(timeout).ok()
     }
 
+    /// A guest relay emits its snapshot before asking acpmux to mark its session visible. The
+    /// view response is the fake's true attach-ready signal, after which a pushed event cannot
+    /// race the relay's setup. Real acpmux subscribes before the attach answer and serializes
+    /// writes on its connection, so this barrier models readiness rather than adding a delay.
+    pub(super) fn wait_for_attachment(&self) {
+        self.attachment_ready.recv_timeout(WAIT).expect("a guest attachment to become ready");
+    }
+
     pub(super) fn no_frame(&self) {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -129,9 +153,32 @@ impl FakeAcpmux {
 
     fn connection(&mut self) -> &mut UnixStream {
         if self.current.is_none() {
-            self.current = Some(self.connections.recv_timeout(WAIT).expect("a connection"));
+            let stream = self.connections.recv_timeout(WAIT).expect("a connection");
+            self.all.push(stream.try_clone().unwrap());
+            self.current = Some(stream);
         }
         self.current.as_mut().unwrap()
+    }
+
+    /// A handle on every connection the daemon opened to this fake so far, for a writer that may
+    /// run on another thread. acpmux sends a session's records to each of its attachments, and
+    /// each guest relay of a share is one ([`FakeAcpmux::notify`] reaches only the first).
+    pub(super) fn streams(&mut self) -> Vec<UnixStream> {
+        while let Ok(stream) = self.connections.try_recv() {
+            if self.current.is_none() {
+                self.current = stream.try_clone().ok();
+            }
+            self.all.push(stream);
+        }
+        self.all.iter().filter_map(|stream| stream.try_clone().ok()).collect()
+    }
+
+    /// [`FakeAcpmux::notify`] on every connection so far (one the daemon closed is skipped).
+    pub(super) fn notify_all(&mut self, method: &str, params: Value) {
+        let line = format!("{}\n", json!({"jsonrpc":"2.0","method":method,"params":params}));
+        for mut stream in self.streams() {
+            let _ = stream.write_all(line.as_bytes());
+        }
     }
 
     pub(super) fn notify(&mut self, method: &str, params: Value) {
@@ -268,6 +315,7 @@ fn serve(
     frames: Sender<Value>,
     fixture: &Fixture,
     transfers: &Mutex<HashSet<String>>,
+    attachment_ready: &Sender<()>,
 ) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
@@ -278,6 +326,7 @@ fn serve(
         let _ = frames.send(frame.clone());
         let id = frame["id"].clone();
         let params = &frame["params"];
+        let view = frame["method"] == json!("_acpmux/view");
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" => {
                 let mut capabilities = vec!["acpmux-v1"];
@@ -584,6 +633,9 @@ fn serve(
                 None => json!({"jsonrpc":"2.0","id":id,"result":result}),
             };
             writeln!(writer, "{frame}").unwrap();
+            if view {
+                let _ = attachment_ready.send(());
+            }
         }
     }
 }
@@ -1530,6 +1582,14 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
                    "userCode": "WDJB-MJHT", "needsCode": false}),
         ),
+        // Every agent acpmux signs in passes, with no list of them here (OpenCode's key).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"opencode","key":"sk-test"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "opencode", "key": "sk-test", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1547,7 +1607,8 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
     }
     for bad in [
         json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"../codex"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),

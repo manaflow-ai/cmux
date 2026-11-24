@@ -177,7 +177,7 @@ impl Supervisor {
     }
 
     /// `apps-safe-mode {op, args}`: `safe_mode.get`, `safe_mode.set`,
-    /// `safe_mode.launch_began`, `safe_mode.launch_settled`. The wire
+    /// `safe_mode.bisect {step}` (`safe_mode_bisect.rs`), `safe_mode.launch_began`, `safe_mode.launch_settled`. The wire
     /// admits the launch ops only from the verified app connection.
     pub(crate) fn safe_mode_call(
         &self,
@@ -194,6 +194,7 @@ impl Supervisor {
                 let params: SetParams = super::store::params(args)?;
                 self.set_safe_mode(params.on, origin)
             }
+            "safe_mode.bisect" => self.bisect_call(super::store::params(args)?, origin),
             "safe_mode.launch_began" => {
                 super::store::params::<serde_json::Map<String, Value>>(args)?;
                 Ok(self.launch_began(safe_mode_flag::now_ms()))
@@ -212,10 +213,10 @@ impl Supervisor {
         }
     }
 
-    /// `{on, reason?, sinceMs?, extensions?}`.
+    /// `{on, reason?, sinceMs?, extensions?, bisect?}`.
     pub(crate) fn safe_mode_json(&self) -> Value {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        flag_json(inner.safe_mode.as_ref())
+        super::safe_mode_bisect::answer_locked(&inner)
     }
 
     /// Turns safe mode on (any origin) or off (origin user only).
@@ -261,6 +262,7 @@ impl Supervisor {
                 outs.extend(self.stop_all_hosts_locked(&mut inner));
             }
             if !now_on {
+                self.end_bisect_locked(&mut inner);
                 inner.launches = Launches::default();
                 save_launches(self.config.state_dir.as_deref(), &inner.launches);
             }
