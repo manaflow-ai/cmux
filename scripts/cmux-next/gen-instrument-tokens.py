@@ -9,7 +9,11 @@ script:
            no pixel wherever it is imported; a pending Instrument value rides beside it as a comment. It is
            a build output (scripts/ci/generated-files.json, status build; gitignored): run this script to
            make it. `--print-css` writes it to stdout instead.
-  checks   every token's recorded `today` against its live source. A PR that moves a default (design-scale,
+  checks   every token's recorded `today` against its live source. A source is a JSON file and a path into
+           it, or, for a value only a stylesheet sets, the CSS file whose declarations read the token: its
+           `path` is the token's own `--instrument-*` property and the value is the fallback every
+           `var(--instrument-*, FALLBACK)` in that file carries (the sheet is not imported, so the fallback
+           is what draws). A PR that moves a default (design-scale,
            surface-roles, a setting's default) fails here until the token file says the new value, the
            version is bumped and CHANGELOG.md has that version.
   ratchets the pending list (tokens whose Instrument value is not drawn yet) against
@@ -159,6 +163,8 @@ def validate(data):
             raise TokenError(f'{name}: waits {waits!r} is not one of the questions')
         if 'today' in t and (is_rule(t) or not {'file', 'path', 'value'} <= t['today'].keys()):
             raise TokenError(f'{name}: today is {{file, path, value}} on a value token')
+        if 'today' in t and is_css_source(t['today']) and t['today']['path'] != css_var(name):
+            raise TokenError(f'{name}: a stylesheet source\'s path is the token\'s own property, {css_var(name)}')
         if not is_rule(t):
             if pending(t) and waits is None:
                 raise TokenError(f'{name}: Instrument says {t["instrument"]!r}, the app draws '
@@ -173,17 +179,46 @@ def validate(data):
                 raise TokenError(f'{name}: an offToken entry is {{file, line, value, on}}')
 
 
-def css_root_value(text, prop):
-    """A custom property's value in a stylesheet's first `:root { ... }` block (a `today.file` ending in .css,
-    `today.path` the property): a default the stylesheet itself owns, such as a look token's."""
-    block = re.search(r'^:root\s*\{(.*?)^\}', text, re.S | re.M)
-    if not block:
-        raise TokenError('no :root block')
-    body = re.sub(r'/\*.*?\*/', '', block.group(1), flags=re.S)
-    m = re.search(rf'(?:^|[;\s]){re.escape(prop)}\s*:\s*([^;]+);', body)
-    if not m:
-        raise TokenError(f'{prop} is not declared on :root')
-    return ' '.join(m.group(1).split())
+def css_var(name):
+    return '--instrument-' + name.replace('.', '-')
+
+
+def is_css_source(today):
+    return today['file'].endswith('.css')
+
+
+def css_fallbacks(text, var):
+    """The fallback of every `var(VAR, FALLBACK)` in a stylesheet, in order."""
+    found, needle, at = [], f'var({var},', 0
+    while (at := text.find(needle, at)) != -1:
+        start = end = at + len(needle)
+        depth = 1
+        while end < len(text) and depth:
+            depth += {'(': 1, ')': -1}.get(text[end], 0)
+            end += 1
+        found.append(' '.join(text[start:end - 1].split()))
+        at = end
+    return found
+
+
+def _css_text(value, unit=''):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f'{value:g}{unit}' if unit in ('px', '%') else f'{value:g}'
+    return value
+
+
+def _css_drift(t, root):
+    today = t['today']
+    path = root / today['file']
+    if not path.is_file():
+        return f'{t["name"]}: {today["file"]} does not exist'
+    found = sorted(set(css_fallbacks(path.read_text(encoding='utf-8'), today['path'])))
+    want = _css_text(today['value'], t.get('unit', ''))
+    if found != [want]:
+        return (f'{t["name"]}: {today["file"]} reads var({today["path"]}, ...) with '
+                f'{", ".join(repr(f) for f in found) or "no declaration"}, the token file says {want!r}. A default '
+                f'moved: set today.value, bump the version and add it to {CHANGELOG}.')
+    return None
 
 
 def drift(data, root=ROOT):
@@ -193,16 +228,19 @@ def drift(data, root=ROOT):
         today = t.get('today')
         if not today:
             continue
+        if is_css_source(today):
+            problem = _css_drift(t, root)
+            if problem:
+                found.append(problem)
+            continue
         if today['file'] not in cache:
             path = root / today['file']
             if not path.is_file():
                 found.append(f'{t["name"]}: {today["file"]} does not exist')
                 continue
-            text = path.read_text(encoding='utf-8')
-            cache[today['file']] = text if today['file'].endswith('.css') else json.loads(text)
+            cache[today['file']] = json.loads(path.read_text(encoding='utf-8'))
         try:
-            source = cache[today['file']]
-            live = css_root_value(source, today['path']) if isinstance(source, str) else resolve(source, today['path'])
+            live = resolve(cache[today['file']], today['path'])
         except TokenError as error:
             found.append(f'{t["name"]}: {error}')
             continue
@@ -266,9 +304,8 @@ def _css_value(t):
     value = today['value']
     if isinstance(value, bool) or isinstance(value, list):
         return None
-    if isinstance(value, (int, float)):
-        unit = t.get('unit', '')
-        return f'{value:g}{unit}' if unit in ('px', '%') else f'{value:g}'
+    if is_css_source(today) or isinstance(value, (int, float)):
+        return _css_text(value, t.get('unit', ''))
     if isinstance(value, str) and CSS_STRING.match(value):
         return value
     return None
@@ -294,7 +331,7 @@ def css(data):
             if not is_rule(t):
                 unset.append(t['name'])
             continue
-        var = '--instrument-' + t['name'].replace('.', '-')
+        var = css_var(t['name'])
         note = ''
         if pending(t):
             note = f' /* Instrument {_show(t["instrument"])}{t.get("unit", "") if not isinstance(t["instrument"], str) else ""}; waits {t["waits"]} */'
