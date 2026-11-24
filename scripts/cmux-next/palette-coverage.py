@@ -525,7 +525,7 @@ class Rules(unittest.TestCase):
             rust_menus('pub const MENUS: &[HandBuiltMenu] = &[\n    menu(name, "A.swift", &[]),\n];\n')
         real = {m["name"]: m for m in rust_menus(MENUS.read_text())["menus"]}
         self.assertIn("browserReload", real["browserReload"]["rows"])
-        self.assertEqual(real["paneTabBarRows"]["contexts"], ["tab", "pane", "newTab"])
+        self.assertEqual(real["agentPaneMessage"]["contexts"], ["agentChat"])
 
     def test_keep_entries_name_live_gaps_with_a_reason(self):
         found = {("action", "x"): "X", ("menu", "m"): "M"}

@@ -385,6 +385,8 @@ export type AppUpdateState = {
   detail: string | null;
   progress?: number | null;
   actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
+  /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
+  schedule?: { id: string; label: string; value: string }[];
 };
 
 /** A button of the App Update card (Swift `SettingsUpdateAction`). */
@@ -922,6 +924,10 @@ export type HarnessRow = {
   checkedAt?: number | null;
 };
 
+/** A prompt cache miss (acpmux `claude_stdio/prompt_cache.rs` `cacheMiss`): its likely cause, and when
+ * (unix ms). A cause this page does not know reads as unknown. */
+export type AccountCacheMiss = { cause: string; at: number };
+
 /** One provider account routing may use (acpmux `_acpmux/accounts`): the CLI's own login (`builtin`)
  * or an account added in a shadow home. Folders arrive under `~`; actions name the id only. */
 export type ProviderAccount = {
@@ -946,8 +952,10 @@ export type ProviderAccount = {
   key?: boolean;
   /** Its plan's 5-hour and weekly limits, read when Settings opens (acpmux `_acpmux/account/usage`,
    * the chat's `usageLimits` shape); null or absent when none was read (Claude Code reports its
-   * limits only during a chat, and a Codex login in the keychain is not asked). */
-  usage?: AcpmuxUsageLimits | null;
+   * limits only during a turn, so a Claude account's are the newest its chats saved, and a Codex login
+   * in the keychain is not asked). `lastCacheMiss`: the newest prompt cache miss of a Claude account's
+   * chats and its likely cause (acpmux `hub/account_usage.rs`). */
+  usage?: (AcpmuxUsageLimits & { lastCacheMiss?: AccountCacheMiss }) | null;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */

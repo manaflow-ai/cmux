@@ -1,21 +1,8 @@
-import { toggleTurnFold } from "../agent-session/acpmux/conversation/turns";
 import "../agent-session/guest/guest.css";
 import "./chief-web.css";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import { VirtualTranscript } from "../agent-session/acpmux/App";
-import { readOnlyRegistry } from "../agent-session/acpmux/rows/registry";
-import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/GuestActionsBoundary";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
-import { ArrowUpIcon } from "../agent-session/acpmux/ComposerPickers";
+import { ArrowUpIcon } from "../agent-session/acpmux/icons/arrowUpIcon";
 import { useT } from "../agent-session/acpmux/i18n";
 import { GuestComposer } from "../agent-session/guest/GuestComposer";
 import { GuestPrompts } from "../agent-session/guest/guestPrompts";
@@ -38,9 +25,38 @@ export interface ChiefWebProps {
   storage?: Storage;
   loginApi?: MachineLoginApi;
   openSocket?: (url: string, protocols: string[]) => SocketLike;
+  /** Loads the transcript's chunk (loadChiefTranscript; tests and the gallery hand in a failing one). */
+  loadTranscript?: () => Promise<TranscriptModule>;
+  /** Reloads the page when Retry's load fails too (tests hand in a spy). */
+  reloadPage?: () => void;
 }
 
 const signIn = () => location.assign(location.pathname);
+
+type TranscriptModule = typeof import("./ChiefTranscriptView");
+let transcriptChunk: Promise<TranscriptModule> | undefined;
+/**
+ * Loads the transcript's chunk once (ChiefTranscriptView.tsx); a failed load is forgotten, so the next
+ * call tries again. The import is its own step, as on the guest page (GuestPage.tsx loadGuestTranscript):
+ * the bundler wraps `import()` with its preload of the chunk's modules.
+ */
+export function loadChiefTranscript(): Promise<TranscriptModule> {
+  const fetchChunk = async (): Promise<TranscriptModule> => import("./ChiefTranscriptView");
+  transcriptChunk ??= fetchChunk().catch((error: unknown) => {
+    transcriptChunk = undefined;
+    throw error;
+  });
+  return transcriptChunk;
+}
+
+/** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
+const CHUNK_RETRY_FIRST_MS = 1_000;
+const CHUNK_RETRY_MAX_MS = 30_000;
+const reloadWindow = () => window.location.reload();
+interface ChunkLoad {
+  delay: number;
+  byRetry: boolean;
+}
 
 function browserStorage(): Storage {
   try {
@@ -64,7 +80,14 @@ function browserStorage(): Storage {
   }
 }
 
-export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, openSocket }: ChiefWebProps) {
+export function ChiefWeb({
+  api = chiefApi,
+  loginApi = machineLoginApi,
+  storage,
+  openSocket,
+  loadTranscript = loadChiefTranscript,
+  reloadPage = reloadWindow,
+}: ChiefWebProps) {
   const t = useT();
   const [identity, setIdentity] = useState<ChiefIdentity>();
   const [failed, setFailed] = useState<"expired" | "offline" | "inaccessible">();
@@ -129,6 +152,8 @@ export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, 
           loginApi={loginApi}
           storage={saved}
           openSocket={openSocket}
+          loadTranscript={loadTranscript}
+          reloadPage={reloadPage}
         />
       ) : (
         <>
@@ -168,12 +193,16 @@ function ChiefChat({
   loginApi,
   storage,
   openSocket,
+  loadTranscript,
+  reloadPage,
 }: {
   identity: ChiefIdentity;
   api: ChiefApi;
   loginApi: MachineLoginApi;
   storage: Storage;
   openSocket?: ChiefWebProps["openSocket"];
+  loadTranscript: () => Promise<TranscriptModule>;
+  reloadPage: () => void;
 }) {
   const t = useT();
   const [transcript] = useState(() => new ChiefTranscript());
@@ -181,6 +210,43 @@ function ChiefChat({
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
   const [loginRun, setLoginRun] = useState<string>();
   const [expanded, setExpanded] = useState(() => new Set<string>());
+  // The transcript's chunk loads beside the ticket and the socket, so it is in before the first rows.
+  // A failed load (a dropped connection) says so with Retry and keeps trying on its own, 1 s, 2 s, 4 s
+  // ... up to 30 s apart, as the guest page does. The browser may keep a failed module fetch for the
+  // page's life, so a Retry that fails again reloads the page.
+  const [view, setView] = useState<TranscriptModule>();
+  // Each load is its own attempt; Retry's (byRetry) reloads the page when it fails too.
+  const [load, setLoad] = useState<ChunkLoad>(() => ({ delay: CHUNK_RETRY_FIRST_MS, byRetry: false }));
+  const [failedLoad, setFailedLoad] = useState<ChunkLoad>();
+  useEffect(() => {
+    let stopped = false;
+    void loadTranscript().then(
+      (chunk) => {
+        if (stopped) return;
+        setFailedLoad(undefined);
+        setView(() => chunk);
+      },
+      () => {
+        // A newer attempt (or an unmount) stopped this one.
+        if (stopped) return;
+        if (load.byRetry) reloadPage();
+        else setFailedLoad(load);
+      },
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [loadTranscript, reloadPage, load]);
+  useEffect(() => {
+    if (!failedLoad || failedLoad !== load) return;
+    const retry = setTimeout(
+      () => setLoad({ delay: Math.min(failedLoad.delay * 2, CHUNK_RETRY_MAX_MS), byRetry: false }),
+      failedLoad.delay,
+    );
+    return () => clearTimeout(retry);
+  }, [failedLoad, load]);
+  const loadFailed = failedLoad !== undefined;
+  const retryLoad = () => setLoad({ delay: CHUNK_RETRY_FIRST_MS, byRetry: true });
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
   const prompts = useMemo(
     () => new GuestPrompts(`chief:${identity.chiefId}:${identity.mainConversationId}`, storage),
@@ -233,7 +299,7 @@ function ChiefChat({
       (prompt.state === "sending" || prompt.state === "refused" || prompt.state === "approved"),
   );
   return (
-    <GuestActionsBoundary>
+    <>
       <header className="chief-web__header">
         <h1>{t("needsYou.chief")}</h1>
         <output className="chief-web__connection">
@@ -259,17 +325,27 @@ function ChiefChat({
       </header>
       <main className="chief-web__transcript" data-read-only-transcript="">
         {rows.length ? (
-          <LiveTranscriptContext.Provider value={transcript}>
-            <VirtualTranscript
+          view ? (
+            <view.ChiefTranscriptView
+              transcript={transcript}
               rows={rows}
               sessionId={`chief-web:${identity.mainConversationId}`}
               expanded={expanded}
-              onToggleActivity={(id, covers) => setExpanded((open) => toggleTurnFold([], open, id, covers))}
+              setExpanded={setExpanded}
               working={working}
-              registry={chiefRegistry}
-              readOnly
             />
-          </LiveTranscriptContext.Provider>
+          ) : loadFailed ? (
+            <div className="chief-web__empty" role="alert">
+              <p>{t("guest.live.loadFailed")}</p>
+              <button className="chief-web__action" onClick={retryLoad}>
+                {t("retry.action")}
+              </button>
+            </div>
+          ) : (
+            <div className="chief-web__empty">
+              <Spinner size={20} />
+            </div>
+          )
         ) : (
           <div className="chief-web__empty">
             <h2>{t("chiefWeb.empty")}</h2>
@@ -328,19 +404,6 @@ function ChiefChat({
           enterSends={false}
         />
       </div>
-    </GuestActionsBoundary>
+    </>
   );
 }
-
-// The virtualizer holds stable row shells while each mounted reply subscribes to its tokens.
-const LiveTranscriptContext = createContext<ChiefTranscript | undefined>(undefined);
-const Assistant = readOnlyRegistry.assistant!;
-function LiveAssistant(props: React.ComponentProps<typeof Assistant>) {
-  const transcript = useContext(LiveTranscriptContext)!;
-  const row = useSyncExternalStore(
-    (listener) => transcript.subscribeRow(props.row.id, listener),
-    () => transcript.row(props.row.id) ?? props.row,
-  );
-  return <Assistant {...props} row={row} />;
-}
-const chiefRegistry = { ...readOnlyRegistry, assistant: LiveAssistant };
