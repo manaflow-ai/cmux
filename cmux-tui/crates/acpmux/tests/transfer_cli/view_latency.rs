@@ -31,26 +31,30 @@ impl Rpc {
     }
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
-
-/// Two daemons, each the other's ssh peer `target`, their peer links `one_way_ms` slow each way.
+/// Two daemons, each the other's ssh peer `target`, their peer links `one_way_ms` slow each way
+/// (the stand-in `ssh -W` holds each chunk, `FAKE_SSH_DELAY_MS`).
 async fn linked_pair(tag: &str, one_way_ms: u64) -> [Side; 2] {
     let (a, b) = (format!("{tag}a"), format!("{tag}b"));
-    let (port_a, port_b) = (free_port(), free_port());
-    let first = Daemon::spawn_linked(
+    let delay = one_way_ms.to_string();
+    let vars = [("FAKE_SSH_DELAY_MS", delay.as_str())];
+    let first = Daemon::spawn_full(
         &a,
         Some(Daemon::place(&b)),
         json!({}),
-        Some((port_a, port_b, one_way_ms)),
+        "fake",
+        true,
+        &vars,
+        "approve-all",
     )
     .await;
-    let second = Daemon::spawn_linked(
+    let second = Daemon::spawn_full(
         &b,
         Some(Daemon::place(&a)),
         json!({}),
-        Some((port_b, port_a, one_way_ms)),
+        "fake",
+        true,
+        &vars,
+        "approve-all",
     )
     .await;
     [first, second].map(|daemon| {
@@ -151,10 +155,22 @@ async fn run(tag: &str, round_trip_ms: u64) -> Value {
     let ran = there.call("_acpmux/info", json!({"sessionId": id})).await;
     let last = format!("echo: moved {}", SAMPLES - 1);
     assert_eq!(ran["lastMessage"]["text"], last.as_str(), "the peer ran the moved prompts");
+    // Asked by the chat's own id, the first daemon answers with the row it kept (closed, the
+    // last prompt it ran) or with the peer's row it forwards; never a chat of its own that ran
+    // the moved prompts here.
     let left = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
-    assert_eq!(left["status"], "closed", "the first daemon only forwards: {left}");
-    assert_eq!(left["lastPrompt"], format!("local {}", SAMPLES - 1), "{left}");
+    let kept = left["status"] == "closed" && left["lastPrompt"] == format!("local {}", SAMPLES - 1);
+    let forwarded = left["lastMessage"]["text"] == last.as_str();
+    assert!(
+        kept || forwarded,
+        "the first daemon only forwards: status={} lastPrompt={} lastMessage={} movedTo={}",
+        left["status"],
+        left["lastPrompt"],
+        left["lastMessage"]["text"],
+        left["movedTo"]
+    );
 
+    let own_id_row = if kept { "kept" } else { "forwarded" };
     let row = |local: &[f64], moved: &[f64]| {
         let (l, m) = (spread(local), spread(moved));
         json!({"local": {"p50": l[0], "p95": l[1], "max": l[2]},
@@ -167,6 +183,7 @@ async fn run(tag: &str, round_trip_ms: u64) -> Value {
         "moveMs": moved_in.as_secs_f64() * 1000.0,
         "movedKey": key.replace(&id, "ID"),
         "plainIdAnswer": match plain { Ok(v) => json!({"ok": v}), Err(e) => json!({"error": e}) },
+        "ownIdRow": own_id_row,
         "firstTokenMs": row(&local_token, &moved_token),
         "draftSetMs": row(&local_draft, &moved_draft),
     })

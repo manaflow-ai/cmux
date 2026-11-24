@@ -983,6 +983,13 @@ impl Hub {
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
         }
+        // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
+        // unfinished closes from `ls --closed --json`.
+        if m.status == SessionStatus::Closed
+            && let Some(close) = &m.close
+        {
+            summary.set("close", json!(close));
+        }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
