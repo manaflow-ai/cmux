@@ -174,14 +174,14 @@ pub struct LogPart {
 /// A segment file opened for a read, with the bytes taken from it counted.
 struct Segment {
     index: u32,
-    file: File,
+    file: super::cold_segments::SegmentFile,
     id: u64,
     read: u64,
 }
 
 impl Segment {
     fn open(index: u32, path: &Path) -> Result<Self> {
-        let file = crate::config::private_state_file(path)?;
+        let file = super::cold_segments::open_segment(path)?;
         let id = file_id(&file.metadata()?);
         Ok(Self { index, file, id, read: 0 })
     }
@@ -449,8 +449,7 @@ impl LocalStore {
                 // A line larger than a chunk: the buffer doubles, never past what is left of
                 // the segment, so a line of n chunks costs O(n) copying and not O(n²).
                 (0, waiting) if waiting >= CHUNK_BYTES => {
-                    let left =
-                        segment.file.metadata()?.len().saturating_sub(offset + waiting as u64);
+                    let left = segment.file.len()?.saturating_sub(offset + waiting as u64);
                     waiting.min(usize::try_from(left).unwrap_or(usize::MAX)).max(1)
                 }
                 (kept, waiting) => CHUNK_BYTES.saturating_sub(kept + waiting),
@@ -658,7 +657,7 @@ impl LocalStore {
 fn scan_to(segment: &mut Segment, start: u64, from: u64) -> Result<u64> {
     segment.file.seek(SeekFrom::Start(start))?;
     let found = {
-        let mut reader = BufReader::with_capacity(64 * 1024, &segment.file);
+        let mut reader = BufReader::with_capacity(64 * 1024, &mut segment.file);
         let mut offset = start;
         let mut head = Vec::with_capacity(HEAD);
         let mut length = 0u64;

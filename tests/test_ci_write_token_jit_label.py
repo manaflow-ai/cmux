@@ -33,12 +33,8 @@ LEAD = re.compile(r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '
 # workflow -> (marked lines that do not lead with a JIT label yet, why). A count, so a new unmoved job still fails.
 EXCEPTIONS = {
     "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
-    "cmux-next-base-autofix.yml": (3, "reads the ephemeral_only linux_4 pool (tests/test_ci_ephemeral_pool_readers.py)"),
-    "cmux-next-generated-catch-up.yml": (2, "reads the ephemeral_only linux_4 pool"),
-    "cmux-next-package-deps-heal.yml": (1, "reads the ephemeral_only linux_4 pool"),
-    "cmux-next-pr-autofix.yml": (1, "reads the ephemeral_only linux_4 pool"),
     "pr-checks.yml": (1, "the advisory comment job left the PR control label when it backed up (tests/test_ci_runner_set.py)"),
-    "cmux-next.yml": (4, "reads the ephemeral_only linux_4 pool, or the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
+    "cmux-next.yml": (2, "the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
 }
 
 

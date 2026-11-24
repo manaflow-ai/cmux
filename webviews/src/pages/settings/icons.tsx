@@ -25,6 +25,10 @@ const paths: Record<string, ReactNode> = {
       <path d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
     </>
   ),
+  // Settings > Integrations: two chain links (SF Symbol link).
+  link: (
+    <path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.9-.9" />
+  ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
   // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
   "switch.2": (
@@ -228,6 +232,9 @@ const paths: Record<string, ReactNode> = {
       <rect x="1.6" y="1.8" width="9.4" height="8.6" rx="1.6" />
       <path d="M3.8 4.6h5M3.8 7.6h3.4M10 9.4l4.2 1.6-1.8.7-.7 1.8L10 9.4Z" />
     </>
+  ),
+  "puzzlepiece.extension": (
+    <path d="M3 5h2.4a1.6 1.6 0 1 1 3.2 0H11v2.4a1.6 1.6 0 1 1 0 3.2V13H8.6a1.6 1.6 0 1 0-3.2 0H3v-2.4a1.6 1.6 0 1 0 0-3.2Z" />
   ),
   "arrow.turn.down.right": <path d="M3.5 3v4.6a2.4 2.4 0 0 0 2.4 2.4h7M10 7l3 3-3 3" />,
   grip: <path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01" />,

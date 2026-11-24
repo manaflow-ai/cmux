@@ -35,8 +35,9 @@ pub(super) const CARRY_DEADLINE: Duration = Duration::from_secs(30);
 /// link and its retry found it down again (about 2 s on the outbox's schedule).
 pub(super) const CARRY_FROM_ATTEMPT: u32 = 2;
 
-/// The `--relay` name the far daemon records for a carried message.
-const RELAY_NAME: &str = "acpmux-ssh";
+/// The `--relay` name the far daemon records for a carried message: its inbox wakes the chat
+/// for it (`prompt_provenance::waited`).
+const RELAY_NAME: &str = crate::prompt_provenance::SSH_CARRY_RELAY;
 
 /// What one carry did.
 #[derive(Debug)]
@@ -315,6 +316,8 @@ fn not_connected(stderr: &str) -> bool {
         "Permission denied",
         "Host key verification failed",
         "connect to host",
+        // A relay ProxyCommand (ProxyUseFdpass) reached none of the machine's routes: no login.
+        "proxy dialer did not pass back a connection",
     ];
     NEVER.iter().any(|m| stderr.contains(m))
 }
@@ -431,6 +434,16 @@ mod tests {
         assert!(matches!(
             outcome(Some(255), "", "Connection to box closed by remote host."),
             Carry::Maybe(_)
+        ));
+        // A parked machine behind a relay ProxyCommand: ssh never logged in, so the message is
+        // still unsent and the mesh relay may carry it (not a maybe-taken that rules it out).
+        assert!(matches!(
+            outcome(
+                Some(255),
+                "",
+                "mm_receive_fd: recvmsg: expected received 1 got 0\nproxy dialer did not pass back a connection"
+            ),
+            Carry::NotTaken(_)
         ));
         assert!(matches!(outcome(Some(127), "", "acpmux: not found"), Carry::NotTaken(_)));
         assert!(matches!(outcome(Some(4), "", "no session"), Carry::NotTaken(_)));

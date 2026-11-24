@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{Command, Switched, Target, human, parse, pick, switched};
+use super::{Command, Switched, Target, human, parse, parse_app, pick, switched};
 use crate::localization::NightlyMessages;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -54,6 +54,65 @@ fn nightly_parse_reads_list_and_install() {
     assert!(parse(&words(&["install", "previous", "extra"])).is_err());
     assert!(parse(&words(&["list", "--limit", "0"])).is_err());
     assert!(parse(&words(&["list", "--bogus"])).is_err());
+}
+
+/// `cmux app versions` and `cmux app use` are `nightly list` and `nightly install`.
+#[test]
+fn app_versions_and_use_are_the_nightly_commands() {
+    assert_eq!(parse_app("versions", &words(&[])).unwrap(), Command::List { limit: 10 });
+    assert_eq!(
+        parse_app("versions", &words(&["--limit", "3"])).unwrap(),
+        Command::List { limit: 3 }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["previous"])).unwrap(),
+        Command::Install { target: Target::Previous }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["next"])).unwrap(),
+        Command::Install { target: Target::Next }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["latest"])).unwrap(),
+        Command::Install { target: Target::Latest }
+    );
+    assert_eq!(
+        parse_app("use", &words(&["200"])).unwrap(),
+        Command::Install { target: Target::Build("200".into()) }
+    );
+    assert_eq!(parse_app("use", &words(&["--help"])).unwrap(), Command::Help);
+    assert!(parse_app("use", &words(&[])).is_err());
+    assert!(parse_app("use", &words(&["older"])).is_err());
+    assert_eq!(
+        super::super::parse(&words(&["app", "use", "previous"])).unwrap(),
+        Some(super::super::AppCommand::Nightly(Command::Install { target: Target::Previous }))
+    );
+    assert_eq!(
+        super::super::parse(&words(&["app", "versions"])).unwrap(),
+        Some(super::super::AppCommand::Nightly(Command::List { limit: 10 }))
+    );
+}
+
+/// `next` is one step forward (the undo of `previous`), `latest` the newest; neither is a pulled
+/// build, and both refuse when nothing installable is above the running build.
+#[test]
+fn app_use_next_and_latest_go_forward() {
+    assert_eq!(picked(Target::Next), Ok("500".into()));
+    assert_eq!(picked(Target::Latest), Ok("1000".into()));
+    let back = json!({ "installed": "200", "switches": true, "builds": [
+        { "build": "500", "switchable": true, "health": "pending" },
+        { "build": "400", "switchable": true, "health": "pending", "kept": true },
+        { "build": "300", "switchable": false, "health": "pulled" },
+        { "build": "200", "switchable": false, "installed": true } ] });
+    let next = pick(&back, &Target::Next, messages()).map(|build| build["build"].as_str().unwrap());
+    assert_eq!(next.map_err(|(code, _)| code), Ok("400"));
+    let top = json!({ "installed": "500", "switches": true, "builds": [
+        { "build": "500", "switchable": false, "installed": true },
+        { "build": "400", "switchable": true } ] });
+    for target in [Target::Next, Target::Latest] {
+        let result = pick(&top, &target, messages()).map_err(|(code, _)| code);
+        assert_eq!(result.err(), Some("nightly.no_next"));
+    }
 }
 
 #[test]

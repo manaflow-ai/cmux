@@ -280,6 +280,31 @@
             "photos"
           ],
           "swift_owner": "HomeKeepLocationSetting"
+        },
+        {
+          "key": "home.clipboardHistory",
+          "title": {
+            "key": "settings.home.clipboardHistory",
+            "text": "Clipboard History in the + Menu"
+          },
+          "help": {
+            "key": "settings.home.clipboardHistory.help",
+            "text": "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "clipboard",
+            "pasteboard",
+            "copy",
+            "paste",
+            "history",
+            "privacy",
+            "attachments",
+            "chief",
+            "plus"
+          ],
+          "swift_owner": "HomeClipboardHistorySetting"
         }
       ]
     },

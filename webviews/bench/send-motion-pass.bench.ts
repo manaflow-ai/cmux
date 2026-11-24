@@ -763,7 +763,7 @@ if (import.meta.main) {
       },
     });
     releases.push(["static server", () => statics.stop(true)]);
-    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${SESSION}`;
+    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${SESSION}`;
 
     let failed = 0;
     const report: Record<string, Round[]> = {};
