@@ -798,6 +798,17 @@ concurrency:
 
 # Why: docs/ci/cmux-next-workflow-notes.md#note-553
 jobs:
+  # One run per 30-minute window on the feat-cmux-next tip for checks whose result
+  # does not publish a per-commit artifact. Pull requests, dispatches and reruns
+  # keep the existing behavior because base-coalesce only coalesces base pushes.
+  # Publishing and per-landing jobs intentionally do not depend on this gate.
+  pure-checks-coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-pure-checks
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_PURE_CHECKS_COALESCE) == '0' }}
+
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # Why: docs/ci/cmux-next-workflow-notes.md#note-11
   # Its Linux control jobs (this one, the placements, release-compile-fast-admission, dev-landing-place) take
