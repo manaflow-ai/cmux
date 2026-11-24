@@ -177,6 +177,18 @@ pub fn bash_patterns() -> Vec<String> {
     all
 }
 
+/// The [`bash_patterns`] of a machine under the aggressive pause policy: a foreground `sleep`
+/// also starts the hook, which hands it to the platform (`parked_wait.rs`).
+pub fn bash_patterns_parked() -> Vec<String> {
+    let mut all = bash_patterns();
+    all.push(PARKED_SLEEP_PATTERN.to_owned());
+    all
+}
+
+/// A `Bash` input whose command starts with `sleep ` (Claude Code's JSON, no space after the
+/// colon, or one).
+pub const PARKED_SLEEP_PATTERN: &str = "*'\"command\":\"sleep '*|*'\"command\": \"sleep '*";
+
 /// Why `command` would hold the turn for long, if one of its simple commands is known to
 /// ([`SLOW`]), or None. A command that puts itself in the background (a trailing `&`) or
 /// carries [`FOREGROUND_OK`] holds nothing; `nohup` or `setsid` alone still runs in the
@@ -640,6 +652,23 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
             return Ok(());
         }
         _ => {}
+    }
+    // Under the aggressive pause policy a foreground `sleep N` waits outside the machine
+    // (`parked_wait.rs`): rewritten into the parked waiter, which returns what `sleep` would.
+    if crate::parked_wait::aggressive(std::path::Path::new("/")) {
+        let this = crate::self_command::SelfCommand::current()
+            .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
+        let mut words = vec![this.exe.to_string_lossy().into_owned()];
+        words.extend(this.args_lossy::<&str>(&[]));
+        if let Some(answer) = crate::parked_wait::rewrite(&input, &words) {
+            let marked = answer.pointer("/hookSpecificOutput/updatedInput").and_then(|updated| {
+                let mut call = input.clone();
+                call.set("tool_input", updated.clone());
+                subagent_mark(&call)
+            });
+            println!("{}", marked.unwrap_or(answer));
+            return Ok(());
+        }
     }
     let config = crate::agent_tools::mcp_config_path(&home, &session);
     let route = std::fs::read(&config)

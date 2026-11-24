@@ -1833,7 +1833,12 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    let bash = hook_command(&words, &crate::bg_hook::bash_patterns());
+    let patterns = if crate::parked_wait::aggressive(std::path::Path::new("/")) {
+        crate::bg_hook::bash_patterns_parked()
+    } else {
+        crate::bg_hook::bash_patterns()
+    };
+    let bash = hook_command(&words, &patterns);
     let hook = json!([{"type": "command", "command": bash, "timeout": 10}]);
     // Only a subagent's call has work there: the lead's never starts this binary.
     let sub = hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()]);

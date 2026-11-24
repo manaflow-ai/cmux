@@ -103,6 +103,12 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // A parked wait (`parked_wait.rs`): one `sleep` handed to the platform, no CLI.
+    if args.first().is_some_and(|a| a == crate::parked_wait::ARG) {
+        let rest: Vec<String> =
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        return crate::parked_wait::main(&rest);
+    }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
         return crate::codex_repo_gate::main();

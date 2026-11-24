@@ -957,6 +957,10 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// Parked waits (`parked_wait.rs`): a chat's own tool call hands its wait to the platform,
+    /// `{sessionId, toolCallId, wakeAt}`, and takes it back, `{sessionId, toolCallId}`.
+    pub const MUX_WAIT_PARK: &str = "_acpmux/wait/park";
+    pub const MUX_WAIT_UNPARK: &str = "_acpmux/wait/unpark";
     /// "Run on a bigger machine" (`server/run_elsewhere.rs`): what a chat's command would send
     /// to a connected machine, and its start there as a background task of the chat.
     pub const MUX_RUN_ELSEWHERE_PLAN: &str = "_acpmux/run_elsewhere/plan";

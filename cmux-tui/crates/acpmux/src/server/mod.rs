@@ -2770,6 +2770,7 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+mod parked_waits;
 pub(crate) use outbound::is_cheap_read;
 pub(crate) mod outbox;
 mod pairing;

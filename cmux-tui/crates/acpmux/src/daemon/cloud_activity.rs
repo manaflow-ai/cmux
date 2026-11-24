@@ -49,6 +49,11 @@
 //!   but its input still streams (`crate::hub::tool_start`: Claude's block started, so a tool
 //!   will run within seconds: the early wake; the Cloud reads any phase but `model-wait` as
 //!   awake, so a sleep never starts under it and a resume can start before the call lands);
+//!   A session whose every open call is a parked wait (`crate::parked_wait`: a `sleep` handed
+//!   to the platform under the aggressive pause policy) is `parked` instead, with
+//!   `"wake": [{"kind": "timer", "at": ms}]`, one per parked call: no local work runs, so the
+//!   platform may pause the machine and wake it at the earliest `at` (RFD 0063 step 2). Today's
+//!   Cloud reads `parked` as awake, like any phase but `model-wait`;
 //!   else `pinned` while processes the agent left running (a
 //!   background shell or task) or a background subagent or sub-session work, or while it is at
 //!   work with no turn; else `person` while a permission or question waits; else `model-wait`.
@@ -112,8 +117,10 @@ pub(super) struct Tracker {
     restarted: bool,
     /// Each session at work's phase and since when, once [`Self::observe`] ran.
     phases: Option<BTreeMap<String, TurnPhase>>,
+    /// Each session's calls handed to the platform ([`Self::set_parked`]).
+    parked: crate::parked_wait::ParkedMap,
     /// The phases the agent last got, by session: (phase, since).
-    sent_phases: Option<Vec<(String, &'static str, u64)>>,
+    sent_phases: Option<Vec<(String, &'static str, u64, Vec<crate::parked_wait::Wake>)>>,
 }
 
 /// What one session at work waits on (the module doc's `phases`).
@@ -123,6 +130,8 @@ pub(super) struct TurnPhase {
     pub since: u64,
     pub processes: usize,
     pub attached: bool,
+    /// A `parked` session's wakes, one per parked call.
+    pub wake: Vec<crate::parked_wait::Wake>,
 }
 
 impl Tracker {
@@ -209,6 +218,22 @@ impl Tracker {
         }
     }
 
+    /// Before each look: the calls each session handed to the platform (`Hub::parked`).
+    pub(super) fn set_parked(&mut self, parked: crate::parked_wait::ParkedMap) {
+        self.parked = parked;
+    }
+
+    /// The wakes of session `sid` when every call it has open is parked and none is starting,
+    /// else None.
+    fn parked_wakes(&self, sid: &str) -> Option<Vec<crate::parked_wait::Wake>> {
+        let open = self.open_tools.get(sid)?;
+        if self.starting.contains_key(sid) {
+            return None;
+        }
+        let parked = self.parked.get(sid)?;
+        open.iter().map(|call| parked.get(call).cloned()).collect()
+    }
+
     /// The sessions at work as read at `now_ms`: each one's phase, its since kept while the
     /// phase holds. A session no longer at work forgets its open calls.
     pub(super) fn observe(&mut self, at_work: &[SessionAtWork], now_ms: u64) {
@@ -222,8 +247,17 @@ impl Tracker {
         let before = self.phases.take().unwrap_or_default();
         let mut phases = BTreeMap::new();
         for s in at_work {
+            let mut wake = Vec::new();
             let phase = if self.uncertain.contains(&s.id) {
                 "unknown"
+            } else if let Some(wakes) = self.parked_wakes(&s.id) {
+                // A parked wait is not local work, but a process or subagent of its own is.
+                if s.processes > 0 || s.below {
+                    "pinned"
+                } else {
+                    wake = wakes;
+                    "parked"
+                }
             } else if self.open_tools.contains_key(&s.id) {
                 "tool"
             } else if self.starting.contains_key(&s.id) {
@@ -236,16 +270,16 @@ impl Tracker {
                 "model-wait"
             };
             let since = before.get(&s.id).filter(|p| p.phase == phase).map_or(now_ms, |p| p.since);
-            let entry = TurnPhase { phase, since, processes: s.processes, attached: s.shown };
+            let entry = TurnPhase { phase, since, processes: s.processes, attached: s.shown, wake };
             phases.insert(s.id.clone(), entry);
         }
         self.phases = Some(phases);
     }
 
     /// The phases as the agent gets them: by session id, phase and since.
-    fn phase_key(&self) -> Option<Vec<(String, &'static str, u64)>> {
+    fn phase_key(&self) -> Option<Vec<(String, &'static str, u64, Vec<crate::parked_wait::Wake>)>> {
         let phases = self.phases.as_ref()?;
-        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since)).collect())
+        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since, p.wake.clone())).collect())
     }
 
     /// The line to send with `turns` sessions at work observed at `now_ms`, or None: on a
@@ -287,8 +321,13 @@ impl Tracker {
             let turns: Vec<Value> = phases
                 .values()
                 .map(|p| {
-                    json!({"phase": p.phase, "since": p.since, "processes": p.processes,
-                        "attached": p.attached})
+                    let mut turn = json!({"phase": p.phase, "since": p.since,
+                        "processes": p.processes, "attached": p.attached});
+                    if !p.wake.is_empty() {
+                        let wake: Vec<Value> = p.wake.iter().map(|w| w.to_json()).collect();
+                        turn.set("wake", json!(wake));
+                    }
+                    turn
                 })
                 .collect();
             activity.set("phases", json!({"relayed": false, "turns": turns}));
@@ -369,6 +408,7 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();
+    let mut parked = hub.parked.subscribe();
     let mut tracker = Tracker::new(crate::config::socket_path().to_string_lossy().into_owned());
     let mut tick = tokio::time::interval(RENEW);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -408,6 +448,8 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
             Ok(()) = resumes.changed() => true,
             // A person's prompt: its time goes at once (the line sees it changed).
             Ok(()) = person_prompts.changed() => false,
+            // A call parked or unparked: its phase goes at once.
+            Ok(()) = parked.changed() => false,
         };
         if !path.exists() {
             continue;
@@ -421,6 +463,9 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         let now = crate::store::now_ms();
         let at_work = match &detail {
             Some(detail) => {
+                let ids = detail.iter().map(|s| s.id.as_str()).collect();
+                hub.parked.retain_sessions(&ids);
+                tracker.set_parked(hub.parked.snapshot());
                 tracker.startup(settled);
                 tracker.observe(detail, now);
                 detail.len()
