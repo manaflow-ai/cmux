@@ -2707,6 +2707,33 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
 
+    def test_a_merge_tree_failure_removes_the_merged_tree_temp_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # A git shim fails only merge-tree; a mktemp shim records the directory the helper makes.
+            real_git, real_mktemp = shutil.which("git"), shutil.which("mktemp")
+            made = Path(directory, "made-tmp")
+            Path(directory, "git").write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "if 'merge-tree' in sys.argv[1:]:\n"
+                "    sys.exit(42)\n"
+                f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n")
+            Path(directory, "git").chmod(0o755)
+            Path(directory, "mktemp").write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = -d ] && [ \"$#\" -eq 1 ]; then\n"
+                f"  d=$({real_mktemp!r} -d); printf '%s\\n' \"$d\" >> {str(made)!r}; printf '%s\\n' \"$d\"\n"
+                "else\n"
+                f"  exec {real_mktemp!r} \"$@\"\n"
+                "fi\n")
+            Path(directory, "mktemp").chmod(0o755)
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("does not merge cleanly", result.stderr)
+            leaked = [p for p in made.read_text().split() if Path(p).exists()] if made.exists() else []
+            self.assertEqual(leaked, [], "merged-tree temp directory was left behind")
+
     def test_a_webviews_change_that_fails_vp_check_refuses(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker, log = self.run_merge(directory, {"webviews/BAD.tsx": "x\n"})
