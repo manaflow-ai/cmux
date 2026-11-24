@@ -21,17 +21,25 @@ def previous_stable_tag(directory: str, tag: str) -> str:
 
 
 class PublishedInWorkflowTests(unittest.TestCase):
-    def test_previous_tag_skips_non_stable_hotfix_tags(self):
+    def previous_of_last(self, tags: list[str]) -> str:
+        """The predecessor the workflow picks for the last of `tags`, tagged on consecutive commits."""
         with tempfile.TemporaryDirectory() as directory:
             env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
             def run(*args: str) -> None:
                 subprocess.run(["git", "-C", directory, *args], check=True, capture_output=True, text=True, env=env)
 
             run("init", "-q")
-            for tag in ["v0.65.2", "v0.65.2.1", "v0.65.3"]:
+            for tag in tags:
                 run("commit", "-q", "--allow-empty", "-m", tag)
                 run("tag", tag)
-            self.assertEqual(previous_stable_tag(directory, "v0.65.3"), "v0.65.2")
+            return previous_stable_tag(directory, tags[-1])
+
+    def test_previous_tag_skips_non_stable_hotfix_tags(self):
+        self.assertEqual(self.previous_of_last(["v0.65.2", "v0.65.2.1", "v0.65.3"]), "v0.65.2")
+
+    def test_previous_tag_skips_prerelease_tags(self):
+        # A prerelease such as v0.65.3-rc1 matches the three-part glob; the announcement range must still start at v0.65.2.
+        self.assertEqual(self.previous_of_last(["v0.65.2", "v0.65.3-rc1", "v0.65.3rc2", "v0.65.3"]), "v0.65.2")
 
 
 if __name__ == "__main__":
