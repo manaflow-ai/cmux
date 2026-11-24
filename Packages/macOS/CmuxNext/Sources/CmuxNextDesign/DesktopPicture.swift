@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 public import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -22,28 +23,42 @@ public nonisolated struct DesktopPicture: Sendable {
     public let fill: (red: Double, green: Double, blue: Double)
     /// Where the fill-color picture is written.
     public let fallbackFolder: URL
+    /// How macOS places the picture on the screen (Fill, Fit, Stretch or Center).
+    public let fit: BackdropArtFit
+    /// The files the wallpaper store's desktop choice names (``DesktopStoreChoice/files``): which
+    /// file of a reported folder shows now.
+    let named: [URL]
 
     /// A desktop picture from explicit values (tests).
     /// - Parameters:
     ///   - reportedURL: The URL macOS reports.
     ///   - fillColor: The desktop fill color; nil for a neutral grey.
     ///   - fallbackFolder: The folder for the fill-color picture.
-    public init(reportedURL: URL?, fillColor: NSColor?, fallbackFolder: URL) {
+    ///   - fit: How macOS places the picture.
+    ///   - named: The files the wallpaper store names for the desktop.
+    public init(reportedURL: URL?, fillColor: NSColor?, fallbackFolder: URL, fit: BackdropArtFit = .fill, named: [URL] = []) {
         self.reportedURL = reportedURL
         let color = fillColor?.usingColorSpace(.sRGB)
         fill = color.map { (Double($0.redComponent), Double($0.greenComponent), Double($0.blueComponent)) } ?? (0.18, 0.19, 0.21)
         self.fallbackFolder = fallbackFolder
+        self.fit = fit
+        self.named = named
     }
 
     /// The current desktop picture of `screen`, read from `NSWorkspace`. Both reads wait on the
     /// WindowServer, so call it off the main thread (``DesktopWallpaperWatch`` reads on its queue).
-    /// - Parameter screen: The screen; nil for no screen (the fill-color picture).
-    public init(screen: NSScreen?) {
+    /// - Parameters:
+    ///   - screen: The screen; nil for no screen (the fill-color picture).
+    ///   - named: The files the wallpaper store names for its desktop (a rotation's current one).
+    public init(screen: NSScreen?, named: [URL] = []) {
         let workspace = NSWorkspace.shared
         let options = screen.flatMap { workspace.desktopImageOptions(for: $0) }
         self.init(reportedURL: screen.flatMap { workspace.desktopImageURL(for: $0) },
                   fillColor: options?[.fillColor] as? NSColor,
-                  fallbackFolder: Self.defaultFallbackFolder)
+                  fallbackFolder: Self.defaultFallbackFolder,
+                  fit: BackdropArtFit(imageScaling: (options?[.imageScaling] as? NSNumber)?.intValue,
+                                      allowClipping: (options?[.allowClipping] as? NSNumber)?.boolValue),
+                  named: named)
     }
 
     private static var defaultFallbackFolder: URL {
@@ -57,17 +72,20 @@ public nonisolated struct DesktopPicture: Sendable {
     /// - Returns: The reported picture, a picture in the reported folder, the wallpaper a
     ///   `.madesktop` describes, or a picture of the fill color; nil only when none can be written.
     public func resolvedURL(dark: Bool = false) -> URL? {
-        if let reportedURL, let url = Self.picture(at: reportedURL, dark: dark) { return url }
+        if let reportedURL, let url = Self.picture(at: reportedURL, dark: dark, named: named) { return url }
         return fillPicture()
     }
 
-    /// `url` when it is a picture or video that decodes, the first such file when it is a folder,
-    /// or the still a macOS wallpaper description names.
-    private static func picture(at url: URL, dark: Bool) -> URL? {
+    /// `url` when it is a picture or video that decodes; for a folder macOS rotates through, the
+    /// one it shows now (``DesktopStoreChoice/shownFiles(in:named:)``); or the still a
+    /// macOS wallpaper description names.
+    private static func picture(at url: URL, dark: Bool, named: [URL]) -> URL? {
         guard url.isFileURL else { return nil }
         var isFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
         if isFolder.boolValue {
+            // The file the store names comes first: the folder is listed only when it names none.
+            if let file = DesktopStoreChoice.shownFiles(in: url, named: named).lazy.compactMap({ decodable($0) }).first { return file }
             let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
             return files.sorted { $0.lastPathComponent < $1.lastPathComponent }.lazy.compactMap { decodable($0) }.first
         }

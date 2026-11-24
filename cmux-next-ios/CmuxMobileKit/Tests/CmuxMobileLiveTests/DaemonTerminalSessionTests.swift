@@ -55,16 +55,32 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var historyRows = 0
     /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
     var laneRefusesHistoryRows = false
+    /// `identify` advertises attach-replay-history-window-v1: an attach with
+    /// `replay_history_start` gets that window of `historyRows` and the
+    /// screen, as cmux-tui's `HistoryWindow::plan` sends it (at most 10,000
+    /// rows; a gap shorter than the window is sent as rows down to the screen).
+    var windowReplay = false
+    /// The lane refuses `replay_history_start` (a Mac app older than its
+    /// daemon, whose daemon still advertises the window).
+    var laneRefusesHistoryStart = false
+    /// History rows each attach's replay held (tail or window), in order.
+    private var heldRows: [Int] = []
+    var replayedHistoryRows: [Int] { lock.withLock { heldRows } }
     /// A daemon that knows the hybrid stream (`agent-cli-hybrid-v1`): an attach of a
     /// connection that declared it gets these events after its reply instead of `afterAttach`
     /// (empty: the daemon is older than the hybrid stream and ignores the capability).
     var hybridEvents: [[String: Any]] = []
     /// `identify` lists agent-cli-hybrid-v1 and v2.
     var advertisesHybrid = false
+    /// `identify` lists send-key-v1 (`send` takes `key`).
+    var sendKeys = false
     /// `identify` lists send-expect-agent-v1 (`send` takes `submit` with `paste`).
     var pasteSubmit = false
-    /// `send` with `submit` is answered with an error (a daemon refusing the paste).
+    /// `send` with `submit` is answered with an error that wrote nothing (a daemon refusing the paste).
     var refusesPasteSubmit = false
+    /// `send` with `submit` is answered with an error that may have typed it (the text went in,
+    /// its Return failed): no `error_delivery: known-not-delivered`.
+    var ambiguousPasteSubmit = false
     private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
@@ -89,10 +105,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         case "send" where lock.withLock({ unansweredSends }):
             return []
         case "send" where object["submit"] != nil && lock.withLock({ refusesPasteSubmit }):
-            return [Self.line(["id": id, "ok": false, "error": "send refused"])]
+            return [Self.line(["id": id, "ok": false, "error": "send refused", "error_delivery": "known-not-delivered"])]
+        case "send" where object["submit"] != nil && lock.withLock({ ambiguousPasteSubmit }):
+            return [Self.line(["id": id, "ok": false, "error": "submit failed after the text was written", "error_delivery": "ambiguous"])]
         case "resize-surface" where lock.withLock({ unansweredResizes }):
             return []
-        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || pasteSubmit || lock.withLock({ advertisesHybrid }):
+        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || lock.withLock({ advertisesHybrid }):
             // Built in steps: one long `+` chain is too slow for the type checker.
             var capabilities: [String] = []
             if initialSize { capabilities.append("attach-initial-size") }
@@ -101,8 +119,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if lock.withLock({ advertisesHybrid }) { capabilities += ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] }
             if sharedSizing { capabilities += ["shared-sizing-v1", "host-size-policy-v1"] }
             if tailReplay { capabilities.append("attach-replay-history-rows-v1") }
+            if lock.withLock({ windowReplay }) { capabilities.append("attach-replay-history-window-v1") }
+            if sendKeys { capabilities.append("send-key-v1") }
             if pasteSubmit { capabilities.append("send-expect-agent-v1") }
             return [reply(["capabilities": capabilities])]
+        case "attach-surface" where object["replay_history_start"] != nil && lock.withLock({ laneRefusesHistoryStart }):
+            return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_start from a phone"])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
@@ -163,11 +185,29 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             }
             var state: [String: Any] = ["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
                                         "data": Data(replay.utf8).base64EncodedString()]
-            if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
-                let history = lock.withLock { historyRows }
+            let history = lock.withLock { historyRows }
+            if let allowance = object["replay_history_rows"] as? Int, let asked = object["replay_history_start"] as? Int,
+               lock.withLock({ tailReplay && windowReplay }) {
+                let rows = min(max(allowance, 1), 10_000)
+                let start = min(asked, history)
+                let skipped = max(0, history - (start + rows))
+                if skipped < rows {
+                    state["history_rows_omitted"] = start
+                    state["data"] = Data("[rows \(start)..<\(history)]\(replay)".utf8).base64EncodedString()
+                    lock.withLock { heldRows.append(history - start) }
+                } else {
+                    state["history_rows_omitted"] = start
+                    state["history_rows_skipped"] = skipped
+                    state["data"] = Data("[rows \(start)..<\(start + rows)]\(replay)".utf8).base64EncodedString()
+                    lock.withLock { heldRows.append(rows) }
+                }
+            } else if let allowance = object["replay_history_rows"] as? Int, lock.withLock({ tailReplay }) {
                 let kept = min(history, allowance)
                 state["history_rows_omitted"] = history - kept
                 state["data"] = Data("[\(kept) rows]\(replay)".utf8).base64EncodedString()
+                lock.withLock { heldRows.append(kept) }
+            } else {
+                lock.withLock { heldRows.append(history) }
             }
             let lines: [Data] = [
                 Self.line(state),
@@ -1495,5 +1535,201 @@ final class ChannelLog: @unchecked Sendable {
         session.reconnect()
         try await waitUntil(attempts: 400) { session.isAttached }
         #expect(session.surface == 7)
+    }
+}
+
+/// A daemon channel that can go silent while the link stays up: once muted,
+/// its writes vanish (no reply, no output), as an uplink that broke under a
+/// live link. Swallowed writes are kept, so a test can count every key that
+/// was ever written.
+final class MutableChannel: LinkChannel, @unchecked Sendable {
+    private let inner: any LinkChannel
+    private let lock = NSLock()
+    private var muted = false
+    private var dropped: [Data] = []
+    init(_ inner: any LinkChannel) { self.inner = inner }
+    var id: UInt32 { inner.id }
+    func mute() { lock.withLock { muted = true } }
+    /// Writes made while muted (never reached the daemon).
+    var swallowed: [Data] { lock.withLock { dropped } }
+    func send(_ data: Data) async throws {
+        let swallow = lock.withLock { () -> Bool in
+            if muted { dropped.append(data) }
+            return muted
+        }
+        if swallow { return }
+        try await inner.send(data)
+    }
+    func receive() async throws -> Data? { try await inner.receive() }
+    func close(code: String, reason: String) async { await inner.close(code: code, reason: reason) }
+}
+
+/// Leo, 2026-11-21: "i noticed intermittent 30s lag/disconnects on ios app on
+/// terminal. we need to be able to sustain stronger connections." A terminal
+/// whose daemon channel dies, or goes silent, while the link stays up attaches
+/// again by itself, within a second for a closed channel and within five for
+/// a silent one, without anyone calling `reconnect()`. Nothing typed is sent
+/// twice and the screen is the Mac's replay, once. Each test prints a
+/// `TERMRECOVER` line with the time to reattach (the PR quotes them).
+@MainActor @Suite struct TerminalSelfRecoveryTests {
+    /// The kit runs every suite at once, so a wait for a step that only has to happen (the first
+    /// attach, a key reaching the daemon) is a signal with room for a loaded host, and a failed
+    /// one stops the test instead of timing what follows. On a quiet Mac the first attach takes
+    /// milliseconds; in the full kit it read over 2 s, failing all four tests.
+    static let setup: Duration = .seconds(20)
+    /// What the recovery bounds tell apart: reattaching by itself (quiet: within a second when
+    /// closed, about 2-5 s when silent, the liveness check's waits) from the 30 s lag Leo saw,
+    /// which waited for someone to reconnect. The `TERMRECOVER` lines keep the quiet numbers.
+    static let lag: Duration = .seconds(30)
+    static let byItself = 15_000
+
+    /// Polls every 10 ms until `condition` holds or `limit` passes; whether it held.
+    private func poll(_ limit: Duration, _ condition: @MainActor () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + limit
+        while !condition() {
+            if ContinuousClock.now >= deadline { return false }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return true
+    }
+
+    private static func ms(_ duration: Duration) -> Int {
+        Int(duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
+    }
+
+    private func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog) -> DaemonTerminalSession {
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        return DaemonTerminalSession(surface: 7) {
+            let channel = MutableChannel(try await link.openChannel(service: "daemon", args: [:]))
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+    }
+
+    /// Every `send`'s bytes the daemon got, in order.
+    private func typed(_ daemon: FakeTerminalDaemon) -> [Data] {
+        daemon.recorded.filter { $0["cmd"] as? String == "send" }
+            .compactMap { ($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) } }
+    }
+
+    private func attaches(_ daemon: FakeTerminalDaemon) -> Int {
+        daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count
+    }
+
+    private func outputs(_ events: ArraySlice<TerminalSessionEvent>) -> [String] {
+        events.compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }
+    }
+
+    /// (i) The daemon closes the attach channel; the link is up.
+    @Test(.timeLimit(.minutes(1))) func aClosedChannelReattachesByItself() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try #require(try await poll(Self.setup) { session.isAttached }, "the first attach never finished")
+        session.send(Data("a".utf8))
+        try #require(try await poll(Self.setup) { typed(daemon) == [Data("a".utf8)] })
+
+        let mark = events.count
+        let start = ContinuousClock.now
+        await channels.last?.close(code: "eof", reason: "daemon channel ended")
+        #expect(try await poll(Self.setup) { !session.isAttached })
+        let back = try await poll(Self.lag) { session.isAttached }
+        let took = Self.ms(ContinuousClock.now - start)
+        print("TERMRECOVER mode=closed ms=\(back ? String(took) : "never(>30000)")")
+        #expect(back, "a closed channel under a live link never reattached by itself")
+        guard back else { return }
+        #expect(took < Self.byItself, "reattach took \(took) ms")
+        #expect(attaches(daemon) == 2)
+
+        // Output intact: one reset, then the Mac's replay, once.
+        let after = outputs(events[mark...])
+        #expect(after.first == "\u{1B}c")
+        #expect(after.filter { $0 == "hello\r\n$ " }.count == 1)
+        // Typing works on the new channel, and nothing was typed twice.
+        session.send(Data("b".utf8))
+        #expect(try await poll(Self.setup) { typed(daemon).count == 2 })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(typed(daemon) == [Data("a".utf8), Data("b".utf8)])
+    }
+
+    /// (ii) The attach channel goes silent (its writes vanish) with a key on
+    /// its way; the link is up.
+    @Test(.timeLimit(.minutes(1))) func aSilentChannelWithAKeyOnItsWayReattachesByItself() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try #require(try await poll(Self.setup) { session.isAttached }, "the first attach never finished")
+        session.send(Data("a".utf8))
+        try #require(try await poll(Self.setup) { typed(daemon) == [Data("a".utf8)] })
+
+        let dead = try #require(channels.last as? MutableChannel)
+        dead.mute()
+        let mark = events.count
+        let start = ContinuousClock.now
+        session.send(Data("x".utf8))
+        let back = try await poll(Self.lag) { attaches(daemon) >= 2 && session.isAttached }
+        let took = Self.ms(ContinuousClock.now - start)
+        print("TERMRECOVER mode=silent-send ms=\(back ? String(took) : "never(>30000)")")
+        #expect(back, "a silent channel under a live link never reattached by itself")
+        guard back else { return }
+        #expect(took < Self.byItself, "reattach took \(took) ms")
+        #expect(outputs(events[mark...]).filter { $0 == "hello\r\n$ " }.count == 1)
+
+        // The key written into the silent channel may have been typed: never sent again.
+        session.send(Data("b".utf8))
+        #expect(try await poll(Self.setup) { typed(daemon).last == Data("b".utf8) })
+        try await Task.sleep(for: .milliseconds(100))
+        let swallowedX = dead.swallowed.filter { String(decoding: $0, as: UTF8.self).contains(Data("x".utf8).base64EncodedString()) }.count
+        let deliveredX = typed(daemon).filter { $0 == Data("x".utf8) }.count
+        #expect(swallowedX + deliveredX == 1, "x was written \(swallowedX + deliveredX) times")
+        #expect(typed(daemon) == [Data("a".utf8), Data("b".utf8)])
+    }
+
+    /// (ii, idle) The attach channel goes silent with nothing typed; the link is up.
+    @Test(.timeLimit(.minutes(1))) func aSilentIdleChannelReattachesByItself() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try #require(try await poll(Self.setup) { session.isAttached }, "the first attach never finished")
+
+        let dead = try #require(channels.last as? MutableChannel)
+        dead.mute()
+        let start = ContinuousClock.now
+        let back = try await poll(Self.lag) { attaches(daemon) >= 2 && session.isAttached }
+        let took = Self.ms(ContinuousClock.now - start)
+        print("TERMRECOVER mode=silent-idle ms=\(back ? String(took) : "never(>30000)")")
+        #expect(back, "a silent idle channel under a live link never reattached by itself")
+        guard back else { return }
+        #expect(took < Self.byItself, "reattach took \(took) ms")
+        #expect(typed(daemon).isEmpty)
+    }
+
+    /// A healthy idle terminal is never torn down by its own liveness check.
+    @Test(.timeLimit(.minutes(1))) func aHealthyQuietChannelStaysAttached() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        defer { session.stop() }
+        session.start { _ in }
+        try #require(try await poll(Self.setup) { session.isAttached }, "the first attach never finished")
+        try await Task.sleep(for: .seconds(6))
+        #expect(session.isAttached)
+        #expect(attaches(daemon) == 1)
     }
 }

@@ -6,7 +6,9 @@ import Foundation
 extension MacScreenPages {
     /// Keyboard > Mac Screen > Send System Shortcuts to the Remote Mac drives the
     /// system shortcut tap; the toolbar's menu item writes the same setting.
+    /// cmux Remote > Screen Sharing Profile sets what each Mac Screen session's offer asks for.
     /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
+    /// Settings > Devices > Only Your Click Starts Viewing a Screen drives `onlyPersonStartsViewing`.
     /// `refuse` reports a refused write (an automation run changing a user-only setting).
     public func follow(_ settings: SettingsController, refuse: @escaping @MainActor (String) -> Void) {
         let shortcuts = systemShortcuts
@@ -29,6 +31,19 @@ extension MacScreenPages {
                 shortcuts?.enabled = on
             }
         }
+        // Only Your Click Starts Viewing a Screen: read now, so no automation open before the first change misses it.
+        let (onlyPerson, laterOnlyPerson) = ObservationStream.current({ settings.snapshot.macScreen.onlyPersonStartsViewing })
+        onlyPersonStartsViewing = onlyPerson
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
+        Task { [weak self] in
+            for await on in laterOnlyPerson { self?.onlyPersonStartsViewing = on }
+        }
+        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
+        Task { [weak self] in
+            for await profile in ObservationStream({ settings.snapshot.remote.screenSharingProfile }) {
+                self?.encodeProfile = Self.encodeProfile(profile)
+            }
+        }
         // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds nothing
         Task {
             for await on in ObservationStream({ settings.snapshot.macScreen.shareWithoutAsking }) {
@@ -43,6 +58,15 @@ extension MacScreenPages {
             }
         }
         #endif
+    }
+
+    /// The offer's `a=cmux-rd-encode-profile:` value for a Screen Sharing Profile: `ultra` for
+    /// Ultra; nil for Balanced, which sends no line (the host's standard profile, as before).
+    public nonisolated static func encodeProfile(_ profile: ScreenSharingProfile) -> String? {
+        switch profile {
+        case .balanced: nil
+        case .ultra: profile.rawValue
+        }
     }
 
     /// Who is changing Send System Shortcuts to the Remote Mac from Mac

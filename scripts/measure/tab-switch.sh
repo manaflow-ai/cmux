@@ -140,6 +140,23 @@ tsw_stop_tree() {
   done
   kill -KILL "${pids[@]}" 2>/dev/null || true
 }
+# follow_log LOG DONE: print LOG from its start as it grows, and end at its end once the file DONE exists, so the
+# caller waits for the follower itself to have printed every last line.
+follow_log() {
+  python3 -I -c 'import os, sys, time
+log, done = sys.argv[1], sys.argv[2]
+with open(log, "rb") as f:
+    while True:
+        finished = os.path.exists(done)  # before the read: what was written before DONE is read
+        chunk = f.read(65536)
+        if chunk:
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        elif finished:
+            break
+        else:
+            time.sleep(0.1)' "$1" "$2"
+}
 # tsw_step PREFIX NAME LIMIT LOG [--stream] -- COMMAND...: runs COMMAND with its output in LOG, shown as it comes
 # with --stream; without it, every TSW_STEP_EVERY seconds a line gives the elapsed time and LOG's last line. Past
 # LIMIT seconds it stops COMMAND and everything under it, prints "PREFIX step NAME ran past LIMIT s" with LOG's tail
@@ -150,10 +167,11 @@ tsw_step() {
   [[ "${1:-}" == --stream ]] && { stream=1; shift; }
   [[ "${1:-}" == -- ]] && shift
   : >"$log"
+  rm -f "$log.done"
   "$@" >"$log" 2>&1 &
   local pid=$! started=$SECONDS next=$((SECONDS + TSW_STEP_EVERY))
   if [[ "$stream" == 1 ]]; then
-    tail -n +1 -f "$log" &
+    follow_log "$log" "$log.done" &
     follow=$!
   fi
   while kill -0 "$pid" 2>/dev/null; do
@@ -173,9 +191,12 @@ tsw_step() {
   done
   wait "$pid" || rc=$?
   if [[ -n "$follow" ]]; then
-    sleep 1 # tail -f reads the last lines on its next pass
-    kill "$follow" 2>/dev/null
+    # Until the follower has printed the log's last lines and ended, 10 s.
+    : >"$log.done"
+    for _ in $(seq 1 100); do kill -0 "$follow" 2>/dev/null || break; sleep 0.1; done
+    kill "$follow" 2>/dev/null || true
     wait "$follow" 2>/dev/null || true
+    rm -f "$log.done"
   fi
   return "$rc"
 }
@@ -186,18 +207,6 @@ TSW_TOOLS_MAX=${TSW_TOOLS_MAX:-600}
 TSW_SEEDER_MAX=${TSW_SEEDER_MAX:-1800}
 TSW_BUILD_MAX=${TSW_BUILD_MAX:-5400}
 TSW_RUN_MAX=${TSW_RUN_MAX:-7200}
-
-# The app build in SRC with scratch folder TMP and reload tag TAG; the rest goes to reload.sh. Run by tsw_step, in
-# its own subshell, so the cd stays there.
-tsw_build_app() { # SRC TMP TAG RELOAD-ARGS...
-  local src="$1" tmp="$2" tag="$3"
-  shift 3
-  cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links "$@"
-}
-# The settle matrix's scale seeder, from this checkout's cmux-tui (its target folder stays warm between steps).
-tsw_build_seeder() {
-  cd cmux-tui && cargo build --release --quiet -p acpmux --example scale_home
-}
 
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
@@ -224,6 +233,18 @@ prepare_build() {
   RUNNER_TEMP="$tmp" GITHUB_PATH="$tmp/bun-path" ./scripts/cmux-next/private-bun.sh
   PATH="$(tail -n 1 "$tmp/bun-path"):$PATH"
   export PATH
+}
+
+# The app build in SRC with scratch folder TMP and reload tag TAG; the rest goes to reload.sh. Run by tsw_step, in
+# its own subshell, so the cd stays there.
+tsw_build_app() { # SRC TMP TAG RELOAD-ARGS...
+  local src="$1" tmp="$2" tag="$3"
+  shift 3
+  cd "$src" && prepare_build "$tmp" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links "$@"
+}
+# The settle matrix's scale seeder, from this checkout's cmux-tui (its target folder stays warm between steps).
+tsw_build_seeder() {
+  cd cmux-tui && cargo build --release --quiet -p acpmux --example scale_home
 }
 
 # The app a key=value run measures (launch-capture-probe.sh sources this file for it): build=nightly downloads DMG,

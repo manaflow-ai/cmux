@@ -138,18 +138,72 @@ fn prompt_gist(text: &str) -> PromptGist<'_> {
     PromptGist { line, body }
 }
 
-/// `text` without the `<tag>…</tag>` blocks it opens with. A block that never
-/// closes leaves nothing: its first line is no title.
+/// `text` without the `<tag>…</tag>` blocks and standing-rules sections it opens
+/// with. A block that never closes leaves nothing: its first line is no title.
 fn strip_leading_blocks(text: &str) -> &str {
     let mut rest = text.trim_start();
-    while let Some(tag) = opening_tag(rest) {
-        let close = format!("</{tag}>");
-        match rest.find(&close) {
-            Some(at) => rest = rest[at + close.len()..].trim_start(),
-            None => return "",
+    loop {
+        if let Some(tag) = opening_tag(rest) {
+            let close = format!("</{tag}>");
+            match rest.find(&close) {
+                Some(at) => rest = rest[at + close.len()..].trim_start(),
+                None => return "",
+            }
+        } else if let Some(after) = skip_tagged_section(rest) {
+            rest = after.trim_start();
+        } else {
+            return rest;
         }
     }
-    rest
+}
+
+/// What follows a standing-rules section `text` opens with, if it opens with one: a
+/// Markdown heading tagged with a kebab-case `[slug]`, the way a fleet brief's
+/// boilerplate starts ("## Restrictions you will hit [session-restrictions]",
+/// 2026-11-20: dozens of chats were titled after it, not their task). The section's
+/// paragraph and list run to the first blank line that a list item or an indented line
+/// does not continue.
+fn skip_tagged_section(text: &str) -> Option<&str> {
+    let (first, _) = text.split_once('\n').unwrap_or((text, ""));
+    if !is_tagged_heading(first.trim()) {
+        return None;
+    }
+    let mut at = first.len() + 1;
+    let (mut seen_text, mut blank) = (false, false);
+    for line in text.get(at..).unwrap_or("").split_inclusive('\n') {
+        let t = line.trim();
+        if t.is_empty() {
+            blank |= seen_text;
+        } else if blank && !continues_section(line) {
+            return Some(&text[at..]);
+        } else {
+            (seen_text, blank) = (true, false);
+        }
+        at += line.len();
+    }
+    Some("")
+}
+
+/// `## Title [kebab-slug]`: a heading whose last word is a bracketed slug with a dash.
+fn is_tagged_heading(line: &str) -> bool {
+    if !line.starts_with('#') {
+        return false;
+    }
+    let Some(slug) = line.strip_suffix(']').and_then(|l| l.rsplit_once('[')).map(|(_, s)| s) else {
+        return false;
+    };
+    slug.contains('-')
+        && !slug.starts_with('-')
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// A list item or an indented line carries a section on past a blank line.
+fn continues_section(line: &str) -> bool {
+    let t = line.trim_start();
+    line.starts_with([' ', '\t'])
+        || t.starts_with("- ")
+        || t.starts_with("* ")
+        || t.starts_with("+ ")
 }
 
 /// The name of the tag `text` opens with (`<chat>`, `<context kind="x">`), if
@@ -299,8 +353,8 @@ impl Hub {
             if source.as_deref() != Some(ASKED) {
                 return;
             }
-            let title = hub.generate_title(&session, &harness, &request).await;
-            hub.apply_generated_title(&session, title);
+            let (title, attempt) = hub.generate_title(&session, &harness, &request).await;
+            hub.apply_generated_title_with(&session, title, attempt);
         });
     }
 
@@ -382,7 +436,7 @@ impl Hub {
         session: &Session,
         harness: &str,
         request: &str,
-    ) -> Option<String> {
+    ) -> (Option<String>, Attempt) {
         let (custom, model, enabled) = {
             let cfg = self.config.read().await;
             let custom = std::env::var(COMMAND_ENV)
@@ -393,17 +447,21 @@ impl Hub {
             (custom, cfg.titles.model.clone(), cfg.titles.generate != Some(false))
         };
         if !enabled {
-            return None;
+            return (None, Attempt::default());
         }
         if custom.is_some() {
-            let command = self.title_command(harness).await?;
+            let Some(command) = self.title_command(harness).await else {
+                super::title_log::record(session, harness, None, "no_command", None, 0, 0);
+                return (None, Attempt::default());
+            };
             if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
                 != Some(ASKED)
             {
-                return None;
+                return (None, Attempt::default());
             }
             let started = std::time::Instant::now();
             let title = run(command, request).await;
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             tracing::info!(
                 event = "chat_title",
                 harness,
@@ -415,7 +473,7 @@ impl Hub {
                 estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
                 "chat title completion"
             );
-            return title;
+            return (title, Attempt { model: "custom".to_owned(), ms });
         }
         let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
         if let Some(model) = model {
@@ -424,10 +482,14 @@ impl Hub {
         if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
             != Some(ASKED)
         {
-            return None;
+            return (None, Attempt::default());
         }
         let started = std::time::Instant::now();
-        let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+        let Ok(result) = self.complete(crate::server::Origin::Local, &params).await else {
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            super::title_log::record(session, harness, None, "error", None, 0, ms);
+            return (None, Attempt::default());
+        };
         let title = result.get("text").and_then(Value::as_str).and_then(clean);
         tracing::info!(
             event = "chat_title",
@@ -440,7 +502,10 @@ impl Hub {
             estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
             "chat title completion"
         );
-        title
+        let model =
+            result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default").to_owned();
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        (title, Attempt { model, ms })
     }
 
     pub(super) fn apply_generated_title(
@@ -448,6 +513,18 @@ impl Hub {
         session: &Arc<Session>,
         title: Option<String>,
     ) {
+        self.apply_generated_title_with(session, title, Attempt::default());
+    }
+
+    fn apply_generated_title_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+        attempt: Attempt,
+    ) {
+        let harness = session.read_meta(|m| m.harness.clone());
+        let words = title.as_deref().map_or(0, |t| t.split_whitespace().count());
+        let outcome = if title.is_some() { "generated" } else { "empty" };
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;
@@ -474,6 +551,8 @@ impl Hub {
                 }
             }
         };
+        let model = Some(attempt.model.as_str()).filter(|m| !m.is_empty());
+        super::title_log::record(session, &harness, model, outcome, None, words, attempt.ms);
         if retry {
             self.title_after_turn(session);
             return;
@@ -482,6 +561,13 @@ impl Hub {
         self.append(session, "mux", "titled", json!({"title": title}));
         self.save_meta(session);
     }
+}
+
+/// What a title request ran on and how long it took, for `title_log`.
+#[derive(Default)]
+struct Attempt {
+    model: String,
+    ms: u64,
 }
 
 fn request(prompt: &str, reply: &str, first: bool) -> String {
@@ -734,5 +820,47 @@ mod tests {
     fn a_line_that_only_looks_like_a_tag_still_titles() {
         assert_eq!(prompt_gist("<3 this app, make it faster").line, "<3 this app, make it faster");
         assert_eq!(prompt_gist("a < b: why").line, "a < b: why");
+    }
+
+    /// The standing block a fleet brief opens with (leo-workspace `tools/session_restrictions.py`):
+    /// a heading tagged `[slug]`, a paragraph and a list, then a blank line and the task.
+    const RESTRICTIONS: &str = "## Restrictions you will hit [session-restrictions]\n\nAny of these ends a session mid-work: usage limits, a NIGHTLY install,\nhost drains and reboots.\n- Push a draft PR within 15 minutes of your first edit. Push again\n  at least every 30 minutes.\n- Post a one-line check-in every 30 minutes.\n";
+
+    #[test]
+    fn a_standing_rules_preamble_never_titles_a_chat() {
+        // 2026-11-20: dozens of sessions were titled "Session restrictions and stalled PR batch"
+        // or the preamble's heading itself, from the block every brief opens with.
+        let text = format!("{RESTRICTIONS}\nTask: rename live sessions after their task.\nMore.");
+        let gist = prompt_gist(&text);
+        assert_eq!(gist.line, "Task: rename live sessions after their task.");
+        assert!(
+            !gist.body.contains("Restrictions"),
+            "the title model never reads it: {}",
+            gist.body
+        );
+        assert!(gist.body.contains("More."));
+    }
+
+    #[test]
+    fn several_tagged_blocks_and_context_blocks_are_all_skipped() {
+        let text = format!(
+            "<chat>\nview\n</chat>\n{RESTRICTIONS}\n# Building what Leo asks [build-what-named]\n\n- Build exactly what he named.\n\nFix the sidebar spinner"
+        );
+        assert_eq!(prompt_gist(&text).line, "Fix the sidebar spinner");
+    }
+
+    #[test]
+    fn a_prompt_that_is_only_a_preamble_gives_no_title() {
+        assert_eq!(prompt_gist(RESTRICTIONS).line, "");
+    }
+
+    #[test]
+    fn an_untagged_heading_or_a_mere_mention_still_titles() {
+        assert_eq!(prompt_gist("## Fix the sidebar\n\nIt spins").line, "## Fix the sidebar");
+        assert_eq!(
+            prompt_gist("fix [session-restrictions] parsing").line,
+            "fix [session-restrictions] parsing"
+        );
+        assert_eq!(prompt_gist("## Ship it [wip]\n\nnow").line, "## Ship it [wip]");
     }
 }
