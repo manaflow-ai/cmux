@@ -84,10 +84,14 @@ public final class TerminalModel {
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
     public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)?
+    /// The live upload queue (the Rust engine): an attachment starts sending
+    /// when it is picked, each tile shows its progress, and every stage can
+    /// be cancelled. When set, it carries attachments instead of `uploader`.
+    public var attachmentSender: (any TerminalAttachmentSending)?
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
-        if uploader != nil { return true }
+        if uploader != nil || attachmentSender != nil { return true }
         #if DEBUG
         return session is MockTerminalSession
         #else
@@ -107,7 +111,9 @@ public final class TerminalModel {
     public internal(set) var composerPresented = true
     /// Hide Toolbar took the key row and the composer away until the next terminal tap.
     public internal(set) var chromeHidden = false
-    /// Attachments are being sent; the composer waits.
+    /// A send is waiting for its attachments to reach the Mac. The composer
+    /// stays usable: Send turns into Stop (``cancelSend()``), tiles can be
+    /// removed, and the text can be edited meanwhile.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
     public internal(set) var attachmentError: String?
@@ -730,8 +736,16 @@ public final class TerminalModel {
 
     private func sendAttachments(pressReturn: Bool) {
         guard !isUploading else { return }
+        if let attachmentSender {
+            sendQueued(pressReturn: pressReturn, via: attachmentSender)
+            return
+        }
         guard let uploader else {
             attachmentError = "Connect to the Mac to send attachments."
+            return
+        }
+        if let loading = attachments.first(where: \.isLoading) {
+            attachmentError = "\(loading.name) is still loading from Photos."
             return
         }
         let pending = attachments
@@ -743,20 +757,83 @@ public final class TerminalModel {
                 do {
                     paths.append(try await uploader(try attachment.payload(), attachment.name))
                 } catch {
-                    guard let self else { return }
+                    guard let self, !Task.isCancelled else { return }
                     self.isUploading = false
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
             }
-            guard let self else { return }
-            self.isUploading = false
-            let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
-            if pressReturn { self.controller?.noteSent(self.composerText) }
-            self.controller?.surface.perform(submit)
-            self.composerText = ""
-            self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
+            guard let self, !Task.isCancelled else { return }
+            self.finishAttachmentSend(paths: paths, pending: pending, pressReturn: pressReturn)
         }
+    }
+
+    /// Send with the upload queue: the bytes have been moving since each
+    /// attachment was picked; Send waits only for what is left. An upload that
+    /// failed or was stopped starts again (from the last byte the Mac kept).
+    private func sendQueued(pressReturn: Bool, via sender: any TerminalAttachmentSending) {
+        if let loading = attachments.first(where: \.isLoading) {
+            attachmentError = "\(loading.name) is still loading from Photos."
+            return
+        }
+        for index in attachments.indices {
+            let state = attachments[index].uploadID.flatMap { sender.progress($0)?.stage }
+            if attachments[index].uploadID == nil || state == .failed || state == .cancelled {
+                if let old = attachments[index].uploadID { sender.cancel(old) }
+                attachments[index].uploadID = sender.start(attachments[index])
+            }
+        }
+        guard attachments.allSatisfy({ $0.uploadID != nil }) else {
+            attachmentError = "Connect to the Mac to send attachments."
+            return
+        }
+        let pending = attachments
+        isUploading = true
+        attachmentError = nil
+        uploadTask = Task { [weak self] in
+            var paths: [String] = []
+            for attachment in pending {
+                do {
+                    paths.append(try await sender.wait(attachment.uploadID ?? ""))
+                } catch {
+                    guard let self, !Task.isCancelled, self.isUploading else { return }
+                    self.isUploading = false
+                    self.uploadTask = nil
+                    self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
+                    return
+                }
+            }
+            guard let self, !Task.isCancelled, self.isUploading else { return }
+            self.finishAttachmentSend(paths: paths, pending: pending, pressReturn: pressReturn)
+        }
+    }
+
+    private func finishAttachmentSend(paths: [String], pending: [ComposerAttachment], pressReturn: Bool) {
+        isUploading = false
+        uploadTask = nil
+        let submit = ComposerSubmit(attachmentPaths: paths, text: composerText, pressReturn: pressReturn)
+        if pressReturn { controller?.noteSent(composerText) }
+        controller?.surface.perform(submit)
+        composerText = ""
+        attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
+    }
+
+    /// Stop on a send waiting for its attachments: the composer is free in
+    /// the same frame, with the text and every attachment still there. The
+    /// uploads keep going (a second Send finds them further along, or done);
+    /// a tile's own x stops one for good.
+    public func cancelSend() {
+        guard isUploading else { return }
+        uploadTask?.cancel()
+        uploadTask = nil
+        isUploading = false
+        attachmentError = nil
+    }
+
+    /// An attachment's upload, for its tile (nil: none yet, or no live queue).
+    func uploadProgress(_ attachment: ComposerAttachment) -> UploadProgress? {
+        guard let id = attachment.uploadID else { return nil }
+        return attachmentSender?.progress(id)
     }
 
     static func message(_ error: any Error) -> String {
@@ -765,6 +842,10 @@ public final class TerminalModel {
 
 
     func addAttachment(_ attachment: ComposerAttachment) {
+        var attachment = attachment
+        if attachment.uploadID == nil, attachment.hasContents, let attachmentSender {
+            attachment.uploadID = attachmentSender.start(attachment)
+        }
         attachments.append(attachment)
     }
 
@@ -774,8 +855,23 @@ public final class TerminalModel {
         controller?.presentFilePreview(request)
     }
 
+    /// A placeholder tile's file arrived from Photos: it starts sending now.
+    func attachmentLoaded(_ id: ComposerAttachment.ID, thumbnail: UIImage?, byteCount: Int?, fileURL: URL) {
+        guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+        attachments[index].isLoading = false
+        attachments[index].thumbnail = thumbnail
+        attachments[index].byteCount = byteCount
+        attachments[index].fileURL = fileURL
+        if attachments[index].uploadID == nil, let attachmentSender {
+            attachments[index].uploadID = attachmentSender.start(attachments[index])
+        }
+    }
+
     func removeAttachment(_ id: ComposerAttachment.ID) {
+        if let uploadID = attachments.first(where: { $0.id == id })?.uploadID { attachmentSender?.cancel(uploadID) }
         attachments.removeAll { $0.id == id }
+        // Removing the last thing a send waited on frees the composer too.
+        if isUploading, attachments.isEmpty { cancelSend() }
         if attachments.isEmpty { attachmentError = nil }
     }
 
@@ -933,8 +1029,13 @@ public struct ComposerAttachment: Identifiable, Sendable {
     /// A file on the phone (a picked video's local copy, a picked file),
     /// streamed to the Mac at send without reading it whole.
     public var fileURL: URL?
+    /// Its upload in the live queue, started when it was picked.
+    public var uploadID: String?
+    /// Photos is still copying it out (a tile shows at once; removable meanwhile).
+    public var isLoading: Bool
 
-    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil, data: Data? = nil, fileURL: URL? = nil) {
+    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil, data: Data? = nil, fileURL: URL? = nil, isLoading: Bool = false) {
+        self.isLoading = isLoading
         self.kind = kind
         self.name = name
         self.thumbnail = thumbnail
@@ -951,6 +1052,9 @@ public struct ComposerAttachment: Identifiable, Sendable {
     public var localFile: LocalFile {
         LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL)
     }
+
+    /// Bytes or a file to send (a demo tile has neither).
+    var hasContents: Bool { data != nil || fileURL != nil }
 
     func payload() throws -> LinkUpload.Payload {
         if let data { return .data(data) }

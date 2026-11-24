@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileRealtime
 import CmuxMobileTransport
 import CmuxSpinner
@@ -248,11 +249,15 @@ struct TerminalComposer: View {
         let canSend = !(model.composerText.isEmpty && model.attachments.isEmpty)
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading { model.cancelSend() } else { send() }
         } label: {
             ZStack {
                 if model.isUploading {
-                    CmuxSpinner(tint: Color.cmuxMobileOnAccent).controlSize(.small)
+                    // Stop, never a dead spinner: the send can always be called off.
+                    CmuxSpinner(tint: Color.cmuxMobileOnAccent).controlSize(.regular)
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.cmuxMobileOnAccent)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
@@ -272,13 +277,13 @@ struct TerminalComposer: View {
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!model.isUploading && !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Sending" : failed ? "Send failed" : "Send")
+        .accessibilityLabel(model.isUploading ? "Stop sending" : failed ? "Send failed" : "Send")
         .accessibilityIdentifier("terminal.composer.send")
     }
 
@@ -324,16 +329,36 @@ struct TerminalComposer: View {
         for (index, item) in items.enumerated() {
             let suffix = items.count > 1 ? " \(index + 1)" : ""
             let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
-            if isVideo, let movie = try? await item.loadTransferable(type: MovieFile.self) {
+            if isVideo {
+                // A tile at once: Photos may copy (or download from iCloud) for a
+                // while, and the person can remove it meanwhile.
+                let ext = item.supportedContentTypes.first { $0.conforms(to: .movie) }?.preferredFilenameExtension ?? "mov"
+                let placeholder = ComposerAttachment(kind: .video, name: "Video \(stamp)\(suffix).\(ext)", isLoading: true)
+                model.addAttachment(placeholder)
+                let movie: MovieFile?
+                do {
+                    movie = try await item.loadTransferable(type: MovieFile.self)
+                } catch {
+                    movie = nil
+                }
+                guard model.attachments.contains(where: { $0.id == placeholder.id }) else {
+                    if let movie { try? FileManager.default.removeItem(at: movie.url) }
+                    continue
+                }
+                guard let movie else {
+                    model.removeAttachment(placeholder.id)
+                    model.attachmentError = "Couldn't load \(placeholder.name) from Photos."
+                    continue
+                }
                 let thumbnail = await Self.videoThumbnail(movie.url)
                 let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-                let ext = movie.url.pathExtension.isEmpty ? "mov" : movie.url.pathExtension
-                model.addAttachment(ComposerAttachment(kind: .video, name: "Video \(stamp)\(suffix).\(ext)", thumbnail: thumbnail,
-                                                       byteCount: size, fileURL: movie.url))
+                model.attachmentLoaded(placeholder.id, thumbnail: thumbnail, byteCount: size, fileURL: movie.url)
             } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                 model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
+            } else {
+                model.attachmentError = "Couldn't load an item from Photos."
             }
         }
     }
@@ -431,8 +456,9 @@ struct MovieFile: Transferable {
         FileRepresentation(contentType: .movie) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(received.file.lastPathComponent)
-            try? FileManager.default.removeItem(at: copy)
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let copy = folder.appendingPathComponent(received.file.lastPathComponent)
             try FileManager.default.copyItem(at: received.file, to: copy)
             return MovieFile(url: copy)
         }
@@ -502,6 +528,7 @@ struct AttachmentStrip: View {
                 }
             }
             .frame(width: 56, height: 56)
+            .overlay { AttachmentUploadBadge(attachment: attachment, progress: model.uploadProgress(attachment)) }
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
             .accessibilityLabel(attachment.name)
         case .file:
@@ -524,8 +551,57 @@ struct AttachmentStrip: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 56)
+            .overlay { AttachmentUploadBadge(attachment: attachment, progress: model.uploadProgress(attachment)) }
+            .clipShape(.rect(cornerRadius: 12, style: .continuous))
             .glassSurface(in: .rect(cornerRadius: 12, style: .continuous))
         }
+    }
+}
+
+/// A tile's upload state over its thumbnail: a spinner while Photos copies it
+/// or it is compressed or waits for the Mac, a ring of the bytes the Mac has,
+/// a check when it is there, a mark when it failed (Send tries again).
+struct AttachmentUploadBadge: View {
+    let attachment: ComposerAttachment
+    let progress: UploadProgress?
+
+    var body: some View {
+        if attachment.isLoading {
+            scrim { CmuxSpinner(tint: .white).controlSize(.small) }
+                .accessibilityLabel("Loading \(attachment.name)")
+        } else if let progress {
+            switch progress.stage {
+            case .compressing, .waitingForMac:
+                scrim { CmuxSpinner(tint: .white).controlSize(.small) }
+                    .accessibilityLabel(progress.stage == .compressing ? "Compressing" : "Waiting for the Mac")
+            case .uploading, .finishing:
+                scrim {
+                    ZStack {
+                        Circle().stroke(Color.white.opacity(0.3), lineWidth: 3)
+                        Circle().trim(from: 0, to: max(0.02, progress.fraction))
+                            .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.2), value: progress.fraction)
+                    }
+                    .frame(width: 26, height: 26)
+                }
+                .accessibilityLabel("Uploading")
+                .accessibilityValue("\(Int((progress.fraction * 100).rounded())) percent")
+            case .failed:
+                scrim { Image(systemName: "exclamationmark.arrow.circlepath").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white) }
+                    .accessibilityLabel(progress.errorMessage ?? "Upload failed")
+            case .done, .cancelled:
+                EmptyView()
+            }
+        }
+    }
+
+    private func scrim(@ViewBuilder _ content: () -> some View) -> some View {
+        ZStack {
+            Color.black.opacity(0.35)
+            content()
+        }
+        .allowsHitTesting(false)
     }
 }
 #endif
