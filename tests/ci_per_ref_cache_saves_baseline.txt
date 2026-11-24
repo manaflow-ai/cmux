@@ -2,25 +2,9 @@
 # tests/test_ci_no_run_scoped_cache_keys.py's per-ref rule (2026-11-18). Each saves a copy per ref that
 # only that ref reads again. Shrink this list (limit the save to a feat-cmux-next push); never grow it.
 backend.yml: test: Cache Bun package cache
-billing.yml: billing: Cache Bun package cache
 billing.yml: ios-billing: Cache cargo
 build-ghosttykit.yml: build-ghosttykit: Cache Zig packages
 chief-evals.yml: evals: Swatinem/rust-cache
-ci-web.yml: agent-pane-real-acpmux: Cache Bun package cache
-ci-web.yml: diff-sidecar-check: Cache Bun package cache
-ci-web.yml: react-apps-base-check: Cache Bun package cache
-ci-web.yml: react-apps-base-check: Cache Playwright browsers
-ci-web.yml: react-apps-base-early: Cache Bun package cache
-ci-web.yml: react-apps-base-early: Cache Playwright browsers
-ci-web.yml: react-apps-check-shard: Cache Bun package cache
-ci-web.yml: react-apps-check-shard: Cache Playwright browsers
-ci-web.yml: react-doctor: Cache Bun package cache
-ci-web.yml: web-db-migrations: Cache Bun package cache
-ci-web.yml: web-instant-navigation: Cache Bun package cache
-ci-web.yml: web-instant-navigation: Cache Playwright browsers
-ci-web.yml: web-production-build: Cache Bun package cache
-ci-web.yml: web-tests: Cache Bun package cache
-ci-web.yml: web-typecheck: Cache Bun package cache
 ci-web.yml: webviews-test-durations: Save the duration manifest
 cloud-vm-image-bake.yml: bake: Cache Bun package cache
 cmux-mobile-ffi.yml: android: Cache cargo
@@ -29,8 +13,6 @@ cmux-mobile-ffi.yml: rust: Cache cargo
 cmux-next-daemon-macos-shadow.yml: cmux-next-daemon-macos-shadow: Cache cargo build
 cmux-next-daemon-macos-shadow.yml: cmux-next-daemon-macos-shadow: Cache the verified Zig tarball
 cmux-next-degenerate-lab.yml: lab: Save tonight's marker
-cmux-next-fast-gates.yml: fast-gates: Cache Bun package cache
-cmux-next-fast-gates.yml: fast-gates: Cache the pinned lint tools
 cmux-next-ios-kit.yml: kit-tests: Cache cargo
 cmux-next-notices.yml: notices: Restore the crate source cache
 cmux-next-perf-budgets.yml: blacksmith-mac: Save the warm cache
@@ -40,8 +22,6 @@ cmux-next-skew-matrix.yml: skew-matrix: Cache cargo build
 cmux-next-web-lint.yml: web-lint: Cache Bun package cache
 cmux-next-web-perf.yml: measure: Cache Bun package cache
 cmux-next-web.yml: coalesce: Record this push as the last covered one
-cmux-next-web.yml: web-bisect: Cache Bun package cache
-cmux-next-web.yml: web-bisect: Cache Playwright browsers
 cmux-next.yml: cmux-scheme-compile: Save the DEV compile cache (Blacksmith)
 cmux-next.yml: web-bundles: Cache the web bundles under this source key
 cmux-next.yml: web-bundles: Cache the webviews Bun package cache
@@ -82,14 +62,11 @@ nightly.yml: refresh-compilation-cache: Save Xcode compilation cache
 nightly.yml: refresh-test-compilation-cache: Save DerivedData seed
 nightly.yml: refresh-test-compilation-cache: Save Swift packages
 playwright-apt-cache/action.yml: : Cache Playwright's apt packages
-pr-checks.yml: swift-logic: Restore this pull request's Swift facts cache
+pr-checks.yml: advisory: Restore this pull request's Swift facts cache
 release.yml: build-ghostty-cli-helper: Cache Zig packages
 release.yml: build-sign-notarize-blacksmith: Cache Swift packages
 release.yml: build-sign-notarize: Cache Swift packages
 reload-build.yml: build: Save DerivedData cache
 reload-build.yml: build: Save SPM SourcePackages cache
-seed-derived-data.yml: seed: Save Swift packages
-seed-derived-data.yml: seed: Save SwiftPM manifest cache
-seed-derived-data.yml: seed: Save seed
 signing-keychain-macos.yml: bash32-syntax: Save bash 3.2.57
 web-complexity.yml: complexity: Cache Bun package cache

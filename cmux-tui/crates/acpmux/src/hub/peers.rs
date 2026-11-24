@@ -647,11 +647,25 @@ impl Hub {
                 if brokers.contains(&name) {
                     s.set("githubBroker", Value::Bool(true));
                 }
+                // What the device hub says of its screen, as for a mesh host below: a Linux
+                // desktop's row offers a share only when a screen host there is listed, and the
+                // row carries the hub id a viewer opens.
+                if let Some(hub) = crate::share_host::device_hub_of(&name) {
+                    s.set("deviceHub", hub);
+                }
                 s
             })
             .collect();
         // The machines only the mesh hub reaches (`mesh_book.rs`): never an ssh peer's name.
-        v.extend(self.mesh_book_hosts());
+        // Each with what the device hub says of its screen (`deviceHub`), the only record of
+        // its kind there: such a machine has no ssh health.
+        v.extend(self.mesh_book_hosts().into_iter().map(|mut row| {
+            let host = row.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+            if let Some(hub) = crate::share_host::device_hub_of(&host) {
+                row.set("deviceHub", hub);
+            }
+            row
+        }));
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
         v
     }
@@ -1120,6 +1134,23 @@ impl Hub {
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     let announced;
+                    // The row is built (its tools kept, its text written) from the row last
+                    // published, before the locks: under them only a check that it is still the
+                    // row there, else built again from the one there. Built under the locks, every
+                    // peer's notices waited on each row's text (a round of 2000 sessions' turns).
+                    let base = self
+                        .remote_sessions
+                        .read()
+                        .find_mux(&peer, &mux_id)
+                        .map(|(_, r)| Arc::clone(r));
+                    // The tools a row takes from `base` are not its own: one built again starts
+                    // from the summary as it came.
+                    let previous = base.as_ref().map(|r| &r.summary);
+                    let mut plain = (summary.get("tools").is_none()
+                        && previous.is_some_and(|p| p.has_tools()))
+                    .then(|| summary.clone());
+                    summary = Self::retain_summary_tools(summary, previous);
+                    let mut row = PeerRow::new(&summary);
                     {
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
@@ -1132,12 +1163,21 @@ impl Hub {
                         let mut map = self.remote_sessions.write();
                         current.purge_tombstones.changed(&mux_id);
                         let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
-                        let previous = old_id.as_ref().and_then(|key| map.take(key));
-                        summary = Self::retain_summary_tools(
-                            summary,
-                            previous.as_ref().map(|r| &r.summary),
-                        );
-                        let row = PeerRow::new(&summary);
+                        // Under the same key the row is replaced in place by the insert below
+                        // (`RemoteRows::insert_shared`), so it is not taken out first.
+                        let previous = match &old_id {
+                            Some(key) if *key == id => map.get(key).cloned(),
+                            Some(key) => map.take(key),
+                            None => None,
+                        };
+                        if previous.as_ref().map(Arc::as_ptr) != base.as_ref().map(Arc::as_ptr) {
+                            // A writer came between the check and the lock: built here, as before.
+                            summary = Self::retain_summary_tools(
+                                plain.take().unwrap_or(summary),
+                                previous.as_ref().map(|r| &r.summary),
+                            );
+                            row = PeerRow::new(&summary);
+                        }
                         // The table's row and the announcement share its text.
                         announced = row.clone();
                         map.insert(
@@ -1307,6 +1347,14 @@ impl Hub {
                         // an attached client as `_acpmux/permission_pending`
                         // (`server/mod.rs` `deliver`), so the same rule.
                         method::MUX_EVENT => {
+                            let kind = params.get("kind").and_then(Value::as_str).unwrap_or("");
+                            // An ask can be held with its params whole (`hold_peer_ask`); any
+                            // other record's `msg` is taken out of them, not copied.
+                            let msg = if is_permission_ask(kind) {
+                                params.get("msg").cloned()
+                            } else {
+                                params.get_mut("msg").map(Value::take)
+                            };
                             let record = EventRecord {
                                 seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 at: params.get("at").and_then(Value::as_u64).unwrap_or_else(now_ms),
@@ -1320,7 +1368,7 @@ impl Hub {
                                     .and_then(Value::as_str)
                                     .unwrap_or("")
                                     .to_owned(),
-                                msg: params.get("msg").cloned().unwrap_or(Value::Null),
+                                msg: msg.unwrap_or(Value::Null),
                                 host_seq: None,
                             };
                             // An ask held for this session that was answered meanwhile is not

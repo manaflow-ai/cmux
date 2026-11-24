@@ -46,6 +46,9 @@ impl Storage {
         }
         .map_err(failed)?;
         db.pragma_update(None, "journal_mode", "WAL").ok();
+        // A deleted key or an uninstalled app's table leaves no readable
+        // bytes in free pages; `scrub` resets the WAL after it.
+        db.pragma_update(None, "secure_delete", "ON").map_err(failed)?;
         Ok(Self { db })
     }
 
@@ -109,9 +112,13 @@ impl Storage {
                 Ok(Value::Null)
             }
             "app.storage.delete" => {
-                self.db
+                let removed = self
+                    .db
                     .execute(&format!("DELETE FROM {table} WHERE key = ?1"), params![key()?])
                     .map_err(failed)?;
+                if removed > 0 {
+                    self.scrub()?;
+                }
                 Ok(Value::Null)
             }
             "app.storage.keys" => {
@@ -135,7 +142,19 @@ impl Storage {
 
     /// Deletes everything the app stored.
     pub fn clear(&self, app: &str) -> Result<(), StorageError> {
-        self.db.execute_batch(&format!("DROP TABLE IF EXISTS {}", table(app))).map_err(failed)
+        self.db.execute_batch(&format!("DROP TABLE IF EXISTS {}", table(app))).map_err(failed)?;
+        self.scrub()
+    }
+
+    /// Resets the WAL, which still holds the deleted values' old pages. The
+    /// supervisor's connection is the only one, so nothing blocks it.
+    fn scrub(&self) -> Result<(), StorageError> {
+        crate::workspace_registry::truncate_wal_after_delete(
+            &self.db,
+            std::time::Duration::from_secs(5),
+        )
+        .map(drop)
+        .map_err(failed)
     }
 }
 

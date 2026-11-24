@@ -35,7 +35,7 @@ enum AgentSessionBindOutcome: Equatable {
 
 extension AgentTabStore {
     func shareScreen(of key: AgentTabKey, session: String?) -> AgentPaneActionRun { guard let registry = actionRegistry, let session, let (record, _) = record(for: key), let daemon = daemon(for: key) else { return .refused(Self.screenShareUnavailable) }; let host = hostKind(record, listedHere: daemon.isLocal); let lanes = AgentLaneStore.shared; let links = lanes.links(session); let kind = host == .local ? "local" : host == .chief ? "unsupported" : daemon.isLocal ? "remote" : MachineRegistry.isCloudMachineID(daemon.machineID) ? "cloud" : "remote"; return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).run(registry: registry, session: session, actualSession: sessions[key] ?? record.session ?? "", machineID: daemon.machineID, kind: kind, host: record.host, hostKind: host == .local ? "local" : host == .chief ? "chief" : "remote", peer: links?.peer, registryHost: Self.registryHost(of: daemon), localSummaryCurrent: lanes.live && links != nil, unavailable: Self.screenShareUnavailable) }
-    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module) }
+    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static let showcaseMachineName = MacName.captureName
 
     static func localMachineName(showcase: Bool, read: () async -> String) async -> String {
@@ -114,6 +114,8 @@ final class AgentTabStore {
                                     _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Lays out now the split beside chat `chat` holding new tab `key` (focus expected on it when `focus`); the result takes the store's tab.
     var showSplit: @MainActor (_ chat: String, _ key: String, _ focus: Bool) -> @MainActor (SurfaceID) -> Void = { _, _, _ in { _ in } }
+    /// Shows the even sizing of the chain a split of `pane` toward `direction` joins, before the split is intended (one frame); its result settles it.
+    var holdSplitSizing: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ direction: SplitDirection) -> (@MainActor (_ landed: Bool) -> Void)? = { _, _, _ in nil }
     var showSplitScoped: @MainActor (_ chat: AgentTabKey, _ key: String, _ focus: Bool) -> @MainActor (SurfaceID) -> Void = { _, _, _ in { _ in } }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
@@ -126,8 +128,8 @@ final class AgentTabStore {
     var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String,
                             _ transaction: ClientTransactionID, _ split: ConversationTabSplit?) async throws
         -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _, _ in throw DaemonError.notConnected }
-    /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
-    /// where the pane still selects it (AppServices: every pane controller).
+    /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface, where the
+    /// pane still selects it (AppServices: every pane controller). A New Tab key hold from that tab follows it.
     var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
@@ -179,7 +181,7 @@ final class AgentTabStore {
         }
         set { resolvedLocalHost = newValue }
     }
-    var views: AgentTabMap<AgentPaneView> = .init()
+    var views: AgentTabMap<AgentPaneView> = .init(marking: { $0.model.newTab != nil }) // `marked`: the New Tab page views (`idlePage`)
     /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
     let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
@@ -206,6 +208,8 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
     var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
+    /// What ``idlePage(for:leaving:take:)`` asks of the windows: whether one shows tab `key` (a pane draws it, or a pane of a shown workspace has it selected; the pane that leaves the tab now is the one pane that does not count, so the same pane of another window of the workspace does; with no windows each tab counts, so no page is idle), and that a pane which holds the tab off screen lets go of the view that the tab gave away.
+    var idlePanes: (draws: (String, PaneController?) -> Bool, letGo: (String) -> Void) = ({ _, _ in true }, { _ in })
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -360,7 +364,7 @@ final class AgentTabStore {
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
-    var openRightScoped: (@MainActor (_ chat: AgentTabKey, _ session: String, _ host: String?) -> Bool)?
+    var openRightScoped: (@MainActor (_ chat: AgentTabKey, _ session: String, _ host: String?, _ reveal: String?) -> Bool)? // reveal: the new tab's page gets it with its handshake (``revealTurn(_:in:machine:)``)
     /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
     var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var openToolScoped: (@MainActor (_ chat: AgentTabKey, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
@@ -474,10 +478,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
-    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep` (key, listing machine), the first it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (_ key: String, _ machine: String) -> Bool = { _, _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key) }?.key
+        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key, $0.machine) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
@@ -514,7 +518,7 @@ final class AgentTabStore {
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
-    func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
+    func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil, leaving: PaneController? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page); leaving: the pane that shows the tab now, and leaves another tab for it (`idlePage`)
         let tabKey = tabKey(key, machine: machine)
         if let view = views[tabKey] { return view }; if let front = frontedChats.front(of: tabKey) { return CloudFrontedChats.view(of: tabKey, front, in: self) } // a Mac tab that shows a Cloud chat draws its page (CloudFrontedChats)
         let key = tabKey.key
@@ -556,8 +560,7 @@ final class AgentTabStore {
         // load and React mount on the open path (cx-ec99); its folder rides on the page context (`newTab.cwd`). A page with a kept
         // composer (``wakeStates``) gets its own page: the spare's handshake is past. A reserved Cmd-N page (`known`) asked the pool
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
-        if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
-           seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
+        if known == nil, takesWarmPage(tabKey, seed: seed, known: (thisMac: kind == .local, record: record)), let newTab = newTabPages[tabKey], let spare = warmPage(.now, leaving: leaving) {
             adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.listsAtViewMake(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
@@ -580,7 +583,7 @@ final class AgentTabStore {
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
                                                 wake: wakeStates[tabKey].map { !$0.holdsOnlyPlace } ?? false || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
-            .adopted(chiefKeeps: chiefKeepsSession),
+            .adoptedCounting(relaunchWake: relaunchWake.mayHold(tabKey.relaunchKeyCandidates), chiefKeeps: chiefKeepsSession, into: retirer.sources),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
@@ -757,7 +760,7 @@ final class AgentTabStore {
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
         // React-only New Tab). Chat panes keep it.
-        if model.newTab != nil { view.showsLoadingState = false }
+        if model.newTab != nil { view.showsLoadingState = false } else { model.whenPainted { [weak self] in self?.launchImages.pictures?.pagePainted() } } // a chat's first paint saves its picture (AgentLaunchPictures)
         pageChats.seed(view)
         wireAgentAvatars(model, view: view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }

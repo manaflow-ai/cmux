@@ -99,6 +99,9 @@ class SidebarItemRowView: NSView {
     /// the trailing column, as a workspace row does; an icon look dots its glyph with `badge`.
     let rowBadge = RowBadgeView()
     let avatarView = SidebarAvatarView()
+    /// A Chief subagent's task count (`info.taskProgress`), "3/7" before the trailing marks, as a chat row draws its
+    /// one-line status (`WorkspaceRowView.timeLabel`); a row look only.
+    let taskCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The workspace item's status: the shared indicator (`info.activity`).
     let activity: StatusIndicatorView = {
         let view = StatusIndicatorView()
@@ -148,7 +151,7 @@ class SidebarItemRowView: NSView {
         pin.imageScaling = .scaleProportionallyUpOrDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, taskCount, badge, rowBadge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -193,12 +196,17 @@ class SidebarItemRowView: NSView {
         badge.notificationDot = info.unreadDot
         badge.configure(trailingDot ? .none : unreadState)
         activity.configure(info.activity, style: info.activityStyle)
-        // VoiceOver hears the count even where no badge draws (icons).
-        setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
-        // An icon names itself (and its shortcut) in its tooltip; a tile's
-        // caption can truncate, so it keeps the full title.
-        // The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
+        let tasks = style.isIconOnly || style == .chip || style == .favorite ? nil : info.taskProgress
+        taskCount.setString(tasks?.countText ?? "")
+        taskCount.isHidden = tasks == nil
+        // VoiceOver hears the count even where no badge draws (icons), and the task count in words.
+        let unread = info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) }
+        let words = info.taskProgress.map { Strings.taskProgress(done: $0.done, total: $0.total) }
+        let value = [unread, words].compactMap(\.self).joined(separator: ", ")
+        setAccessibilityValue(value.isEmpty ? nil : value)
+        // An icon names itself (and its shortcut) in its tooltip; an item that shows its title has none (a1315's
+        // cut 2). The profile control draws no name, so its tooltip says who it is: the email.
+        themedToolTip = info.avatar?.toolTip ?? info.tooltip ?? (style.isIconOnly ? info.toolTip : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive || info.isSecondarySelected)
@@ -223,6 +231,8 @@ class SidebarItemRowView: NSView {
             chip.backgroundColor = showsSwatchDot ? info.color.map(SidebarStyle.color)?.cgColor
                 : wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
             title.textColor = SidebarStyle.titleInk
+            // Quieter than the title by a full step, as a chat row's count (`WorkspaceRowView+Rendering`).
+            taskCount.setColor(Palette.textTertiary)
             icon.alphaValue = SidebarStyle.glyphOpacity
             pin.alphaValue = SidebarStyle.glyphOpacity
             // An icon is secondary at rest and full strength under the pointer
@@ -418,8 +428,24 @@ class SidebarItemRowView: NSView {
         // with no drop.
         let opticalDrop = style == .builtIn && !bare && !isRailButton && SidebarStyle.capCenteredBaseline(title.font ?? SidebarStyle.titleFont, centerY: 0) == nil
             ? (SidebarStyle.titleFont.pointSize * 0.04 * scale).rounded() / scale : 0
+        let textEnd = layoutTaskCount(before: activityLeading(before: badgeX), in: b)
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY) + opticalDrop,
-                             width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+                             width: max(0, textEnd - Metrics.space2 - textX), height: th)
+    }
+
+    /// Places the task count ("3/7") on the trailing columns before `marks` (where the row's trailing marks start), as a
+    /// chat row places its count (`WorkspaceRowView.layoutTime`), and returns where the title must end.
+    private func layoutTaskCount(before marks: CGFloat, in b: NSRect) -> CGFloat {
+        guard !taskCount.isHidden else { taskCount.frame = .zero; return marks }
+        let columns = bandColumns(in: b)
+        let hasMark = !badge.isHidden || !rowBadge.isHidden || activity.showsGlyph
+        let edge = hasMark ? marks : columns.trailingEdge
+        let width = ceil(max(taskCount.intrinsicContentSize.width,
+                             taskCount.attributedStringValue.size().width + 2 * WorkspaceRowView.labelInset))
+        let height = ceil(taskCount.intrinsicContentSize.height)
+        taskCount.frame = columns.trailingFrame(before: edge, centerY: b.midY, size: CGSize(width: width, height: height))
+        taskCount.frame.origin.y = SidebarStyle.textY(taskCount, centerY: b.midY)
+        return taskCount.frame.minX
     }
 
     /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
@@ -660,7 +686,6 @@ class SidebarItemRowView: NSView {
     }
 
     // MARK: Pointer
-
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

@@ -11,7 +11,7 @@ extension WindowMaterialView {
               window?.isVisible == true || crossfadesOffScreen, !Motion.reduceMotion else { return showArt(image) }
         let from = layer.presentation()?.contents ?? layer.contents ?? previous
         showArt(image)
-        Motion.panes.set(layer, "contents", to: image, fade: .wallpaper, from: from)
+        Motion.panes.set(layer, "contents", to: artContents(for: image) ?? image, fade: .wallpaper, from: from)
     }
 
     /// The id of the picture the art shows (`debug.themes` `backdrop.picture`): a Light and Dark

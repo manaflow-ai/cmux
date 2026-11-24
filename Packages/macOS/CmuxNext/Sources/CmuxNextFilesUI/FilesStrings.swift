@@ -3,7 +3,7 @@ import Foundation
 /// The Files pane's text (table `Files`, 21 languages).
 nonisolated enum FilesStrings {
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "Files", bundle: .module)
+        String(localized: key, defaultValue: english, table: "Files", bundle: .localizedModule)
     }
 
     static var title: String { t("files.title", "Files") }

@@ -24,7 +24,8 @@
 //! `"lsArgv": ["relay", "sessions"]` is how such a host sees the other machines' sessions: `acpmux
 //! ls` (and the MCP `ls` tool) runs it, reads `{"sessions": [...]}` from its stdout, and lists every
 //! row whose `peer` names another machine beside this host's own, so `HOST/NAME` is found before
-//! it is sent to. A relay that fails or is slow costs a warning, never the local list.
+//! it is sent to. A relay that fails or is slow costs a warning, never the local list: `ls`
+//! waits for it a short budget and otherwise serves its last good listing (`ls_far.rs`).
 //! Leo, 2026-11-05, on sends between lane machines: "Just do what's expected. Just do the magic."
 
 use crate::cli::errors::{AppError, Code};
@@ -132,11 +133,29 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
                 // How the row is reached: through the relay that listed it, not this daemon.
                 if let Some(fields) = row.as_object_mut() {
                     fields.insert("via".to_owned(), json!(VIA));
+                    given_handle(fields);
                 }
                 row
             })
             .collect(),
     ))
+}
+
+/// A relay row's given handle as `handle`, the key `ls`, `resolve` and `send` read
+/// ([`find_row`], `session_handle::matches`). A relay may carry it as `displayName` alone (the
+/// given handle only, `SessionSummary::display_name`) so a derived handle stays off its wire;
+/// without this, a renamed chat on another machine was found only by its older name (Leo,
+/// 2026-11-23: "the send/recieve messages are still only the older names").
+pub(crate) fn given_handle(row: &mut serde_json::Map<String, Value>) {
+    let valid = |v: Option<&Value>| {
+        v.and_then(Value::as_str).filter(|h| crate::session_handle::valid(h)).map(str::to_owned)
+    };
+    if valid(row.get("handle")).is_some() {
+        return;
+    }
+    if let Some(given) = valid(row.get("displayName")) {
+        row.insert("handle".to_owned(), Value::String(given));
+    }
 }
 
 /// The `via` of a row the relay lists: no peer link or hub of this daemon reaches it, so only
@@ -218,29 +237,6 @@ pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
 
 /// At most this many rows from one relay listing.
 pub(crate) const LS_MAX_ROWS: usize = 5000;
-
-/// The other machines' sessions the configured relay lists (`relay_ls`, off the async runtime),
-/// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless
-/// `quiet`.
-pub(crate) async fn relay_rows(quiet: bool) -> Vec<Value> {
-    let Some(relay) = configured().filter(|r| r.ls_argv.is_some()) else { return Vec::new() };
-    match tokio::task::spawn_blocking(move || relay_ls(&relay, None)).await {
-        Ok(Ok(Some(rows))) => rows,
-        Ok(Ok(None)) => Vec::new(),
-        Ok(Err(e)) => {
-            if !quiet {
-                eprintln!("acpmux: other machines' sessions are not listed: {e}");
-            }
-            Vec::new()
-        }
-        Err(e) => {
-            if !quiet {
-                eprintln!("acpmux: other machines' sessions are not listed: {e}");
-            }
-            Vec::new()
-        }
-    }
-}
 
 /// `rows` (this daemon's list) with `far` (the relay's) added, none twice: a peer row this
 /// daemon lists already, by its machine and session id. How many were added.
@@ -584,6 +580,29 @@ mod tests {
         assert_eq!(id("flap"), None);
         assert_eq!(id("far/goal"), None);
         assert_eq!(id("nothing"), None);
+    }
+
+    #[test]
+    fn a_relay_row_given_handle_names_it_and_a_derived_one_still_matches() {
+        let id = "0198f2a4-0000-7000-8000-0000000000e1";
+        let mut given =
+            json!({"peer": "far", "sessionId": id, "name": "old", "displayName": "Mango"});
+        given_handle(given.as_object_mut().unwrap());
+        assert_eq!(given["handle"], "Mango");
+        let mut bad = json!({"peer": "far", "sessionId": "01z", "displayName": "not a handle"});
+        given_handle(bad.as_object_mut().unwrap());
+        assert!(bad.get("handle").is_none());
+        let rows = vec![given, bad];
+        let found = |key: &str| find_row(&rows, key).and_then(|r| r["sessionId"].as_str());
+        assert_eq!(found("Mango"), Some(id));
+        assert_eq!(found("mango"), Some(id));
+        assert_eq!(found("far/Mango"), Some(id));
+        assert_eq!(found("old"), Some(id));
+        assert_eq!(found("other/Mango"), None);
+        // A row with no given handle is still found by its derived one, never put on the row.
+        let derived = crate::session_handle::default_handle("01z");
+        assert_eq!(found(&derived), Some("01z"));
+        assert_eq!(found(&format!("far/{derived}")), Some("01z"));
     }
 
     #[test]

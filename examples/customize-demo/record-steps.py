@@ -123,7 +123,9 @@ def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
         name = clip_name(file)
         steps += [
             {"cmux": ["customize", "use", f"{root}/{file}"], "record": True},
-            {"action": "newTab.default", "name": f"New Tab: {file}"},
+            # newTab.page: a capture's action.run is a script, which newTab.default gives a tab of the selected
+            # tab's kind (the setup terminal), never the New Tab page that shows the look's own page.
+            {"action": "newTab.page", "name": f"New Tab: {file}"},
         ]
         for frame in range(1, args.frames):
             steps += [{"wait": round(args.hold / args.frames, 2)},
@@ -137,7 +139,7 @@ def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
     steps += [
         {"cmux": ["customize", "discard"], "record": True},
         {"cmux": ["customize", "library", "status"], "record": True},
-        {"action": "newTab.default", "name": "Restored New Tab"},
+        {"action": "newTab.page", "name": "Restored New Tab"},
         {"wait": 2},
         {"shot": "99-after-reset"},
     ]

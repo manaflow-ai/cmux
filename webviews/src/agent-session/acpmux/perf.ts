@@ -170,7 +170,14 @@ export type TypingSample = {
   /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
   frame_timestamp_ms?: number;
 } & Partial<KeyPresentation>;
-type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
+/// `promptSent`: the first prompt the page sent since its handshake (direct.ts, as `session/prompt` goes out).
+export type AgentMark =
+  | "handshakeStart"
+  | "handshakeReady"
+  | "composerReady"
+  | "snapshotPaint"
+  | "promptSent"
+  | "firstToken";
 /**
  * The page's connect path on the wall clock (`Date.now()`), the first time of each since the page
  * loaded: the relaunch-reconnect bench lines them up with the app's launch marks
@@ -178,11 +185,22 @@ type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapsh
  * keeps it), `connectStart` and `connected` bracket the client's connect (transport open,
  * `initialize`, the first read), `firstEvent` is the first event of the shown chat to arrive, and
  * `liveEvent` the first that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it: the chat
- * is live, past any backlog.
+ * is live, past any backlog. `painted` is the page's first `pane.painted` (it shows what it is) and
+ * `transcriptMount` the transcript root's first mount: the perf watch's page-load span (perfReporter.ts).
  */
-type LaunchMark = "handshakeStart" | "handshakeReady" | "connectStart" | "connected" | "firstEvent" | "liveEvent";
+export type LaunchMark =
+  | "handshakeStart"
+  | "handshakeReady"
+  | "connectStart"
+  | "connected"
+  | "firstEvent"
+  | "liveEvent"
+  | "painted"
+  | "transcriptMount";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
+/// How many of a page's start states `startStateTrail` keeps (the newest).
+const START_TRAIL = 8;
 
 /** Typing latency: keydown event time to the next frame and to after that frame paints. */
 export function typingSummary(samples: TypingSample[]) {
@@ -231,10 +249,13 @@ export class AcpmuxPerf {
   private agentMarks: Partial<Record<AgentMark, number>> = {};
   /// A new chat's start state as its frames show it (the New Tab chip's folder, the hero's project
   /// and its Do not work in a project check): the first one drawn, and when it last changed.
-  private startState: { shown: string; first: number; final: number; changes: number } | undefined;
+  private startState: { shown: string; first: number; final: number; changes: number; trail: string[] } | undefined;
   private launchMarks: Partial<Record<LaunchMark, number>> = {};
   private handshakeAttempts = 0;
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
+  private keyTarget: Pick<Document, "addEventListener" | "removeEventListener"> | undefined;
+  /// Told each agent mark as it is kept (the perf watch's new-chat span, perfReporter.ts); unset while it is off.
+  markListener: ((stage: AgentMark, at: number) => void) | undefined;
 
   /** Turns measurement on; installs the composer key listener once (the chat's and New Tab's). */
   enable(
@@ -260,22 +281,22 @@ export class AcpmuxPerf {
         key: event.key,
       };
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
-      // The key's edit: its `input` event, then the microtasks the field and React run it in.
-      const input = () => {
-        const done = new MessageChannel();
-        done.port1.onmessage = () => {
-          sample.work ??= performance.now() - start;
-          done.port1.close();
-        };
-        done.port2.postMessage(0);
-      };
-      page.addEventListener("input", input, { capture: true, once: true });
+      // The key's edit is done inside its own task: the `input` event reaches the document last, as it bubbles, after
+      // the field's and React's handlers, and each handler's microtasks (the editor's flush, React's sync render and
+      // commit) run before the next handler. A microtask from here ends the key's work. A point after the task (a
+      // posted message) also counted whatever ran before it: on Mac WebKit the next frame ran first on nearly every
+      // key, so `to_work` read the wait for the frame, not the work (goal typing-latency). `to_frame` keeps the frame.
+      const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
+      page.addEventListener("input", input, { once: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
+        // A trace's handle on the key's frame callback and its paint (bench/keyFrameTrace.ts).
+        performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
-        page.removeEventListener("input", input, { capture: true });
+        page.removeEventListener("input", input);
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
+          performance.mark?.("acpmux:key-paint");
           sample.frame = frame - start;
           const painted = performance.now();
           sample.paint = painted - start;
@@ -287,7 +308,17 @@ export class AcpmuxPerf {
         channel.port2.postMessage(0);
       });
     };
+    this.keyTarget = target;
     target.addEventListener("keydown", this.keyListener as EventListener, true);
+  }
+
+  /** Turns measurement off and removes the composer key listener (the perf watch turned off). */
+  disable(): void {
+    this.enabled = false;
+    if (this.keyListener && this.keyTarget)
+      this.keyTarget.removeEventListener("keydown", this.keyListener as EventListener, true);
+    this.keyListener = undefined;
+    this.keyTarget = undefined;
   }
 
   /** Lifecycle marks used by the warm-chat before/after capture. */
@@ -295,23 +326,37 @@ export class AcpmuxPerf {
     if (stage === "handshakeStart") {
       delete this.agentMarks.handshakeReady;
       delete this.agentMarks.composerReady;
+      delete this.agentMarks.promptSent;
       delete this.agentMarks.firstToken;
     }
-    if (stage === "firstToken" && this.agentMarks.firstToken !== undefined) return;
-    this.agentMarks[stage] = performance.now();
+    if ((stage === "firstToken" || stage === "promptSent") && this.agentMarks[stage] !== undefined) return;
+    const at = performance.now();
+    this.agentMarks[stage] = at;
+    this.markListener?.(stage, at);
   }
 
   /** The start state a frame shows (`shown`, any stable text); recorded always, a string compare per change. */
   noteStartState(shown: string, now = performance.now()): void {
     const state = this.startState;
-    if (!state) this.startState = { shown, first: now, final: now, changes: 0 };
+    if (!state) this.startState = { shown, first: now, final: now, changes: 0, trail: [shown] };
     else if (state.shown !== shown)
-      this.startState = { shown, first: state.first, final: now, changes: state.changes + 1 };
+      this.startState = {
+        shown,
+        first: state.first,
+        final: now,
+        changes: state.changes + 1,
+        trail: [...state.trail, shown].slice(-START_TRAIL),
+      };
   }
 
   /** The start the frames show now (`noteStartState`), for a bench to compare runs. */
   startStateShown(): string | undefined {
     return this.startState?.shown;
+  }
+
+  /** Each start the frames showed, first to now (the last few), for a bench to see a flash in between. */
+  startStateTrail(): string[] {
+    return this.startState ? [...this.startState.trail] : [];
   }
 
   /** A New Tab page adopted again (Cmd-T on a spare): its start state is measured from there. */
@@ -322,7 +367,11 @@ export class AcpmuxPerf {
   /** Records `stage` on the wall clock once per page (`LaunchMark`). */
   markLaunch(stage: LaunchMark, now = Date.now()): void {
     if (stage === "handshakeStart") this.handshakeAttempts += 1;
-    if (this.launchMarks[stage] === undefined) this.launchMarks[stage] = now;
+    if (this.launchMarks[stage] !== undefined) return;
+    this.launchMarks[stage] = now;
+    // The same stage as a user-timing mark, so a trace (DevTools, bench/chat-floor.bench.ts) shows it.
+    if (typeof performance !== "undefined" && typeof performance.mark === "function")
+      performance.mark(`acpmux:${stage}`);
   }
 
   /** An event of the shown chat arrived; `at` is when acpmux recorded it (ms since 1970). */
@@ -340,6 +389,11 @@ export class AcpmuxPerf {
       value.page_origin_epoch_ms = Math.round(performance.timeOrigin);
     for (const [name, at] of Object.entries(this.launchMarks)) if (at !== undefined) value[`${name}_epoch_ms`] = at;
     return value;
+  }
+
+  /** The agent marks since the last handshake, on `performance.now()`'s clock. */
+  agentMarkTimes(): Partial<Record<AgentMark, number>> {
+    return { ...this.agentMarks };
   }
 
   agentLatency(): Record<string, number> {
@@ -375,6 +429,17 @@ export class AcpmuxPerf {
 
   resetRenders(): void {
     this.renders.clear();
+  }
+
+  /** The chat's records the direct client took while measuring: live ones it reduced (`apply`), ones a gap read
+   *  merged (`fetchMissedEvents`), and the newest seq of either (session-scale-scroll.bench.ts: what a hidden page
+   *  still works on, and that it caught up once shown). */
+  readonly records = { applied: 0, read: 0, newest: 0 };
+
+  recordsTaken(kind: "applied" | "read", count: number, seq: number): void {
+    if (!this.enabled) return;
+    this.records[kind] += count;
+    if (seq > this.records.newest) this.records.newest = seq;
   }
 
   /// Rows unmounted in the commit now running: a row mounted again in the same commit was remounted
