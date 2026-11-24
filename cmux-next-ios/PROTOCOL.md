@@ -1971,6 +1971,14 @@ is `queued`, `applied`, `rejected` (with its reason) or `expired`; `applied`
 and `rejected` count only with the Mac's signed ack, else "Not confirmed by
 <Mac>".
 
+Phone details: it reads an item's state after 1, 2, 4 and 8 s, then every
+30 s until `expiresAt`. A `409` on a retried post counts as queued; its `seq`
+comes from the next read. A post answered with no `seq` came from an older
+hub: the phone takes `expiresAt` as its post time plus 600 s and never asks
+for a longer `hold` there. A `404` read before `expiresAt` (the hub lost the
+item) shows "Not confirmed by <Mac>", never a failure: the Mac may have
+applied it.
+
 ### Terminal replies
 
 The `daemon` policy allows `notification-reply {notification, text, reply_id?}`
