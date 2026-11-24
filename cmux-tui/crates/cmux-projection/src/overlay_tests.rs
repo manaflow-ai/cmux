@@ -601,7 +601,8 @@ fn sized(files: &[(&str, u64)]) -> Manifest {
 /// What a fault on `path` reads ahead, as paths, with the paths `skip` names left out.
 fn picked(manifest: &Manifest, path: &str, skip: impl Fn(&str, &Entry) -> bool) -> Vec<String> {
     let index = manifest.resolve(path).unwrap();
-    let picked = read_ahead(manifest, index, |other, entry| skip(&manifest.path_of(other), entry));
+    let lower = Lower::new(Arc::new(manifest.clone()));
+    let picked = read_ahead(&lower, index, |other, entry| skip(&manifest.path_of(other), entry));
     let names: Vec<String> = picked.iter().map(|other| manifest.path_of(*other)).collect();
     let mut unique = names.clone();
     unique.sort();
