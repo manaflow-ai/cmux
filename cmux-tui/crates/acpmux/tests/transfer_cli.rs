@@ -232,7 +232,7 @@ mod session_move;
 mod session_move_follow;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
-#[path = "transfer_cli/view_latency.rs"]
-mod view_latency;
 #[path = "transfer_cli/session_move_reachable.rs"]
 mod session_move_reachable;
+#[path = "transfer_cli/view_latency.rs"]
+mod view_latency;
