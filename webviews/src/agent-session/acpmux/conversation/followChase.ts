@@ -130,6 +130,61 @@ const FRAMELESS_MS = 150;
 /// The fixed-duration arm's step: the standard step, eased out (MOTION_EASE_OUT's start slope).
 const CHUNK_S = MOTION_MS.standard / 1000;
 
+/// The `steady` arm (Leo, 2026-11-22: "it's just not great design to have the jolts ... it's not
+/// smooth"): the view drifts at the stream's own pace instead of chasing each chunk home. The rate the
+/// rows moved in (px/s, smoothed over STEADY_RATE_S) sets the speed, and a small reserve of the newest
+/// text, STEADY_RESERVE_S of that rate, waits drawn under the reply's foot (in the live line's room and
+/// under the glass composer) so the drift never runs dry between chunks: the next chunk lands in the
+/// reserve and the view keeps its speed, with no start and stop per chunk. Speed changes at no more
+/// than STEADY_ACCEL px/s², so a tool row arriving or a burst bends the drift instead of jolting it;
+/// past the trail bound the drift speeds up by the excess over STEADY_CATCH_S, at once. When the stream stops
+/// the reserve drains at no less than STEADY_MIN_SPEED and rests.
+export const STEADY_RATE_S = 0.4;
+export const STEADY_RESERVE_S = 0.1;
+export const STEADY_LAG_S = 0.25;
+export const STEADY_ACCEL = 4000;
+export const STEADY_MIN_SPEED = 60;
+export const STEADY_CATCH_S = 0.12;
+
+export type SteadyState = {
+  /// How far the thread is drawn from its layout (px; positive: drawn down).
+  x: number;
+  /// The drift's speed toward home (px/s, never negative).
+  speed: number;
+  /// The smoothed rate the rows moved in (px/s).
+  rate: number;
+};
+
+/// One display frame of the `steady` arm: `inflow` px moved into the trail since the last frame
+/// (what `shift` drew back), `dt` s since it, `trail` the trail bound (px), `cap` the most this frame
+/// may move (px: a line a 120 Hz slot, less what other motion moves the rows), `landing` the turn
+/// ended (the reserve drains over STEADY_LAG_S at most). Pure: the unit test drives it frame by frame.
+export function steadyStep(
+  state: SteadyState,
+  inflow: number,
+  dt: number,
+  { trail, cap, landing = false }: { trail: number; cap: number; landing?: boolean },
+): SteadyState {
+  const alpha = dt > 0 ? 1 - Math.exp(-dt / STEADY_RATE_S) : 0;
+  const rate = Math.max(0, state.rate + (inflow / Math.max(dt, 1e-3) - state.rate) * alpha);
+  const away = Math.abs(state.x);
+  if (away < REST_PX && state.speed < REST_SPEED * 4) return { x: 0, speed: 0, rate };
+  const reserve = landing ? 0 : rate * STEADY_RESERVE_S;
+  let want = Math.max(0, rate + (away - reserve) / STEADY_LAG_S);
+  if (away > trail) want += (away - trail) / STEADY_CATCH_S;
+  want = Math.max(want, STEADY_MIN_SPEED);
+  // Past the trail bound the speed rises to what catches up at once: held to STEADY_ACCEL there, a
+  // fast stream (a block a frame) filled the room under the composer and its overflow moved at once,
+  // 38 px in a 120 Hz frame (send-stream-motion.test.ts). The per-frame cap still bounds each move.
+  const accel = STEADY_ACCEL * dt;
+  const rise = away > trail ? Number.POSITIVE_INFINITY : accel;
+  const speed = Math.max(0, state.speed + Math.max(-accel, Math.min(rise, want - state.speed)));
+  const move = Math.min(away, speed * dt, Math.max(0, cap));
+  const left = away - move;
+  const x = left < 1e-6 ? 0 : Math.sign(state.x) * left;
+  return { x, speed: x === 0 ? 0 : speed, rate };
+}
+
 export type FollowChase = {
   readonly arm: FollowMotionArm;
   /// The rows the reader sees moved `moved` px on screen in this pass (negative: up). The thread is
@@ -292,6 +347,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let arrival:
     | { from: number; at: number; duration: number; ease: (progress: number) => number; sent: boolean }
     | undefined;
+  /// The `steady` arm: the drift's state, and what `shift` drew back since its last frame (px).
+  let steady: SteadyState = { x: 0, speed: 0, rate: 0 };
+  let inflow = 0;
   /// What runs when the chase comes to rest (`onRest`), and whether it drew the thread off home
   /// since it last rested.
   let rested: (() => void) | undefined;
@@ -373,6 +431,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     spent = 0;
     stepped = 0;
     arrival = undefined;
+    steady = { x: 0, speed: 0, rate: 0 };
+    inflow = 0;
     draw();
     drawnOff = false;
     if (moving) rested?.();
@@ -473,6 +533,21 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (Math.sign(nextX) !== Math.sign(x) && x !== 0) nextX = nextV = 0;
       x = nextX;
       v = nextV;
+    } else if (arm === "steady") {
+      const slots = Math.max(1, Math.round(dt * 120));
+      const next = steadyStep({ ...steady, x }, inflow, dt, {
+        trail: chaseMaxTrail(),
+        cap: Math.min(CHASE_MAX_FRAME_LINES * line * slots - spent, leftBeside(dt, slots)),
+        landing,
+      });
+      inflow = 0;
+      steady = next;
+      v = -Math.sign(x) * next.speed;
+      x = next.x;
+      if (x === 0) {
+        stop();
+        return;
+      }
     } else if (arm === "chunk") {
       chunk.at += dt;
       const progress = Math.min(1, chunk.at / (chunk.duration * scale));
@@ -520,6 +595,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       due = undefined;
       stepped = 0;
       arrival = undefined;
+      steady = { ...steady, speed: 0 };
+      inflow = 0;
       if (x === 0) {
         stop();
         return;
@@ -622,12 +699,17 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // rise moved at once and that room then drew the rows back down (the `spring`, `chunk` and
       // `linear` arms' bounce as a prompt comes in, 149 px up in a frame and 10 to 32 px back).
       rising =
-        (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY || (rising && !held && moved > 0 && x > 0);
+        ((arm === "blocks" || arm === "steady") && !held) ||
+        below === Number.POSITIVE_INFINITY ||
+        (rising && !held && moved > 0 && x > 0);
       // Within the bound before this move, a block that lands past it starts a stretch of its own
       // with all of BURST_S (the last stretch's deadline moved it up to a line a frame, its time
       // already spent).
       if (Math.abs(x) <= chaseMaxTrail()) due = undefined;
+      const drawnBefore = x;
       x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
+      // The steady drift's rate reads what the stream moved the rows by (a send's rise is its own).
+      if (arm === "steady" && !sent) inflow += Math.abs(x - drawnBefore);
       // A reply's growth (`below` bounded: not a send's rise, not after Jump to latest) holds back
       // at most CHASE_HOLD_LINES; the frame it lands in moves the rest, up to CHASE_LAND_LINES less
       // what it already moved at once and the chase's last step, so the text above starts home as the block lands instead of the
@@ -657,7 +739,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A move during a step (the arrived row's measured height a pass later) keeps that step's end,
       // longer only as its frames need, so a second pass never starts the motion over.
       const left = arrival ? (arrival.duration - arrival.at) * 1000 : undefined;
-      const timed = !held && (arm === "blocks" || arm === "spring") && x !== 0;
+      // The steady arm times only a send's rise: an arrived row joins the drift.
+      const timed = !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && sent)) && x !== 0;
       // A send's rows, or any move that raises the rows while a send's step plays, rise on the send
       // motion to that step's end (one motion with the bubble's entrance, `sendEase`).
       const sending = sent || (arrival?.sent === true && moved < 0);
