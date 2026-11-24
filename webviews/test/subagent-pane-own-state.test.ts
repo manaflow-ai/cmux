@@ -229,7 +229,9 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
         "subagent:a1",
       ),
     );
-    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    await page
+      .locator('.acpmux-composer[data-composer-relay][data-cmux-component="Composer"]')
+      .waitFor({ timeout: 10_000 });
     const shown = await bottom(page);
     expect(shown.composer).toBe(0);
     expect(shown.queued).toEqual([]);
