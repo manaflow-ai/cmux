@@ -9,7 +9,7 @@ import Foundation
 extension GitHubPageProvider {
     /// The fields of an issue the page draws.
     nonisolated static let issueFields = ["number", "title", "state", "state_reason", "comments", "created_at", "updated_at",
-                                          "html_url", "body"]
+                              "html_url", "body"]
     /// The fields of a comment the page draws.
     nonisolated static let commentFields = ["body", "created_at", "html_url"]
 
