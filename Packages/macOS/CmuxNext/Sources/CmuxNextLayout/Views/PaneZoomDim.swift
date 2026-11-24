@@ -132,7 +132,8 @@ final class PaneZoomDim {
         }
         returning = nil
         let fade = self.fade(on: screen)
-        guard fade > 0, let view = place(around: pane, on: screen) else { return leave() }
+        // No dim beside a pane whose content draws in a window of its own: the dim does not reach that window.
+        guard fade > 0, !PaneCommitMotion.showsOwnWindow(on: screen, beside: pane), let view = place(around: pane, on: screen) else { return leave() }
         // The dim ends with the move of the pane that closes, by the motion's own time: no dim shows over panes that
         // are at their places. With no move the fade is the pane veil's.
         let limit = motion.inFlight ? motion.remaining : nil

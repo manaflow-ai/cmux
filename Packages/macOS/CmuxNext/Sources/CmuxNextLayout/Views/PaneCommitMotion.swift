@@ -269,9 +269,14 @@ final class PaneCommitMotion {
         let closes = act != .unzoom || (changes.count == 1 && screen.baseGeometry.floatingCards.isEmpty
             && (last?.host === changes[0].host || changes[0].host.holdsContentForMove))
         // A window's picture that changed in the move: the copies show the old one, so this act shows in one frame.
-        guard !changes.isEmpty, time > 0, covered, closes, pictureStays, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
+        // A zoom over a pane, and an unzoom beside one, whose content draws in a window of its own shows in one frame
+        // too: that window is over the pane that moves, and no clip and no dim reaches it (`PaneCommitMotion+OwnWindow`).
+        let beside = act == .zoom ? leaving : act == .unzoom ? coming + staying.filter { $0.old == $0.new }.map(\.host) : []
+        let inLayers = !Self.showsOwnWindow(beside)
+        guard !changes.isEmpty, time > 0, covered, closes, pictureStays, inLayers, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
             MotionTrace.note("layout.commit: \(act) in one frame (panes that change: \(changes.count), time: \(time), covered: \(covered), "
-                + "closes: \(closes), the window's picture stays: \(pictureStays), \(Self.ride(of: riders)))")
+                + "closes: \(closes), the window's picture stays: \(pictureStays), no window of its own beside the move: \(inLayers), "
+                + "\(Self.ride(of: riders)))")
             finish()
             return nil
         }
