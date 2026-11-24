@@ -212,11 +212,11 @@ nonisolated struct SidebarDragLook {
         let at = low
         let top = at < range.upperBound ? base.rows[at].y : base.rows[at - 1].maxY + m.rowSpacing
         let label = SidebarLayout.machineLabel(section, options: options)
-        let header = SidebarLayout.cloudHeader(section, options: options)
+        let cloudHeader = SidebarLayout.cloudHeader(section, options: options)
         var rows: [SidebarRow] = []
         var y = top
         for (j, entry) in moving.enumerated() {
-            var content = options.rowContent(entry.ws, machine: label, header: header)
+            var content = options.rowContent(entry.ws, machine: label, header: cloudHeader)
             (content.treeDepth, content.treeFold, content.rollUp) = (0, nil, nil)
             let h = m.height(for: content)
             rows.append(SidebarRow(
