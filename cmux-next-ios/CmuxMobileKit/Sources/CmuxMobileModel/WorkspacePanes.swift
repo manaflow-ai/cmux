@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// A workspace's panes as its Mac lays them out (cmux-tui `list-workspaces`: screens, each
