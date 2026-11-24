@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextAgentCursor
 import CmuxNextCompat
 import CmuxNextCloud
@@ -94,6 +95,9 @@ extension AppServices {
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
         // A sign-out starts: the GitHub App lease goes (its install revoke may fail), and the person's own sign-out forgets the paired phones.
         cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted(); self?.iphone.signOutStarted() }
+        // The app's own GitHub calls (pull request page, checks, merge, the PR chip) go through acpmux,
+        // which runs them with the cmux GitHub App lent above, or the person's gh.
+        AgentPaneGitHub.transport = { [weak self] params in await GitHubAppLease.rest(self.flatMap(QuitAgents.environment), params) }
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?

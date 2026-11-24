@@ -649,6 +649,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_rest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": {
         "$ref": "#/types/BookmarkGetParams"
