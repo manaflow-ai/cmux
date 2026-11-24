@@ -83,6 +83,15 @@ streaming, and times each phase from process start to the shown chat's first liv
     --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=relaunch-reconnect \\
     --arg=config=bench --artifact artifacts/perf-idle-power.json
 
+`relaunch-first-paint` (run it alone) is that bench as the person sees the first launch after an
+update: an idle chat with a long transcript shown beside a terminal and a browser pane, relaunched
+warm and as the next version of itself (warm,new-version), timing from the window's first frame
+(a) the terminal's content, (b) the browser's first paint, (c) the chat's rows on screen and (d) the
+chat settled with no layout shift after it (bench_relaunch_reconnect.py --shown idle --browser):
+  cmux-ci run --class exclusive --measurement --display --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=relaunch-first-paint \\
+    --arg=config=bench --artifact artifacts/perf-idle-power.json
+
 `idle-chats` (run it alone) is the same bench at the idle-CPU stop condition (Leo, 2026-11-03:
 "im at 100% cpu rn"; done when every process idles under 5% CPU with about 40 chats open):
 40 local chats on the app's own daemon, each answered once and shown once in its own workspace,
@@ -1066,13 +1075,17 @@ def main():
     if not args.app:
         parser.error("--app is required")
     scenarios = args.scenarios.split(",")
-    if "relaunch-reconnect" in scenarios:
-        # Relaunch to the first live chat event (bench_relaunch_reconnect.py), through this
-        # script's one fleet entry (perf-idle-power.sh); --load-local sets its chats.
-        if scenarios != ["relaunch-reconnect"]:
-            raise SystemExit("bench-power: the relaunch-reconnect scenario runs alone (--scenarios relaunch-reconnect)")
+    for relaunch_scenario in ("relaunch-reconnect", "relaunch-first-paint"):
+        if relaunch_scenario in scenarios and scenarios != [relaunch_scenario]:
+            raise SystemExit(f"bench-power: the {relaunch_scenario} scenario runs alone (--scenarios {relaunch_scenario})")
+    if scenarios in (["relaunch-reconnect"], ["relaunch-first-paint"]):
+        # Relaunch to the first live chat event, or to the shown chat settled (bench_relaunch_reconnect.py),
+        # through this script's one fleet entry (perf-idle-power.sh); --load-local sets its chats.
         import bench_relaunch_reconnect as relaunch
         argv = ["--app", args.app, "--config", args.config]
+        if scenarios == ["relaunch-first-paint"]:
+            argv += ["--modes", "warm,new-version", "--shown", "idle", "--browser",
+                     "--retheme", "GitHub Light Default,Rose Pine Dawn"]
         argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
         argv += ["--rounds", str(args.relaunch_rounds)] if args.relaunch_rounds is not None else []
         argv += ["--out", args.out] if args.out else []
