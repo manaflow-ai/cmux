@@ -372,6 +372,12 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         return Some(if token { code } else { "other".into() });
     }
     let word = [
+        ("ssh bootstrap failed", "ssh_bootstrap"),
+        ("does not support", "unsupported_auth"),
+        ("no reconnect routes", "no_routes"),
+        ("no such route", "no_route"),
+        ("no transport provider handles", "no_provider"),
+        ("connection is closed", "closed"),
         ("connection refused", "connect_refused"),
         ("tls error", "tls"),
         ("deadline passed", "deadline"),
@@ -453,7 +459,7 @@ pub(super) fn phases_line(
 
 /// The carriers line, appended only to the connect log after an attempt's
 /// phases line (and after each resume's route line):
-/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code>`.
+/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code> [why=<codes>] [ssh_stderr="<tail>"]`.
 /// `ssh` says whether the attempt had the ssh backup route and, when not,
 /// why it was left out (a resume rotates over the routes its dial built, so
 /// it has none). `carrier` is the route that carried the attempt or resume,
@@ -466,19 +472,112 @@ pub(super) fn routes_line(
     ssh: Option<&str>,
     carrier: Option<&str>,
     outcome: Option<Step>,
-    said: Option<&str>,
+    detail: Option<&str>,
 ) -> String {
     let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
-    let said = said
+    let why = detail
+        .filter(|_| outcome.is_some())
+        .and_then(why_codes)
+        .map_or_else(String::new, |why| format!(" why={why}"));
+    let said = detail
+        .and_then(cmux_remote::provider::ssh_stderr_of)
         .map(cmux_remote::provider::one_line)
         .filter(|said| !said.is_empty())
         .map_or_else(String::new, |said| format!(" ssh_stderr=\"{}\"", last_chars(&said)));
     format!(
-        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{said}\n",
+        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{why}{said}\n",
         phase.name(),
         carrier.unwrap_or("none"),
         outcome.map_or("ok", Step::error_code),
     )
+}
+
+/// Why a failed attempt or resume failed, as fixed codes only (never the
+/// failure's own text): one per distinct route failure in it, comma-joined,
+/// in the order the routes failed. A carrier ssh failure says which of its
+/// steps stopped it (`ssh_refused`: the platform dropped the route;
+/// `ssh_key_timeout`/`ssh_key`: the key was not authorized; `killed`: the
+/// route was killed), followed by the platform's refusal when it named one
+/// (`ssh_refused_403_auth_forbidden`, [`platform_refusal`]); anything else
+/// is its [`detail_code`], after the route it failed on when the route
+/// runner named one ([`route_of`]). A captured ssh
+/// stderr tail is left out: it has its own quoted field.
+pub(super) fn why_codes(detail: &str) -> Option<String> {
+    const MAX_WHY_CODES: usize = 4;
+    let mut rest = detail;
+    let mut text = String::new();
+    while let Some((before, after)) = rest.split_once(cmux_remote::provider::SSH_STDERR_MARK) {
+        text.push_str(before);
+        rest = after
+            .strip_prefix('"')
+            .and_then(|quoted| quoted.split_once('"'))
+            .map_or("", |(_, tail)| tail);
+    }
+    text.push_str(rest);
+    let mut codes: Vec<String> = Vec::new();
+    for part in text.split("; ") {
+        let lower = part.to_ascii_lowercase();
+        let code = [
+            ("carrier ssh route dropped", "ssh_refused"),
+            ("carrier ssh key: no authorization within", "ssh_key_timeout"),
+            ("carrier ssh key:", "ssh_key"),
+            ("the carrier route was killed", "killed"),
+        ]
+        .into_iter()
+        .find(|(marker, _)| lower.contains(marker))
+        .map(|(_, code)| match platform_refusal(&lower) {
+            Some(refusal) => format!("{code}_{refusal}"),
+            None => code.to_string(),
+        })
+        .or_else(|| {
+            detail_code(part).map(|code| match route_of(&lower) {
+                Some(route) if !code.starts_with(route) => format!("{route}_{code}"),
+                _ => code,
+            })
+        });
+        if let Some(code) = code.filter(|code| !codes.contains(code)) {
+            codes.push(code);
+        }
+    }
+    codes.truncate(MAX_WHY_CODES);
+    (!codes.is_empty()).then(|| codes.join(","))
+}
+
+/// Which route a part of the route runner's "all reconnect route providers
+/// failed: <route>: <error>; <route>: <error>" names, by its scheme only
+/// (`relay` or `ssh`), so a resume that failed on both routes says which
+/// failure was whose (`relay_other,ssh_bootstrap`).
+fn route_of(lower: &str) -> Option<&'static str> {
+    let rest = lower
+        .split_once("all reconnect route providers failed: ")
+        .map_or(lower, |(_, rest)| rest)
+        .trim_start();
+    if rest.starts_with("ssh://") {
+        Some("ssh")
+    } else if rest.starts_with("relay+") || rest.starts_with("relay://") {
+        Some("relay")
+    } else {
+        None
+    }
+}
+
+/// The platform's refusal in a carrier ssh failure (`cmux-platform answered
+/// 403 auth.forbidden`, [`super::answer::read_ssh_endpoint`]) as one code,
+/// `403_auth_forbidden`: which of ssh-endpoint's refusals dropped the route.
+/// Only a 3-digit status and a code of `[a-z0-9._]` (cmux-platform's own
+/// fixed codes) are kept; anything else is no code.
+fn platform_refusal(lower: &str) -> Option<String> {
+    const MAX_REFUSAL_CODE: usize = 40;
+    let (_, rest) = lower.split_once("cmux-platform answered ")?;
+    let (status, rest) = rest.split_once(' ')?;
+    let code = rest.split(|c: char| c.is_whitespace() || c == ';').next()?;
+    let status_ok = status.len() == 3 && status.bytes().all(|b| b.is_ascii_digit());
+    let code_ok = !code.is_empty()
+        && code.len() <= MAX_REFUSAL_CODE
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_');
+    (status_ok && code_ok).then(|| format!("{status}_{}", code.replace('.', "_")))
 }
 
 /// The most of a captured ssh stderr line a `carrier.routes` line keeps:

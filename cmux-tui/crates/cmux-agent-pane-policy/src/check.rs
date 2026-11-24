@@ -18,8 +18,8 @@ use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
 use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
-    breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
-    take_gesture_ticket,
+    breaks_params_rule, requested_setting, session_refusal, stripping_initialize_opt_ins,
+    stripping_prompt_meta, take_gesture_ticket,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -331,10 +331,16 @@ pub fn redacted(frame: &Map<String, Value>) -> Value {
 /// The full check of `text` (see the module docs).
 pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     let p = policy();
-    let object = match allowlist_check(text, state.is_first) {
+    let mut object = match allowlist_check(text, state.is_first) {
         Err(refused) => return Checked::Refuse { refused, spend: None },
         Ok(object) => object,
     };
+    // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins
+    // are removed before every rule, so they never reach the daemon and never
+    // fail the connect (cmux#46563; Swift `strippingInitializeOptIns`).
+    if let Some((stripped, _keys)) = stripping_initialize_opt_ins(&object, state.mode_fields) {
+        object = stripped;
+    }
     let method = object.get("method").and_then(Value::as_str).map(str::to_owned);
     let page_id = object.get("id").and_then(raw_id);
     let empty = Map::new();

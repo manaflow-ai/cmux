@@ -66,6 +66,9 @@ pub fn is_capacity_error(message: &str) -> bool {
         || m.contains("overloaded")
         || m.contains("at capacity")
         || (m.contains("no non-exhausted") && m.contains("account"))
+        // The cmux-platform worker gateway's own ceiling (2026-11-23): "502 the gateway is at
+        // its call limit; retry". Capacity, not a dropped connection: it is waited out.
+        || m.contains("at its call limit")
 }
 
 /// An HTTP gateway failure is independent of account credentials.
@@ -125,6 +128,19 @@ pub fn says_connection_dropped(message: &str) -> bool {
         "unexpected eof",
         "unexpected end of file",
         "early eof",
+        // A TLS handshake that did not verify: on Freestyle lanes (2026-11-22) ~30 Claude
+        // turns failed with "API Error: Unable to connect to API: SSL certificate verification
+        // failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)" when the restarted daemon's egress proxy
+        // signed with a new CA the agent did not trust yet; restarting the agent on the new
+        // proxy (`end_stale_proxy_before_retry`) fixes it, so it is a transport error.
+        "unable to connect to api",
+        "ssl certificate verification failed",
+        "unable_to_verify_leaf_signature",
+        "self_signed_cert_in_chain",
+        "depth_zero_self_signed_cert",
+        "unable to get local issuer certificate",
+        "certificate verify failed",
+        "invalid peer certificate",
     ];
     is_gateway_error(message)
         || PHRASES.iter().any(|p| m.contains(p))
@@ -234,6 +250,9 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    /// Claude Code's whole error on a Freestyle lane (2026-11-22).
+    const CLAUDE_TLS_UNVERIFIED: &str = "API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE). The certificates the server sent don't lead to a trusted authority. If the server leaves out an intermediate certificate, which browsers fetch by themselves, whoever runs it must have it send its full chain. If it is a TLS-inspecting corporate proxy or a gateway signed by a private CA, set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config";
+
     #[test]
     fn transport_errors_are_told_from_limits_and_bugs() {
         for m in [
@@ -245,8 +264,13 @@ mod tests {
             "read ECONNRESET",
             "API Error: Connection lost mid-response. The response above may be incomplete.",
             "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+            // Freestyle lanes, 2026-11-22: a restarted daemon's egress proxy had a new CA.
+            CLAUDE_TLS_UNVERIFIED,
+            "error sending request: invalid peer certificate: UnknownIssuer",
+            "request to https://api.anthropic.com failed, reason: self-signed certificate in certificate chain (SELF_SIGNED_CERT_IN_CHAIN)",
         ] {
             assert!(is_transport_error(m), "{m}");
+            assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
         }
         for m in [
             "You've reached your usage limit for this account",
@@ -319,6 +343,7 @@ mod tests {
         "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 503 Service Unavailable)",
         "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2401s). This is a server-side issue, usually temporary. Try again in a moment.",
         "API Error: 503 no non-exhausted claude accounts available, next account frees up in 7m (retry after 429s).",
+        "API Error: 502 the gateway is at its call limit; retry",
         "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
         "Selected model is at capacity.",
         "Selected model is at capacity. overloaded",
