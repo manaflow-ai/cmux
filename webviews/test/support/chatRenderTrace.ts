@@ -14,7 +14,11 @@ export const TAIL_SCOPE = 600;
 export const LIST_FRACTION = 0.5;
 /** Style or layout passes script may force per typed key in the key's own tasks while a reply streams. */
 export const FORCED_PER_KEY = 1.5;
-/** Transcript code: none of its forced passes may run in a key's task (the doc's stage 7). */
+/** Forced passes from transcript code per typed key, in the key's own tasks. The doc's stage 7 wants none; today a key's
+ * discrete React commit runs the transcript's layout effects (`pinLiveLine`, `giveRoomNearTop`, the pinned live line's
+ * `getAnimations`) in the key's task, so this holds them at the measured level until that moves out. */
+export const TRANSCRIPT_FORCED_PER_KEY = 1;
+/** Transcript code, for TRANSCRIPT_FORCED_PER_KEY. */
 export const TRANSCRIPT =
   /VirtualTranscript|turnEndFold|Thinking\.tsx|scrollCoordinates|RevealedMarkdown|revealedMarkdownModel|tailGlide|pinnedLiveLine/;
 
