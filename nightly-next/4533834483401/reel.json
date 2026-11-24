@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "build": "4533834483401",
+  "notes": "notes/4533834483401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 51024,
+      "title": "webviews: cards and panels browser files green on base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52891,
+      "title": "CI: skip PR jobs (tooling-tests, Cloud journey) while they are red on the base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53001,
+      "title": "owner_live: a PR finisher (finish-REPO-N-...) never holds an OWNERS.md role glob",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52540,
+      "title": "Cloud: CloudDaemon struct; Runs and sealed secrets off CloudAPIClient",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53184,
+      "title": "Test page-initiated Chromium print preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53148,
+      "title": "composer: a prompt coming back never doubles the draft",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45721,
+      "title": "Agent chat: a reconnect holds the rows above the newest turn still",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45721/hv-eb382ec2ef36-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 47129,
+      "title": "cmux-next-ios: typing in the terminal no longer makes the keyboard re-read it on every key",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51053,
+      "title": "Relaunch: the chat's saved copy stays until the live rows fill the view (no blank top half)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52347,
+      "title": "Turn-end fold: start a motion only on a row the reader can see it start on",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/52347/hv-8f6b6d2941ac-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 53063,
+      "title": "share: the guest sees the owner's queued follow-ups at once (fixes the two-account flow's second update)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51860,
+      "title": "cmux-projection: s3-push fills an S3-compatible bucket (c-0d7c10d993)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45821,
+      "title": "Agent chat: trace what a key's frame waits on while a reply streams; the keystroke detector covers scrolled-up growth",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45821/hv-05c280e1736f-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 53194,
+      "title": "acpmux: a background task's end steers into a running turn instead of a no-op turn after it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52355,
+      "title": "acpmux: a moved chat starts from its tail, its packed history follows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53214,
+      "title": "acpmux: log chat title hits and misses to titles.jsonl",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46786,
+      "title": "cmux setup: New Tab looks install as layers and stack over your own customize",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52217,
+      "title": "acpmux: a session move matrix; a moved chat keeps its images and composer text (carries #50389 with its review fixes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53129,
+      "title": "ci(cmux-tui artifacts): a pull request head's push builds no tree unless asked; the hot verify rust look asks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53200,
+      "title": "Exercise Open Link in New Tab from Chromium’s native link menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52947,
+      "title": "cmux-next-ios hand-off: say which network path the phone's link takes, and prove TURN",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53134,
+      "title": "billing: StoreKit suite green on slow runners (a dropped upgrade re-delivery, renewals leaking between tests), and ios-billing only on an iOS simulator host",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}
