@@ -134,7 +134,7 @@ mod agent_front_door_tests {
 pub(super) mod aliases {
     macro_rules! root_aliases {
         ($($command:ident => [$($alias:literal),+]),+ $(,)?) => {
-            $(pub(super) const $command: &[&str] = &[$($alias),+];)+
+            $(pub(in crate::cli) const $command: &[&str] = &[$($alias),+];)+
 
             pub(in crate::cli) const GROUPS: &[&[&str]] = &[$($command),+];
         };
@@ -162,6 +162,7 @@ pub(super) mod aliases {
         RENAME => ["rename-session"],
         SHUTDOWN => ["kill-server"],
         SEARCH => ["grep"],
+        TAIL => ["events", "log", "logs"],
     }
 }
 
@@ -761,11 +762,13 @@ pub enum Command {
     /// (tools_mcp.rs; not for people).
     #[command(hide = true)]
     ToolsMcp,
-    // Old spellings, kept working but hidden from help.
-    #[command(hide = true)]
+    // Old spellings, kept working but hidden from help. `events`, `log` and `logs` are what an
+    // agent guesses for a session's events (Leo, 2026-11-21: "your thing should also be
+    // acceptable input"): they run this, and say it is `session tail`.
+    #[command(hide = true, aliases = aliases::TAIL)]
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
@@ -1534,7 +1537,7 @@ pub enum SessionCmd {
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
