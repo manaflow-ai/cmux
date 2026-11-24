@@ -576,3 +576,5 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
     .unwrap();
     mux.close_surface(placed.id).unwrap();
 }
+
+mod detach_cap;
