@@ -314,7 +314,7 @@ private struct CloudMachineChatsScreen: View {
         // page stays drawn meanwhile, and after a failed read until the next change).
         .task(id: ListRead(ready: relay?.hub.isReady == true, revision: relay?.hub.listRevision ?? 0, shown: shown)) {
             guard let hub = relay?.hub, hub.isReady else { return }
-            if listed.ids.count >= min(shown, CloudChatList.pageSize) { try? await Task.sleep(for: .milliseconds(250)) }
+            if !listed.ids.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
             guard !Task.isCancelled, let page = try? await CloudChatList.newest(hub, shown: shown), !Task.isCancelled else { return }
             listed = page
         }

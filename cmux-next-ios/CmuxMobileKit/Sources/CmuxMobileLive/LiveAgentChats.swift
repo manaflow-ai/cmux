@@ -4,9 +4,10 @@ import Foundation
 
 /// The Mac's agent chats from a phone, with lines the phone already sends (no host or
 /// acpmux guard change):
-/// - the list: acpmux `_acpmux/sessions {limit, cursor}` (a read acpmux's remote guard
-///   serves a Web connection), keeping the chats this Mac's acpmux runs that a chat list
-///   shows: no peer's session (another machine's), no side chat, no subagent session;
+/// - the list: acpmux `_acpmux/sessions {localOnly, limit, cursor}` (a read acpmux's remote
+///   guard serves a Web connection): the chats this Mac's acpmux runs, never a peer's (another
+///   machine's), in acpmux's order, the one the Mac's lists read; of them it keeps what a chat
+///   list shows: no side chat, no subagent session;
 /// - Open in Tab: daemon `new-conversation-tab {pane, agent_session}` (the Mac's
 ///   `agent.openSessionTab`), or the tab that already shows the chat in that workspace;
 /// - Open in New Workspace: `create-workspace {name}`, then `new-conversation-tab
@@ -31,7 +32,8 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             // The channel is coming back: the list says it is reconnecting and asks again.
             throw ConnectionInterrupted()
         }
-        var params: [String: JSONValue] = ["limit": .number(Double(Self.chatPageSize))]
+        // acpmux drops a peer's chats before it pages (`localOnly`), so a page is this Mac's own.
+        var params: [String: JSONValue] = ["localOnly": .bool(true), "limit": .number(Double(Self.chatPageSize))]
         if let cursor { params["cursor"] = .string(cursor) }
         let reply: JSONValue
         do {
@@ -50,15 +52,13 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return AgentChatPage(chats: chats, nextCursor: reply["nextCursor"]?.stringValue)
     }
 
-    /// One acpmux `SessionSummary` as a listed chat; nil for one a chat list leaves out: a
-    /// peer's session (it runs on another machine, which this Mac's tab cannot show), a side
+    /// One acpmux `SessionSummary` as a listed chat; nil for one a chat list leaves out: a side
     /// chat (`side` tag) and a session another chat's agent started (`spawnedBy`, or a
     /// sub-session's `startedBy`, which stays set after its parent closes: it lists under its parent).
     nonisolated static func listing(_ value: JSONValue) -> AgentChatListing? {
         // A chat with no harness names no agent a tab of it could run.
         guard let id = value["sessionId"]?.stringValue, !id.isEmpty,
               let harness = value["harness"]?.stringValue, !harness.isEmpty else { return nil }
-        if let peer = value["peer"]?.stringValue, !peer.isEmpty { return nil }
         let tags = value["tags"]
         if tags?["side"] != nil { return nil }
         for parent in ["spawnedBy", "startedBy"] where value[parent]?.stringValue?.isEmpty == false { return nil }
