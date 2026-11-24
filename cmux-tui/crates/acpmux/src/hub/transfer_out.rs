@@ -680,6 +680,7 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
+        let mut steps = transfer_live::MoveSteps::new("begin");
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
         let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
@@ -689,6 +690,7 @@ impl Hub {
             Some(Ok(prefix)) => Some(prefix),
             None => None,
         };
+        steps.step("check_prefix");
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -724,6 +726,7 @@ impl Hub {
                     .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
                 Ok((files, approved_waiting))
             });
+        steps.step("export");
         let (files, approved_waiting) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -750,6 +753,7 @@ impl Hub {
                 carried,
             ));
         }
+        steps.step("epoch");
         let epoch = session.bump_ownership_epoch();
         if let Err(error) = crate::home_fs::write(dir.join("epoch"), epoch.to_string()) {
             drop(guard);
@@ -773,6 +777,7 @@ impl Hub {
                 carried,
             ));
         }
+        steps.step("transfer_out");
         drop(guard);
         if let Some(socket) = to {
             let _ = crate::home_fs::write(dir.join("to"), socket);

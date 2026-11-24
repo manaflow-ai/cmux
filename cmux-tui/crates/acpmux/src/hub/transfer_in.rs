@@ -631,7 +631,9 @@ impl Hub {
         params: &Value,
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let mut steps = super::transfer_out::transfer_live::MoveSteps::new("finish");
         let _receives = RECEIVES.lock().await;
+        steps.step("lock");
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
         let incoming_epoch = manifest_epoch(&manifest)?;
@@ -646,6 +648,7 @@ impl Hub {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
             }
         }
+        steps.step("check");
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         // Back where it once moved from: its closed copy gives way (below). Bind the
         // bundle's outer identity, harness, and ACP identity before any source is killed.
@@ -668,6 +671,7 @@ impl Hub {
         }
         let old = self.session_get(id);
         let old = old.filter(|s| self.moved_away(s));
+        steps.step("moved_away");
         if let Some(existing) = old.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -785,6 +789,7 @@ impl Hub {
             .await
         {
             Ok(session) => {
+                steps.step("import");
                 session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
@@ -816,6 +821,7 @@ impl Hub {
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
                 }
+                steps.step("receipt");
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
@@ -845,6 +851,7 @@ impl Hub {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
                 }
+                steps.step("finalize");
                 session
             }
             Err(error) => {
@@ -861,8 +868,12 @@ impl Hub {
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
+        steps.step("queues");
         let _ = crate::home_fs::remove_dir_all(&dir);
-        Ok(self.session_summary(&session))
+        steps.step("cleanup");
+        let summary = self.session_summary(&session);
+        steps.step("summary");
+        Ok(summary)
     }
 
     /// Drops every receive of move `transferId` and says whether its chat landed here.
